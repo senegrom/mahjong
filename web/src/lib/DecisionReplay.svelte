@@ -1,13 +1,13 @@
 <script>
-  import { tick, untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import DecisionFilter from './DecisionFilter.svelte';
+  import ReviewStepBar from './ReviewStepBar.svelte';
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
-  import { decisionInBrief, differed, filterCounts, sameMove, seatNotes, tableSaid, weightsSaid } from './game-review.js';
-  import { callLabel, percent, quadOnOffer } from './ui.js';
-  import { tileWords, SEAT_NAMES as NAMES } from './tiles.js';
+  import { decisionInBrief, differed, filterCounts, sameMove, seatNotes } from './game-review.js';
+  import { percent } from './ui.js';
+  import { SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
    * A reviewed hand, replayed a decision of the player's at a time from the
@@ -16,108 +16,68 @@
    * apart, the sets, the discards and the board. The replay's own engine
    * read the tiles once the hand was over (scanMatch), never the match.
    *
-   * A flagged decision is one to choose again before Trained AI's answer is
-   * shown. Opened at one (`retry`), the replay asks for the choice there, and
-   * goes no further than that decision until it is answered; any other
-   * flagged decision it reaches offers the same, or the answer outright.
-   * Every other decision shows the move made and Trained AI's view of it.
-   * `start` is the step opened at, and `whole` says the hand was opened from
-   * its deal rather than at a decision. The saved match is never touched,
-   * and nothing is played on from any step.
+   * Every step shows the move made there and, where Trained AI was asked,
+   * its own: in the step bar at the top of the screen, over its tile in the
+   * hand, which is ringed in blue as Agent watch and Guided play ring the
+   * network's choice, and in its view of every move open there. `start` is
+   * the step opened at, and `whole` says the hand was opened from its deal
+   * rather than at a decision. The saved match is never touched, and nothing
+   * is played on from any step.
    */
-  let { hand, start = 0, retry = false, whole = false, hints = true, onback } = $props();
+  let { hand, start = 0, whole = false, hints = true, onback } = $props();
 
   let step = $derived(start);
-  const flaggedAt = index => Boolean(hand.decisions?.[index]?.judgement?.flagged);
-  // Opened to choose again at a flagged decision.
-  let retrying = $derived(retry && flaggedAt(start));
-  // How each flagged decision stands, by step: 'offered' until the player
-  // asks to choose again there or to see the answer, 'choosing' while they
-  // choose, 'answered' once Trained AI's answer is shown, with the move
-  // chosen again if they chose one. The decision opened to choose again
-  // starts out being chosen.
-  let asked = $state({});
-  const standing = index => asked[index] ?? { mode: retrying && index === start ? 'choosing' : 'offered', retried: null };
   let everyMove = $state(false);
   let listFilter = $state('every');
   let heading = $state(null);
-  let answerHeading = $state(null);
-  let handElement = $state(null);
-  let nextButton = $state(null);
-  let previousButton = $state(null);
+  // The step bar's height, which a control below it is kept clear of.
+  let barHeight = $state(0);
   // The list of the hand's decisions starts open where the screen has room
-  // for it above the table, unless the replay was opened to choose again;
-  // after that it is the player's to open and fold. So is the list of what
-  // happened since the previous decision, which starts open, and stays as
-  // the player leaves it across a step where nothing happened, which takes
-  // it from the page. Each is held here rather than set on the list from
-  // the step: the page sets that afresh at every step, and as later hands
-  // are reviewed, which folded a list under the player's press and dropped
-  // keyboard focus on a step's button to the page.
+  // for it above the table; after that it is the player's to open and fold.
+  // So is the list of what happened since the previous decision, which
+  // starts open, and stays as the player leaves it across a step where
+  // nothing happened, which takes it from the page. Each is held here
+  // rather than set on the list from the step: the page sets that afresh at
+  // every step, and as later hands are reviewed, which folded a list under
+  // the player's press and dropped keyboard focus on a step's button to the
+  // page.
   const roomy = !(globalThis.matchMedia?.('(max-width: 760px), (max-height: 500px) and (orientation: landscape)').matches ?? true);
-  let listOpen = $state(untrack(() => !retrying && roomy));
+  let listOpen = $state(roomy);
   let linesOpen = $state(true);
 
   let frame = $derived(hand.frames[step]);
   let current = $derived(hand.decisions?.[step] ?? null);
-  // 'shown' for a decision that was not flagged; otherwise how it stands.
-  let mode = $derived(flaggedAt(step) ? standing(step).mode : 'shown');
-  let retried = $derived(mode === 'shown' ? null : standing(step).retried);
-  let choosing = $derived(mode === 'choosing');
-  // The player is choosing again here, or has, so the move made in the game
-  // waits for Trained AI's answer, which says it.
-  let engaged = $derived(mode === 'choosing' || mode === 'answered');
-  // The decision opened to choose again, while it is still to be answered,
-  // is as far as the replay goes; then the rest of the hand follows.
-  let pending = $derived(retrying && standing(start).mode !== 'answered');
-  let last = $derived(pending ? start : hand.frames.length - 1);
-  let theOne = $derived(retrying && step === start);
-  // Said with the table as the step changes: a flagged decision says so too,
-  // in the word the hand's list gives it, but for the one opened to choose
-  // again, whose step already says it. The offer under the hand gives the
-  // weights.
-  let tableLine = $derived(`${tableSaid(frame.view)}${flaggedAt(step) && !theOne ? ' Flagged.' : ''}`);
   let notes = $derived(seatNotes(frame.view));
   let me = $derived(frame.view.seats[0]);
-  let discardChoices = $derived(choosing ? frame.choices.filter(choice => choice.kind === 'discard') : []);
-  let otherChoices = $derived(frame.choices.filter(choice => choice.kind !== 'discard'));
-  // Where the choice is made. The hand takes focus at the decision and this
-  // prompt describes it, but an answer to another's discard leaves no tile to
-  // throw, so the prompt then sends the player to the moves below it. Show
-  // answer, just below, says that the answer is still to come.
-  let choiceHelp = $derived(discardChoices.length ? `: a tile to discard${otherChoices.length ? ', or a move below' : ''}`
-    : otherChoices.length ? ': a move below' : '');
-  let robbing = $derived(Boolean(quadOnOffer(frame.view)));
-  let offered = $derived(frame.view.phase === 'call' ? frame.view.pending_discard : null);
-  let discarder = $derived(NAMES[frame.view.pending_from] ?? 'An opponent');
-  // What the player did at a step, and whether Trained AI agreed: shown under
-  // the hand, and said with the step, so stepping through the hand by ear
-  // tells the moves as well as where it is. The verdict is the one the hand's
-  // list gives the step (decisionInBrief), since it is said at every step. A
-  // move with no alternative was never put to Trained AI.
-  let stepMove = $derived(engaged ? ''
-    : `Your move: ${frame.choices.find(choice => sameMove(choice, frame.played.kind, frame.played.tile))?.label ?? frame.played.kind}.`);
-  let stepVerdict = $derived(engaged || !current ? '' : current.forced ? 'Only move.'
-    : current.agreed ? 'Trained AI agreed.' : 'Trained AI differed.');
   let shownDora = $derived(hints ? frame.view.dora_types ?? [] : []);
-  // The tile thrown at a step, or chosen again there, is marked in the hand
-  // as a selected tile is in play.
-  let thrown = $derived.by(() => {
-    const move = engaged ? retried : frame.played;
-    if (!move || !['discard', 'riichi'].includes(move.kind) || !me) return null;
-    const tiles = [...me.hand, ...(me.drawn ? [me.drawn] : [])];
-    const index = move.tile === me.drawn ? tiles.length - 1 : tiles.indexOf(move.tile);
-    return index >= 0 ? index : null;
-  });
+  let brief = $derived(decisionInBrief(frame, current));
+  // Previous and Next step through every decision of the hand.
+  let previous = $derived(step > 0 ? { hand: hand.index, step: step - 1 } : null);
+  let next = $derived(step < hand.frames.length - 1 ? { hand: hand.index, step: step + 1 } : null);
 
-  // The decision whose answer, or Trained AI's view, this step shows: a
-  // flagged one once answered, any other that was put to Trained AI.
-  let shown = $derived(mode === 'answered' || (mode === 'shown' && current?.weighted && !current.forced) ? current : null);
-  let tried = $derived(mode === 'answered' ? retried : null);
+  // The decision whose view of every move this step shows: any that was put
+  // to Trained AI, which a move with no alternative never was.
+  let shown = $derived(current?.weighted && !current.forced ? current : null);
   let advised = $derived(shown ? { kind: shown.advised_kind, tile: shown.advised_tile ?? null } : null);
   let played = $derived(shown ? { kind: shown.played_kind, tile: shown.played_tile ?? null } : null);
   let stage = $derived(shown?.judgement?.stage);
-  const labelOf = move => shown?.weighted.find(choice => sameMove(choice, move.kind, move.tile))?.label ?? '';
+
+  // The tiles in the hand that the step's moves throw, by their place in it:
+  // the player's, and Trained AI's where it was asked. A move that throws no
+  // tile from the hand, a call, a win or a pass, has none. Where the tile
+  // just drawn is one of them, it is that copy, as play throws the draw.
+  let tiles = $derived([...me.hand, ...(me.drawn ? [me.drawn] : [])]);
+  function placeOf(move) {
+    if (!move || !['discard', 'riichi'].includes(move.kind)) return null;
+    const index = move.tile === me.drawn ? tiles.length - 1 : tiles.indexOf(move.tile);
+    return index >= 0 ? index : null;
+  }
+  let yours = $derived(placeOf(frame.played));
+  let trained = $derived(placeOf(advised));
+  // The words over those tiles, in a line kept on every tile (HandTile):
+  // "You" over the player's, "AI" over Trained AI's, both over one tile
+  // where they agreed. Trained AI's tile is ringed as well (`selected`).
+  let tags = $derived(tiles.map((_, index) => [index === yours && 'You', index === trained && 'AI'].filter(Boolean)));
 
   // The moves by weight, riichi's discards together under the declaration.
   let ordered = $derived(shown ? [...shown.weighted]
@@ -130,25 +90,22 @@
   let rows = $derived(groupPolicyChoices(everyMove ? ordered : ordered.filter((choice, index) => index < 5 || marked(choice))));
   let extra = $derived(ordered.filter((choice, index) => index >= 5 && !marked(choice)).length);
 
-  // The moves the numbers compare, each once: the game's, the new one, the network's.
+  // The moves the numbers compare, each once: the game's and the network's.
   let compared = $derived(!shown ? [] : [
     { move: played, title: 'In the game' },
-    ...(tried && !sameMove(tried, played.kind, played.tile) ? [{ move: tried, title: 'This time' }] : []),
-    ...(!sameMove(advised, played.kind, played.tile) && !(tried && sameMove(advised, tried.kind, tried.tile))
-      ? [{ move: advised, title: 'Trained AI' }] : []),
+    ...(!sameMove(advised, played.kind, played.tile) ? [{ move: advised, title: 'Trained AI' }] : []),
   ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null })));
   let measured = $derived(compared.every(entry => entry.measure));
 
-  // The hand's decisions as far as the replay goes, each a step of its own,
-  // for the list, which shows those its filter keeps in the order played.
-  let reached = $derived(hand.frames.slice(0, last + 1)
-    .map((entry, index) => ({ index, frame: entry, decision: hand.decisions?.[index] ?? null })));
+  // Every decision of the hand, each a step of its own, for the list, which
+  // shows those its filter keeps in the order played.
+  let reached = $derived(hand.frames.map((entry, index) => ({ index, frame: entry, decision: hand.decisions?.[index] ?? null })));
   let listCounts = $derived(filterCounts(reached.flatMap(entry => (entry.decision ? [entry.decision] : []))));
   let listed = $derived(reached.filter(({ decision }) => listFilter === 'every'
     || (decision && (listFilter === 'flagged' ? Boolean(decision.judgement?.flagged) : differed(decision)))));
 
   function marked(choice) {
-    return [advised, played, ...(tried ? [tried] : [])].some(move => move && sameMove(choice, move.kind, move.tile));
+    return [advised, played].some(move => move && sameMove(choice, move.kind, move.tile));
   }
 
   function distance(value) {
@@ -157,105 +114,51 @@
     return `${value} from waiting`;
   }
 
-  // Where focus goes when a step disables the button pressed, which would
-  // drop it to the page: to the hand where a choice is to be made there, as
-  // play gives the hand focus when a turn comes; otherwise on to Next, or at
-  // the hand's last decision back to Previous.
-  function landing() {
-    if (choosing) return handElement;
-    if (step < last) return nextButton;
-    return step > 0 ? previousButton : heading;
-  }
-
-  // A step to either end of the replay disables the button pressed. Every
-  // other button stays, and focus with it, among them a step's own button in
-  // the list of the hand's decisions.
-  async function goTo(next) {
-    const target = Math.max(0, Math.min(last, next));
+  // A step's own button, in the list, keeps focus as it shows its step, and
+  // the step bar hands its own on where a step disables the one pressed.
+  function goTo(target) {
     if (target !== step) everyMove = false;
     step = target;
-    await tick();
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected && !active.matches(':disabled')) return;
-    const land = landing();
-    land?.focus(land === handElement ? { preventScroll: true } : undefined);
-  }
-
-  async function answer(retriedMove) {
-    asked[step] = { mode: 'answered', retried: retriedMove };
-    await tick();
-    answerHeading?.focus({ preventScroll: true });
-    answerHeading?.scrollIntoView({ block: 'nearest' });
-  }
-
-  function choose(choice) {
-    if (choosing) void answer({ kind: choice.kind, tile: choice.tile ?? null });
-  }
-
-  // The answer outright: before choosing again, or at a flagged decision
-  // the player would rather not choose again.
-  function reveal() { void answer(null); }
-
-  // To be chosen again here: the answer goes, if it was shown, with the button
-  // pressed, and the hand takes focus, as it does in play when a turn comes,
-  // and says what to do through its description, the prompt; it is brought
-  // into view to be chosen from.
-  async function again() {
-    asked[step] = { mode: 'choosing', retried: null };
-    everyMove = false;
-    await tick();
-    handElement?.focus({ preventScroll: true });
-    handElement?.scrollIntoView({ block: 'nearest' });
-  }
-
-  // A riichi has two weights, as ReviewPreference shows them: the
-  // declaration's, and the tile's once the declaration is made, which is
-  // asked only where the network declared.
-  function weightOf(move) {
-    const choice = shown?.weighted.find(entry => sameMove(entry, move.kind, move.tile));
-    if (!choice || choice.weight == null) return 'unscored';
-    if (choice.kind !== 'riichi') return percent(choice.weight);
-    return `${percent(choice.weight)} to declare riichi · discard given riichi: ${choice.conditionalWeight == null ? 'not evaluated' : percent(choice.conditionalWeight)}`;
   }
 
   $effect(() => { heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' }); });
 </script>
 
-<section class="decision" aria-labelledby="decision-title" data-decision>
+<section class="decision" aria-labelledby="decision-title" data-decision style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
   <header>
     <h3 id="decision-title" tabindex="-1" bind:this={heading}>{whole ? `${hand.name}, whole hand` : `${hand.name}, decision ${start + 1}`}</h3>
     <button class="app-control" data-back onclick={onback}>Back to the list</button>
   </header>
 
-  <!-- The first step is the hand's first decision, not its deal, and is named
-       as its neighbours are, by the word it shows and then "decision". -->
-  <div class="steps" role="group" aria-label="Replay of the hand">
-    <button class="app-control" onclick={() => goTo(0)} disabled={step === 0} aria-label="First decision">First</button>
-    <button class="app-control" onclick={() => goTo(step - 1)} disabled={step === 0} aria-label="Previous decision" bind:this={previousButton}>Previous</button>
-    <button class="app-control" onclick={() => goTo(step + 1)} disabled={step >= last} aria-label="Next decision" bind:this={nextButton}>Next</button>
-    {#if !whole}<button class="app-control" onclick={() => goTo(start)} disabled={step === start}>This decision</button>{/if}
-    <p class="where" role="status"><span data-step>Decision {step + 1} of {last + 1}{theOne ? ', flagged' : ''}</span>{#if stepMove}<span class="visually-hidden">. {stepMove} {stepVerdict}</span>{/if}</p>
-  </div>
+  <ReviewStepBar {hand} {step} decision={current} {previous} {next} onstep={place => goTo(place.step)} bind:height={barHeight} />
 
-  <!-- Every decision of the hand the replay reaches, each a button to its
-       step, which keeps focus as the step it shows changes. -->
+  <!-- Every decision of the hand, each a button to its step, which keeps
+       focus as the step it shows changes. -->
   <details class="decisions" bind:open={listOpen} data-decisions>
-    <summary>{pending ? 'Decisions up to the flagged one' : 'Decisions in this hand'} ({reached.length})</summary>
+    <summary>Decisions in this hand ({reached.length})</summary>
     <div class="decision-list">
       <DecisionFilter bind:value={listFilter} counts={listCounts} label="Which of this hand's decisions to list"
         said={{ scope: ' in this hand', ranked: false }} />
       {#if listed.length}
         <!-- Drawn without markers, so said to be a list in so many words:
-             Safari does not tell VoiceOver that a list without them is one. -->
+             Safari does not tell VoiceOver that a list without them is one.
+             Each line shows the player's move and Trained AI's in tiles and
+             words; its name says them in the engine's words. -->
         <ol role="list">
           {#each listed as entry (entry.index)}
-            {@const brief = decisionInBrief(entry.frame, entry.decision)}
+            {@const line = decisionInBrief(entry.frame, entry.decision)}
             <li>
-              <button class="app-control" class:flag={entry.decision?.judgement?.flagged} data-step-to={entry.index}
-                aria-current={entry.index === step ? 'step' : undefined} onclick={() => goTo(entry.index)}>
-                <span class="number"><span class="visually-hidden">{'Decision '}</span>{entry.index + 1}</span>
-                <span class="move">{brief.move}{#if brief.tile} <Tile tile={brief.tile} size="tiny" dora={shownDora.includes(brief.tile)} />{/if}</span>
-                <span class="verdict">{brief.verdict}</span>
+              <button class="app-control" class:flag={line.flagged} data-step-to={entry.index}
+                aria-current={entry.index === step ? 'step' : undefined} aria-label={`Decision ${entry.index + 1}. ${line.said}`}
+                onclick={() => goTo(entry.index)}>
+                <span class="number">{entry.index + 1}</span>
+                {#if line.offered}<span class="token">on <Tile tile={line.offered} size="tiny" dora={shownDora.includes(line.offered)} /></span>{/if}
+                {@render token(line.you)}
+                {#if !line.reviewed}<span class="verdict">…</span>
+                {:else if line.forced}<span class="verdict">Only move</span>
+                {:else if line.agreed}<span class="verdict">✓</span>
+                {:else}<span class="arrow">→</span>{@render token(line.ai)}{/if}
+                {#if line.flagged && listFilter !== 'flagged'}<strong class="flag-mark">Flagged</strong>{/if}
               </button>
             </li>
           {/each}
@@ -268,12 +171,9 @@
 
   <!-- The table as it stood at this step, all of it, every player's tiles
        face up: the board and the other players around it, what happened
-       since the player's previous decision, then the player's own seat. -->
-  <section class="overview" aria-labelledby="overview-title" data-overview>
-    <h4 id="overview-title">The table at decision {step + 1}</h4>
-    <!-- Said as the step changes, from a line in the page from the start. -->
-    <p class="visually-hidden" role="status" data-table-said>{tableLine}</p>
-
+       since the player's previous decision, then the player's own seat. The
+       step bar says it as the step changes. -->
+  <div class="overview" data-overview>
     <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
 
     {#if frame.lines.length}
@@ -286,61 +186,19 @@
     {/if}
 
     <PlayerHand view={frame.view} engine={null} closed={true} {hints} busy={false} blocked={false}
-      {discardChoices} confirmDiscards={false} picked={null} selected={thrown}
-      canDiscard={tile => discardChoices.some(choice => choice.tile === tile)}
-      selectTile={tile => { const choice = discardChoices.find(entry => entry.tile === tile); if (choice) choose(choice); }}
-      syncHandFocus={() => {}} handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} bind:handElement />
-  </section>
-
-  {#if offered}
-    <p class="offered"><Tile tile={offered} size="small" dora={shownDora.includes(offered)} />
-      <span>{discarder} {robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></p>
-  {/if}
-
-  {#if choosing}
-    <p id="hand-help" class="prompt">Choose again{choiceHelp}.</p>
-    {#if otherChoices.length}
-      <div class="moves">
-        {#each otherChoices as choice, index (index)}
-          <button class="app-control" data-retry={choice.kind} onclick={() => choose(choice)}>
-            {callLabel(choice, robbing)}{#if choice.tile && choice.kind !== 'pass'} <Tile tile={choice.tile} size="tiny" />{/if}
-          </button>
-        {/each}
-      </div>
-    {/if}
-    <button class="app-control quiet" data-reveal onclick={reveal}>Show answer</button>
-  {:else if mode === 'answered'}
-    <p id="hand-help" class="visually-hidden">Trained AI's answer is below.</p>
-  {:else}
-    <p id="hand-help" class="prompt">{stepMove} {stepVerdict}</p>
-    {#if mode === 'offered'}
-      <!-- Another flagged decision than the one opened: the player may choose
-           again here too, before the answer is shown, or see it now. -->
-      <div class="offer" data-offer>
-        <p>{weightsSaid(current.judgement, 'Flagged: ')}</p>
-        <div class="after">
-          <button class="app-control" data-choose-here onclick={again}>Choose again</button>
-          <button class="app-control quiet" data-reveal onclick={reveal}>Show answer</button>
-        </div>
-      </div>
-    {/if}
-  {/if}
+      discardChoices={[]} confirmDiscards={false} picked={null} selected={trained}
+      canDiscard={() => false} selectTile={() => {}} syncHandFocus={() => {}}
+      handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} {tags} />
+    <!-- What the hand is described by: the two moves, in words. -->
+    <p id="hand-help" class="visually-hidden">{brief.said}</p>
+  </div>
 
   {#if shown}
-    <!-- At a flagged decision Trained AI's answer, once asked for; at any
-         other step its view of the move made there, which the review holds. -->
-    <section class="answer" aria-labelledby="answer-title" data-answer={mode === 'answered' ? '' : undefined} data-view={mode === 'shown' ? '' : undefined}>
-      <h4 id="answer-title" tabindex="-1" bind:this={answerHeading}>{mode === 'answered' ? "Trained AI's answer" : "Trained AI's view"}</h4>
-      <ul class="verdicts">
-        {#if tried}
-          <li><strong>This time:</strong> {labelOf(tried)} · {weightOf(tried)}{sameMove(tried, advised.kind, advised.tile) ? " — Trained AI's choice" : ''}</li>
-        {/if}
-        <li><strong>In the game:</strong> {shown.played} · {weightOf(played)}</li>
-        <li><strong>Trained AI:</strong> {shown.advised} · {weightOf(advised)}</li>
-      </ul>
-      <!-- Under Trained AI's heading, whose preferences these are goes
-           without saying. -->
-      <p class="help">Percentages are preferences, not chances of winning.{stage === 'tile' ? ' Both declared riichi: the tiles are compared given riichi.' : ''}</p>
+    <!-- Trained AI's view of the move made at the step, which the review
+         holds for every decision it was asked about. -->
+    <section class="view" aria-labelledby="view-title" data-view>
+      <h4 id="view-title">Trained AI's view</h4>
+      {#if stage === 'tile'}<p class="note">Both declared riichi: tiles compared given riichi.</p>{/if}
 
       <div class="weights" role="list" aria-label="Trained AI's weight for each move">
         {#each rows as row, index (index)}
@@ -377,15 +235,13 @@
           </tbody>
         </table>
       {/if}
-      {#if mode === 'answered'}
-        <div class="after">
-          <button class="app-control" data-again onclick={again}>Choose again</button>
-          <button class="app-control" onclick={onback}>Back to the list</button>
-        </div>
-      {/if}
     </section>
   {/if}
 </section>
+
+{#snippet token(move)}
+  <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" dora={shownDora.includes(tile)} />{/each}</span>
+{/snippet}
 
 {#snippet weightRow(choice, weight, conditional = false)}
   <div class="row" role="listitem" class:best={sameMove(choice, advised.kind, advised.tile)} data-move={choice.label}>
@@ -395,7 +251,6 @@
     <span class="marks">
       {#if sameMove(choice, advised.kind, advised.tile)}<span class="mark trained">Trained AI's choice</span>{/if}
       {#if sameMove(choice, played.kind, played.tile)}<span class="mark">In the game</span>{/if}
-      {#if tried && sameMove(choice, tried.kind, tried.tile)}<span class="mark">This time</span>{/if}
     </span>
   </div>
 {/snippet}
@@ -405,10 +260,8 @@
   header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
   h3 { margin: 0; font-size: 1rem; }
   h4 { margin: 0; font-size: .95rem; }
-  h3:focus, h4:focus { outline: none; }
-  h3:focus-visible, h4:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-  .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-  .where { margin: 0; font-size: .85rem; opacity: .85; }
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   .decisions, .lines { font-size: .82rem; }
   .decisions summary, .lines summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .decision-list { display: grid; gap: 8px; }
@@ -416,27 +269,22 @@
      or more decisions take a few rows rather than a column. */
   .decisions ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 6px; }
   .decisions li { display: flex; min-width: 0; }
-  .decisions button { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 8px; padding: 5px 8px; text-align: left; font-size: .8rem; }
-  .decisions .number { grid-row: span 2; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .decisions .move { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-  .decisions .verdict { font-size: .72rem; opacity: .8; }
+  .decisions button { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 5px 8px; text-align: left; font-size: .8rem; }
+  .decisions .number { min-width: 1.3em; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .token { display: inline-flex; align-items: center; gap: 3px; }
+  .decisions .verdict { opacity: .85; }
+  .arrow { opacity: .7; }
   /* A flagged decision is marked by an edge as the whole-game list marks it,
-     and says so in words; the step shown is gold. */
+     and outside the flagged ones says so in words; the step shown is gold. */
   .decisions .flag { border-left: 3px solid var(--accent); }
+  .flag-mark { font-weight: 650; color: var(--gold); }
   .decisions [aria-current='step'] { border-color: var(--gold); background: rgba(216, 161, 42, .2); }
   .empty { margin: 0; opacity: .82; }
   .overview { display: grid; gap: 10px; min-width: 0; }
   .lines ol { margin: 0; padding: 6px 12px 6px 28px; display: grid; gap: 2px; background: #0003; border-radius: 8px; }
-  .offered { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .9rem; }
-  .prompt { margin: 0; font-size: .9rem; }
-  .offer { display: grid; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #0003; border-left: 3px solid var(--accent); font-size: .86rem; }
-  .offer p { margin: 0; }
-  .moves, .after { display: flex; flex-wrap: wrap; gap: 8px; }
-  .moves button { display: inline-flex; align-items: center; gap: 6px; text-align: left; }
   .quiet { justify-self: start; background: transparent; }
-  .answer { display: grid; gap: 10px; padding: 12px; border: 1px solid #d8a12a66; border-radius: 12px; background: #0003; min-width: 0; }
-  .verdicts { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .88rem; }
-  .help { margin: 0; font-size: .78rem; opacity: .8; }
+  .view { display: grid; gap: 10px; padding: 12px; border: 1px solid #d8a12a66; border-radius: 12px; background: #0003; min-width: 0; }
+  .note { margin: 0; font-size: .78rem; opacity: .8; }
   .weights { display: grid; gap: 4px; }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 6px; border: 2px solid transparent; border-top-color: #ffffff15; border-radius: 8px; font-size: .82rem; }
   .row.best { border-color: #4ea3ff; }
@@ -455,8 +303,21 @@
   .numbers td { padding: 2px 10px 2px 0; }
   .worse { color: var(--warning-text); }
   @media (max-width: 400px) { meter { width: 56px; } }
+  /* A control focused below the step bar, which stays at the top of the
+     screen, is brought into view below it rather than under it: the bar's
+     own height, and on a phone held upright the game's bar above it too.
+     Where the screen is 500 pixels high or less the step bar stays in its
+     place, and only the game's bar, which stays there in landscape, is kept
+     clear of, as the headings keep clear of it. */
+  .decision :global(:is(button, summary)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
+  @media (max-width: 760px) {
+    .decision :global(:is(button, summary)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
+  }
+  @media (max-height: 500px) {
+    .decision :global(:is(button, summary)) { scroll-margin-top: 72px; }
+  }
   /* Below the game's bar where it stays at the top of the screen (AppSettings). */
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h3, h4, .decision :global(.hand) { scroll-margin-top: 72px; }
+    h3 { scroll-margin-top: 72px; }
   }
 </style>

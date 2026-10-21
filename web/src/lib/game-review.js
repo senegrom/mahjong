@@ -139,14 +139,11 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
-/** A judged decision's two weights as the review gives them, the same in the
- * whole game's list and in a replay's offer to choose again, which leads
- * with "Flagged: " (`lead`): the player's move and Trained AI's choice, or
- * where both declared riichi the player's tile given riichi. What Trained
- * AI chose is not said, since a flagged decision keeps it for the retry. */
-export function weightsSaid({ stage, played, preferred }, lead = '') {
-  const said = `${stage === 'tile' ? 'given riichi, your tile' : 'your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
-  return lead ? `${lead}${said}` : `${said[0].toUpperCase()}${said.slice(1)}`;
+/** A judged decision's two weights as the whole game's list gives them, under
+ * the two moves: the player's move and Trained AI's choice, or where both
+ * declared riichi the player's tile given riichi. */
+export function weightsSaid({ stage, played, preferred }) {
+  return `${stage === 'tile' ? 'Given riichi, your tile' : 'Your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
 }
 
 /** The flagged decisions of the reviewed hands, the widest gap first; equal
@@ -542,7 +539,7 @@ export class MatchReview {
       decision.judgement = judgement(decision);
       // The review's numbers for the moves a player compares: what they
       // played, what the network chose and, where it is flagged, every turn
-      // move they could choose again. A response to a discard has none.
+      // move they could have made instead. A response to a discard has none.
       if (!decision.agreed && !decision.forced && !decision.call_tile) {
         const measure = choice => engine.review_measure(index, choice.kind, choice.tile ?? undefined);
         const moves = decision.judgement?.flagged ? decision.weighted
@@ -638,20 +635,32 @@ export function tableSaid(view) {
   return `${move}, ${left}.${declared}`;
 }
 
-/** Each move as a hand's list of decisions names it, in a word. */
+/** Each move as the review's short lines name it, in a word. */
 const MOVE_NAMES = Object.freeze({ discard: 'Discard', riichi: 'Riichi', tsumo: 'Tsumo', ron: 'Ron', pon: 'Pon', chii: 'Chii',
   kan: 'Kan', 'concealed-kan': 'Kan', 'extended-kan': 'Kan', pass: 'Pass' });
 
-/** A decision as a hand's list of decisions gives it: the move in a word,
- * the tile it concerns (the tile thrown or declared, the tile a self-drawn
- * win was made on, or the discard an answer was to), and whether Trained AI
- * agreed, a flagged decision saying that it was flagged. */
+/** A move at a decision in the engine's words, "discards the red dragon", as
+ * the decision's own choices name it. */
+const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move.kind, move.tile))?.label
+  ?? MOVE_NAMES[move.kind] ?? move.kind;
+
+/** A decision as a line of the review gives it: the player's move, `you`,
+ * and Trained AI's where it chose another, `ai`, each a word and its tiles
+ * (moveToken); the tile on offer where the player answered another's
+ * discard, `offered`; the verdict in words, and as flags whether the
+ * decision is `flagged`, whether Trained AI `agreed`, whether the move was
+ * `forced`, the only one, and whether it is `reviewed` yet. `said` is the
+ * line as a screen reader hears it, the moves in the engine's words: "You:
+ * discards the red dragon. Trained AI: discards the 8 bamboo. Flagged." */
 export function decisionInBrief(frame, decision) {
   const { kind, tile } = frame.played, view = frame.view;
-  const verdict = !decision ? '' : decision.judgement?.flagged ? 'Flagged' : decision.forced ? 'Only move'
-    : decision.agreed ? 'Trained AI agreed' : 'Trained AI differed';
-  const concerned = view.phase === 'call' ? view.pending_discard : tile ?? (kind === 'tsumo' ? view.seats[0]?.drawn ?? null : null);
-  return { move: MOVE_NAMES[kind] ?? kind, tile: concerned ?? null, verdict };
+  const flagged = Boolean(decision?.judgement?.flagged), forced = Boolean(decision?.forced), agreed = Boolean(decision?.agreed);
+  const verdict = !decision ? '' : flagged ? 'Flagged' : forced ? 'Only move' : agreed ? 'Trained AI agreed' : 'Trained AI differed';
+  const ai = decision && !forced && !agreed ? moveToken(decision.advised_kind, decision.advised_tile ?? null) : null;
+  const offered = view.phase === 'call' ? view.pending_discard ?? null : null;
+  const answer = !decision ? 'Not reviewed yet.' : forced ? 'Only move.' : agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}.`;
+  const said = `${offered ? `On the ${tileWords(offered)}. ` : ''}You: ${moveWords(frame, frame.played)}. ${answer}${flagged ? ' Flagged.' : ''}`;
+  return { you: moveToken(kind, tile), ai, offered, verdict, flagged, agreed, forced, reviewed: Boolean(decision), said };
 }
 
 /** A move as the review's short lines give it: a word, and the tiles it
@@ -667,21 +676,17 @@ export function moveToken(kind, tile) {
 }
 
 /** A move's weight as the review states it beside Trained AI's choice, and
- * whether it is `given` riichi: where the move and Trained AI's choice are
- * both riichi, the weight of the tile given the declaration, as `judgement`
- * compares them; otherwise the move's own. The weight is null where Trained
- * AI gave the move none. */
+ * whether it is `given` riichi. Where the player and Trained AI both declared
+ * riichi, a decision is judged on the tile (`judgement`), so a riichi there
+ * is weighed by its tile given the declaration; otherwise every move by its
+ * own weight, a riichi by the declaration's. The weight is null where
+ * Trained AI gave the move none. */
 export function moveWeight(decision, move) {
-  const given = move.kind === 'riichi' && decision.advised_kind === 'riichi';
+  const given = move.kind === 'riichi' && decision.played_kind === 'riichi' && decision.advised_kind === 'riichi';
   const choice = decision.weighted?.find(entry => sameMove(entry, move.kind, move.tile));
   const weight = given ? choice?.conditionalWeight : choice?.weight;
   return { weight: Number.isFinite(weight) ? weight : null, given };
 }
-
-/** A move at a decision in the engine's words, "discards the red dragon", as
- * the decision's own choices name it. */
-const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move.kind, move.tile))?.label
-  ?? MOVE_NAMES[move.kind] ?? move.kind;
 
 /** What a step of the review says as it is reached, in the one line a screen
  * reader hears: where it is, the table (tableSaid), the player's move and

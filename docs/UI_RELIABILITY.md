@@ -127,9 +127,9 @@ an unfinished match has progress, including between hands.
   says the game is loading, the settings' line that new tile graphics are
   loading, a yaku's explanation on a hand's result, the whole-game review's
   headline (with the review, and again on Back to the list), the decision
-  replay's "Decision N of M" and its line that says the table at each
-  step, and the status lines of Agent watch (its file note among them), the
-  guided physical game and physical agent play.
+  replay's step line, which says the step, the table and both moves in one
+  line as the step changes, and the status lines of Agent watch (its file
+  note among them), the guided physical game and physical agent play.
 
 ## Verification
 

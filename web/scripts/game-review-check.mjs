@@ -3,32 +3,33 @@
  * A finished match is restored from its save and reviewed hand by hand by the
  * shipped network. Every batch the page sends is captured with the worker's
  * answer, and the flags, their order and the agreement figure are worked out
- * again here from those answers alone. A flagged decision is then replayed
- * from the deal by keyboard, chosen again, and Trained AI's answer read back,
- * with keyboard focus checked after every button the replay offers; the saved
- * match must be exactly as it was, and the game must enter the trend once,
- * under the version of Trained AI that judged it. A reviewed hand is replayed
- * whole, by keyboard and pointer, and at every step every player's tiles must
- * be the ones the engine held, face up, each hand a list named by its seat,
- * with the board as it stood and nothing offering to hide them, fitting the
- * screen at desktop, tablet and phone sizes, an opponent's tiles on one row,
- * or on two where one would draw them under 18 pixels wide; the hand's list
- * of decisions and the
+ * again here from those answers alone. A flagged decision is then replayed,
+ * Trained AI's move on show at once, from the worker's answer: in the step
+ * bar with both weights, over its tile in the hand, ringed, and in its view;
+ * the hand is stepped through to its deal and back by keyboard, with keyboard
+ * focus checked after every press; the saved match must be exactly as it
+ * was, and the game must enter the trend once, under the version of Trained
+ * AI that judged it. A reviewed hand is replayed whole, by keyboard and
+ * pointer, and at every step every player's tiles must be the ones the engine
+ * held, face up, each hand a list named by its seat, with the board as it
+ * stood and nothing offering to hide them, fitting the screen at desktop,
+ * tablet and phone sizes, an opponent's tiles on one row, or on two where one
+ * would draw them under 18 pixels wide; the hand's list of decisions and the
  * review's own list are filtered to the flagged decisions, those where
- * Trained AI chose differently or every one, saying how many each holds, and
- * a decision that was not flagged opens without a retry. A list the player
- * opens or folds stays as they left it: a hand's list of decisions, folded on
- * a phone and in a replay opened to choose again, as its steps are pressed by
- * touch and by keyboard while later hands are reviewed, focus staying on the
- * step's button; a slow device's list of hands as the review goes on; a
- * hand's events across a step with none; and the trend's games across a
- * replay. A flagged answer to
- * another's discard, from a game whose player calls everything, is chosen
- * again from the moves its prompt points to, by keyboard. While the review goes on, a flagged
- * decision that later hands rank out of the leading five keeps keyboard focus,
- * in the list, while the player is in another window, and back from its
- * replay, and the list says where it went in words that stay true as the list
- * grows, from a status line that is in the page before it speaks. On a phone,
+ * Trained AI chose differently or every one, saying how many each holds and
+ * naming Trained AI's move in each. A list the player opens or folds stays as
+ * they left it: a hand's list of decisions, folded on a phone and open on a
+ * wider screen, as its steps are pressed by touch and by keyboard while later
+ * hands are reviewed, focus staying on the step's button; a slow device's
+ * list of hands as the review goes on; a hand's events across a step with
+ * none; and the trend's games across a replay. A flagged answer to another's
+ * discard, from a game whose player calls everything, says in the step bar
+ * whose tile it answers, which that seat's row outlines. While the review
+ * goes on, a flagged decision that later hands rank out of the leading five
+ * keeps keyboard focus, in the list, while the player is in another window,
+ * and back from its replay, and the list says where it went in words that
+ * stay true as the list grows, from a status line that is in the page before
+ * it speaks. On a phone,
  * where the final result covers the standings, the review must be reachable
  * from the result itself by touch and come back to the standings; held
  * sideways, from the standings beside the result; and from the standings' own
@@ -64,6 +65,7 @@ import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, filterSaid, scanMatch, tableSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
+import { quadOnOffer } from '../src/lib/ui.js';
 import { TREND_KEY } from '../src/lib/review-trend.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
@@ -96,7 +98,7 @@ function finishedGame(seed, { calls = false } = {}) {
   } finally { match.dispose(); }
 }
 const snapshot = finishedGame(5), callingGame = finishedGame(5, { calls: true });
-const hands = scanMatch(Game, snapshot);
+const hands = scanMatch(Game, snapshot), callingHands = scanMatch(Game, callingGame);
 /** The match as it was saved after its first `count` commands: waiting at a
  * hand's result where `count` is that hand's end. */
 function savedAfter(finished, count) {
@@ -390,11 +392,10 @@ async function saysWhereItIs(page, key) {
 /** The replay's overview as the page draws it: each opponent's hand, a list
  * named by its seat, and the player's own, with the names of their tiles,
  * the narrowest tile, how many rows the tiles take and how many are on the
- * first, whether every tile is on
- * the screen and whether the list spills out of its seat; whether anything
- * is face down or
- * offers to show or hide the hands; and the step, what is said of the table,
- * the wall and what each seat was doing. */
+ * first, whether every tile is on the screen and whether the list spills out
+ * of its seat; whether anything is face down or offers to show or hide the
+ * hands; and the step bar's place and what it says of the step, the wall and
+ * what each seat was doing. */
 const overviewAt = page => page.evaluate(() => {
   const box = element => element.getBoundingClientRect();
   const hand = list => {
@@ -423,7 +424,7 @@ const overviewAt = page => page.evaluate(() => {
         || /\b(show|hide|reveal|peek)\b[^.]*\b(tiles?|hands?)\b/i.test(`${control.textContent} ${control.getAttribute('aria-label') ?? ''}`)).length,
     fits: document.documentElement.scrollWidth <= innerWidth + 1,
     step: document.querySelector('[data-decision] [data-step]').textContent,
-    said: overview.querySelector('[data-table-said]').textContent,
+    said: document.querySelector('[data-decision] [data-step-said]').textContent,
     wall: Number(overview.querySelector('.wall strong').textContent),
     notes: [...overview.querySelectorAll('.note')].map(note => note.textContent) };
 });
@@ -432,13 +433,16 @@ const named = held => [...held.hand.map(tileWords), ...(held.drawn ? [`${tileWor
 /** Tile names without the marks they go on to give, such as dora. */
 const unmarked = names => names.map(name => name.split(', ').filter((part, index) => !index || part === 'just drawn').join(', '));
 
+/** Where the step bar says a step of a hand is: "East 4 · decision 12 of 15". */
+const placeOf = (hand, step) => `${hand.name} · decision ${step + 1} of ${hand.frames.length}`;
+
 /** Says what the overview shows, having checked it shows, for this step of a
  * hand, every player's tiles as the engine held them, face up, each list
  * named by its seat and keeping to its seat and the screen, with the board as
  * it stood. */
-async function overviewIsRight(page, frame, step, steps) {
-  const shown = await overviewAt(page), seats = frame.view.seats;
-  assert.equal(shown.step, `Decision ${step + 1} of ${steps}`);
+async function overviewIsRight(page, hand, step) {
+  const frame = hand.frames[step], shown = await overviewAt(page), seats = frame.view.seats;
+  assert.equal(shown.step, placeOf(hand, step));
   assert.equal(shown.opponents.length, 3, "three opponents' hands");
   for (const list of shown.opponents) {
     const slot = seats.findIndex(seat => seat.seat === list.seat);
@@ -469,9 +473,11 @@ async function overviewIsRight(page, frame, step, steps) {
   assert.equal(shown.facedown, 0, 'nothing is face down');
   assert.equal(shown.toggles, 0, 'nothing offers to show or hide the hands');
   assert.ok(shown.fits, 'the page does not scroll sideways');
-  // The table in a sentence, and whether Trained AI flagged the move there.
-  assert.ok(shown.said.startsWith(tableSaid(frame.view)), shown.said);
-  assert.match(shown.said.slice(tableSaid(frame.view).length), /^( Flagged\.)?$/);
+  // The step, the table in a sentence and both moves, and whether Trained AI
+  // flagged the move there, in the one line said as the step changes.
+  const lead = `${hand.name}, decision ${step + 1} of ${hand.frames.length}. ${tableSaid(frame.view)} You: `;
+  assert.ok(shown.said.startsWith(lead), `${shown.said} begins ${lead}`);
+  assert.match(shown.said.slice(lead.length), /\. (Trained AI agreed|Only move|Trained AI: .+)\.( Flagged\.)?$/, shown.said);
   assert.equal(shown.wall, frame.view.wall);
   assert.ok(shown.notes.includes(frame.view.phase === 'act' ? 'To play' : 'To answer'), `whose move it was: ${shown.notes.join(', ')}`);
   return shown;
@@ -579,7 +585,7 @@ try {
 
     // The highest-ranked flagged decision with two of the player's decisions
     // before it in its hand, so there is a hand to step through, opened
-    // where it was made.
+    // where it was made, with Trained AI's move on show at once.
     const lead = flagged.find(verdict => Number(verdict.key.split(':')[1]) >= 2);
     assert.ok(lead, 'a flagged decision late enough in its hand to replay');
     const [hand, index] = lead.key.split(':').map(Number), frames = hands[hand].frames;
@@ -587,128 +593,95 @@ try {
       await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
     }
     await page.click(`[data-game-review] [data-open="${lead.key}"]`);
-    await page.waitForSelector('[data-decision]');
+    await page.waitForSelector('[data-decision] [data-view]');
     assert.equal(await page.$eval('#decision-title', el => el.textContent), `${hands[hand].name}, decision ${index + 1}`);
-    const status = () => page.$eval('[data-decision] .where [data-step]', el => el.textContent);
-    assert.equal(await status(), `Decision ${index + 1} of ${index + 1}, flagged`);
-    assert.equal(await page.$('[data-answer]'), null, "the answer waits for the player's choice");
+    const status = () => page.$eval('[data-decision] [data-step]', el => el.textContent);
+    const said = () => page.$eval('[data-decision] [data-step-said]', el => el.textContent);
+    assert.equal(await status(), placeOf(hands[hand], index));
     const wall = () => page.$eval('[data-decision] .wall strong', el => Number(el.textContent));
     assert.equal(await wall(), frames[index].view.wall, 'the table as it was at the decision');
-
-    // Replayed from the deal by keyboard, a decision of the player's at a
-    // time. A step that disables the button pressed hands focus on, never to
-    // the page: at the deal to Next, at the decision to the hand.
-    const press = async label => {
-      await page.evaluate(text => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === text).focus(), label);
-      await page.keyboard.press('Enter');
-    };
-    const focusOn = target => page.waitForFunction(target => {
-      const active = document.activeElement;
-      return target === 'hand' ? active?.matches('[data-decision] .hand') : active?.getAttribute('aria-label') === target;
-    }, { timeout: 5000 }, target);
-    await press('Previous');
-    assert.equal(await status(), `Decision ${index} of ${index + 1}`);
-    await focusOn('Previous decision');
-    await press('First');
-    assert.equal(await status(), `Decision 1 of ${index + 1}`);
-    assert.equal(await wall(), frames[0].view.wall);
-    await focusOn('Next decision');
-    const said = await page.$eval('[data-decision] #hand-help', el => el.textContent.trim());
-    assert.match(said, /^Your move: .+\. (Trained AI (agreed|differed)|Only move)\.$/);
-    // The step says the move made there as well as where it is, so stepping
-    // by ear tells the hand too.
-    assert.equal(await page.$eval('[data-decision] .where', el => el.textContent), `Decision 1 of ${index + 1}. ${said}`);
-    await page.keyboard.press('Enter');
-    assert.equal(await status(), `Decision 2 of ${index + 1}`);
-    assert.equal(await wall(), frames[1].view.wall);
-    await focusOn('Next decision');
-    await press('Previous');
-    assert.equal(await status(), `Decision 1 of ${index + 1}`);
-    await focusOn('Next decision');
-    await press('This decision');
-    assert.equal(await status(), `Decision ${index + 1} of ${index + 1}, flagged`);
-    await focusOn('hand');
-    // The hand says what to do through its description, the prompt.
-    assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
-      /^Choose again: /);
-    await press('Previous');
-    await focusOn('Previous decision');
-    await press('Next');
-    assert.equal(await status(), `Decision ${index + 1} of ${index + 1}, flagged`);
-    await focusOn('hand');
-    assert.equal(await page.$('[data-answer]'), null);
-    // Chosen again: another move than the game's, a discard where there is
-    // one, otherwise a move that names no tile, such as a pass.
-    const fact = facts[hand][index];
-    const others = fact.choices.filter(choice => !(choice.kind === lead.played.kind && (choice.tile ?? null) === (lead.played.tile ?? null)));
-    const retry = others.find(choice => choice.kind === 'discard') ?? others.find(choice => !choice.tile) ?? others[0];
-    if (retry.kind === 'discard') await page.click(`[data-decision] .hand button[data-tile="${retry.tile}"]:not(:disabled)`);
-    else {
-      const chosen = await page.evaluate((kind, tile) => {
-        const button = [...document.querySelectorAll('[data-decision] [data-retry]')]
-          .find(entry => entry.dataset.retry === kind && (!tile || entry.querySelector(`[data-tile="${tile}"]`)));
-        button?.click();
-        return Boolean(button);
-      }, retry.kind, retry.tile ?? null);
-      assert.ok(chosen, `the ${retry.kind} is offered again`);
-    }
-    await page.waitForSelector('[data-answer]');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title'); // The answer takes focus.
-    const verdict = await page.$$eval('[data-answer] .verdicts li', items => items.map(item => item.textContent.trim()));
-    assert.match(verdict[0], new RegExp(`^This time: ${retry.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · `));
-    assert.equal(verdict.at(-1), `Trained AI: ${lead.advised.label} · ${lead.said}`, "Trained AI's answer, from the worker");
-    const marks = await page.$$eval('[data-answer] .row', rows => rows.map(row => ({ move: row.dataset.move,
+    // The step bar says both moves with the weights the worker gave them,
+    // the tiles given riichi where both declared it, and the flag.
+    const given = lead.stage === 'tile' ? ' given riichi' : '';
+    assert.equal(await said(), `${hands[hand].name}, decision ${index + 1} of ${frames.length}. ${tableSaid(frames[index].view)} `
+      + `You: ${lead.played.label}, ${percent(lead.playedWeight)}${given}. Trained AI: ${lead.advised.label}, ${percent(lead.preferred)}${given}. Flagged.`,
+    "both moves, from the worker's answer");
+    assert.match(await page.$eval('[data-decision] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
+    // Trained AI's view marks its choice and the move made, and for a turn
+    // compares what each leaves.
+    const marks = await page.$$eval('[data-view] .row', rows => rows.map(row => ({ move: row.dataset.move,
       marks: [...row.querySelectorAll('.mark')].map(mark => mark.textContent) })));
     assert.ok(marks.find(row => row.move === lead.advised.label)?.marks.includes("Trained AI's choice"));
     assert.ok(marks.find(row => row.move === lead.played.label)?.marks.includes('In the game'));
-    assert.ok(marks.find(row => row.move === retry.label)?.marks.includes('This time'));
+    const fact = facts[hand][index];
     if (!lead.played.kind.match(/pass|pon|chii|kan|ron/) && !fact.note.call_tile) {
-      assert.ok(await page.$('[data-answer] .numbers'), 'a turn compares what each move leaves');
+      assert.ok(await page.$('[data-view] .numbers'), 'a turn compares what each move leaves');
     }
-    await shot(page, 'game-review-answer');
-    // Again from the same position, by keyboard: the answer goes with the
-    // button pressed, and the hand takes focus to be chosen from again.
-    await page.focus('[data-answer] [data-again]');
-    await page.keyboard.press('Enter');
-    assert.equal(await page.$('[data-answer]'), null);
-    await focusOn('hand');
-    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent), /^Choose again: /);
-    // The answer outright, by keyboard: the button goes, and the answer's
-    // heading takes focus.
-    await page.focus('[data-decision] [data-reveal]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
-    assert.equal(await page.$('[data-decision] [data-reveal]'), null);
-    // Then back to the list where it was opened.
+    // The hand puts words over the tile each threw, on a line every tile
+    // keeps, and rings Trained AI's alone, as Agent watch rings the agent's.
+    const tagged = await page.$$eval('[data-decision] .mine .hand-tile', tiles => tiles.map(tile => ({
+      tag: tile.querySelector('.tag')?.textContent ?? null, ringed: tile.querySelector('.tile').classList.contains('selected'),
+      name: tile.querySelector('.tile').getAttribute('aria-label') })));
+    assert.ok(tagged.length && tagged.every(tile => tile.tag !== null), 'a line for the words over every tile');
+    const throws = move => ['discard', 'riichi'].includes(move.kind);
+    assert.equal(tagged.filter(tile => tile.ringed).length, throws(lead.advised) ? 1 : 0, "Trained AI's tile alone is ringed");
+    if (throws(lead.advised)) {
+      const ringed = tagged.find(tile => tile.ringed);
+      assert.match(ringed.tag, /\bAI$/);
+      assert.ok(ringed.name.startsWith(tileWords(lead.advised.tile)) && ringed.name.endsWith("Trained AI's choice"), ringed.name);
+    }
+    if (throws(lead.played)) assert.equal(tagged.filter(tile => /^You\b/.test(tile.tag)).length, 1, 'the tile the player threw');
+    await shot(page, 'game-review-decision');
+
+    // Stepped back to the hand's first decision by keyboard, a decision of the
+    // player's at a time, and on again to the flagged one, each step saying
+    // where it is, the table and both moves. Previous keeps focus until the
+    // first decision disables it, which hands focus to Next, never to the
+    // page; nothing holds the replay at the flagged decision.
+    const focusOn = label => page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label,
+      { timeout: 5000 }, label);
+    const onStep = step => page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text,
+      { timeout: 5000 }, placeOf(hands[hand], step));
+    await page.focus('[data-decision] [data-previous]');
+    for (let step = index - 1; step >= 0; step--) {
+      await page.keyboard.press('Enter');
+      await onStep(step);
+      assert.equal(await wall(), frames[step].view.wall);
+      assert.ok((await said()).startsWith(`${hands[hand].name}, decision ${step + 1} of ${frames.length}. ${tableSaid(frames[step].view)} You: `));
+      await focusOn(step ? 'Previous decision' : 'Next decision');
+    }
+    for (let step = 1; step <= index; step++) {
+      await page.keyboard.press('Enter');
+      await onStep(step);
+      await focusOn(step < frames.length - 1 ? 'Next decision' : 'Previous decision');
+    }
+    assert.match(await said(), / Flagged\.$/);
+    // Then back to the list where it was opened, focus on the decision opened.
     await page.click('[data-decision] [data-back]');
-    // Focus returns to the decision opened.
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, lead.key);
 
-    // The answer leads with five moves and those it marks. A decision with
-    // more hides the rest behind a button that stays to hide them again, so
-    // focus stays on it both ways.
+    // Trained AI's view leads with five moves and those it marks. A decision
+    // with more hides the rest behind a button that stays to hide them again,
+    // so focus stays on it both ways.
     const wide = flagged.find(verdict => {
       const [at, number] = verdict.key.split(':').map(Number);
       return facts[at][number].choices.length >= 8;
     });
-    assert.ok(wide, 'a flagged decision with more moves than the answer leads with');
+    assert.ok(wide, 'a flagged decision with more moves than the view leads with');
     if (!await page.$(`[data-game-review] [data-open="${wide.key}"]`)) {
       await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
     }
     await page.click(`[data-game-review] [data-open="${wide.key}"]`);
-    await page.waitForSelector('[data-decision] [data-reveal]');
-    await page.focus('[data-decision] [data-reveal]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
-    const rows = () => page.$$eval('[data-answer] .row', items => items.length);
+    await page.waitForSelector('[data-decision] [data-view] [data-every-move]');
+    const rows = () => page.$$eval('[data-view] .row', items => items.length);
     const leading = await rows();
-    await page.focus('[data-answer] [data-every-move]');
+    await page.focus('[data-view] [data-every-move]');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
+    await page.waitForFunction(() => document.activeElement?.matches('[data-view] [data-every-move]')
       && document.activeElement.textContent === 'Show fewer moves', { timeout: 5000 });
     assert.ok(await rows() > leading, 'every move is shown');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-answer] [data-every-move]')
+    await page.waitForFunction(() => document.activeElement?.matches('[data-view] [data-every-move]')
       && /^Show \d+ more moves?$/.test(document.activeElement.textContent), { timeout: 5000 });
     assert.equal(await rows(), leading);
     await page.click('[data-decision] [data-back]');
@@ -773,11 +746,11 @@ try {
     assert.equal(await page.$eval('#decision-title', el => el.textContent), `${chosen.name}, whole hand`);
     // Every step by keyboard, from the deal to the hand's last decision. A
     // step keeps focus on Next, and the last hands it to Previous.
-    await page.evaluate(() => [...document.querySelectorAll('[data-decision] .steps button')].find(b => b.textContent === 'Next').focus());
-    for (const [step, frame] of frames.entries()) {
+    await page.focus('[data-decision] [data-next]');
+    for (const step of frames.keys()) {
       await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-        `Decision ${step + 1} of ${frames.length}`);
-      await overviewIsRight(page, frame, step, frames.length);
+        placeOf(chosen, step));
+      await overviewIsRight(page, chosen, step);
       assert.equal(await focused(), step < frames.length - 1 ? 'Next decision' : 'Previous decision', `focus after step ${step + 1}`);
       if (step < frames.length - 1) await page.keyboard.press('Enter');
     }
@@ -787,30 +760,23 @@ try {
     // table on a wide screen: a step's button keeps focus as it shows it.
     const target = Math.floor(frames.length / 2);
     await page.click(`[data-decision] [data-step-to="${target}"]`);
-    await overviewIsRight(page, frames[target], target, frames.length);
+    await overviewIsRight(page, chosen, target);
     assert.equal(await page.evaluate(() => document.activeElement?.dataset.stepTo), String(target));
     assert.equal(await page.$eval(`[data-decision] [data-step-to="${target}"]`, el => el.getAttribute('aria-current')), 'step');
-    // A flagged decision reached in a hand replayed whole offers its retry,
-    // by keyboard: Choose again gives the hand focus, as a turn does,
-    // with every hand still in view, and the answer outright its heading.
+    // A flagged decision reached in a hand replayed whole shows Trained AI's
+    // move as any other does, with every hand still in view: its view, and
+    // the flag after both moves in the step bar.
     const flaggedStep = Number(await page.$$eval('[data-decision] [data-step-to]', buttons =>
-      buttons.find(button => button.querySelector('.verdict')?.textContent === 'Flagged')?.dataset.stepTo));
+      buttons.find(button => button.classList.contains('flag'))?.dataset.stepTo));
     await page.click(`[data-decision] [data-step-to="${flaggedStep}"]`);
-    await page.waitForSelector('[data-decision] [data-offer]');
-    assert.match(await page.$eval('[data-decision] [data-offer] p', el => el.textContent), /^Flagged: (your move|given riichi, your tile) /);
-    await page.focus('[data-decision] [data-choose-here]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
-    assert.match(await page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent),
-      /^Choose again: /);
-    await overviewIsRight(page, frames[flaggedStep], flaggedStep, frames.length);
-    await page.focus('[data-decision] [data-reveal]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
-    assert.ok(await page.$('[data-decision] [data-answer]'), "Trained AI's answer");
+    await overviewIsRight(page, chosen, flaggedStep);
+    assert.ok(await page.$('[data-decision] [data-view]'), "Trained AI's view");
+    assert.match(await page.$eval('[data-decision] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
+    assert.equal(await page.$('[data-decision] :is([data-offer], [data-reveal], [data-choose-here], [data-answer])'), null, 'nothing to choose again');
     await page.click(`[data-decision] [data-step-to="${target}"]`);
     // Its filter, by keyboard: the moves where Trained AI chose differently,
-    // said as the list changes, and then every decision again.
+    // each naming Trained AI's move, said as the list changes, and then every
+    // decision again.
     const filterOption = option => `[data-decision] [data-decisions] [data-filter-option="${option}"]`;
     const counted = async option => Number(/\((\d+)\)$/.exec(await page.$eval(filterOption(option), el => el.textContent.trim()))[1]);
     const counts = { flagged: await counted('flagged'), differed: await counted('differed'), every: await counted('every') };
@@ -820,10 +786,12 @@ try {
     await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, filterOption('differed'));
     assert.equal(await page.$eval('[data-decision] [data-decisions] [data-filter-said]', el => el.textContent),
       filterSaid('differed', counts, { scope: ' in this hand', ranked: false }));
-    const verdicts = await page.$$eval('[data-decision] [data-step-to] .verdict', items => items.map(item => item.textContent));
-    assert.equal(verdicts.length, counts.differed);
-    assert.ok(verdicts.every(verdict => ['Flagged', 'Trained AI differed'].includes(verdict)), verdicts.join(', '));
-    assert.equal(verdicts.filter(verdict => verdict === 'Flagged').length, counts.flagged);
+    const lines = await page.$$eval('[data-decision] [data-step-to]', items => items.map(item => ({
+      differs: Boolean(item.querySelector('.arrow')), flagged: item.querySelector('.flag-mark')?.textContent === 'Flagged',
+      named: /^Decision \d+\. .*You: .+\. Trained AI: .+\./.test(item.getAttribute('aria-label')) })));
+    assert.equal(lines.length, counts.differed);
+    assert.ok(lines.every(line => line.differs && line.named), "each line gives Trained AI's move, and its name says both moves");
+    assert.equal(lines.filter(line => line.flagged).length, counts.flagged);
     assert.ok(await page.evaluate(selector => document.activeElement?.matches(selector), filterOption('differed')), 'focus stays on the filter');
     // Focus leaving the filter quiets the line, which spoke of the list as it was.
     await page.focus('[data-decision] [data-back]');
@@ -839,21 +807,29 @@ try {
     for (const [width, height] of [[1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-      await overviewIsRight(page, frames[step], step, frames.length);
+      await overviewIsRight(page, chosen, step);
       const forward = step < frames.length - 1;
       step += forward ? 1 : -1;
-      await page.$eval('[data-decision] .steps', el => el.scrollIntoView({ block: 'center' }));
-      await page.click(`[data-decision] .steps button[aria-label="${forward ? 'Next decision' : 'Previous decision'}"]`);
+      // Brought to the middle of the screen first, clear of the game's bar,
+      // which stays over the page on a phone held either way.
+      await page.$eval('[data-decision] [data-steps]', el => el.scrollIntoView({ block: 'center' }));
+      await page.click(`[data-decision] ${forward ? '[data-next]' : '[data-previous]'}`);
       await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-        `Decision ${step + 1} of ${frames.length}`);
-      await overviewIsRight(page, frames[step], step, frames.length);
+        placeOf(chosen, step));
+      await overviewIsRight(page, chosen, step);
       assert.notEqual(await focused(), 'the page', `focus stays in the replay at ${width}x${height}`);
-      await page.$eval('[data-decision] #overview-title', el => el.scrollIntoView({ block: 'start' }));
+      await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
       if (phoneSized(page)) {
-        // The player's seat from its top, just below the game's bar.
-        await page.$eval('[data-decision] [data-overview] .mine', el =>
-          scrollBy(0, el.getBoundingClientRect().top - document.querySelector('header.bar').getBoundingClientRect().bottom - 8));
+        // The player's seat from its top, just below the bars that stay at
+        // the top of the screen: the game's, and the step bar under it where
+        // that stays too.
+        await page.$eval('[data-decision] [data-overview] .mine', el => {
+          const bar = document.querySelector('header.bar').getBoundingClientRect().bottom;
+          const steps = document.querySelector('[data-decision] [data-steps]');
+          const top = getComputedStyle(steps).position === 'sticky' ? bar + steps.offsetHeight : bar;
+          scrollBy(0, el.getBoundingClientRect().top - top - 8);
+        });
         await shot(page, `review-overview-${width}x${height}-yours`);
       }
     }
@@ -865,12 +841,11 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("a hand's list of decisions, folded on a phone and to choose again, stays as the player leaves it, with focus on the step's button pressed, as the step changes and later hands are reviewed, by touch and keyboard", async () => {
+  await cases.check("a hand's list of decisions, folded on a phone and open on a wider screen, stays as the player leaves it, with focus on the step's button pressed, as the step changes and later hands are reviewed, by touch and keyboard", async () => {
     // A page loaded at each size, one at a time. On a phone the list starts
-    // folded under the steps; at 1100 by 900 it starts folded in a replay
-    // opened to choose again. Each batch reaches the worker a second late, so
-    // that later hands are still being reviewed while the list is used,
-    // however fast the machine.
+    // folded under the step bar; at 1100 by 900, which has room for it, open.
+    // Each batch reaches the worker a second late, so that later hands are
+    // still being reviewed while the list is used, however fast the machine.
     for (const [width, height] of [[390, 844], [320, 568], [844, 390], [1100, 900]]) {
       const size = `${width}x${height}`, page = await openPage(width, height, { touch: true, answerDelay: 1000 });
       await reviewWholeGame(page);
@@ -901,11 +876,14 @@ try {
       }, list);
       const onStep = index => page.waitForFunction((list, index) => document.querySelector(`${list} [data-step-to="${index}"]`)
         ?.getAttribute('aria-current') === 'step', { timeout: 5000 }, list, index);
-      assert.equal((await state()).open, false, `the list starts folded at ${size}`);
-      // By touch: the list opened, then a step's button.
-      await tapAt(page, `${list} summary`);
-      await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
-      await settle(page);
+      const startsOpen = !phoneSized(page);
+      assert.equal((await state()).open, startsOpen, `the list starts ${startsOpen ? 'open' : 'folded'} at ${size}`);
+      // By touch: the list opened where it is folded, then a step's button.
+      if (!startsOpen) {
+        await tapAt(page, `${list} summary`);
+        await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
+        await settle(page);
+      }
       await tapAt(page, `${list} [data-step-to="1"]`);
       await onStep(1);
       await settle(page);
@@ -925,7 +903,7 @@ try {
       // goes on.
       await tapAt(page, `${list} summary`);
       await page.waitForFunction(list => !document.querySelector(list).open, { timeout: 5000 }, list);
-      await tapAt(page, '[data-decision] .steps button[aria-label="Next decision"]');
+      await tapAt(page, '[data-decision] [data-next]');
       await onStep(1);
       await answeredBeyond(page, await answered(page));
       await settle(page);
@@ -979,9 +957,9 @@ try {
     assert.ok(quiet, `a reviewed hand with a step that nothing happened before, among hands ${done.join(', ')}`);
     if (!await page.$eval(handList, details => details.open)) await page.click(`${handList} summary`);
     await page.click(`[data-game-review] [data-replay-hand="${quiet.hand.index}"]`);
-    const lines = '[data-decision] details.lines', next = '[data-decision] .steps button[aria-label="Next decision"]';
+    const lines = '[data-decision] details.lines', next = '[data-decision] [data-next]';
     const onStep = step => page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text,
-      { timeout: 5000 }, `Decision ${step + 1} of ${quiet.hand.frames.length}`);
+      { timeout: 5000 }, placeOf(quiet.hand, step));
     await page.click(`[data-decision] [data-decisions] [data-step-to="${quiet.step - 1}"]`);
     await onStep(quiet.step - 1);
     await page.click(`${lines} summary`);
@@ -1020,8 +998,9 @@ try {
     await showAll();
     assert.equal((await items()).length, counts.flagged);
 
-    // By pointer: those where Trained AI chose differently, the flagged ones
-    // marked among them, said as the list changes, with focus on the button.
+    // By pointer: those where Trained AI chose differently, each naming its
+    // move, the flagged ones marked among them, said as the list changes, with
+    // focus on the button.
     await page.click(option('differed'));
     await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('differed'));
     assert.equal(await heading(), 'Where Trained AI differed');
@@ -1032,39 +1011,34 @@ try {
     const different = await items();
     assert.equal(different.length, counts.differed);
     assert.equal(different.filter(item => item.flagged).length, counts.flagged);
-    assert.ok(different.filter(item => item.flagged).every(item => / · Flagged /.test(item.said) && /Choose again$/.test(item.said)));
-    assert.ok(different.filter(item => !item.flagged).every(item => /Trained AI: /.test(item.said) && / Replay$/.test(item.said)));
+    assert.ok(different.filter(item => item.flagged).every(item => / · Flagged /.test(item.said)));
+    assert.ok(different.every(item => /Trained AI: /.test(item.said) && / Replay$/.test(item.said)));
+    assert.ok(!different.some(item => /Choose again/.test(item.said)));
 
     // A decision that was not flagged opens on its step with the position,
-    // the move and Trained AI's view, and no retry; back by keyboard, focus
-    // returns to it.
+    // the move and Trained AI's view; back by keyboard, focus returns to it.
     const plain = different.find(item => !item.flagged);
-    const [handIndex, index] = plain.key.split(':').map(Number), frame = hands[handIndex].frames[index];
+    const [handIndex, index] = plain.key.split(':').map(Number);
     await page.click(`[data-game-review] [data-open="${plain.key}"]`);
     await page.waitForSelector('[data-decision] [data-view]');
     assert.equal(await page.$eval('#decision-title', el => el.textContent), `${hands[handIndex].name}, decision ${index + 1}`);
-    await overviewIsRight(page, frame, index, hands[handIndex].frames.length);
+    await overviewIsRight(page, hands[handIndex], index);
     assert.equal(await page.$('[data-decision] :is([data-reveal], [data-again], [data-retry], [data-choose-here], [data-answer])'), null, 'no retry');
-    assert.match(await page.$eval('[data-decision] #hand-help', el => el.textContent.trim()), /^Your move: .+\. Trained AI differed\.$/);
+    assert.match(await page.$eval('[data-decision] [data-step-said]', el => el.textContent), / Trained AI: [^.]+, [<\d.]+%( given riichi)?\.$/);
     await shot(page, 'review-overview-plain-decision');
     await page.focus('[data-decision] [data-back]');
     await page.keyboard.press('Enter');
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, plain.key);
     assert.equal(await heading(), 'Where Trained AI differed', 'the list is as it was left');
 
-    // A flagged one is chosen again, with every hand in view all the while.
+    // A flagged one opens with Trained AI's move on show as well, every hand
+    // in view, the flag said after both moves.
     const flaggedItem = different.find(item => item.flagged);
     const [flaggedHand, flaggedIndex] = flaggedItem.key.split(':').map(Number);
     await page.click(`[data-game-review] [data-open="${flaggedItem.key}"]`);
-    await page.waitForSelector('[data-decision] [data-reveal]');
-    const choosing = await overviewAt(page);
-    assert.equal(choosing.step, `Decision ${flaggedIndex + 1} of ${flaggedIndex + 1}, flagged`);
-    assert.equal(choosing.opponents.length, 3);
-    choosing.opponents.forEach(list => {
-      const slot = hands[flaggedHand].frames[flaggedIndex].view.seats.findIndex(seat => seat.seat === list.seat);
-      assert.deepEqual(unmarked(list.names), named(hands[flaggedHand].frames[flaggedIndex].hands[slot]));
-    });
-    assert.equal(await page.$('[data-decision] [data-answer]'), null, "the answer waits for the player's choice");
+    await page.waitForSelector('[data-decision] [data-view]');
+    await overviewIsRight(page, hands[flaggedHand], flaggedIndex);
+    assert.match(await page.$eval('[data-decision] [data-step-said]', el => el.textContent), / Trained AI: .+\. Flagged\.$/);
     await page.click('[data-decision] [data-back]');
     await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, flaggedItem.key);
 
@@ -1080,7 +1054,7 @@ try {
     await showAll();
     const every = await items();
     assert.deepEqual(every.map(item => item.key), hands.flatMap(hand => hand.frames.map((_, step) => `${hand.index}:${step}`)));
-    assert.ok(every.every(item => /(Trained AI agreed\.|Only move\.|Your move .+|Given riichi, .+|Trained AI: .+) (Replay|Choose again)$/.test(item.said)));
+    assert.ok(every.every(item => /(Trained AI agreed\.|Only move\.|Your move .+|Given riichi, .+|Trained AI: .+) Replay$/.test(item.said)));
     // Focus moving on quiets the line, which spoke of the list as it was.
     await page.focus('[data-game-review] h3');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-filter-said]')?.textContent === '', { timeout: 5000 });
@@ -1190,7 +1164,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("an answer to another's discard is chosen again from the moves the hand's prompt points to, by keyboard", async () => {
+  await cases.check("an answer to another's discard says in the step bar whose tile it answers, outlines that tile in the seat's row, and names both moves, stepped to by keyboard", async () => {
     // The tile-throwing player passes every call, and Trained AI seldom
     // gives a pass under 5%, so this game's player calls everything instead.
     const page = await openPage(1100, 900, { saved: callingGame });
@@ -1201,25 +1175,45 @@ try {
     const key = await page.$$eval('[data-game-review] [data-flagged]', items =>
       items.find(item => /^Response to/.test(item.querySelector('.context')?.textContent.trim() ?? ''))?.dataset.flagged);
     assert.ok(key, 'a flagged answer to a discard');
+    const [handIndex, index] = key.split(':').map(Number), hand = callingHands[handIndex], view = hand.frames[index].view;
     await page.click(`[data-game-review] [data-open="${key}"]`);
-    await page.waitForSelector('[data-decision] [data-retry]');
-    // No tile in the hand can be thrown, so the hand's description, the
-    // prompt, sends the player to the moves below it, which Tab reaches next.
+    await page.waitForSelector('[data-decision] [data-view]');
+    /** What the step bar shows of the moves, and the tile on offer in the
+     * row of the seat that let it go, by name, if any. */
+    const shown = () => page.evaluate(() => ({
+      line: document.querySelector('[data-decision] [data-move-line]').textContent.replace(/\s+/g, ' ').trim(),
+      said: document.querySelector('[data-decision] [data-step-said]').textContent,
+      outlined: [...document.querySelectorAll('[data-decision] [data-overview] .seat .offered .tile')].map(tile => tile.getAttribute('aria-label')),
+    }));
+    // Whose tile the player answered, in the bar and in the step's line; a
+    // quad offered to be robbed holds every copy of its tile, so no row has
+    // it to outline.
+    const robbing = Boolean(quadOnOffer(view)), check = async () => {
+      const now = await shown();
+      assert.match(now.line, new RegExp(`^On ${SEAT_NAMES[view.pending_from]}'s${robbing ? ' kan' : ''} ?: You `), now.line);
+      assert.match(now.line, / · Flagged$/);
+      assert.ok(now.said.startsWith(`${hand.name}, decision ${index + 1} of ${hand.frames.length}. ${tableSaid(view)} You: `), now.said);
+      assert.match(now.said, /\. Trained AI: .+\. Flagged\.$/);
+      assert.equal(now.outlined.length, robbing ? 0 : 1, now.outlined.join(', '));
+      if (!robbing) {
+        assert.ok(now.outlined[0].startsWith(tileWords(view.pending_discard)) && now.outlined[0].endsWith(', the tile on offer'), now.outlined[0]);
+      }
+    };
+    await check();
+    // No tile in the hand was thrown at the answer, so none is tagged or ringed.
     assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
-    const prompt = () => page.$eval('[data-decision] .hand', el => document.getElementById(el.getAttribute('aria-describedby')).textContent);
-    assert.match(await prompt(), /^Choose again: a move below\.$/);
-    await page.focus('[data-decision] .hand');
-    await page.keyboard.press('Tab');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-retry]'), { timeout: 5000 });
+    assert.equal(await page.$$eval('[data-decision] .hand :is(.tag b, .tile.selected)', marks => marks.length), 0, 'no tile tagged or ringed');
+    // Away and back by keyboard, Previous or Next keeping focus: the same.
+    const away = index > 0 ? '[data-previous]' : '[data-next]', back = index > 0 ? '[data-next]' : '[data-previous]';
+    await page.focus(`[data-decision] ${away}`);
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'answer-title', { timeout: 5000 });
-    assert.match(await page.$eval('[data-answer] .verdicts li', el => el.textContent.trim()), /^This time: /);
-    // Choose again gives the hand focus, as at a turn, and its prompt says
-    // again where the choice is.
-    await page.focus('[data-answer] [data-again]');
+    await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent !== text, { timeout: 5000 },
+      placeOf(hand, index));
+    await page.focus(`[data-decision] ${back}`);
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] .hand'), { timeout: 5000 });
-    assert.match(await prompt(), /: a move below\.$/);
+    await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
+      placeOf(hand, index));
+    await check();
     assert.deepEqual(page.errors, []);
   });
 
@@ -1363,7 +1357,7 @@ try {
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.id === 'decision-title', { timeout: 5000 });
     assert.equal(await page.$eval('#decision-title', el => el.textContent), `${latest.name}, whole hand`);
-    await overviewIsRight(page, latest.frames[0], 0, latest.frames.length);
+    await overviewIsRight(page, latest, 0);
     await page.focus('[data-decision] [data-back]');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] [data-replay-latest]'), { timeout: 5000 });

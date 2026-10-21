@@ -11,11 +11,11 @@
    * The game, looked at again: from any hand's result the game so far, led by
    * the hand just played, and once the match is over the whole game. Every
    * decision the player made, in every hand, is put to Trained AI, led by the
-   * few where the player's move departed furthest from its choice, each of
-   * which can be replayed and chosen again. A filter lists every decision
-   * where Trained AI chose differently instead, or every decision, and any of
-   * them, or any hand reviewed, can be replayed with every player's tiles in
-   * view. The review itself (game-review.js) belongs to the match and goes on
+   * few where the player's move departed furthest from its choice, each
+   * listed with Trained AI's move beside the player's. A filter lists every
+   * decision where Trained AI chose differently instead, or every decision,
+   * and any of them, or any hand reviewed, can be replayed with every
+   * player's tiles in view. The review itself (game-review.js) belongs to the match and goes on
    * while this screen is closed, until the next deal; the screen only shows
    * it. Whether the screen is open or not, the review waits before each batch
    * while the hand's own notes ask Trained AI, then goes on where it was, so
@@ -190,7 +190,7 @@
     openedRank = rankOf(key(decision));
     focusedItem = null;
     moved = '';
-    opened = { key: key(decision), hand: decision.hand, start: decision.index, retry: Boolean(decision.judgement?.flagged), whole: false };
+    opened = { key: key(decision), hand: decision.hand, start: decision.index, whole: false };
   }
 
   // `from` is the button that opened the hand, for Back to the list to
@@ -198,7 +198,7 @@
   function openHand(hand, from = 'hands') {
     focusedItem = null;
     moved = '';
-    opened = { key: `hand ${hand.index}`, hand: hand.index, start: 0, retry: false, whole: true, from };
+    opened = { key: `hand ${hand.index}`, hand: hand.index, start: 0, whole: true, from };
   }
 
   function duration(seconds) {
@@ -289,7 +289,7 @@
   </header>
 
   {#if replaying}
-    {#key opened.key}<DecisionReplay hand={openedHand} start={opened.start} retry={opened.retry} whole={opened.whole} {hints} onback={closeDecision} />{/key}
+    {#key opened.key}<DecisionReplay hand={openedHand} start={opened.start} whole={opened.whole} {hints} onback={closeDecision} />{/key}
   {:else}
     {#if latest}
       <!-- The hand the player came from, which the review of the game so far
@@ -368,17 +368,15 @@
             {:else if decision.agreed}
               <p class="weight">Trained AI agreed.</p>
             {:else}
-              <!-- Trained AI's own choice waits behind a flagged decision's
-                   retry; any other says it here. -->
-              {#if !flagged}<p class="move">{#if decision.advised_tile}<Tile tile={decision.advised_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.advised_tile)} />{/if}<span>Trained AI: {decision.advised}</span></p>{/if}
+              <p class="move">{#if decision.advised_tile}<Tile tile={decision.advised_tile} size="small" dora={hints && (decision.dora_types ?? []).includes(decision.advised_tile)} />{/if}<span>Trained AI: {decision.advised}</span></p>
               {#if decision.judgement}
                 <p class="weight">{weightsSaid(decision.judgement)}</p>
               {/if}
             {/if}
-            <!-- A flagged decision opens to be chosen again, as the replay's
-                 own button for it says; any other opens to be looked at. -->
+            <!-- The button's name says which decision it replays, as its
+                 card does. -->
             <button class="app-control" data-open={key(decision)} onclick={() => openDecision(decision)}
-              aria-label={`${flagged ? 'Choose again' : 'Replay'}: ${name}, decision ${decision.index + 1}`}>{flagged ? 'Choose again' : 'Replay'}</button>
+              aria-label={`Replay: ${name}, decision ${decision.index + 1}`}>Replay</button>
           </li>
         {/each}
       </ol>

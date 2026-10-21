@@ -204,12 +204,11 @@ test('a decision is flagged only where the player had under 5% and the network a
   assert.equal(withheld.flagged, false);
 });
 
-test("a judged decision's weights are said alike in the list and in a replay's offer, and the Flagged filter's title states the rule in the same words", () => {
+test("a judged decision's weights are said in the list in the words the Flagged filter's title states the rule in", () => {
   assert.equal(weightsSaid({ stage: 'move', played: 0.02, preferred: 0.81 }), "Your move 2.0%, Trained AI's choice 81.0%.");
-  assert.equal(weightsSaid({ stage: 'move', played: 0.0004, preferred: 1 }, 'Flagged: '), "Flagged: your move <0.1%, Trained AI's choice 100.0%.");
+  assert.equal(weightsSaid({ stage: 'move', played: 0.0004, preferred: 1 }), "Your move <0.1%, Trained AI's choice 100.0%.");
   // Where both declared riichi, the tiles are judged given the declaration.
   assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }), "Given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
-  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }, 'Flagged: '), "Flagged: given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
   assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more" });
 });
 
@@ -278,7 +277,7 @@ test('a list says what its filter shows as it is chosen, and where it puts a dec
   assert.equal(movedNote(29, true, 'every'), 'Now 30th: decisions reviewed since came before it, so the whole list is shown.');
 });
 
-test('the table at a step is said in a sentence, each seat says what it was doing, and a hand list names each move', () => {
+test("the table at a step is said in a sentence, each seat says what it was doing, and a hand's line gives both moves", () => {
   const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
   const turn = { phase: 'act', wall: 45, pending_discard: null, pending_from: null, dora_types: [],
     seats: [seat('east', { turn: true, drawn: '3m' }), seat('south', { riichi: true }), seat('west'), seat('north', { riichi: true })] };
@@ -288,14 +287,32 @@ test('the table at a step is said in a sentence, each seat says what it was doin
     seats: [seat('east', { riichi: true }), seat('south'), seat('west', { turn: true }), seat('north')] };
   assert.equal(tableSaid(answer), 'West discarded the 5 bamboo, 1 tile left. You declared riichi.');
   assert.deepEqual(seatNotes(answer), ['To answer', '', 'Discarded', '']);
-  const frame = (played, view = turn) => ({ played, view });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), { agreed: true, forced: false, judgement: null }),
-    { move: 'Discard', tile: '7m', verdict: 'Trained AI agreed' });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'tsumo', tile: null }), { agreed: false, forced: false, judgement: { flagged: true } }),
-    { move: 'Tsumo', tile: '3m', verdict: 'Flagged' });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'pass', tile: null }, answer), { agreed: false, forced: false, judgement: null }),
-    { move: 'Pass', tile: '5s', verdict: 'Trained AI differed' });
-  assert.equal(decisionInBrief(frame({ kind: 'discard', tile: '1p' }), { agreed: true, forced: true }).verdict, 'Only move');
+  // A line of the hand's decisions: both moves as tiles and words, and its
+  // name in the engine's words. The choices name the moves as the engine does.
+  const choices = [{ kind: 'discard', tile: '7m', label: 'discards the 7 characters' }, { kind: 'discard', tile: '8s', label: 'discards the 8 bamboo' },
+    { kind: 'riichi', tile: '3s', label: 'declares riichi on the 3 bamboo' }, { kind: 'tsumo', tile: null, label: 'wins by self-draw' },
+    { kind: 'pass', tile: null, label: 'passes' }, { kind: 'chii', tile: '4s', label: 'calls a sequence from the 4 bamboo' }];
+  const frame = (played, view = turn) => ({ played, view, choices });
+  const decision = (advised, values = {}) => ({ agreed: false, forced: false, judgement: null, advised_kind: advised.kind,
+    advised_tile: advised.tile, advised: advised.label, ...values });
+  assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[1], { judgement: { flagged: true } })),
+    { you: { word: '', tiles: ['7m'] }, ai: { word: '', tiles: ['8s'] }, offered: null, verdict: 'Flagged', flagged: true, agreed: false,
+      forced: false, reviewed: true, said: 'You: discards the 7 characters. Trained AI: discards the 8 bamboo. Flagged.' });
+  const riichi = decisionInBrief(frame({ kind: 'riichi', tile: '3s' }), decision(choices[3]));
+  assert.deepEqual([riichi.you, riichi.ai, riichi.verdict], [{ word: 'Riichi', tiles: ['3s'] }, { word: 'Tsumo', tiles: [] }, 'Trained AI differed']);
+  assert.equal(riichi.said, 'You: declares riichi on the 3 bamboo. Trained AI: wins by self-draw.');
+  // Agreed, there is no other move to give, and an only move was no choice.
+  const agreed = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true }));
+  assert.deepEqual([agreed.ai, agreed.verdict, agreed.said], [null, 'Trained AI agreed', 'You: discards the 7 characters. Trained AI agreed.']);
+  const forced = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true, forced: true }));
+  assert.deepEqual([forced.ai, forced.verdict, forced.forced, forced.said], [null, 'Only move', true, 'You: discards the 7 characters. Only move.']);
+  // An answer to another's discard is on that tile.
+  const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[5]));
+  assert.deepEqual([pass.offered, pass.you, pass.ai], ['5s', { word: 'Pass', tiles: [] }, { word: 'Chii', tiles: ['4s', '5s', '6s'] }]);
+  assert.equal(pass.said, 'On the 5 bamboo. You: passes. Trained AI: calls a sequence from the 4 bamboo.');
+  // Before the hand is reviewed only the player's move is known.
+  const waiting = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), null);
+  assert.deepEqual([waiting.reviewed, waiting.ai, waiting.verdict, waiting.said], [false, null, '', 'You: discards the 7 characters. Not reviewed yet.']);
 });
 
 test('a filter holds the decisions it names, and its list runs through the hands in the order played, a hand not yet reviewed held only by the list of every decision', () => {
@@ -384,8 +401,9 @@ test('a step says in one line where it is, the table, both moves with their weig
   const frame = (view, choices, kind, tile = null) => ({ view, choices, played: { kind, tile }, lines: [] });
   const hand = { name: 'East 4', frames: [frame(offer, calls, 'pass'), frame(turn, discards, 'discard', '7z'),
     frame(turn, reaches, 'riichi', '3s'), frame(turn, discards, 'discard', '8s')] };
-  const decision = (step, advised, values = {}) => ({ advised_kind: advised.kind, advised_tile: advised.tile, advised: advised.label,
-    agreed: false, forced: false, judgement: { flagged: false }, weighted: hand.frames[step].choices, ...values });
+  const decision = (step, advised, values = {}) => ({ played_kind: hand.frames[step].played.kind, played_tile: hand.frames[step].played.tile,
+    advised_kind: advised.kind, advised_tile: advised.tile, advised: advised.label, agreed: false, forced: false,
+    judgement: { flagged: false }, weighted: hand.frames[step].choices, ...values });
   const said = (step, decision, options = {}) => stepSaid({ hand, step, decision, ...options });
   const flagged = decision(1, discards[1], { judgement: { flagged: true } });
 
@@ -412,6 +430,9 @@ test('a step says in one line where it is, the table, both moves with their weig
     + 'Trained AI: declares riichi on the 6 characters, 90.0% given riichi. Flagged.');
   assert.deepEqual(moveWeight(riichi, { kind: 'riichi', tile: '3s' }), { weight: 0.02, given: true });
   assert.deepEqual(moveWeight(riichi, { kind: 'discard', tile: '3s' }), { weight: 0.1, given: false });
+  // Trained AI alone declared: the declaration itself is weighed, as judged.
+  const declared = { ...riichi, played_kind: 'discard', played_tile: '3s' };
+  assert.deepEqual(moveWeight(declared, { kind: 'riichi', tile: '6m' }), { weight: 0.9, given: false });
   assert.deepEqual(moveWeight({ ...flagged, weighted: [{ ...discards[0], weight: null }] }, discards[0]), { weight: null, given: false },
     'a move Trained AI gave no weight');
 });
