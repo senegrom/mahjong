@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
-import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, judge, moveWords, searchOffered, singleEdits,
+import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, scoreEdit, searchOffered, singleEdits,
   tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInQuestion } from './fixtures/insight-panel.js';
@@ -27,7 +27,10 @@ const searched = questions.filter(entry => searchOffered(entry));
  * keeps a wait on it furiten, and says so in one clause; Trained AI was
  * asked that table since. South 4 #18's Why line no longer says that nobody
  * can be waiting on the player's 8 circles, every copy in sight: a 6-7 or a
- * 7-9 of circles waits on it holding none. */
+ * 7-9 of circles waits on it holding none. And no table is made that no game
+ * reaches: East 1 #20, the game's first deal, where nobody has scored, asks
+ * no score step, and no hand is made East 1, which leaves South 4 #18 no
+ * other hand to try. */
 const PANELS = {
   'e3-5': [
     'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
@@ -46,7 +49,7 @@ const PANELS = {
     'Not explained: Every copy of both tiles is in sight, so neither can deal in.',
     'One change and it throws your west wind:',
     '- What is safe (9 of 15 tried): if South\'s first discard had been a 1 characters, not the north wind (not every north wind in sight): your west wind 96.0%, the north wind 2.4%.',
-    'Not moved by the score (±16,000) or the round.',
+    'Not moved by the round.',
   ],
   'e2b-14': [
     'Why: You had already thrown an 8 bamboo, so a wait on it would be furiten. Trained AI puts 99.2% on tiles you had already thrown. If your second and ninth discards had each been a 1 characters, not the 8 bamboo: the 2 bamboo 66.4%, your 6 bamboo <0.1%, the 8 bamboo <0.1%.',
@@ -61,7 +64,7 @@ const PANELS = {
     'Partly: Your 8 circles leaves the hand 3 from waiting; Trained AI\'s 9 characters leaves it 2 from waiting. Trained AI puts 84.9% on tiles that keep the hand 2 from waiting.',
     'One change and it throws your 8 circles:',
     '- What is safe (2 of 7 tried): if South had declared riichi with their last discard, the 8 bamboo (a riichi, the 9 characters less safe and your 8 circles safe): your 8 circles 98.3%, the 9 characters 1.5%.',
-    'Not moved by the score (±16,000) or the round.',
+    'Not moved by the score (±16,000).',
   ],
   'why7-1m': [
     'Partly: Trained AI\'s 7 characters keeps thirteen orphans 4 from waiting; your 1 characters leaves it 5 from waiting. Trained AI puts 66.0% on tiles that keep thirteen orphans 4 from waiting.',
@@ -137,14 +140,17 @@ test('the search asks only tables the recorded run asked, the unedited one first
   }
   // The unedited table and every change version 1 makes of the prototype's
   // budget, in passes of eight: no wall, no dealer, no call taken back, no
-  // score levelled that was level already, and no riichi moved a discard
-  // earlier where the declaration's tile came from the hand (East 3 #5 and
-  // South 3 #4); then the score steps one at a time, and the pairs.
-  assert.deepEqual(passes, { 'e3-5': [8, 8, 8, 8, 6], 's3-4': [8, 8, 8, 8, 1, 8, 8, 8, 4], 'e1-20': [8, 8, 8, 3], 's1-9': [8, 8, 8, 6],
-    's4-18': [8, 8, 8, 5], 'why7-1m': [8, 8, 8, 8, 1, 1, 1] });
+  // score levelled that was level already or whose points do not share out
+  // in hundreds (East 3 #5 and South 3 #4, a riichi stick on the table), no
+  // riichi moved a discard earlier where the declaration's tile came from the
+  // hand (the same two), no score changed at the game's first deal (East 1
+  // #20) and no hand made East 1; then the score steps one at a time, and the
+  // pairs.
+  assert.deepEqual(passes, { 'e3-5': [8, 8, 8, 8, 4], 's3-4': [8, 8, 8, 7, 8, 8, 8, 4], 'e1-20': [8, 8, 7], 's1-9': [8, 8, 8, 5],
+    's4-18': [8, 8, 8, 4], 'why7-1m': [8, 8, 8, 7, 1, 1, 1] });
   // What the button's estimate counts before the search begins: the unedited
   // table and the single changes, the passes before any score step or pair.
-  const first = { 'e3-5': 38, 's3-4': 33, 'e1-20': 27, 's1-9': 30, 's4-18': 29, 'why7-1m': 32, 'e2b-14': 0, 'why7-2s': 0 };
+  const first = { 'e3-5': 36, 's3-4': 31, 'e1-20': 23, 's1-9': 29, 's4-18': 28, 'why7-1m': 31, 'e2b-14': 0, 'why7-2s': 0 };
   for (const entry of questions) assert.equal(tablesFirstAsked({ ...entry, facts }), first[entry.id], entry.title);
 });
 
@@ -158,7 +164,7 @@ test('each change is grouped by what it did to the engine\'s facts, as the proto
       compared++;
     }
   }
-  assert.equal(compared, 204);
+  assert.equal(compared, 193);
 });
 
 test('nothing is searched where Trained AI chose by more than e^7 to one', async () => {
@@ -367,6 +373,81 @@ test('a change touches every discard it changes, so that no pair of changes name
     }
   }
   assert.deepEqual([edits, pairs], [11838, 20465]);
+});
+
+const threeGames = [['The review check\'s game', reviewCheck], ['Club seed 5', clubFive], ['Club seed 16', clubSixteen]];
+
+test('no change, alone or paired, moves points at the game\'s first deal, and none makes a later hand the first', () => {
+  // At East 1 with no counters nobody has scored: each player holds the
+  // starting 30,000, less a riichi bet this hand. Score steps were asked
+  // there of points nobody had won, Club seed 16's East 1 #7 "from 6,000
+  // points fewer" of 32,000, 32,000, 32,000 and 24,000, and "this had been
+  // East 1" of later hands' scores. Only riichi and score changes move
+  // points (the test of every change above), so a pair that moves any holds
+  // one of them.
+  const unscored = table => table.players.every(player => player.score === 30000 - (player.riichi === 'none' ? 0 : 1000));
+  let decisions = 0, tables = 0;
+  for (const [game, decisionsOf] of threeGames) {
+    for (const [where, { position, discards }] of decisionsOf) {
+      const edits = singleEdits(position, asked(discards[0], discards[1]));
+      assert.ok(!edits.some(edit => /this had been East 1/.test(edit.words)), `${game}, ${where}`);
+      if (position.round !== 0 || position.kyoku !== 1 || position.counters) continue;
+      assert.ok(unscored(position), `${game}, ${where}`);
+      const moving = edits.filter(edit => ['riichi', 'scores'].includes(edit.family));
+      moving.forEach((edit, at) => {
+        for (const other of [null, ...moving.slice(at + 1).filter(next => !changesMeet(next, edit))]) {
+          assert.ok(unscored(applyEdits(position, edit, ...(other ? [other] : []))), `${game}, ${where}: ${edit.words}${other ? `, and ${other.words}` : ''}`);
+          tables++;
+        }
+      });
+      decisions++;
+    }
+  }
+  assert.deepEqual([decisions, tables], [37, 152]);
+});
+
+test('at East 1 with counters, the scores are changed only as far as the dealer\'s wins and the draws can have moved them', () => {
+  // The review check's East 1 #1 typed in again two counters on: the dealer
+  // won 12,000 from the player, West, then waited at a draw with South, the
+  // player and North paying 1,500 each. The dealer has paid nothing, and
+  // South and North have been paid 1,500 at most. A step up for the player
+  // takes points from them all; a step down would give South more than the
+  // draws can have paid it.
+  const position = structuredClone(reviewCheck.get('East 1 #1').position);
+  Object.assign(position, { counters: 2 });
+  [43500, 31500, 16500, 28500].forEach((score, seat) => { position.players[seat].score = score; });
+  assert.equal(position.seat, 2);
+  assert.doesNotThrow(() => facts(position));
+  const [P, A] = reviewCheck.get('East 1 #1').discards;
+  assert.deepEqual(singleEdits(position, asked(P, A)).filter(edit => edit.family === 'scores').map(edit => edit.words), [
+    'you had had 8,000 points more, taken evenly from the others',
+    'you had had 16,000 points more, taken evenly from the others',
+    'everyone had had the same score',
+  ]);
+  const down = applyEdits(position, scoreEdit(position, -8000));
+  assert.deepEqual([firstHandGives(position), firstHandGives(down), down.players[1].score], [true, false, 34200]);
+});
+
+test('everyone is made level only where the points on the table share out in hundreds, and then has one score', () => {
+  // With a riichi stick on the table 119,000 points do not: Club seed 16's
+  // South 3 #21 was asked "if everyone had had the same score" of 29,800,
+  // 29,800, 29,600 and 29,800, a table with a rank of its own.
+  let level = 0, uneven = 0;
+  for (const [game, decisionsOf] of threeGames) {
+    for (const [where, { position, discards }] of decisionsOf) {
+      const edit = singleEdits(position, asked(discards[0], discards[1])).find(each => each.words === 'everyone had had the same score');
+      const scores = position.players.map(player => player.score), points = scores.reduce((sum, score) => sum + score, 0);
+      if (new Set(scores).size === 1 || points % 400) {
+        assert.equal(edit, undefined, `${game}, ${where}`);
+        uneven += new Set(scores).size > 1;
+        continue;
+      }
+      const table = applyEdits(position, edit);
+      assert.deepEqual(table.players.map(player => player.score), Array(4).fill(points / 4), `${game}, ${where}`);
+      level++;
+    }
+  }
+  assert.deepEqual([level, uneven], [198, 62]);
 });
 
 /** What the panel says a change of a question's table did, or a pair of

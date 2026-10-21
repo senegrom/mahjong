@@ -13,9 +13,9 @@ import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
 const entry = recordedQuestions(Game, PhysicalAnalysis).find(question => question.id === 'e3-5');
-/** East 3 #5's search: the unedited table and its 37 changes, in passes of
+/** East 3 #5's search: the unedited table and its 35 changes, in passes of
  * the review's batch. */
-const SEARCH = [PASS, PASS, PASS, PASS, 6];
+const SEARCH = [PASS, PASS, PASS, PASS, 4];
 const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
@@ -121,7 +121,7 @@ test('a search shuts the review\'s gate while it asks, and opens it however it e
   await insight.search(questionOf(reviewedDecision(), entry.position), { onProgress: step => progress.push(step) });
   assert.ok(shutWhileAsking instanceof Promise, 'shut while the search asked');
   assert.equal(review(), null, 'open once it has ended');
-  assert.deepEqual(progress.at(-1), { asked: 38, planned: 38 });
+  assert.deepEqual(progress.at(-1), { asked: 36, planned: 36 });
   // A search that fails ends its spell too.
   const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
   await assert.rejects(failing.insight.search(questionOf(reviewedDecision(), entry.position)), /did not answer in time/);
@@ -216,7 +216,7 @@ test('a pass is the review\'s batch, or fewer where a question sent behind a who
   const network = recordedNetwork(), asking = new Asking(), notes = new Asking();
   const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, positionMs: () => 2500 });
   const found = await insight.search(questionOf(reviewedDecision(), entry.position));
-  assert.deepEqual([found.status, network.sizes], ['searched', [6, 6, 6, 6, 6, 6, 2]]);
+  assert.deepEqual([found.status, network.sizes], ['searched', [6, 6, 6, 6, 6, 6]]);
 });
 
 test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {

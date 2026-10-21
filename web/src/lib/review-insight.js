@@ -19,9 +19,10 @@
  * Version 1 keeps to what the prototype measured (insight/recommendation.md):
  * only the player's own discard against Trained AI's is explained; a table is
  * changed only in ways a game reaches, so the wall, the dealer and calls taken
- * back are left alone; a choice Trained AI made by more than e^7 to one is not
- * searched, since no small change moves it; and pairs of changes are tried
- * only when no single change flips the choice.
+ * back are left alone, and the scores and the hand of the game are kept to
+ * what the hands played can have given; a choice Trained AI made by more than
+ * e^7 to one is not searched, since no small change moves it; and pairs of
+ * changes are tried only when no single change flips the choice.
  */
 import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
 import { percent } from './ui.js';
@@ -156,6 +157,26 @@ const doraOf = indicator => {
 const indicatorFor = dora => TILE_TYPES.find(tile => doraOf(tile) === dora);
 const total = table => table.players.reduce((sum, player) => sum + player.score, 0);
 
+/** Every player's points at the game's first deal (EMA section 1.4, the
+ * engine's STARTING_SCORE). */
+const START = 30000;
+
+/** Whether a game can have reached a table's scores by its hand. Only East 1
+ * is held to it, where the deal has never passed: each hand before was East
+ * 1 again, which the dealer keeps by winning or by waiting at a draw, and
+ * each left a counter. With no counters nobody has scored, so each player
+ * holds the starting points less any riichi bet this hand. With counters
+ * the dealer, seat 0, has paid nothing but riichi bets, all on the table,
+ * and each other player has been paid at most 1,500 a draw, what waiting
+ * there with the dealer alone gives; a win shared with the dealer could give
+ * more, and such a table is left out. */
+export function firstHandGives(table) {
+  if (table.round !== 0 || table.kyoku !== 1) return true;
+  if (!table.counters) return table.players.every(player => player.score === START - (player.riichi === 'none' ? 0 : 1000));
+  const [dealer, ...others] = table.players;
+  return dealer.score >= START - 1000 * table.riichi_sticks && others.every(player => player.score <= START + 1500 * table.counters);
+}
+
 /** The player `delta` points up, taken evenly from the others, or down, given
  * evenly to them, the points on the table kept. A step past 8,000 asks the
  * player to imagine two things, so it costs two. */
@@ -281,20 +302,24 @@ export function singleEdits(position, { played, preferred }) {
   }
 
   // The scores, the points on the table kept: the player ahead or behind by
-  // a step, or everyone level, where they are not already.
-  for (const delta of [-16000, -8000, 8000, 16000]) edits.push(scoreEdit(position, delta));
-  if (new Set(position.players.map(player => player.score)).size > 1) {
-    add('scores', ['scores'], 'everyone had had the same score', table => {
-      const before = total(table), level = Math.round(before / 400) * 100;
-      table.players.forEach(player => { player.score = level; });
-      table.players[(me + 1) % 4].score += before - 4 * level;
-    });
+  // a step, or everyone level, where they are not already and the points
+  // share out evenly, in hundreds as every score is. Levelling shares out
+  // the points on the table, which a riichi declared or taken back moves, so
+  // it touches every riichi too. At East 1 the scores are changed only as
+  // the hands played there can have left them (firstHandGives).
+  const scored = edit => { if (firstHandGives(applyEdits(position, edit))) edits.push(edit); };
+  for (const delta of [-16000, -8000, 8000, 16000]) scored(scoreEdit(position, delta));
+  if (new Set(position.players.map(player => player.score)).size > 1 && total(position) % 400 === 0) {
+    scored({ family: 'scores', touches: ['scores', ...position.players.map((_, seat) => `riichi:${seat}`)], words: 'everyone had had the same score',
+      cost: 1, apply: table => { const level = total(table) / 4; table.players.forEach(player => { player.score = level; }); } });
   }
 
-  // The hand of the game: the last hand, this hand's number in the south
-  // round, and the first hand. The players are numbered by the hand number.
+  // The hand of the game: the last hand, and this hand's number in the south
+  // round. The players are numbered by the hand number. Not the first hand:
+  // a table that keeps a later hand's scores almost never fits East 1, where
+  // only the dealer's wins and the draws can have moved them.
   const named = new Set([`${position.round} ${position.kyoku}`]);
-  for (const [round, kyoku] of [[1, 4], [1, position.kyoku], [0, 1]]) {
+  for (const [round, kyoku] of [[1, 4], [1, position.kyoku]]) {
     if (named.has(`${round} ${kyoku}`)) continue;
     named.add(`${round} ${kyoku}`);
     add('round', ['round'], `this had been ${WINDS[round]} ${kyoku}${round === 1 && kyoku === 4 ? ', the last hand' : ''}`,
@@ -570,9 +595,11 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
     if (first < 0) continue;
     let low = first === 0 ? 0 : 8000 * sign, high = (first === 0 ? 8000 : 16000) * sign, atHigh = steps[first], tried = 0;
     for (;;) {
-      const middle = Math.round((low + high) / 2000) * 1000;
-      if (middle === low || middle === high) break;
-      const edit = scoreEdit(position, middle);
+      // A step between two asked is the smaller, so a game that gives the
+      // larger gives it too, but for East 1's shares rounded to hundreds,
+      // which is why it is checked.
+      const middle = Math.round((low + high) / 2000) * 1000, edit = scoreEdit(position, middle);
+      if (middle === low || middle === high || !firstHandGives(applyEdits(position, edit))) break;
       net.plan(1);
       const [step] = judged([edit], await net.all([applyEdits(position, edit)]), { ...context, withFacts: false });
       tried++;
@@ -591,8 +618,11 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
     for (const change of [...one].sort((x, y) => y.margin - x.margin)) {
       if (chosen.length < PAIRED && !chosen.some(other => changesMeet(other, change))) chosen.push(change);
     }
+    // Each change of the pair keeps East 1's scores to what its hands can
+    // have given, but two together need not, a riichi's bet beside a step.
     const pairEdits = chosen.flatMap((a, i) => chosen.slice(i + 1).map(b => ({ family: `${a.family}+${b.family}`, touches: [...a.touches, ...b.touches],
-      cost: a.cost + b.cost, words: `${a.words}, and ${b.words}`, parts: [a.edit, b.edit], apply: table => { a.edit.apply(table); b.edit.apply(table); } })));
+      cost: a.cost + b.cost, words: `${a.words}, and ${b.words}`, parts: [a.edit, b.edit], apply: table => { a.edit.apply(table); b.edit.apply(table); } })))
+      .filter(edit => firstHandGives(applyEdits(position, ...edit.parts)));
     net.plan(pairEdits.length);
     pairs = judged(pairEdits, await net.all(pairEdits.map(edit => applyEdits(position, ...edit.parts))), context);
   }
