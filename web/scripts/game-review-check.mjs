@@ -853,17 +853,22 @@ try {
       // lands on them, as it does when handed on at either end or tabbed
       // back to, moves nothing. On a screen 500 pixels high or less the bar
       // stays in its place, and a button focused there is brought into view
-      // below the game's bar, which stays at the top.
+      // below the game's bar, which stays at the top. Focus is taken off
+      // first, so that it moves onto each button: the one pressed above has
+      // it already, and focusing an element that has focus does nothing,
+      // scrolling included.
       for (const button of ['[data-previous]', '[data-next]']) {
         const selector = `[data-decision] ${button}:not(:disabled)`;
         if (!await page.$(selector)) continue;
+        await page.evaluate(() => document.activeElement?.blur());
         const before = await page.evaluate(() => scrollY);
         await page.focus(selector);
         await settle(page);
-        const after = await page.evaluate(selector => ({ scrolled: scrollY,
+        const after = await page.evaluate(selector => ({ scrolled: scrollY, landed: document.activeElement === document.querySelector(selector),
           sticks: getComputedStyle(document.querySelector('[data-decision] [data-steps]')).position === 'sticky',
           top: document.querySelector(selector).getBoundingClientRect().top,
           below: document.querySelector('header.bar').getBoundingClientRect().bottom }), selector);
+        assert.ok(after.landed, `focus on ${button} at ${width}x${height}`);
         if (after.sticks) assert.equal(after.scrolled, before, `focus on ${button} moved the page at ${width}x${height}`);
         else assert.ok(after.top >= after.below, `${button} at ${after.top}, under the game's bar to ${after.below}, at ${width}x${height}`);
       }
