@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { Game, review_facts } from '../src/wasm/riichi.js';
+import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MARGIN_FLOOR, PASS, applyEdits, explainWhy, judge, saidLines, searchOffered, singleEdits, tablesFirstAsked,
   whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
-const questions = recordedQuestions(Game);
+const questions = recordedQuestions(Game, PhysicalAnalysis);
 const question = id => questions.find(entry => entry.id === id);
 const facts = review_facts;
 const searched = questions.filter(entry => searchOffered(entry));
@@ -95,6 +95,10 @@ test('a Why line that is only partly or not explained carries the check\'s worki
     'why7-1m': 'Explained needs 95% or more of its weight on those tiles.',
     'why7-2s': 'No fact the engine counts favours the 7 characters; for yours, both leave the hand 4 from waiting; 18 unseen tiles would improve it after Trained AI\'s 7 characters, 67 after your 2 bamboo.',
   });
+});
+
+test('every table the recorded run answered is written by the page as the run asked it, but the one pair named', () => {
+  for (const entry of questions) assert.deepEqual(recordedAsk(entry).otherwise, [], entry.title);
 });
 
 test('the search asks only tables the recorded run asked, the unedited one first, in passes of at most 32', async () => {

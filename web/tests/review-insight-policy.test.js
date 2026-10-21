@@ -11,7 +11,7 @@ import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
-const entry = recordedQuestions(Game).find(question => question.id === 'e3-5');
+const entry = recordedQuestions(Game, PhysicalAnalysis).find(question => question.id === 'e3-5');
 const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
