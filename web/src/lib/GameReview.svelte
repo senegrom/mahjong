@@ -4,8 +4,8 @@
   import ReviewIndex from './ReviewIndex.svelte';
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { FILTER_LABELS, agreement, filterCounts, handEntry, landing, neighbour, playlist } from './game-review.js';
-  import { REVIEW_WIDE, reviewKey, waitingNote } from './ui.js';
+  import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, playlist, revealing } from './game-review.js';
+  import { REVIEW_WIDE, moveHandFocus, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -16,10 +16,11 @@
    * next that its filter keeps, the flagged ones, those where Trained AI
    * differed or every one, across hands, and gives the move made there beside
    * Trained AI's. Under it is the decision: the table as it stood, every
-   * player's tiles face up, and Trained AI's view. The list of hands and
-   * decisions, which goes to any decision or hand, is a column of its own on
-   * the left where the screen is wide enough (REVIEW_WIDE), and elsewhere
-   * folded between the step bar and the decision.
+   * player's tiles face up unless the player keeps them back (below), and
+   * Trained AI's view. The list of hands and decisions, which goes to any
+   * decision or hand, is a column of its own on the left where the screen is
+   * wide enough (REVIEW_WIDE), and elsewhere folded between the step bar and
+   * the decision.
    *
    * The review itself (game-review.js) belongs to the match and goes on while
    * this screen is closed, until the next deal; the screen only shows it.
@@ -35,9 +36,19 @@
    * lands (landing), which is kept as the place. The keys step and go back
    * where the player keeps keyboard shortcuts on (`shortcuts`), as play's do,
    * and not on a touch screen (`touch`).
+   *
+   * The player can have the review keep Trained AI's move back (`hideMove`),
+   * and the other players' tiles (`hideTiles`), until they ask for them at
+   * each decision, by Show answer or Show tiles, or by picking a move of
+   * their own, which is kept as Now. Both settings are stored with the
+   * preferences, and offered in the review's header as in the settings.
+   * `revealed` is what the player has revealed, by decision ("hand:step",
+   * revealing), which App keeps for the match, so that no decision asks
+   * again, whatever is closed, opened or stepped through meanwhile.
    */
   let { review, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, shortcuts = true, touch = false,
-    filter = $bindable('flagged'), place = $bindable(null) } = $props();
+    filter = $bindable('flagged'), place = $bindable(null), revealed = $bindable({}), hideMove = $bindable(false),
+    hideTiles = $bindable(false) } = $props();
 
   const read = owner => ({
     hands: owner.hands.map(hand => ({ ...hand })), busy: owner.busy, failure: owner.failure, held: owner.held,
@@ -141,6 +152,13 @@
   let previous = $derived(at ? neighbour(list, at, -1) : null);
   let waiting = $derived(Boolean(at) && shown.status === 'reviewing' && filter !== 'every');
   let next = $derived(!at || waiting ? null : neighbour(list, at, 1));
+  // What the player has revealed of the decision on show, and what it keeps
+  // back from them now (hiddenAt): Trained AI's move, the other players'
+  // tiles, both or neither. A decision never holds Next back, however much
+  // it keeps back.
+  let reveal = $derived(at ? revealed[decisionKey(at.hand, at.step)] ?? null : null);
+  let hidden = $derived(hiddenAt(current, reveal, { hideMove, hideTiles }));
+  let pick = $derived(reveal?.pick ?? null);
 
   // A control that had focus and has gone, or can no longer have it.
   const lost = element => !element || element === document.body || !element.isConnected || Boolean(element.disabled);
@@ -172,17 +190,53 @@
     return null;
   }
 
+  // Reveals what the decision on show keeps back: its answer, and the other
+  // players' tiles where those are kept back too, or the tiles alone where
+  // only they are; and keeps the move the player picked there to answer it,
+  // `pick`, which reveals the decision as Show answer does. It comes from
+  // Show answer or Show tiles, a move picked in the hand or under it, or a
+  // key. App keeps the reveal for the match, so the decision never asks
+  // again. A reveal takes away the control that made it, the button or the
+  // live hand's tile, and focus then goes on to Next, or to Previous at the
+  // end, where the player steps from, rather than to the page; a key leaves
+  // focus where it was, unless that went too.
+  async function revealHere(move = null) {
+    if (!at || (!hidden.move && !hidden.tiles) || (move && !hidden.move)) return;
+    const had = root?.contains(document.activeElement);
+    revealed = { ...revealed, [decisionKey(at.hand, at.step)]: revealing(current, move) };
+    await tick();
+    if (had && lost(document.activeElement)) (stepButton() ?? heading)?.focus();
+  }
+
+  // The player's hand while it is live, Trained AI's move kept back: its
+  // tiles are what the digits pick, and ← and → move along it there.
+  const liveHand = () => (hidden.move ? root?.querySelector('[data-decision] .mine .hand') ?? null : null);
+
+  // The tile a digit picks while the hand is live, as play's digits throw
+  // one: 1 to 9 the hand's first nine tiles, 0 the tile just drawn; nothing
+  // where that tile is no legal discard there.
+  function digitTile(action) {
+    const frame = shown.frames[at.step], me = frame.view.seats[0];
+    const tile = action === 'pick-drawn' ? me.drawn : me.hand[Number(action.slice('pick-'.length)) - 1];
+    return tile && frame.choices.some(choice => choice.kind === 'discard' && choice.tile === tile) ? tile : null;
+  }
+
   // The review's keys (reviewKey): ← and → step as Previous and Next do,
-  // with Shift to the hand before or after, and Esc goes back. They work
-  // where the player keeps keyboard shortcuts on, as play's do, and not on a
-  // touch screen; never while a dialog is open over the page, such as the
-  // settings' or the table's discards, nor in a field.
+  // with Shift to the hand before or after; s shows what the decision keeps
+  // back, as the step bar's button does; while the hand is live, the digits
+  // pick a tile of it and ← and → move along it, as play's keys do; and Esc
+  // goes back. They work where the player keeps keyboard shortcuts on, as
+  // play's do, and not on a touch screen; never while a dialog is open over
+  // the page, such as the settings' or the table's discards, nor in a field.
   function press(event) {
     if (!shortcuts || touch) return;
-    const action = reviewKey(event, { dialogOpen: Boolean(document.querySelector('dialog[open]')) });
+    const hand = liveHand(), action = reviewKey(event, { hand, dialogOpen: Boolean(document.querySelector('dialog[open]')) });
     if (action === 'back') onclose?.();
     else if (action === 'previous' || action === 'next') void go(action === 'next' ? next : previous);
     else if (action === 'previous-hand' || action === 'next-hand') void go(handStep(action === 'next-hand' ? 1 : -1));
+    else if (action === 'previous-tile' || action === 'next-tile') moveHandFocus(hand, action === 'next-tile' ? 1 : -1);
+    else if (action === 'reveal' && (hidden.move || hidden.tiles)) void revealHere();
+    else if (action?.startsWith('pick-') && digitTile(action)) void revealHere({ kind: 'discard', tile: digitTile(action) });
     else return;
     event.preventDefault();
   }
@@ -258,9 +312,18 @@
 <section class="game-review" aria-labelledby="game-review-title" data-game-review bind:this={root}>
   <header>
     <h2 id="game-review-title" tabindex="-1" bind:this={heading}>{status.over ? 'Whole game' : 'Game so far'}</h2>
-    <!-- Back to where the review was opened: the hand's result while the
-         match is under way, and the standings once it is over. -->
-    <button class="app-control" data-close-review onclick={onclose}>{status.over ? 'Back to the standings' : 'Back to the result'}</button>
+    <div class="actions">
+      <!-- The two settings, here as in Options, where the player quizzes
+           themselves; the same settings, so the two places agree. On a phone
+           they are in the settings alone, which leave the review more room. -->
+      <div class="hiding">
+        <label><input type="checkbox" bind:checked={hideMove} data-hide-move /> Hide Trained AI's move</label>
+        <label><input type="checkbox" bind:checked={hideTiles} data-hide-tiles /> Hide other players' tiles</label>
+      </div>
+      <!-- Back to where the review was opened: the hand's result while the
+           match is under way, and the standings once it is over. -->
+      <button class="app-control" data-close-review onclick={onclose}>{status.over ? 'Back to the standings' : 'Back to the result'}</button>
+    </div>
   </header>
 
   <div class="progress" class:finished={status.complete}>
@@ -292,7 +355,8 @@
          top of the screen while the rest of the stage is scrolled under it. -->
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
-        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} onstep={go} bind:height={barHeight} />
+        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} moveHidden={hidden.move}
+          tilesHidden={hidden.tiles} {pick} onstep={go} onreveal={() => revealHere()} bind:height={barHeight} />
       {/if}
       {#if !wide}
         <details class="list" data-review-index bind:open={listOpen}>
@@ -301,7 +365,7 @@
         </details>
       {/if}
       {#if at}
-        <DecisionReplay hand={shown} step={at.step} {hints} />
+        <DecisionReplay hand={shown} step={at.step} {hints} moveHidden={hidden.move} tilesHidden={hidden.tiles} {pick} onpick={revealHere} />
       {:else}
         <p class="empty">{status.over ? 'You made no decisions.' : 'No decisions yet.'}</p>
       {/if}
@@ -323,8 +387,8 @@
      for it to keep its line in view, and `bar` the step bar's height, which
      the line keeps clear of as a step makes the bar taller. -->
 {#snippet index(open)}
-  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} bar={barHeight} onplace={go}
-    onreview={hand => review.review([hand])}>
+  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} bar={barHeight} {hideMove} {revealed}
+    onplace={go} onreview={hand => review.review([hand])}>
     {#if figure.decisions}
       <ReviewTrend compact {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}
         bind:open={gamesOpen} bind:expanded={trendOpen} />
@@ -338,6 +402,16 @@
   h2 { margin: 0; font-size: 1.15rem; font-weight: 600; }
   h2:focus { outline: none; }
   h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  /* The two settings and Back at the right of the header, Back last; where
+     they have no room beside the heading they take a row of their own, and
+     Back one under them, still at the right. The settings are drawn as
+     Options draws its checkboxes, a finger's height where a finger presses
+     them. On a phone they are left to the settings. */
+  .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 16px; margin-left: auto; }
+  .hiding { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; }
+  .hiding label { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; font-size: .85rem; cursor: pointer; }
+  .hiding input { width: 20px; height: 20px; margin: 0; accent-color: var(--gold); }
+  @media (pointer: coarse) { .hiding label { min-height: 44px; } }
   p { margin: 0; }
   .progress { display: grid; gap: 6px; }
   /* Once every hand is reviewed nothing of the progress is shown, and it
@@ -385,14 +459,16 @@
   .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
   @media (max-width: 760px) {
     .game-review { padding: 10px; }
+    .hiding { display: none; }
     .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
   }
   @media (max-height: 500px) {
     .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: 72px; }
   }
   /* Where the game's bar stays at the top of the screen (AppSettings), the
-     heading scrolled to must land below it, not under it. */
+     heading scrolled to must land below it, not under it, and so must the
+     header's controls beside it, focused from further down the page. */
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h2 { scroll-margin-top: 72px; }
+    h2, header :is(input, button) { scroll-margin-top: 72px; }
   }
 </style>

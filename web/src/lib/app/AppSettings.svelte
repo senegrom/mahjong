@@ -10,10 +10,13 @@
   // App owns persistence and match lifecycle; only panel/focus state is local.
   // network is the version of the trained network the page plays; App reloads
   // the page to play another (onnetworkchange), or answers false to keep it.
+  // reviewHideMove and reviewHideTiles are the review's two settings, which
+  // the review of the game offers in its header too (GameReview).
   let {
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
-    shortcuts = $bindable(true), tileFace, pendingTileFace = null,
+    shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
+    tileFace, pendingTileFace = null,
     network = playedNetwork().version, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
@@ -130,6 +133,10 @@
     <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>
+    <!-- After the others, so that the checks that find a checkbox by its
+         place find the same ones. -->
+    <label><input type="checkbox" bind:checked={reviewHideMove} data-hide-move /> Hide Trained AI's move in reviews</label>
+    <label><input type="checkbox" bind:checked={reviewHideTiles} data-hide-tiles /> Hide other players' tiles in reviews</label>
     <p>With confirmation on, tap a tile to select it, then tap it again or press Discard. Your match and preferences are saved on this device.</p>
   </div>
 </details>

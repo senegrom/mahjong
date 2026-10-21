@@ -48,6 +48,9 @@ export interface OfflineStatusProps {
 export interface SettingsProps extends OfflineStatusProps {
   mode?: GameMode; settingsOpen?: boolean;
   hints?: boolean; confirmDiscards?: boolean; shortcuts?: boolean;
+  /** Whether reviews keep Trained AI's move back, and the other players'
+   * tiles, until the player asks to see them at each decision. */
+  reviewHideMove?: boolean; reviewHideTiles?: boolean;
   tileFace: TileFace; pendingTileFace?: TileFace | null;
   /** Asked to play another listed network by version: true once App takes
    * the pick (it reloads the page), false to keep the one playing. */

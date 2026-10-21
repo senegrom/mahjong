@@ -237,15 +237,14 @@ their words arrive, so that a screen reader can hear them after the heading it
 reads out as focus arrives.
 
 The notes honour the setting that has reviews keep Trained AI's move back
-(`reviewHideMove`, stored with the other preferences and off unless set), so
+(**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
 that this second way into the hand does not give away what the review of the
 game asks the player to find. With it on, whichever adviser gives the notes,
-each decision shows only the move made, and **Show answers**, after the
-filter, adds what the adviser would have done instead, with its preference,
-or Club's reason and numbers. Pressed, the button reads **Hide answers** and
-keeps focus. How many decisions matched, and the filter with its counts, stay:
-they say how far the player went wrong, not what was better. The setting has
-no checkbox yet; it comes with the review of the game that honours it too.
+each decision shows only the move made, and **Show answers**, after the filter,
+adds what the adviser would have done instead, with its preference, or Club's
+reason and numbers. Pressed, the button reads **Hide answers** and keeps focus.
+How many decisions matched, and the filter with its counts, stay: they say how
+far the player went wrong, not what was better.
 
 ### The standings as the game ends
 
@@ -400,9 +399,9 @@ and gives the move made there beside Trained AI's; under it is the decision,
 with the list of hands and decisions in a column of its own on its left where
 the screen is 1100 pixels wide and 600 high or more, and elsewhere folded
 between the step bar and the decision ("Hands · Flagged (46)"). The decision is
-the table as it stood, every hand face up, the player's own seat and Trained
-AI's view. No list of cards stands between the player and a decision, and no
-**Back to the list** between one decision and another; **Back to the
+the table as it stood, every hand face up by default, the player's own seat and
+Trained AI's view. No list of cards stands between the player and a decision,
+and no **Back to the list** between one decision and another; **Back to the
 standings** is the screen's one way out. The hand review reviews one hand and
 is gone at the next deal; this one is rebuilt for the whole game. On a phone
 the final hand's result is a sheet over the standings, so the sheet offers the
@@ -548,8 +547,9 @@ keyboard focus on it. Where the screen changes across that size, a control of
 the list that had focus has it again where the list is drawn now.
 
 **Every hand, face up.** At every decision the table is shown as it stood,
-every player's hand face up all the time, with no control to hide or show them:
-each opponent's concealed tiles in their seat, the tile just drawn apart, above
+every player's hand face up unless the player keeps the others' back (Hidden
+answers, below), with no control on the table to hide or show them: each
+opponent's concealed tiles in their seat, the tile just drawn apart, above
 their sets (the called tile turned) and their discards in order (the riichi
 tile turned, the tiles called away marked), the seat headed by its wind, where
 the opponent sat and who played them, the dealer, the score and riichi; the
@@ -640,6 +640,41 @@ whether the tile could deal into a declared riichi, and its worth as dora (the
 engine's `review_measure`). It stays open or folded as the player leaves it.
 Nothing is played on from any decision, and the saved match is never touched.
 
+**Hidden answers.** Two settings make the review a quiz, both off unless the
+player turns them on: **Hide Trained AI's move in reviews** and **Hide other
+players' tiles in reviews**, after the other checkboxes in Options, and from
+761 pixels wide in the review's header too, without "in reviews". Both places
+change the same settings, stored with the other preferences (`reviewHideMove`,
+`reviewHideTiles`). With the first on, a decision Trained AI answered, but for
+an only move, keeps its answer back: the step bar reads "You [R] · Trained AI ?
+**Show answer**", without the player's weight, which would say how Trained AI
+rated it; its line in the list reads "12 [R] → ?", heard "Trained AI's move
+hidden", as the step's line says; no tile is ringed or tagged "AI", and Trained
+AI's view waits. The flag, the filter with its counts and the agreement figure
+stay: they say how far the player went wrong, not what was better. The decision
+is put to the player instead, as in play: every legal discard in the hand is a
+tile to press, every other move a button under the hand in play's words
+("Pass", "Pon — triplet", "Riichi — discard the 3 bamboo"), and the hand says
+"Pick a move, or Show answer." A move picked answers the decision and is kept
+as **Now**: in the step bar ("You [R] 2.0% · Now [8s] 95.5% · Trained AI [8s]
+95.5%"), over its tile, in the step's line, in Trained AI's view and, where the
+review measured it, in a column of "What each move leaves" between "You" and
+"Trained AI". With the second on, the three opponents' tiles lie face down in
+their racks at every decision, the same size, the drawn tile's gap kept, named
+"South's tiles, Right (Club), face down" and nothing more, until the decision
+is revealed; where only they are kept back the step bar offers **Show tiles**,
+and **Show answer** shows both. The racks turn over where they lie, so nothing
+moves. The key s does what the step bar's button does, and while the hand is
+live the digits pick its first nine tiles and 0 the one just drawn, as in play.
+A reveal takes away the control that made it, the button, the moves under the
+hand or the tile, so focus goes on to Next, or to Previous at the end; a key
+leaves focus where it was, unless that was in the hand. A reveal is kept for
+the match (App's `reviewRevealed`, by "hand:step"), through steps, closing and
+opening the review, and hands added later; a new game or a reload asks again. A
+setting turned on keeps back only what the player has not revealed, and turned
+off shows everything. Show tiles in a hand not reviewed yet leaves its move to
+be answered once Trained AI has. Nothing kept back holds Next.
+
 **Stepping.** The step bar stays at the top of the screen, under the game's bar
 on a phone, except on a screen 500 pixels high or less, where it would take a
 third of it. **Previous** and **Next** go to the decision the filter keeps
@@ -655,20 +690,23 @@ steps through it at once. Beside them is the place ("East 1 · decision 3 of 7",
 "East 1 · 3 of 7" up to 480 pixels wide). With "Keyboard shortcuts in your
 hand" on, and not on a touch screen, as play's keys are, ← and → step as
 Previous and Next do, Shift+← and Shift+→ go to the hand before or after, at
-its first decision the filter keeps, and Esc goes back to the result or the
-standings. A key is left alone while a dialog is open over the page, the
-settings' or the table's discards, with Ctrl, Alt or Meta held, while text is
-composed, in a field, or once something else has handled it; screen readers in
-browse mode keep their own arrows. Keys never move focus themselves. Previous
-and Next keep focus, and a step to either end hands it to the other, without
-moving the page; a line of the list keeps it as the decision on show changes. A
-step that takes away the control that had focus, such as the dim line of a
-decision the filter leaves out, or **Show 3 more moves** at a decision with
-fewer, hands it to Next, or to Previous at the end, never to the page. A
-control focused below the step bar is brought into view under it, never beneath
-it, also when a step makes the bar taller. The decision stays on the page
-across steps and hands, so what the player opened or folded in it stays as they
-left it.
+its first decision the filter keeps, s shows what a decision keeps back, and
+Esc goes back to the result or the standings. While the hand is live (Hidden
+answers, above) the digits pick a tile of it, and in it ← and → move along the
+tiles, as in play, rather than step. A key is left alone while a dialog is open
+over the page, the settings' or the table's discards, with Ctrl, Alt or Meta
+held, while text is composed, in a field, or once something else has handled
+it; screen readers in browse mode keep their own arrows. Keys never move focus
+themselves, unless the control that had it goes, as a tile of the live hand
+does once a key answers the decision. Previous and Next keep focus, and a step
+to either end hands it to the other, without moving the page; a line of the
+list keeps it as the decision on show changes. A step that takes away the
+control that had focus, such as the dim line of a decision the filter leaves
+out, or **Show 3 more moves** at a decision with fewer, hands it to Next, or to
+Previous at the end, never to the page. A control focused below the step bar is
+brought into view under it, never beneath it, also when a step makes the bar
+taller. The decision stays on the page across steps and hands, so what the
+player opened or folded in it stays as they left it.
 
 **Agreement and its trend.** The figure is the share of decisions with a choice
 where the player's move was Trained AI's, and the tile counts them ("16 of 75
@@ -767,22 +805,28 @@ at either end and as a control goes, Next keeping focus while it waits for a
 hand's answers, the keys and where they are left alone, and the trend, every
 hand face up at every step of a hand at desktop, tablet and phone sizes, the
 step bar on the screen as the screen changes size and at each step, and focus
-never under it nor moving the page as it lands on the bar, the filter that
-Next follows, a decision it leaves out kept in
-view, and the filter kept across a reload, by keyboard and pointer, its lists
-staying open or folded as the player leaves them while the steps change and
-later hands are reviewed, by touch and by keyboard, the folded list showing the
-line on show as it opens and bringing it out from under the bars at each step,
-the list a column of its own on a wide screen that keeps the line on show in
-view and keeps still what the player looks at, a line or a filter pressed or an
-earlier hand, as later hands are reviewed, the page still, the player's tiles
-in one row from tablet width, and its way in and out on a phone, by touch and
-by keyboard; and the review of the game so far from a hand's result, opened on
-the hand just played and asking about it first, kept out of the trend, back to
-the result's button at desktop and phone sizes and open again where it was
-left, stopped by Next hand and asking nothing again at the next hand's result
-or at the standings), the review, of the game so far or of the whole game,
-waiting while a hand's own notes ask Trained AI and going on where it was,
-history and export, and settlements that balance event by event. Its browser
-checks run in Chromium, including narrow portrait and landscape sizes; they are
-not physical-iPhone or Safari testing.
+never under it nor moving the page as it lands on the bar, the filter that Next
+follows, a decision it leaves out kept in view, and the filter kept across a
+reload, by keyboard and pointer, its lists staying open or folded as the player
+leaves them while the steps change and later hands are reviewed, by touch and
+by keyboard, the folded list showing the line on show as it opens and bringing
+it out from under the bars at each step, the list a column of its own on a wide
+screen that keeps the line on show in view and keeps still what the player
+looks at, a line or a filter pressed or an earlier hand, as later hands are
+reviewed, the page still, the player's tiles in one row from tablet width, its
+two settings, the same in Options and in its header and kept across a reload, a
+decision keeping Trained AI's move and the other players' tiles back until Show
+answer, s, a digit, a tile or a call picked by keyboard answers it, the pick
+kept as Now and the racks turning over where they lay, focus going on to Next
+as the control used goes, the live hand tabbed through clear of the bars on a
+phone, and each reveal kept through steps and opening again and gone after a
+reload, and its way in and out on a phone, by touch and by keyboard; and the
+review of the game so far from a hand's result, opened on the hand just played
+and asking about it first, kept out of the trend, back to the result's button
+at desktop and phone sizes and open again where it was left, stopped by Next
+hand and asking nothing again at the next hand's result or at the standings),
+the review, of the game so far or of the whole game, waiting while a hand's own
+notes ask Trained AI and going on where it was, history and export, and
+settlements that balance event by event. Its browser checks run in Chromium,
+including narrow portrait and landscape sizes; they are not physical-iPhone or
+Safari testing.

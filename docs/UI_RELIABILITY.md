@@ -51,13 +51,16 @@ identity only inside its first real save, so missing storage, Web Locks or
 not cloud sync or an offline-installation feature. Clearing website data removes
 the saved match. A future change to engine rules may require a save migration.
 
-Preferences (opponent strength, hints, discard confirmation and shortcuts) are
-stored separately. A first visit starts with Trained opponents and the Trained
-AI review adviser. Saved preferences are read as they stand, so a player whose
-record holds Club keeps Club; only a preference the record lacks takes the
-default. Cancelling an opponent change leaves both the displayed
-selection and active game unchanged. New game requests confirmation whenever
-an unfinished match has progress, including between hands.
+Preferences (opponent strength, hints, discard confirmation, shortcuts, and the
+game review's filter and its two hiding settings) are stored separately. A
+first visit starts with Trained opponents and the Trained AI review adviser,
+the review's flagged decisions and nothing hidden. Saved preferences are read
+as they stand, so a player whose record holds Club keeps Club; only a
+preference the record lacks takes the default. What the player revealed in a
+review is kept for the match only, never saved. Cancelling an opponent change
+leaves both the displayed selection and active game unchanged. New game
+requests confirmation whenever an unfinished match has progress, including
+between hands.
 
 ## Input and presentation
 
@@ -146,7 +149,8 @@ an unfinished match has progress, including between hands.
   says the game is loading, the settings' line that new tile graphics are
   loading, a yaku's explanation on a hand's result, the game review's
   headline and its step bar's line, which says the step, the table and both
-  moves in one line as the step changes, both with the review, and the status
+  moves in one line as the step changes, or that Trained AI's move is hidden,
+  and again as the player reveals it, both with the review, and the status
   lines of Agent watch (its file note among them), the guided physical game
   and physical agent play.
 

@@ -6,7 +6,7 @@ Presentation components cannot write a match or choose a fallback opponent.
 
 | Component | Boundary |
 | --- | --- |
-| `AppSettings` | Bind preference scalars to App; own the responsive settings dialog and focus; ask App to load another trained network, which App does by reloading the page. |
+| `AppSettings` | Bind preference scalars to App, the review's two hiding settings among them, which the game's review binds in its header too; own the responsive settings dialog and focus; ask App to load another trained network, which App does by reloading the page. |
 | `OfflineStatus` | Render actual core/AI persistence status and invoke an explicit download callback. |
 | `OpponentDialog` | Edit a separate draft; ask App to confirm replacement of the match. |
 | `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints, and those of a review's table, which shows every hand face up as it stood at a past decision, or the opponents' turned face down in their racks (`concealed`), on a dense board from 761 pixels wide (the centre a bar across the top, the three opponents in one row), and, where the player answers a discard, outlines the tile on offer in the row of the seat that let it go. |

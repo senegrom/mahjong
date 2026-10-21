@@ -251,6 +251,19 @@ test("the tile guide says what Trained AI's percentages are: how strongly it pre
   assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
 });
 
+test("the settings offer the review's two hiding settings after the other checkboxes, so that those keep their places", async () => {
+  const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
+    ready: true, busy: false, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
+    offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {} });
+  const options = settings.slice(settings.indexOf('class="options'), settings.indexOf('class="network-choice'));
+  const boxes = [...options.matchAll(/<label[^>]*>(<input type="checkbox"[^>]*>)([^]*?)<\/label>/g)]
+    .map(([, input, said]) => [text(said), /\bchecked\b/.test(input)]);
+  assert.deepEqual(boxes, [['Hints and markings', true], ['Select before discarding', false], ['Keyboard shortcuts in your hand', true],
+    ["Hide Trained AI's move in reviews", true], ["Hide other players' tiles in reviews", false]]);
+});
+
 test('the tile guide explains both discard marks, each with its swatch', async () => {
   const guide = await tileGuide();
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],

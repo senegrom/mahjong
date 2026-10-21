@@ -118,6 +118,13 @@
   // decision. It is let go when the review is taken on to hands played since,
   // so that the review opens on the newest of them, and with the review.
   let reviewPlace = $state(null);
+  // What the player has revealed in that review, decision by decision
+  // ("hand:step"), where the settings keep Trained AI's move or the other
+  // players' tiles back, with any move they picked there: kept for the match
+  // beside the place, so that no decision asks again, through steps, closing
+  // and opening and the hands added later. Nothing of it is saved: a new
+  // review of another match, a new game or a reload asks afresh.
+  let reviewRevealed = $state({});
   // The hand's own notes, opened by View table / my hand or Review final
   // hand, ask Trained AI a decision at a time (Review), of the page's one
   // worker, which answers its requests in turn. The review asks the same
@@ -619,6 +626,7 @@
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
         reviewPlace = null;
+        reviewRevealed = {};
       }
     } catch (error) {
       replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
@@ -662,6 +670,7 @@
     matchReview = null;
     reviewingGame = false;
     reviewPlace = null;
+    reviewRevealed = {};
   }
 
   // Watch, Guided and Physical play ask the same network, and go first.
@@ -672,7 +681,8 @@
 <svelte:window onkeydown={onKey} />
 
 <main>
-  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
+  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
+    {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     network={network.version} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
@@ -724,7 +734,8 @@
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
       <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
-        bind:filter={reviewFilter} bind:place={reviewPlace} />
+        bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
+        bind:hideTiles={reviewHideTiles} />
     {/if}
     <!-- Hidden rather than closed while the review is open, so the result
          and the standings come back as they were left. -->

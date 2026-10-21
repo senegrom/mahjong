@@ -78,6 +78,12 @@ const listSaid = html => text(/<details class="list[^"]*" data-review-index=""[^
 /** The filter's buttons: which, whether pressed, and what each says. */
 const options = html => [...html.matchAll(/aria-pressed="(true|false)" data-filter-option="(\w+)">([^]*?)<\/button>/g)]
   .map(([, pressed, option, label]) => [option, pressed === 'true', text(label)]);
+/** The review's two settings in its header: what each is called, and
+ * whether it is on. */
+const settings = html => Object.fromEntries([...html.matchAll(/<label[^>]*>(<input[^>]*\bdata-hide-(move|tiles)=""[^>]*>)([^]*?)<\/label>/g)]
+  .map(([, input, which, said]) => [which, { said: text(said), checked: /\bchecked\b/.test(input) }]));
+/** What the step bar's line of moves says, the tiles being pictures. */
+const moveLine = html => text(/<p class="moves[^"]*" data-move-line="">([^]*?)<\/p>/.exec(html)?.[1] ?? '');
 
 test('a review under way opens on the hand just played at its first decision, which Trained AI has not answered, and Next waits for its answers', () => {
   const html = page({ review: review({ over: false, busy: true, estimate: 95, hands: [done(0), done(1), hand(2, { status: 'reviewing', done: 1 })] }) });
@@ -224,6 +230,36 @@ test('a hand not reviewed yet says so, and every decision is stepped through it 
   // A hand waiting, not under review: Next goes on past it.
   const waiting = review({ hands: [done(0), hand(1), done(2)] });
   assert.deepEqual(steps(page({ review: waiting, place: { hand: 1, step: 0 } })).next, { label: 'Next flagged decision', disabled: false });
+});
+
+test("the header offers the review's two settings, off unless set, and with Trained AI's move kept back every line keeps it back, '?' in its place and said so, until the player reveals that decision", () => {
+  const reviewed = review({ complete: true, hands: [done(0), done(1), done(2)] });
+  const plain = page({ review: reviewed });
+  assert.deepEqual(settings(plain), { move: { said: "Hide Trained AI's move", checked: false }, tiles: { said: "Hide other players' tiles", checked: false } });
+  assert.ok(plain.indexOf('game-review-title') < plain.indexOf('data-hide-move') && plain.indexOf('data-hide-tiles') < plain.indexOf('data-close-review'),
+    'between the heading and Back');
+  assert.doesNotMatch(plain, /data-reveal/, 'nothing kept back, nothing to show');
+  // Every decision listed, each hand's first flagged and its second agreed:
+  // a line gives the player's move and the flag, and keeps Trained AI's move
+  // back, and that it agreed, to the eye and to a screen reader alike.
+  const hidden = page({ review: reviewed, filter: 'every', hideMove: true });
+  assert.equal(settings(hidden).move.checked, true);
+  assert.deepEqual(lines(hidden).map(({ key, shown }) => [key, shown]),
+    [['0:0', '1 → ? Flagged'], ['0:1', '2 → ?'], ['1:0', '1 → ? Flagged'], ['1:1', '2 → ?'], ['2:0', '1 → ? Flagged'], ['2:1', '2 → ?']]);
+  assert.equal(lines(hidden)[0].label, "Decision 1. You: discards the 7 characters. Trained AI's move hidden. Flagged.");
+  assert.equal(lines(hidden)[1].label, "Decision 2. You: discards the 7 characters. Trained AI's move hidden.");
+  // The decision on show, the final hand's first, puts the question in the
+  // step bar: Show answer in Trained AI's place.
+  assert.equal(moveLine(hidden), 'You · Trained AI ? Show answer · Flagged');
+  // A decision revealed, by Show answer or by a pick, shows its move again,
+  // the pick as Now, whatever the settings; the rest stay kept back.
+  const answered = page({ review: reviewed, filter: 'every', hideMove: true, hideTiles: true,
+    revealed: { '0:0': { pick: null, answer: true }, '2:0': { pick: { kind: 'discard', tile: '9p' }, answer: true } } });
+  assert.deepEqual(lines(answered).map(({ key, shown }) => [key, shown]),
+    [['0:0', '1 → Flagged'], ['0:1', '2 → ?'], ['1:0', '1 → ? Flagged'], ['1:1', '2 → ?'], ['2:0', '1 → Flagged'], ['2:1', '2 → ?']]);
+  assert.equal(moveLine(answered), 'You · Now · Trained AI · Flagged');
+  // The other players' tiles alone kept back: Show tiles, both moves on show.
+  assert.equal(moveLine(page({ review: reviewed, hideTiles: true })), 'You · Trained AI Show tiles · Flagged');
 });
 
 test('a repeated hand goes by its name with its honba wherever the review names it', () => {

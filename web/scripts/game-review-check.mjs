@@ -46,14 +46,26 @@
  * for the answers of a hand the player went to, keeps its focus and then goes
  * on. A flagged answer to another's discard, from a game whose player calls
  * everything, says in the step bar whose tile it answers, which that seat's
- * row outlines. The keys step, change hand and go back, and do nothing under
- * a dialog, in a field, with a modifier held or with the shortcuts off. On a
- * phone, where the final result covers the standings, the review must be
- * reachable from the result itself by touch and come back to the standings;
- * held sideways, from the standings beside the result; and from the
- * standings' own button under the result, by keyboard, it must leave the page
- * as the result's own button does, with the result's chip bringing it back,
- * focus and all.
+ * row outlines; with Trained AI's move kept back, it is answered by a call or
+ * Pass picked by keyboard, kept as Now. The review's two settings, "Hide
+ * Trained AI's move" and "Hide other players' tiles", are the same in Options
+ * and in the review's header, kept across a reload, and on a phone in the
+ * settings alone. With both on, a decision keeps the move and the other
+ * players' tiles back, every legal discard a tile to press and every other
+ * move a button under the hand, until Show answer, s, a digit or a tile
+ * pressed reveals it, a pick kept as Now and the racks turning over where
+ * they lay, focus going on to Next as the control used goes; on a phone its
+ * live hand is tabbed through clear of the bars; each reveal stays through
+ * steps, Back and opening again, and is gone after a reload; with the tiles
+ * alone kept back, Show tiles turns them over. The keys step, change hand,
+ * show what a decision keeps back, move along and pick from its live hand, 0
+ * the tile just drawn, and go back, and do nothing under a dialog, in a
+ * field, with a modifier held or with the shortcuts off. On a phone, where
+ * the final result covers the standings, the review must be reachable from
+ * the result itself by touch and come back to the standings; held sideways,
+ * from the standings beside the result; and from the standings' own button
+ * under the result, by keyboard, it must leave the page as the result's own
+ * button does, with the result's chip bringing it back, focus and all.
  *
  * Before the end, any hand's result opens the review of the game so far,
  * restored from a save waiting at that result. It must open on the hand just
@@ -80,10 +92,10 @@ import { fileURLToPath } from 'node:url';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { BATCH, FILTER_LABELS, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, filterSaid, scanMatch, tableSaid } from '../src/lib/game-review.js';
+import { BATCH, FILTER_LABELS, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, filterSaid, moveToken, scanMatch, tableSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
-import { quadOnOffer } from '../src/lib/ui.js';
+import { callLabel, quadOnOffer } from '../src/lib/ui.js';
 import { TREND_KEY } from '../src/lib/review-trend.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
@@ -590,6 +602,89 @@ async function tabsClear(page) {
   }
   assert.ok(landed > 0, `Tab goes on into the stage at ${size}`);
   return landed;
+}
+
+/** What the decision on show keeps back, as the page shows it: what the step
+ * bar's reveal says, if it has one; whether Trained AI's view is there; each
+ * opponent's rack, by its name, how many of its tiles are face down, whether
+ * any tile names itself in an attribute, and where the rack lies in the
+ * table and how large it is; in the player's hand, the tiles ringed, whether
+ * a tile is tagged AI, which tile is tagged Now, the tiles a press picks and
+ * the moves under the hand, by name, and what the hand is described by; the
+ * step bar's line and the step's status; and the list's line of the
+ * decision, by name. */
+const shownAt = page => page.evaluate(() => {
+  const decision = document.querySelector('[data-decision]'), board = decision.querySelector('.board').getBoundingClientRect();
+  const tags = [...decision.querySelectorAll('.mine .hand .hand-tile')].map(tile => tile.querySelector('.tag')?.textContent ?? '');
+  return {
+    reveal: document.querySelector('[data-game-review] [data-reveal]')?.textContent.trim() ?? null,
+    view: Boolean(decision.querySelector('[data-view]')),
+    racks: [...decision.querySelectorAll('ul.revealed')].map(list => {
+      const box = list.getBoundingClientRect();
+      return { label: list.getAttribute('aria-label'), tiles: list.querySelectorAll('.tile').length,
+        down: list.querySelectorAll('.tile[aria-label="face-down tile"]').length, named: list.querySelectorAll('[data-tile]').length,
+        names: [...list.querySelectorAll('.tile')].map(tile => tile.getAttribute('aria-label')),
+        box: [box.top - board.top, box.left - board.left, box.width, box.height].map(value => Math.round(value * 2) / 2) };
+    }),
+    board: Math.round(board.height),
+    ringed: decision.querySelectorAll('.mine .hand .tile.selected').length,
+    ai: tags.some(tag => /\bAI\b/.test(tag)),
+    now: tags.findIndex(tag => /\bNow\b/.test(tag)),
+    live: [...decision.querySelectorAll('.mine .hand button.tile:not(:disabled)')].map(tile => tile.dataset.tile),
+    picks: [...decision.querySelectorAll('[data-pick]')].map(button => button.getAttribute('aria-label')),
+    help: decision.querySelector('#hand-help')?.textContent.trim() ?? '',
+    line: document.querySelector('[data-game-review] [data-move-line]').textContent.replace(/\s+/g, ' ').trim(),
+    said: document.querySelector('[data-game-review] [data-step-said]').textContent,
+    listed: document.querySelector('[data-review-index] [aria-current="step"]')?.getAttribute('aria-label') ?? null,
+  };
+});
+/** Checks that the decision on show, `place` of the tile-throwing game unless
+ * `game` is another game's hands, keeps Trained AI's move back, and the other
+ * players' tiles where `tiles` says so: Show answer in the step bar, no view,
+ * no ring or AI over a tile, every legal discard a tile to press and every
+ * other move a button under the hand in play's words, the prompt, and the
+ * move said hidden in the step's line and the list's. Says what it saw. */
+async function keptBack(page, place, { tiles = true, game = hands } = {}) {
+  const shown = await shownAt(page), frame = game[place.hand].frames[place.step], me = frame.view.seats[0];
+  const at = `at ${place.hand}:${place.step}`;
+  assert.equal(shown.reveal, 'Show answer', at);
+  assert.equal(shown.view, false, `no view ${at}`);
+  assert.deepEqual([shown.ringed, shown.ai], [0, false], `no ring or AI over a tile ${at}`);
+  const legal = tile => frame.choices.some(choice => choice.kind === 'discard' && choice.tile === tile);
+  assert.deepEqual(shown.live, [...me.hand, ...(me.drawn ? [me.drawn] : [])].filter(legal), `the live tiles ${at}`);
+  const robbing = Boolean(quadOnOffer(frame.view));
+  assert.deepEqual(shown.picks, frame.choices.filter(choice => choice.kind !== 'discard').map(choice => callLabel(choice, robbing)), `the other moves ${at}`);
+  assert.equal(shown.help, 'Pick a move, or Show answer.');
+  assert.match(shown.line, /AI \?\s*Show answer(\s*·\s*Flagged)?$/, shown.line);
+  assert.match(shown.said, /\. Trained AI's move hidden\.( Flagged\.)?$/, shown.said);
+  assert.match(shown.listed, /\. Trained AI's move hidden\.( Flagged\.)?$/, shown.listed);
+  assert.equal(shown.racks.length, 3);
+  for (const rack of shown.racks) {
+    assert.equal(rack.label.endsWith(', face down'), tiles, rack.label);
+    if (tiles) assert.deepEqual([rack.down, rack.named], [rack.tiles, 0], `${rack.label}: every tile face down, none named ${at}`);
+  }
+  return shown;
+}
+/** Checks that the decision on show, `place`, shows everything again, its
+ * racks turned over in place: each in the same place in the table, the same
+ * size, as they were `before` (shownAt), with the tiles the engine held.
+ * Says what it saw. */
+async function shownAgain(page, place, before = null) {
+  const shown = await shownAt(page), frame = hands[place.hand].frames[place.step], seats = frame.view.seats;
+  const at = `at ${place.hand}:${place.step}`;
+  assert.equal(shown.reveal, null, `nothing left to show ${at}`);
+  assert.equal(shown.view, !facts[place.hand][place.step].forced, `Trained AI's view ${at}`);
+  assert.doesNotMatch(shown.said, /hidden/, shown.said);
+  assert.doesNotMatch(shown.listed, /hidden/, shown.listed);
+  for (const rack of shown.racks) {
+    const slot = seats.findIndex(seat => `${SEAT_NAMES[seat.seat]}'s tiles` === rack.label.split(',')[0]);
+    assert.deepEqual(unmarked(rack.names), named(frame.hands[slot]), `${rack.label} ${at}`);
+  }
+  if (before) {
+    assert.deepEqual(shown.racks.map(rack => rack.box), before.racks.map(rack => rack.box), `each rack where it was, as large, ${at}`);
+    assert.equal(shown.board, before.board, `the table as tall ${at}`);
+  }
+  return shown;
 }
 
 /** Waits for every hand to be reviewed, of the game so far or of the whole
@@ -1375,7 +1470,209 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("an answer to another's discard says in the step bar whose tile it answers, outlines that tile in the seat's row, and names both moves, stepped to by keyboard", async () => {
+  await cases.check("the review's two settings are offered in Options and, from tablet width, in the review's header, the same settings in both, kept across a reload, and on a phone in the settings alone", async () => {
+    // Only the settings are looked at here, so Trained AI is out of reach.
+    let page = await openPage(1100, 900, { network: false });
+    await page.click('.standings [data-review-game]');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    /** Each setting as Options and the review's header have it. */
+    const boxes = () => page.evaluate(() => Object.fromEntries(['move', 'tiles'].flatMap(which => [
+      [`options ${which}`, document.querySelector(`.options [data-hide-${which}]`).checked],
+      [`header ${which}`, document.querySelector(`[data-game-review] [data-hide-${which}]`).checked]])));
+    const all = on => ({ 'options move': on, 'header move': on, 'options tiles': on, 'header tiles': on });
+    const stored = (move, tiles) => page.waitForFunction((key, move, tiles) => {
+      const record = JSON.parse(localStorage.getItem(key));
+      return record.reviewHideMove === move && record.reviewHideTiles === tiles;
+    }, { timeout: 5000 }, SETTINGS_KEY, move, tiles);
+    assert.deepEqual(await boxes(), all(false), 'both off at first');
+    // The header names them without "in reviews", between the heading and Back.
+    assert.deepEqual(await page.$$eval('[data-game-review] header label', labels => labels.map(label => label.textContent.trim())),
+      ["Hide Trained AI's move", "Hide other players' tiles"]);
+    // One turned on in the header by keyboard, the other in Options by pointer.
+    await page.focus('[data-game-review] [data-hide-move]');
+    await page.keyboard.press('Space');
+    await press(page, '.options > summary');
+    await page.waitForFunction(() => document.querySelector('.options').open, { timeout: 5000 });
+    assert.deepEqual(await page.$$eval('.options label:has(input[type=checkbox])', labels => labels.map(label => label.textContent.trim()).slice(-2)),
+      ["Hide Trained AI's move in reviews", "Hide other players' tiles in reviews"], 'after the other checkboxes in Options');
+    await press(page, '.options [data-hide-tiles]');
+    await stored(true, true);
+    assert.deepEqual(await boxes(), all(true), 'the two places agree');
+    // Kept across a reload, as the other preferences are.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('.standings [data-review-game]');
+    await page.click('.standings [data-review-game]');
+    await page.waitForSelector('[data-game-review]');
+    assert.deepEqual(await boxes(), all(true), 'after a reload');
+    // Turned off again, both from the header.
+    await press(page, '[data-game-review] [data-hide-move]');
+    await press(page, '[data-game-review] [data-hide-tiles]');
+    await stored(false, false);
+    assert.deepEqual(await boxes(), all(false));
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // On a phone the header leaves them to the settings, which hold them as
+    // they were stored.
+    page = await openPage(390, 844, { network: false, settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideTiles: true } });
+    await page.$eval('.standings [data-review-game]', button => button.click());
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-game-review] .hiding', el => getComputedStyle(el).display), 'none', 'not in the header on a phone');
+    await page.click('.settings-trigger');
+    await page.waitForFunction(() => document.querySelector('dialog.settings-dialog[open]'), { timeout: 5000 });
+    await page.click('dialog.settings-dialog .options > summary');
+    await page.waitForFunction(() => document.querySelector('dialog.settings-dialog .options').open, { timeout: 5000 });
+    assert.deepEqual(await page.evaluate(() => ['move', 'tiles'].map(which => document.querySelector(`dialog.settings-dialog [data-hide-${which}]`).checked)),
+      [false, true], 'in the settings on a phone');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("with both settings on, a decision keeps Trained AI's move and the other players' tiles back until asked, by Show answer, s, a tile's digit or the tile itself, a pick kept as Now, the racks turning over in place, each reveal kept through steps, Back and opening again, and gone after a reload", async () => {
+    const hiding = { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true, reviewHideTiles: true };
+    const page = await openPage(1100, 900, { settings: hiding });
+    await reviewWholeGame(page);
+    await reviewed(page);
+    // Every decision, so that the decisions below are stepped to wherever
+    // they are flagged or not.
+    await choose(page, 'every');
+    const keyOf = place => `${place.hand}:${place.step}`;
+    // The decisions with a choice, in the order played, and where one is a
+    // turn, the place in the hand of its first legal discard among the
+    // hand's first nine tiles, which a digit picks.
+    const choiceful = hands.flatMap(hand => hand.frames.map((_, step) => ({ hand: hand.index, step })))
+      .filter(({ hand, step }) => !facts[hand][step].forced);
+    const digitOf = ({ hand, step }) => {
+      const frame = hands[hand].frames[step];
+      return frame.view.phase !== 'act' ? -1
+        : frame.view.seats[0].hand.slice(0, 9).findIndex(tile => frame.choices.some(choice => choice.kind === 'discard' && choice.tile === tile));
+    };
+    const [byButton, byKey] = choiceful;
+    const [byDigit, byTile] = choiceful.filter(place => place !== byButton && place !== byKey && digitOf(place) >= 0);
+    assert.ok(byButton && byKey && byDigit && byTile, 'four decisions with a choice, two of them turns');
+    /** The tile a pick of the hand's `index`th tile is tagged on, as the
+     * replay places a move: the tile just drawn where it is the one. */
+    const nowAt = (place, tile) => {
+      const me = hands[place.hand].frames[place.step].view.seats[0], held = [...me.hand, ...(me.drawn ? [me.drawn] : [])];
+      return tile === me.drawn ? held.length - 1 : held.indexOf(tile);
+    };
+    const stepFocused = () => page.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'),
+      { timeout: 5000 }).catch(async () => assert.fail(`focus on Next, or Previous at the end, not on ${await focusedName(page)}`));
+    const answered = () => page.waitForFunction(() => !document.querySelector('[data-game-review] [data-reveal]'), { timeout: 5000 });
+
+    // Show answer, by keyboard: the answer and the tiles shown together, the
+    // racks turned over where they lay, and focus handed on to Next as the
+    // button goes, never to the page.
+    await stepTo(page, keyOf(byButton));
+    const first = await keptBack(page, byButton);
+    await shot(page, 'game-review-hidden');
+    await page.focus('[data-game-review] [data-reveal]');
+    await page.keyboard.press('Enter');
+    await answered();
+    await shownAgain(page, byButton, first);
+    await stepFocused();
+    await shot(page, 'game-review-answered');
+    // The same by s, from the decision's line in the list, which keeps focus.
+    await stepTo(page, keyOf(byKey));
+    const second = await keptBack(page, byKey);
+    await page.keyboard.press('s');
+    await answered();
+    await shownAgain(page, byKey, second);
+    assert.ok(await focusOn(page, line(keyOf(byKey))), `s leaves focus where it was, not on ${await focusedName(page)}`);
+    // A tile picked by its digit, as play's digits throw one: the decision is
+    // answered, the pick kept as Now in the step bar, over its tile, in
+    // Trained AI's view and in the step's line, and focus stays on the line.
+    await stepTo(page, keyOf(byDigit));
+    await keptBack(page, byDigit);
+    const digit = digitOf(byDigit), tile = hands[byDigit.hand].frames[byDigit.step].view.seats[0].hand[digit];
+    await page.keyboard.press(String(digit + 1));
+    await answered();
+    const picked = await shownAgain(page, byDigit);
+    const label = hands[byDigit.hand].frames[byDigit.step].choices.find(choice => choice.kind === 'discard' && choice.tile === tile).label;
+    assert.match(picked.line, /^You\b.*·\s*Now\b.*·\s*(Trained )?AI\b/, picked.line);
+    assert.equal(picked.now, nowAt(byDigit, tile), 'Now over the tile picked');
+    assert.ok(picked.said.includes(` Now: ${label}`), picked.said);
+    assert.match(await page.$eval(`[data-view] .row[data-move="${label}"] .tag`, el => el.textContent), /\bNow\b/);
+    assert.ok(await focusOn(page, line(keyOf(byDigit))), `the digit leaves focus where it was, not on ${await focusedName(page)}`);
+    // A tile pressed by pointer: the same, and focus goes on to Next as the
+    // tile goes back to being a picture.
+    await stepTo(page, keyOf(byTile));
+    await keptBack(page, byTile);
+    const pressed = hands[byTile.hand].frames[byTile.step].view.seats[0].hand[digitOf(byTile)];
+    await press(page, `[data-decision] .mine .hand button.tile[data-tile="${pressed}"]:not(:disabled)`);
+    await answered();
+    assert.equal((await shownAgain(page, byTile)).now, nowAt(byTile, pressed), 'Now over the tile pressed');
+    await stepFocused();
+
+    // Each reveal is kept: away by the step bar and back, the tile pressed
+    // still Now.
+    const away = await page.$('[data-game-review] [data-next]:not(:disabled)') ? '[data-next]' : '[data-previous]';
+    const back = away === '[data-next]' ? '[data-previous]' : '[data-next]';
+    await page.focus(`[data-game-review] ${away}`);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent !== text, { timeout: 5000 },
+      placeOf(hands[byTile.hand], byTile.step));
+    await page.focus(`[data-game-review] ${back}`);
+    await page.keyboard.press('Enter');
+    await onPlace(page, hands[byTile.hand], byTile.step);
+    assert.equal((await shownAgain(page, byTile)).now, nowAt(byTile, pressed), 'still Now after a step away and back');
+    // Back to the standings and in again: the review opens where it was left,
+    // and every decision revealed stays so.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review]'), { timeout: 5000 });
+    await page.click('.standings [data-review-game]');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await stepText(page), placeOf(hands[byTile.hand], byTile.step), 'opened again where it was left');
+    assert.equal((await shownAgain(page, byTile)).now, nowAt(byTile, pressed));
+    for (const place of [byButton, byKey, byDigit]) {
+      await stepTo(page, keyOf(place));
+      await shownAgain(page, place);
+    }
+
+    // The other players' tiles alone kept back: at a decision not revealed
+    // yet, Trained AI's move is on show and Show tiles turns the racks over
+    // where they lay, by pointer, handing focus on as the button goes.
+    await press(page, '[data-game-review] [data-hide-move]');
+    const tilesOnly = choiceful.find(place => ![byButton, byKey, byDigit, byTile].includes(place));
+    await stepTo(page, keyOf(tilesOnly));
+    const covered = await shownAt(page);
+    assert.equal(covered.reveal, 'Show tiles');
+    assert.equal(covered.view, true, "Trained AI's view on show");
+    assert.ok(covered.racks.every(rack => rack.label.endsWith(', face down') && rack.down === rack.tiles), 'the racks face down');
+    await press(page, '[data-game-review] [data-reveal]');
+    await answered();
+    await shownAgain(page, tilesOnly, covered);
+    await stepFocused();
+    await press(page, '[data-game-review] [data-hide-move]');
+
+    // On a phone held upright, a decision kept back: its live tiles and the
+    // moves under it are tabbed through clear of the bars, and nothing
+    // scrolls sideways.
+    const phoneAt = choiceful.find(place => ![byButton, byKey, byDigit, byTile, tilesOnly].includes(place) && digitOf(place) >= 0);
+    await stepTo(page, keyOf(phoneAt));
+    await page.setViewport({ width: 390, height: 844 });
+    await settle(page);
+    await keptBack(page, phoneAt);
+    if (await page.$('details[data-review-index][open]')) {
+      await press(page, 'details[data-review-index] > summary');
+      await page.waitForFunction(() => !document.querySelector('details[data-review-index]').open, { timeout: 5000 });
+    }
+    await tabsClear(page);
+    assert.ok(await overflow(page), 'the review fits a phone with the hand live');
+    await shot(page, 'game-review-hidden-phone');
+    await page.setViewport({ width: 1100, height: 900 });
+    await settle(page);
+
+    // Nothing of it is saved: after a reload the review asks again.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('.standings [data-review-game]');
+    await reviewWholeGame(page);
+    await page.waitForSelector(`[data-review-index] [data-hand="${byButton.hand}"][data-status="done"]`, { timeout: 300000 });
+    await stepTo(page, keyOf(byButton));
+    await keptBack(page, byButton);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("an answer to another's discard says in the step bar whose tile it answers, outlines that tile in the seat's row, and names both moves, stepped to by keyboard, and with Trained AI's move kept back is answered by a call or Pass picked by keyboard, kept as Now", async () => {
     // The tile-throwing player passes every call, and Trained AI seldom
     // gives a pass under 5%, so this game's player calls everything instead.
     const page = await openPage(1100, 900, { saved: callingGame });
@@ -1426,6 +1723,31 @@ try {
     await onPlace(page, hand, index);
     await check();
     assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // With Trained AI's move kept back the same decision is put to the
+    // player: no tile to throw, and each call and Pass a button under the
+    // hand in play's words. Another move than the one played, pressed by
+    // keyboard, is kept as Now and shown with the answer, and focus goes on
+    // to Next as the buttons go.
+    const quiz = await openPage(1100, 900, { saved: callingGame, settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true } });
+    await quiz.click('.standings [data-review-game]');
+    await quiz.waitForSelector('[data-game-review]');
+    await reviewed(quiz);
+    await stepTo(quiz, key, callingHands);
+    await keptBack(quiz, { hand: handIndex, step: index }, { tiles: false, game: callingHands });
+    const { played, choices } = hand.frames[index];
+    const choice = choices.find(entry => entry.kind !== 'discard' && !(entry.kind === played.kind && (entry.tile ?? null) === (played.tile ?? null)));
+    await quiz.focus(`[data-decision] [data-pick][aria-label="${callLabel(choice, robbing)}"]`);
+    await quiz.keyboard.press('Enter');
+    await quiz.waitForFunction(() => !document.querySelector('[data-game-review] [data-reveal]'), { timeout: 5000 });
+    const answer = await shownAt(quiz);
+    assert.match(answer.line, new RegExp(`·\\s*Now ${moveToken(choice.kind, choice.tile ?? null).word}\\b`), answer.line);
+    assert.ok(answer.said.includes(` Now: ${choice.label}`), answer.said);
+    assert.deepEqual([answer.picks.length, answer.view], [0, true], 'the buttons go with the question, and the view comes');
+    await quiz.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'), { timeout: 5000 })
+      .catch(async () => assert.fail(`focus on Next, or Previous at the end, as the buttons went, not on ${await focusedName(quiz)}`));
+    assert.deepEqual(quiz.errors, []);
   });
 
 
@@ -1780,8 +2102,10 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('the keys step, change hand and go back, and do nothing under a dialog, in a field, with a modifier held or with the shortcuts off', async () => {
-    let page = await openPage(1100, 900);
+  await cases.check('the keys step, change hand, show what a decision keeps back, pick from its live hand and go back, and do nothing under a dialog, in a field, with a modifier held or with the shortcuts off', async () => {
+    // Trained AI's move kept back, so that s and the digits have a decision
+    // to answer; the arrows step all the same.
+    let page = await openPage(1100, 900, { settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true } });
     await reviewWholeGame(page);
     await reviewed(page);
     // Every decision, so that each key's step is known: a hand of three
@@ -1820,16 +2144,59 @@ try {
     }
     await still('→ in a select', () => document.querySelector('select').dispatchEvent(new KeyboardEvent('keydown',
       { key: 'ArrowRight', bubbles: true, cancelable: true })));
-    // Under the table's dialog of discards the arrow does not step, and Esc
-    // closes the dialog, not the review.
+    // Under the table's dialog of discards the arrow does not step, s shows
+    // nothing, and Esc closes the dialog, not the review.
     await press(page, '[data-decision] .inspect');
     await page.waitForFunction(() => document.querySelector('dialog[open]'), { timeout: 5000 });
+    const shownBefore = (await shownAt(page)).reveal;
     await key('ArrowRight');
+    await key('s');
     await settle(page);
     assert.equal(await stepText(page), placeOf(from, 0), '→ under a dialog');
+    assert.equal((await shownAt(page)).reveal, shownBefore, 's under a dialog');
     await key('Escape');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'), { timeout: 5000 });
     assert.ok(await page.$('[data-game-review]'), 'Esc closed the dialog, not the review');
+
+    // At a turn that keeps its answer back, whose tile just drawn may be
+    // thrown: s and the digits do nothing with a modifier held or in a field;
+    // in the live hand ← and → move along the tiles, as in play, rather than
+    // step; and 0 picks the tile just drawn, as play's 0 throws it, kept as
+    // Now, focus going on to Next as the tile it was on becomes a picture
+    // again.
+    const drawnAt = hands.flatMap(hand => hand.frames.map((frame, step) => ({ hand: hand.index, step, frame })))
+      .find(({ hand, step, frame }) => {
+        const drawn = frame.view.seats[0].drawn, discards = frame.choices.filter(choice => choice.kind === 'discard');
+        return !facts[hand][step].forced && frame.view.phase === 'act' && drawn && discards.length >= 2 && discards.some(choice => choice.tile === drawn);
+      });
+    assert.ok(drawnAt, 'a turn whose tile just drawn may be thrown');
+    await stepTo(page, `${drawnAt.hand}:${drawnAt.step}`);
+    await keptBack(page, drawnAt, { tiles: false });
+    const kept = async (what, send, ...values) => {
+      await page.evaluate(send, ...values);
+      await settle(page);
+      assert.equal((await shownAt(page)).reveal, 'Show answer', what);
+    };
+    for (const [name, modifier] of [['s', 'ctrlKey'], ['s', 'altKey'], ['0', 'metaKey'], ['1', 'ctrlKey']]) {
+      await kept(`${name} with ${modifier}`, (name, modifier) => document.body.dispatchEvent(new KeyboardEvent('keydown',
+        { key: name, [modifier]: true, bubbles: true, cancelable: true })), name, modifier);
+    }
+    await kept('s in a select', () => document.querySelector('select').dispatchEvent(new KeyboardEvent('keydown',
+      { key: 's', bubbles: true, cancelable: true })));
+    const tileFocused = () => page.evaluate(() => Number(document.activeElement?.dataset.handIndex ?? -1));
+    await page.focus('[data-decision] .mine .hand button.tile:not(:disabled)');
+    const firstTile = await tileFocused();
+    await key('ArrowRight');
+    assert.ok(await tileFocused() > firstTile, '→ moves along the live hand');
+    assert.equal(await stepText(page), placeOf(hands[drawnAt.hand], drawnAt.step), '→ in the live hand does not step');
+    await key('ArrowLeft');
+    assert.equal(await tileFocused(), firstTile, '← moves back along it');
+    await key('0');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review] [data-reveal]'), { timeout: 5000 });
+    assert.equal((await shownAt(page)).now, drawnAt.frame.view.seats[0].hand.length, 'Now over the tile just drawn');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'), { timeout: 5000 })
+      .catch(async () => assert.fail(`focus on Next, or Previous at the end, as the tile went, not on ${await focusedName(page)}`));
+
     // Esc goes back to the standings, focus on the button that opened the
     // review.
     await key('Escape');
@@ -1839,34 +2206,46 @@ try {
     await closePage(page);
 
     // Under the settings' dialog on a phone, not a touch one, the keys are
-    // left to the dialog: the arrow does not step, and Esc closes the dialog.
-    page = await openPage(390, 844, { network: false });
+    // left to the dialog: the arrow does not step, s does not turn the other
+    // players' tiles over, kept back here, and Esc closes the dialog. Once
+    // it is closed, s turns them over. Only the keys are looked at here, so
+    // Trained AI is out of reach, and the hands are not reviewed: only the
+    // tiles are kept back.
+    page = await openPage(390, 844, { network: false, settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideTiles: true } });
     await page.$eval('.standings [data-review-game]', button => button.click());
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
     await choose(page, 'every');
     const before = await stepText(page);
+    assert.equal((await shownAt(page)).reveal, 'Show tiles');
     await page.click('.settings-trigger');
     await page.waitForFunction(() => document.querySelector('dialog.settings-dialog[open]'), { timeout: 5000 });
     await key('ArrowLeft');
+    await key('s');
     await settle(page);
     assert.equal(await stepText(page), before, '← under the settings');
     await key('Escape');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'), { timeout: 5000 });
     assert.ok(await page.$('[data-game-review]'), 'Esc closed the settings, not the review');
+    assert.equal((await shownAt(page)).reveal, 'Show tiles', 's under the settings');
+    await key('s');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review] [data-reveal]'), { timeout: 5000 });
+    assert.ok((await shownAt(page)).racks.every(rack => !rack.label.endsWith(', face down') && rack.down === 0), 's turns the tiles over');
     assert.deepEqual(page.errors, []);
     await closePage(page);
 
     // With the shortcuts off, as with play's, no key does anything.
-    page = await openPage(1100, 900, { network: false, settings: { version: 2, difficulty: 'beginner', hints: true, shortcuts: false } });
+    page = await openPage(1100, 900, { network: false,
+      settings: { version: 2, difficulty: 'beginner', hints: true, shortcuts: false, reviewHideTiles: true } });
     await page.click('.standings [data-review-game]');
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
     await choose(page, 'every');
     const at = await stepText(page);
-    for (const name of ['ArrowLeft', 'ArrowRight', 'Escape']) {
+    for (const name of ['ArrowLeft', 'ArrowRight', 'Escape', 's']) {
       await key(name);
       await settle(page);
       assert.ok(await page.$('[data-game-review]'), `${name} with the shortcuts off`);
       assert.equal(await stepText(page), at, `${name} with the shortcuts off`);
+      assert.equal((await shownAt(page)).reveal, 'Show tiles', `${name} with the shortcuts off`);
     }
     assert.deepEqual(page.errors, []);
   });
