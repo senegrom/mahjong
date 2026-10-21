@@ -155,13 +155,13 @@ const doraOf = indicator => {
 const indicatorFor = dora => TILE_TYPES.find(tile => doraOf(tile) === dora);
 const total = table => table.players.reduce((sum, player) => sum + player.score, 0);
 
-/** The player `delta` points up or down, taken evenly from the others, the
- * points on the table kept. A step past 8,000 asks the player to imagine two
- * things, so it costs two. */
+/** The player `delta` points up, taken evenly from the others, or down, given
+ * evenly to them, the points on the table kept. A step past 8,000 asks the
+ * player to imagine two things, so it costs two. */
 export function scoreEdit(position, delta) {
   const me = position.seat;
   return { family: 'scores', key: 'scores', param: delta, cost: Math.abs(delta) > 8000 ? 2 : 1,
-    words: `you had had ${points(Math.abs(delta))} points ${delta > 0 ? 'more' : 'fewer'}, taken evenly from the others`,
+    words: `you had had ${points(Math.abs(delta))} points ${delta > 0 ? 'more, taken evenly from' : 'fewer, given evenly to'} the others`,
     apply: table => {
       const before = total(table);
       table.players[me].score += delta;

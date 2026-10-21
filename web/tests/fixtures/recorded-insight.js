@@ -27,7 +27,7 @@ export function planesDigest(planes, mask) {
  * as they stood before North's riichi gave back its thousand, so it left
  * South a thousand short (23,300 where the page, counting them after, has
  * 24,300); the planes differ in rows 9 and 10 alone. */
-const WRITTEN_OTHERWISE = new Set(['North had not declared riichi, and you had had 8,000 points fewer, taken evenly from the others']);
+const WRITTEN_OTHERWISE = new Set(['North had not declared riichi, and you had had 8,000 points fewer, given evenly to the others']);
 
 /** Each recorded question as the review would put it: the table as the
  * engine writes the decision (the typed-in table for why-7), the player's

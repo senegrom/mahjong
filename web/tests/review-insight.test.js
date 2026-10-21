@@ -244,6 +244,11 @@ test('every change makes a table the rules accept, changed as its words say and 
       assert.ok(changed.length && changed.every(path => allowed[edit.family].test(path)), `${entry.title}: ${edit.words} changed ${changed}`);
       if (edit.family === 'river') assert.equal(changed.length, 1, edit.words);
       if (edit.family === 'scores') assert.equal(sum(table), sum(entry.position), edit.words);
+      // A step up is taken from the others, and a step down given to them.
+      if (edit.family === 'scores' && edit.param != null) {
+        assert.equal(table.players[table.seat].score - entry.position.players[table.seat].score, edit.param, edit.words);
+        assert.match(edit.words, edit.param > 0 ? /points more, taken evenly from the others$/ : /points fewer, given evenly to the others$/);
+      }
       assert.doesNotThrow(() => facts(table), `${entry.title}: ${edit.words}`);
       tables++;
     }
