@@ -1665,6 +1665,47 @@ try {
     await tabsClear(page);
     assert.ok(await overflow(page), 'the review fits a phone with the hand live');
     await shot(page, 'game-review-hidden-phone');
+
+    // On a screen 500 pixels high or less the step bar stays in its place,
+    // above the table. A tile of the live hand pressed by pointer answers the
+    // decision and leaves the page where it was, the tile on the screen with
+    // its answer, focus going on to Next out of sight above it; pressed by
+    // keyboard, the page moves to show Next, below the game's bar.
+    const [byPointerLow, byKeyLow] = choiceful
+      .filter(place => ![byButton, byKey, byDigit, byTile, tilesOnly, phoneAt].includes(place) && digitOf(place) >= 0);
+    assert.ok(byPointerLow && byKeyLow, 'two more turns to answer on a low screen');
+    await page.setViewport({ width: 844, height: 390 });
+    await settle(page);
+    /** Where something lies on the screen, the focused control unless
+     * `selector` names it, and how far down the game's bar covers it. */
+    const lies = (selector = null) => page.evaluate(selector => {
+      const box = (selector ? document.querySelector(selector) : document.activeElement).getBoundingClientRect();
+      const bar = document.querySelector('header.bar');
+      return { top: Math.round(box.top), bottom: Math.round(box.bottom), height: innerHeight,
+        covered: getComputedStyle(bar).position === 'sticky' ? Math.round(bar.getBoundingClientRect().bottom) : 0 };
+    }, selector);
+    const seen = where => where.top >= where.covered - 1 && where.bottom <= where.height + 1;
+    await stepTo(page, keyOf(byPointerLow));
+    await keptBack(page, byPointerLow);
+    const pointed = handTile(digitOf(byPointerLow));
+    await page.$eval(pointed, tile => tile.scrollIntoView({ block: 'center' }));
+    await settle(page);
+    await page.click(pointed);
+    await answered();
+    await stepFocused();
+    await settle(page);
+    const tileThen = await lies(pointed), focusThen = await lies();
+    assert.ok(seen(tileThen), `the tile pressed by pointer still on the screen at 844x390: ${JSON.stringify(tileThen)}`);
+    assert.ok(focusThen.bottom <= focusThen.covered + 1, `the page not moved up to Next at 844x390: ${JSON.stringify(focusThen)}`);
+    await stepTo(page, keyOf(byKeyLow));
+    await keptBack(page, byKeyLow);
+    await page.focus(handTile(digitOf(byKeyLow)));
+    await page.keyboard.press('Enter');
+    await answered();
+    await stepFocused();
+    await settle(page);
+    const focusNow = await lies();
+    assert.ok(seen(focusNow), `pressed by keyboard, the page moves to show Next at 844x390: ${JSON.stringify(focusNow)}`);
     await page.setViewport({ width: 1100, height: 900 });
     await settle(page);
 

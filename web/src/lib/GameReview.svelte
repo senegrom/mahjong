@@ -199,13 +199,17 @@
   // again. A reveal takes away the control that made it, the button or the
   // live hand's tile, and focus then goes on to Next, or to Previous at the
   // end, where the player steps from, rather than to the page; a key leaves
-  // focus where it was, unless that went too.
-  async function revealHere(move = null) {
+  // focus where it was, unless that went too. Only a keyboard's press
+  // (`byKeyboard`) moves the page to show where focus went, as App's land()
+  // does: on a screen 500 pixels high or less the step bar stays in its
+  // place, often far above, and a scroll there would take the hand the
+  // player just pressed, and the answer it brought, off the screen.
+  async function revealHere(move, byKeyboard) {
     if (!at || (!hidden.move && !hidden.tiles) || (move && !hidden.move)) return;
     const had = root?.contains(document.activeElement);
     revealed = { ...revealed, [decisionKey(at.hand, at.step)]: revealing(current, move) };
     await tick();
-    if (had && lost(document.activeElement)) (stepButton() ?? heading)?.focus();
+    if (had && lost(document.activeElement)) (stepButton() ?? heading)?.focus({ preventScroll: !byKeyboard });
   }
 
   // The player's hand while it is live, Trained AI's move kept back: its
@@ -235,8 +239,8 @@
     else if (action === 'previous' || action === 'next') void go(action === 'next' ? next : previous);
     else if (action === 'previous-hand' || action === 'next-hand') void go(handStep(action === 'next-hand' ? 1 : -1));
     else if (action === 'previous-tile' || action === 'next-tile') moveHandFocus(hand, action === 'next-tile' ? 1 : -1);
-    else if (action === 'reveal' && (hidden.move || hidden.tiles)) void revealHere();
-    else if (action?.startsWith('pick-') && digitTile(action)) void revealHere({ kind: 'discard', tile: digitTile(action) });
+    else if (action === 'reveal' && (hidden.move || hidden.tiles)) void revealHere(null, true);
+    else if (action?.startsWith('pick-') && digitTile(action)) void revealHere({ kind: 'discard', tile: digitTile(action) }, true);
     else return;
     event.preventDefault();
   }
@@ -356,7 +360,7 @@
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
         <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} moveHidden={hidden.move}
-          tilesHidden={hidden.tiles} {pick} onstep={go} onreveal={() => revealHere()} bind:height={barHeight} />
+          tilesHidden={hidden.tiles} {pick} onstep={go} onreveal={byKeyboard => revealHere(null, byKeyboard)} bind:height={barHeight} />
       {/if}
       {#if !wide}
         <details class="list" data-review-index bind:open={listOpen}>

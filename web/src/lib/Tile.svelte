@@ -52,6 +52,9 @@
     /** Part of the shape a yaku is being explained by. Dimming the rest
      * would hide the artwork, so the tiles that belong are lifted instead. */
     inShape = false,
+    /** Makes the tile a button. A press hands it the tile and the click, by
+     * which a caller can tell a keyboard's press from a pointer's
+     * (pressedByKeyboard). */
     onclick = null,
     /** A button whose press selects it: only then is `selected` announced as
      * pressed. Palette, remove and play-this buttons are plain buttons. */
@@ -175,7 +178,7 @@
     {disabled}
     title={label}
     aria-label={label}
-    onclick={() => onclick(tile)}
+    onclick={event => onclick(tile, event)}
   >
     {@render face()}
   </button>

@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import Tile from './Tile.svelte';
   import { decisionInBrief, moveToken, moveWeight, stepSaid } from './game-review.js';
-  import { percent, quadOnOffer } from './ui.js';
+  import { percent, pressedByKeyboard, quadOnOffer } from './ui.js';
   import { SEAT_NAMES } from './tiles.js';
 
   /**
@@ -30,7 +30,8 @@
    * the line gives the player's move without its weight, which would say how
    * Trained AI rated it, and "Trained AI ?" with Show answer in its place;
    * where they keep only the other players' tiles back (`tilesHidden`), Show
-   * tiles. Either is the bar's one reveal, `onreveal()`. A move the player
+   * tiles. Either is the bar's one reveal, `onreveal(byKeyboard)`, told
+   * whether a keyboard pressed it (pressedByKeyboard). A move the player
    * picked before the answer was shown (`pick`) is given as Now, between the
    * two.
    */
@@ -132,7 +133,7 @@
          where they are hidden too; Show tiles the tiles alone, where only
          they are. -->
     {#if moveHidden || tilesHidden}
-      <button type="button" class="app-control reveal" data-reveal onclick={() => onreveal()}>{moveHidden ? 'Show answer' : 'Show tiles'}</button>
+      <button type="button" class="app-control reveal" data-reveal onclick={event => onreveal(pressedByKeyboard(event))}>{moveHidden ? 'Show answer' : 'Show tiles'}</button>
     {/if}
     {#if brief.flagged}<span class="dot" aria-hidden="true">·</span> <strong class="flag">Flagged</strong>{/if}
   </p>

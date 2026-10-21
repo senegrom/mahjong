@@ -5,7 +5,7 @@
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
   import { decisionInBrief, decisionKey, moveToken, sameMove, seatNotes } from './game-review.js';
-  import { TAG_SAID, callLabel, callTiles, percent, quadOnOffer } from './ui.js';
+  import { TAG_SAID, callLabel, callTiles, percent, pressedByKeyboard, quadOnOffer } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
@@ -28,7 +28,8 @@
    * (`moveHidden`) there is no view, no ring and no "AI" over a tile, and the
    * decision is put to the player: every legal discard in the hand is a
    * button, as in play, the other moves are buttons under it in play's words,
-   * and whichever they press is their answer, `onpick(move)`. Once shown, a
+   * and whichever they press is their answer, `onpick(move, byKeyboard)`,
+   * told whether a keyboard pressed it (pressedByKeyboard). Once shown, a
    * move they picked (`pick`) is tagged "Now" wherever the moves are tagged.
    * With the other players' tiles kept back (`tilesHidden`) the opponents'
    * hands lie face down in their racks.
@@ -249,7 +250,7 @@
 {#snippet seat()}
   <PlayerHand view={frame.view} engine={null} closed={true} {hints} busy={false} blocked={false}
     discardChoices={discards} confirmDiscards={false} picked={null} selected={trained}
-    canDiscard={canPick} selectTile={tile => onpick({ kind: 'discard', tile })} syncHandFocus={() => {}}
+    canDiscard={canPick} selectTile={(tile, _index, event) => onpick({ kind: 'discard', tile }, pressedByKeyboard(event))} syncHandFocus={() => {}}
     handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} {tags} />
   {#if moveHidden}
     <p id="hand-help" class="prompt">Pick a move, or Show answer.</p>
@@ -257,7 +258,7 @@
       <div class="picks" role="group" aria-label="Other moves">
         {#each others as choice, index (index)}
           <button type="button" class="app-control" data-pick={choice.kind} aria-label={callLabel(choice, robbing)}
-            onclick={() => onpick({ kind: choice.kind, tile: choice.tile ?? null })}>
+            onclick={event => onpick({ kind: choice.kind, tile: choice.tile ?? null }, pressedByKeyboard(event))}>
             <span>{callLabel(choice, robbing)}</span>
             {#if callTiles(choice, frame.view.pending_discard).length}
               <span class="preview" aria-hidden="true">

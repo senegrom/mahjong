@@ -92,7 +92,10 @@ export interface PlayerHandProps {
   /** A press selects a tile for confirmation, rather than discarding it. */
   confirmDiscards: boolean;
   picked: number | null; selected: number | null;
-  canDiscard: (tile: Tile) => boolean; selectTile: (tile: Tile, index: number) => void;
+  canDiscard: (tile: Tile) => boolean;
+  /** A tile pressed, with the click that pressed it, by which a review tells
+   * a keyboard's press from a pointer's. */
+  selectTile: (tile: Tile, index: number, event?: MouseEvent) => void;
   syncHandFocus: (event: FocusEvent) => void; handElement?: HTMLDivElement | null;
   /** What a screen reader calls the tiles; a review names them for the seat. */
   handLabel?: string;
