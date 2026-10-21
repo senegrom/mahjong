@@ -40,10 +40,11 @@ export const DEFAULT_REVIEW_ADVISER = 'strong';
  * is published. Without a pick, and for a version this build does not list,
  * it is left out, and the page plays the default (trained-network.js). A
  * record from before the site played generation 1110 (version 2) or 1410
- * (version 3) keeps every other choice but not its pick: when each arrived
+ * (version 3) keeps every other choice but not its pick: when 1110 arrived
  * every player was put in front of it once, at the owner's word, whatever
- * version they had picked before. A pick made since writes a version 4
- * record, and from version 4 a pick is kept as it stands. */
+ * version they had picked before, and 1410's release followed that example.
+ * A pick made since writes a version 4 record, and from version 4 a pick is
+ * kept as it stands. */
 export function readSettings(storage, touch = false) {
   const defaults = { difficulty: DEFAULT_OPPONENT, hints: true, confirmDiscards: touch, shortcuts: true, tileFace: 'classic', reviewAdviser: DEFAULT_REVIEW_ADVISER };
   try {

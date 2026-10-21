@@ -35,10 +35,10 @@ lists plays the default. The pick is the settings record's `trainedNetwork`,
 written only when a player picks a version other than the default. When
 generation 1110 became the default, every pick saved until then was dropped
 once, at the owner's word, so that every player met 1110 on their next visit
-whatever they had picked (settings record version 3), and so again when 1410
-became the default (version 4). Everything else in the record was kept, and
-so was a saved match, which goes on against the new default. A pick made
-since is kept until it is changed.
+whatever they had picked (settings record version 3). The release that made
+1410 the default followed that example (version 4). Everything else in the
+record was kept, and so was a saved match, which goes on against the new
+default. A pick made since is kept until it is changed.
 
 On a phone, a Trained seat's badge says Trained alone: with the version it
 took a narrow seat's last header line to itself (the dealer's header ran to
