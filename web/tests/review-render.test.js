@@ -276,3 +276,21 @@ test("the page gives the review of the game so far the gate that the hand's note
   stop();
   assert.equal(shut(), null, 'open once they stop');
 });
+
+test("with Trained AI's move hidden, the hand's notes edge every decision alike, agreed or not, until the answers are shown", () => {
+  // The notes keep the answers back: their rows take the edge that neither
+  // agrees nor differs, and without the setting they do not.
+  const hidden = render(Review, { props: { notes: differing, adviser: 'club', hideAnswers: true } }).body;
+  assert.match(hidden, /<section class="review\b[^"]*\bhiding\b/);
+  const shown = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
+  assert.doesNotMatch(shown, /<section class="review\b[^"]*\bhiding\b/);
+  // A server render lists only the decisions where the adviser differs, so
+  // the green edge of one where it agreed, listed under Every decision, is
+  // read from the component's own rule for it, as Svelte runs it.
+  const rule = find(parse(reviewSource, { modern: true }).fragment, node => node.type === 'ClassDirective' && node.name === 'agreed');
+  assert.ok(rule, 'a decision the adviser agreed with has an edge of its own');
+  const agreedEdge = (note, hiding) => vm.runInNewContext(`(${reviewSource.slice(rule.expression.start, rule.expression.end)})`, { note, hiding });
+  assert.equal(agreedEdge({ agreed: true }, true), false, 'not while the answers are kept back');
+  assert.equal(agreedEdge({ agreed: true }, false), true, 'once they are shown');
+  assert.equal(agreedEdge({ agreed: false }, false), false);
+});

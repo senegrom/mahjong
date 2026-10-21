@@ -70,9 +70,11 @@
   // setting keeps back until they do: what each decision's adviser would have
   // done instead, with its preference, or Club's reason and numbers. The
   // count of decisions matched, the filter and its counts stay, since they
-  // say how far the player went wrong, not what was better. Once asked, the
-  // answers stay for as long as the notes are open, through a change of
-  // filter or of adviser.
+  // say how far the player went wrong, not what was better. So does the move
+  // made, but not whether the adviser agreed with it, which would give its
+  // answer away: until they are shown, every decision is edged alike. Once
+  // asked, the answers stay for as long as the notes are open, through a
+  // change of filter or of adviser.
   let answersShown = $state(false);
   let hiding = $derived(hideAnswers && !answersShown);
 
@@ -122,7 +124,7 @@
   }
 </script>
 
-<section class="review" aria-label="your decisions this hand" aria-busy={reviewing}>
+<section class="review" class:hiding aria-label="your decisions this hand" aria-busy={reviewing}>
   <header>
     <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
     <label class="adviser">Review adviser
@@ -172,7 +174,7 @@
     {/if}
     <ol>
       {#each listed as note, index (index)}
-        <li class:agreed={note.agreed}>
+        <li class:agreed={note.agreed && !hiding}>
           {#if note.call_tile}<p class="call-context">Response to <Tile tile={note.call_tile} size="tiny" dora={hints && (note.dora_types ?? []).includes(note.call_tile)} /> from {note.call_from}</p>{/if}
           <div class="moves">
             <span class="turn">{note.turn}</span>
@@ -374,6 +376,13 @@
 
   li.agreed {
     border-left-color: rgba(127, 209, 160, 0.7);
+  }
+
+  /* While the answers are kept back, an edge that neither agrees nor
+     differs: under Every decision, green would say which moves were the
+     adviser's own. */
+  .hiding li {
+    border-left-color: rgba(255, 255, 255, 0.16);
   }
 
   .moves {
