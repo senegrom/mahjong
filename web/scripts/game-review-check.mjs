@@ -513,11 +513,13 @@ async function overviewIsRight(page, hand, step) {
  * game's bar where that stays at the top of a phone's screen, or at the top
  * of the screen, once the page is scrolled past it, and the tiles clear of
  * it; where the step bar stays in its place, the tiles clear of the game's
- * bar. Says what was measured. */
+ * bar. Says what was measured, once the page has been drawn after the
+ * scroll, as the player sees it. */
 async function stageFits(page) {
+  await page.$eval('[data-decision] .mine .hand .tile', tile => tile.scrollIntoView({ block: 'start' }));
+  await settle(page);
   const shown = await page.evaluate(() => {
     const tile = document.querySelector('[data-decision] .mine .hand .tile');
-    tile.scrollIntoView({ block: 'start' });
     const bar = document.querySelector('header.bar'), steps = document.querySelector('[data-game-review] [data-steps]');
     const barSticks = getComputedStyle(bar).position === 'sticky', edge = steps.getBoundingClientRect();
     return { sticks: getComputedStyle(steps).position === 'sticky', top: barSticks ? Math.round(bar.getBoundingClientRect().bottom) : 0,
@@ -841,7 +843,6 @@ try {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
       await overviewIsRight(page, chosen, step);
-      await stageFits(page);
       const forward = step < frames.length - 1;
       step += forward ? 1 : -1;
       // Brought to the middle of the screen first, clear of the game's bar,
@@ -851,6 +852,12 @@ try {
       await onPlace(page, chosen, step);
       await overviewIsRight(page, chosen, step);
       assert.notEqual(await focusedName(page), 'the page', `focus stays in the review at ${width}x${height}`);
+      // The stage fits the screen at the step pressed. It is measured after a
+      // press, as the player sees it: in Chromium a change of the screen's
+      // width alone, which moves the step bar under the game's bar on a phone,
+      // left the bar stuck where it stuck before, at the top of the screen,
+      // until a step drew it afresh.
+      await stageFits(page);
       await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
       // The step bar is stuck at the top of the screen now, over the table,
@@ -1031,11 +1038,12 @@ try {
     assert.ok(Math.abs(after.offset - before.offset) <= 1, `the line stays where it was in the column: ${before.offset} then ${after.offset}`);
     assert.equal(after.scrolled, before.scrolled, 'the page does not move');
     // Scrolled down the decision, the column stays at the top of the screen,
-    // where the two panes still have room for it there.
+    // where the two panes still have room for it there; measured a frame
+    // after the scroll, as a sticky box is placed (stageFits).
+    await page.evaluate(() => scrollBy(0, document.querySelector('[data-game-review] .panes').getBoundingClientRect().top + 200));
+    await settle(page);
     const stuck = await page.evaluate(() => {
-      const column = document.querySelector('aside[data-review-index]'), panes = column.parentElement;
-      scrollBy(0, panes.getBoundingClientRect().top + 200);
-      const box = column.getBoundingClientRect();
+      const column = document.querySelector('aside[data-review-index]'), panes = column.parentElement, box = column.getBoundingClientRect();
       return { top: Math.round(box.top), room: panes.getBoundingClientRect().bottom >= 8 + box.height };
     });
     if (stuck.room) assert.equal(stuck.top, 8, 'the column stays at the top of the screen');
