@@ -4,14 +4,17 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, scanMatch } from '../src/lib/game-review.js';
-import { PASS, saidLines, sameMove } from '../src/lib/review-insight.js';
-import { anyGate, handTables, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
+import { PASS, movesOf, saidLines, sameMove } from '../src/lib/review-insight.js';
+import { anyGate, handTables, passFor, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
 const entry = recordedQuestions(Game, PhysicalAnalysis).find(question => question.id === 'e3-5');
+/** East 3 #5's search: the unedited table and its 37 changes, in passes of
+ * the review's batch. */
+const SEARCH = [PASS, PASS, PASS, PASS, 6];
 const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
@@ -43,7 +46,8 @@ const planesKey = (planes, mask) => `${Array.from(mask).join('')}:${Array.from(p
  * planes the engine writes for each table the record answers, so that every
  * table goes through the page's own encoding and back. `sizes` notes each
  * batch; `onBatch(sent)` hears each before it is answered, with how many
- * came before it. */
+ * came before it. A pass is never cancelled: the worker runs one it has
+ * begun to its end. */
 function recordedNetwork({ onBatch = () => {} } = {}) {
   const byPlanes = new Map();
   for (const [key, answer] of recordedAsk(entry).answers) {
@@ -51,11 +55,10 @@ function recordedNetwork({ onBatch = () => {} } = {}) {
     byPlanes.set(planesKey(planes, mask), weights);
   }
   const sizes = [];
-  const analyzeBatch = async (positions, signal) => {
+  const analyzeBatch = async positions => {
     onBatch(sizes.length);
     sizes.push(positions.length);
     await turn();
-    if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
     return positions.map(({ planes, mask }) => {
       const weights = byPlanes.get(planesKey(planes, mask));
       if (!weights) throw new Error('A table the recorded run never asked');
@@ -87,7 +90,7 @@ test('a hand\'s tables are the positions the engine writes at the hand\'s end, r
   assert.equal(written.flat().length, 139);
 });
 
-test('Trained AI is asked through analyzeBatch in passes of at most 32, and its answers read back into the engine\'s moves', async () => {
+test('Trained AI is asked through analyzeBatch in passes of the review\'s batch, and its answers read back into the engine\'s moves', async () => {
   const network = recordedNetwork(), { insight } = insightOf(network);
   const question = questionOf(reviewedDecision(), entry.position);
   // The review's weights come back as moves, the same as the recorded run's.
@@ -95,7 +98,7 @@ test('Trained AI is asked through analyzeBatch in passes of at most 32, and its 
   const why = await insight.why(question);
   assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away');
   const search = await insight.search(question);
-  assert.deepEqual(network.sizes, [2, PASS, 6]);
+  assert.deepEqual(network.sizes, [2, ...SEARCH]);
   assert.deepEqual([...saidLines(why), ...saidLines(search.said)], [
     'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
     'One change and it throws your west wind:',
@@ -136,7 +139,7 @@ test('a search waits while the hand\'s notes ask, and goes on where it was', asy
   assert.deepEqual(network.sizes, [PASS], 'no pass while the notes ask');
   stopNotes();
   const found = await search;
-  assert.deepEqual(network.sizes, [PASS, 6]);
+  assert.deepEqual(network.sizes, SEARCH);
   assert.equal(found.status, 'searched');
 });
 
@@ -165,4 +168,68 @@ test('a table the rules refuse is answered as refused, and never sent', async ()
 test('a search needs a spell of asking apart from the notes\'', () => {
   const shared = new Asking();
   assert.throws(() => reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: async () => [], asking: shared, notes: shared }), /apart from the notes/);
+});
+
+/** The policy worker as it runs passes: each to its end once begun, whatever
+ * is cancelled, answering as the recorded run did once `answer()` lets the
+ * pass under way finish, or failing it with `fail(error)`, as a worker reset
+ * fails every request. `sent` counts the passes it was given. */
+function workerOfPasses() {
+  const recorded = recordedNetwork(), waiting = [];
+  return {
+    get sent() { return recorded.sizes.length + waiting.length; },
+    analyzeBatch: positions => new Promise((resolve, reject) => waiting.push({ positions, resolve, reject })),
+    answer: () => { const pass = waiting.shift(); recorded.analyzeBatch(pass.positions).then(pass.resolve, pass.reject); },
+    fail: error => waiting.shift().reject(error),
+  };
+}
+
+test('a search stopped while its pass is with the worker holds the review back until the worker has answered that pass', async () => {
+  // The worker runs the pass to its end whatever is cancelled, and a batch
+  // the review sent meanwhile would wait behind it, its deadline running.
+  const worker = workerOfPasses(), { insight, notes, asking } = insightOf(worker), review = anyGate(notes, asking), stop = new AbortController();
+  const search = insight.search(questionOf(reviewedDecision(), entry.position), { signal: stop.signal });
+  await until(() => worker.sent === 1, 'the first pass is with the worker');
+  stop.abort();
+  await assert.rejects(search, { name: 'AbortError' });
+  assert.ok(review() instanceof Promise, 'the review waits while the pass runs');
+  worker.answer();
+  await until(() => review() === null, 'the review goes on once the pass is answered');
+  assert.equal(worker.sent, 1, 'nothing more was asked');
+  // A pass that fails, as every request fails when the worker is reset, lets
+  // the review go on too, and nobody is left to hear the failure.
+  const failing = workerOfPasses(), second = insightOf(failing), stopped = new AbortController();
+  const searching = second.insight.search(questionOf(reviewedDecision(), entry.position), { signal: stopped.signal });
+  await until(() => failing.sent === 1, 'the first pass is with the worker');
+  stopped.abort();
+  await assert.rejects(searching, { name: 'AbortError' });
+  assert.ok(anyGate(second.notes, second.asking)() instanceof Promise);
+  failing.fail(new Error('The trained opponent did not answer in time'));
+  await until(() => anyGate(second.notes, second.asking)() === null, 'the review goes on once the pass has failed');
+});
+
+test('a pass is the review\'s batch, or fewer where a question sent behind a whole batch would run out of its 20 seconds', async () => {
+  // At the review's measured time a position: none measured yet, desktop
+  // Chromium's 157 ms, the slow threshold, and slower still.
+  assert.deepEqual([null, 157, 500, 1875, 2000, 2500, 7500, 20000].map(passFor), [PASS, PASS, PASS, PASS, 7, 6, 2, 1]);
+  const network = recordedNetwork(), asking = new Asking(), notes = new Asking();
+  const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, positionMs: () => 2500 });
+  const found = await insight.search(questionOf(reviewedDecision(), entry.position));
+  assert.deepEqual([found.status, network.sizes], ['searched', [6, 6, 6, 6, 6, 6, 2]]);
+});
+
+test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {
+  // Mortal has one kan, which the engine gives to the first kan open, so the
+  // review lists the added kan at no weight. The answer read back lists it
+  // too, or the unedited table would never match the review's.
+  const { position, weights } = JSON.parse(readFileSync(new URL('./fixtures/review-insight-dual-kan.json', import.meta.url), 'utf8'));
+  const analysis = new PhysicalAnalysis(position);
+  let review;
+  try {
+    review = movesOf(weightsByChoice(analysis, analysis.agent_choices(), weights, action => analysis.agent_action_from_mortal(action, false)));
+  } finally { analysis.free(); }
+  const [answer] = await trainedAsk({ PhysicalAnalysis, analyzeBatch: async positions => positions.map(() => ({ weights })) })([position]);
+  assert.deepEqual(answer.moves, review);
+  assert.deepEqual(review.filter(move => /kan$/.test(move.kind)).map(move => [move.kind, move.tile, move.weight > 0.99]),
+    [['concealed-kan', '1s', true], ['extended-kan', '9m', false]]);
 });

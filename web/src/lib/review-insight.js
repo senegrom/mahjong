@@ -30,8 +30,13 @@ import { percent } from './ui.js';
  * move's, the search is not offered: in the prototype nothing small ever
  * flipped such a choice, and the pairs that did read as contrived. */
 export const MARGIN_FLOOR = -7;
-/** Positions asked in one forward pass, which fit the worker's 384 MiB. */
-export const PASS = 32;
+/** Positions asked in one forward pass at most: the review's own batch (BATCH
+ * in game-review.js). The worker runs a pass it has begun to its end, so
+ * whatever is sent to it meanwhile, a question of the hand's notes or
+ * another decision's Why line, waits behind no more than it would behind the
+ * review. Passes of 32 cost only about 3% less a position in the page's
+ * runtime, too little for a wait four times as long. */
+export const PASS = 8;
 /** How far the unedited table's weights may stand from the review's own: a
  * forward pass of other positions beside it may round its last digits
  * otherwise, while a table that replayed differently moves them far more. */

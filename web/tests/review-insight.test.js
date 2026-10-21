@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
+import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changeWords, explainWhy, judge, moveWords, saidLines, searchOffered, singleEdits,
   tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
@@ -101,11 +102,15 @@ test('a Why line that is only partly or not explained carries the check\'s worki
   });
 });
 
+test('a pass is no longer than the review\'s own batch', () => {
+  assert.equal(PASS, BATCH);
+});
+
 test('every table the recorded run answered is written by the page as the run asked it, but the one pair named', () => {
   for (const entry of questions) assert.deepEqual(recordedAsk(entry).otherwise, [], entry.title);
 });
 
-test('the search asks only tables the recorded run asked, the unedited one first, in passes of at most 32', async () => {
+test('the search asks only tables the recorded run asked, the unedited one first, in passes of at most the review\'s batch', async () => {
   const passes = {};
   for (const entry of searched) {
     const asked = [], { ask, unanswered } = recordedAsk(entry);
@@ -126,11 +131,12 @@ test('the search asks only tables the recorded run asked, the unedited one first
     }
   }
   // The unedited table and every change version 1 makes of the prototype's
-  // budget: no wall, no dealer, no call taken back, no score levelled that
-  // was level already, and no riichi moved a discard earlier where the
-  // declaration's tile came from the hand (East 3 #5 and South 3 #4); the
-  // score steps one at a time; the pairs at once.
-  assert.deepEqual(passes, { 'e3-5': [32, 6], 's3-4': [32, 1, 28], 'e1-20': [27], 's1-9': [30], 's4-18': [29], 'why7-1m': [32, 1, 1, 1] });
+  // budget, in passes of eight: no wall, no dealer, no call taken back, no
+  // score levelled that was level already, and no riichi moved a discard
+  // earlier where the declaration's tile came from the hand (East 3 #5 and
+  // South 3 #4); then the score steps one at a time, and the pairs.
+  assert.deepEqual(passes, { 'e3-5': [8, 8, 8, 8, 6], 's3-4': [8, 8, 8, 8, 1, 8, 8, 8, 4], 'e1-20': [8, 8, 8, 3], 's1-9': [8, 8, 8, 6],
+    's4-18': [8, 8, 8, 5], 'why7-1m': [8, 8, 8, 8, 1, 1, 1] });
   // What the button's estimate counts before the search begins: the unedited
   // table and the single changes, the passes before any score step or pair.
   const first = { 'e3-5': 38, 's3-4': 33, 'e1-20': 27, 's1-9': 30, 's4-18': 29, 'why7-1m': 32, 'e2b-14': 0, 'why7-2s': 0 };
