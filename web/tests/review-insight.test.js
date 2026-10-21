@@ -19,13 +19,15 @@ const searched = questions.filter(entry => searchOffered(entry));
 
 /** What version 1's panel says for each of the prototype's questions, from
  * its recorded answers (insight/recommendation/terse.txt): the Why line, then
- * the search's findings. Two lines say otherwise than terse.txt. East 3 #5
+ * the search's findings. Some lines say otherwise than terse.txt. East 3 #5
  * tries one change fewer of what is safe: North declared riichi with a tile
  * from its hand, so it cannot have declared a discard earlier, the tile
  * then following the declaration out of its hand. East 2 · 2 honba #14's
  * probe changes both of the player's 8 bamboo, since one left in the river
  * keeps a wait on it furiten, and says so in one clause; Trained AI was
- * asked that table since. */
+ * asked that table since. South 4 #18's Why line no longer says that nobody
+ * can be waiting on the player's 8 circles, every copy in sight: a 6-7 or a
+ * 7-9 of circles waits on it holding none. */
 const PANELS = {
   'e3-5': [
     'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
@@ -56,7 +58,7 @@ const PANELS = {
     'Not moved by the score (±16,000) or the round.',
   ],
   's4-18': [
-    'Partly: Your 8 circles leaves the hand 3 from waiting; Trained AI\'s 9 characters leaves it 2 from waiting. Trained AI puts 84.9% on tiles that keep the hand 2 from waiting. On your side: every copy of your 8 circles is in sight, so nobody can be waiting on it; one 9 characters is still unseen.',
+    'Partly: Your 8 circles leaves the hand 3 from waiting; Trained AI\'s 9 characters leaves it 2 from waiting. Trained AI puts 84.9% on tiles that keep the hand 2 from waiting.',
     'One change and it throws your 8 circles:',
     '- What is safe (2 of 7 tried): if South had declared riichi with their last discard, the 8 bamboo (a riichi, the 9 characters less safe and your 8 circles safe): your 8 circles 98.3%, the 9 characters 1.5%.',
     'Not moved by the score (±16,000) or the round.',
@@ -289,6 +291,7 @@ function discardTables(snapshot) {
 const reviewCheck = discardTables(reviewCheckGame(Game)), clubFive = discardTables(clubAdvisedGame(Game, 5));
 const clubSixteen = discardTables(clubAdvisedGame(Game, 16));
 const asked = (P, A) => ({ played: { kind: 'discard', tile: P }, preferred: { kind: 'discard', tile: A } });
+const honour = tile => tile[1] === 'z';
 
 test('no change, alone or paired, has a seat in riichi throw a tile from its hand after its declaration', () => {
   // Every discard after a declaration is the tile just drawn. Only a riichi
@@ -357,6 +360,45 @@ test('a change is said as the engine\'s facts stand after it: what is safer, who
   // North's riichi, the only one, taken back, on the recorded question's own
   // weights.
   assert.equal(await saidOf(question('s3-4'), 'North had not declared riichi'), 'nobody in riichi');
+});
+
+test('only an honour with every copy in sight is said to be one nobody can wait on, since a sequence waits on a suit tile it holds none of', async () => {
+  // Every question of three whole games where either tile has every copy in
+  // sight, Trained AI's weights stood in for, which set only the figures
+  // said. A suit tile once was said to be dead in 1,351 of them: "Every copy
+  // of the 1 bamboo is in sight, so nobody can be waiting on it", though a
+  // 2-3 waits on it holding none.
+  let lines = 0, dead = 0;
+  for (const [game, decisions] of [['The review check\'s game', reviewCheck], ['Club seed 5', clubFive], ['Club seed 16', clubSixteen]]) {
+    for (const [where, { position, discards }] of decisions) {
+      const unseen = Object.fromEntries(facts(position).discards.map(discard => [discard.tile, discard.unseen]));
+      for (const [P, A] of discards.flatMap(mine => discards.filter(other => other !== mine).map(other => [mine, other]))) {
+        if (unseen[P] && unseen[A]) continue;
+        const asking = standInQuestion(position, P, A);
+        const why = await explainWhy({ ...asking, facts, ask: async tables => tables.map(() => ({ moves: asking.weights })) });
+        const said = `${saidLines(why)[0]} ${why.check}`, at = `${game}, ${where}: ${P} against ${A}: ${said}`;
+        assert.doesNotMatch(said, /very copy of (the |your )?\d/, at);
+        if (!honour(P) || !honour(A)) assert.doesNotMatch(said, /both tiles/, at);
+        dead += /very copy of (the |your )?[a-z]/.test(said);
+        lines++;
+      }
+    }
+  }
+  assert.deepEqual([lines, dead], [3626, 917]);
+});
+
+test('a dora indicator moved onto the last unseen copy of an honour in question makes it dead, said under what is safe', async () => {
+  // The review check's East 1 #6, nobody in riichi: the player threw the
+  // west wind, one copy of it unseen, and Trained AI the 7 bamboo. With the
+  // west wind for the indicator every west wind is in sight, so the change
+  // is said under what is safe, the dora it brings beside it; it was said
+  // under a hand worth more, the west wind's death left unsaid.
+  const asking = questionAt(reviewCheck, 'East 1 #6', ['3z', '7s']);
+  const words = 'the dora indicator had been the west wind, not the north wind, making the north wind dora';
+  const { said } = await searchWhereOnly(asking, facts, singleEdits(asking.position, asking).find(edit => edit.words === words));
+  const line = said.items.find(item => item.includes(words));
+  assert.match(line, /^What is safe \(1 of \d+ tried\): /);
+  assert.equal(saidOfChange(line), '1 more dora in your hand and every west wind in sight');
 });
 
 /** South 1 #9's search, Trained AI throwing the 6 circles on a table where

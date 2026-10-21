@@ -48,6 +48,7 @@ const MASS = 0.95;
 
 const the = tile => `the ${tileWords(tile)}`;
 const your = tile => `your ${tileWords(tile)}`;
+const honour = tile => tile[1] === 'z';
 const an = tile => `${tile[0] === '8' || tile === '1z' ? 'an' : 'a'} ${tileWords(tile)}`;
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'];
 const nth = index => ORDINALS[index] ?? `${index + 1}th`;
@@ -337,16 +338,23 @@ function ideasOf(edit, d) {
   return [...ideas];
 }
 
+/** Whether a change of the copies in sight of a tile in question, `by` from
+ * the `before` unseen, makes it dead, every copy in sight, or live again. Only
+ * an honour is dead so: a suit tile with every copy in sight can still be
+ * won on, by a sequence that waits on it holding no copy, as 6-7 of circles
+ * waits on the 8. */
+const deadOrLive = (tile, before, by) => honour(tile) && Boolean(by) && (before === 0 || before + by === 0);
+
 /** The one idea a change is said under. A hand swap is read by what it does
  * to the hand first. Moving the indicator also changes what is in sight,
  * which is the reason only when it makes a tile in question dead or live
  * again, or changes how safe it is against a riichi. */
-function primary(change, unseen) {
+function primary(change, A, P, unseen) {
   if (TABLE.has(change.family)) return 'table';
   if (change.family === 'hand') return ['faster', 'worth more', 'safety'].find(idea => change.ideas.includes(idea)) ?? 'shape';
   if (change.family !== 'dora') return 'safety';
-  const d = change.delta, livens = (before, by) => by && before === 0;
-  return d.tierA || d.tierP || livens(unseen.A, d.unseenA) || livens(unseen.P, d.unseenP) ? 'safety' : 'worth more';
+  const d = change.delta;
+  return d.tierA || d.tierP || deadOrLive(A, unseen.A, d.unseenA) || deadOrLive(P, unseen.P, d.unseenP) ? 'safety' : 'worth more';
 }
 
 /** How a tile in question stands after a change, its exposure `[was, is]`
@@ -378,9 +386,11 @@ function deltaWords(d, A, P, unseen) {
     if (d.tierA) out.push(exposureWords(the(A), d.tierA));
     if (d.tierP) out.push(exposureWords(your(P), d.tierP));
   }
-  // Copies in sight matter where a tile was dead, every copy seen.
-  if (d.unseenA && unseen.A === 0) out.push(`not every ${tileWords(A)} in sight`);
-  if (d.unseenP && unseen.P === 0) out.push(`not every ${tileWords(P)} in sight`);
+  // Copies in sight matter where they make an honour in question dead, every
+  // copy seen, or live again.
+  for (const [tile, before, by] of [[A, unseen.A, d.unseenA], [P, unseen.P, d.unseenP]]) {
+    if (deadOrLive(tile, before, by)) out.push(`${before === 0 ? 'not every' : 'every'} ${tileWords(tile)} in sight`);
+  }
   if (d.safeHeld && !d.tierA && !d.tierP && !riichiMoved(d)) {
     out.push(d.safeHeld === -1 ? 'one safe tile fewer' : `${Math.abs(d.safeHeld)} ${d.safeHeld > 0 ? 'more' : 'fewer'} safe tile${Math.abs(d.safeHeld) === 1 ? '' : 's'} in your hand`);
   }
@@ -637,10 +647,10 @@ function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
         if (table) said.items.push(table);
         continue;
       }
-      const members = flips.filter(change => primary(change, unseen) === idea).sort(byMargin);
+      const members = flips.filter(change => primary(change, A, P, unseen) === idea).sort(byMargin);
       if (!members.length) continue;
       const [best] = members, also = changeSaid(F0, best, A, P, unseen);
-      const tried = one.filter(change => primary(change, unseen) === idea).length;
+      const tried = one.filter(change => primary(change, A, P, unseen) === idea).length;
       said.items.push(`${TITLES[idea]} (${members.length} of ${tried} tried): if ${best.words}${also.length ? ` (${list(also)})` : ''}: ${weightsAfter(best, A, P)}.`);
     }
   } else {
@@ -687,14 +697,16 @@ function differences(A, P, F) {
       add('safety', ia < ip ? 'ai' : 'you', Math.abs(RATE[A.tier] - RATE[P.tier]),
         `Against ${list(F.threats.map(seat => WINDS[seat]))}'s riichi ${p} ${exposed(P)}; ${a} ${exposed(A)}.`);
     }
-  } else if (A.unseen === 0 && P.unseen > 0) {
-    // With nobody in riichi, a tile whose every copy is in sight cannot be
-    // anyone's wait, bar thirteen orphans: the safest throw there is.
-    add('safety', 'ai', 1, `Every copy of ${the(A.tile)} is in sight, so nobody can be waiting on it; ${COUNT[P.unseen]} ${tileWords(P.tile)} ${P.unseen === 1 ? 'is' : 'are'} still unseen.`, { dead: true });
-  } else if (P.unseen === 0 && A.unseen > 0) {
-    add('safety', 'you', 1, `Every copy of ${your(P.tile)} is in sight, so nobody can be waiting on it; ${COUNT[A.unseen]} ${tileWords(A.tile)} ${A.unseen === 1 ? 'is' : 'are'} still unseen.`, { dead: true });
-  } else if (A.unseen === 0) {
-    add('dead', 'neither', 0, 'Every copy of both tiles is in sight, so neither can deal in.');
+  } else {
+    // With nobody in riichi, an honour whose every copy is in sight cannot be
+    // anyone's wait, bar thirteen orphans: the safest throw there is. A suit
+    // tile with every copy in sight can still be won on (deadOrLive), so its
+    // copies say nothing of its safety.
+    const deadA = honour(A.tile) && A.unseen === 0, deadP = honour(P.tile) && P.unseen === 0;
+    const left = tile => (tile.unseen ? `; ${COUNT[tile.unseen]} ${tileWords(tile.tile)} ${tile.unseen === 1 ? 'is' : 'are'} still unseen` : '');
+    if (deadA && deadP) add('dead', 'neither', 0, 'Every copy of both tiles is in sight, so neither can deal in.');
+    else if (deadA) add('safety', 'ai', 1, `Every copy of ${the(A.tile)} is in sight, so nobody can be waiting on it${left(P)}.`, { dead: true });
+    else if (deadP) add('safety', 'you', 1, `Every copy of ${your(P.tile)} is in sight, so nobody can be waiting on it${left(A)}.`, { dead: true });
   }
   for (const form of ['thirteen orphans', 'seven pairs']) {
     const fa = A.forms[form], fp = P.forms[form], least = Math.min(A.shanten, P.shanten);
@@ -726,7 +738,7 @@ function massOf(fact, F, weight, A, P) {
   const sum = shared => Object.values(F.tiles).filter(shared).reduce((total, tile) => total + (weight[tile.tile] ?? 0), 0);
   switch (fact?.family) {
     case 'distance': return { what: `tiles that keep the hand ${far(A.shanten)}`, mass: sum(t => t.shanten <= A.shanten) };
-    case 'safety': return fact.dead ? { what: 'tiles with every copy in sight', mass: sum(t => t.unseen === 0) }
+    case 'safety': return fact.dead ? { what: 'honours with every copy in sight', mass: sum(t => honour(t.tile) && t.unseen === 0) }
       : { what: 'tiles that cannot deal in', mass: sum(t => t.tier === 'safe') };
     case 'speed': return { what: `tiles that leave the hand ${far(A.shanten)} with more improving tiles than yours`,
       mass: sum(t => t.shanten <= A.shanten && t.acceptance > P.acceptance) };
@@ -749,7 +761,7 @@ function together(family, parts) {
 }
 
 /** The change that takes the leading fact away, where it has a clean one: a
- * copy of the dead tile out of sight again, every riichi taken back, every
+ * copy of the dead honour out of sight again, every riichi taken back, every
  * discard the player made of the furiten tile made another, another tile
  * made the dora. A change that leaves the fact standing would test nothing:
  * one copy of the furiten tile left in the river keeps a wait on it furiten,
