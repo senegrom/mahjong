@@ -33,17 +33,17 @@
  *    still with the worker keeps the spell until the worker has answered that
  *    pass, so the review never sends a batch to wait behind a pass nobody
  *    wants, its own deadline running.
- * The page sends the review's batches through countedBatches too, and stops
- * the questions (their `signal`) wherever it stops the review: at the next
- * hand, whose Trained opponents ask the same worker, and on leaving Play. A
- * review batch stopped by its signal is let go at once, though the worker
- * runs one it has begun to its end; stopped together, neither sends again.
+ * The page sends the review's batches through countedBatches too, whose
+ * spell a stopped batch keeps until the worker has answered it, and stops the
+ * questions (their `signal`) wherever it stops the review for the next deal:
+ * at the next hand, whose Trained opponents ask the same worker, and on
+ * leaving Play.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
 import { PASS, explainWhy, movesOf, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 
-const stopped = () => new DOMException('Search stopped', 'AbortError');
+const stopped = () => new DOMException('Asking stopped', 'AbortError');
 
 /** How long a question sent just behind a pass may wait for it, the notes'
  * first question or the next deal's first move: either has 20 seconds in all
@@ -92,16 +92,23 @@ function unlessStopped(promise, signal) {
 /** `analyzeBatch` with each batch it sends counted as a spell of `batches`
  * (Asking) until the worker has answered it or it has failed: what the page
  * sends the review's batches through, and the reasoning its passes, so that a
- * pass is sent only while no batch is with the worker. A batch stopped by its
- * signal ends its spell at once, though the worker runs one it has begun to
- * its end. */
+ * pass is sent only while no batch is with the worker. A batch is sent
+ * without its signal: the worker runs one it has begun to its end whatever is
+ * cancelled, and only its answer says that it is free, so a batch stopped by
+ * its signal is let go at once and its spell kept until then. A review
+ * stopped with its Stop button, the questions going on, then holds them back
+ * as a running review would. One stopped before it is sent is not sent. The
+ * batches it carries go to a worker with nothing to do, as the review's and
+ * the passes wait at their gates, so none waits in its queue for a cancel to
+ * drop. */
 export function countedBatches(analyzeBatch, batches) {
   return (positions, signal) => {
+    if (signal?.aborted) return Promise.reject(stopped());
     const end = batches.begin();
     let answer;
-    try { answer = Promise.resolve(analyzeBatch(positions, signal)); } catch (error) { answer = Promise.reject(error); }
+    try { answer = Promise.resolve(analyzeBatch(positions)); } catch (error) { answer = Promise.reject(error); }
     answer.then(end, end);
-    return answer;
+    return signal ? unlessStopped(answer, signal) : answer;
   };
 }
 

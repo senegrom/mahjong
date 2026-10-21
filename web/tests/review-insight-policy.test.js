@@ -180,7 +180,8 @@ test('a search needs spells of asking apart from the notes\' and from the worker
 
 /** The policy worker as it runs requests, as policy.worker.js runs them: one
  * at a time, in turn, each to its end once begun, whatever is cancelled, and
- * one still queued dropped when its signal stops it. `answer()` lets the
+ * one still queued dropped when its signal stops it; a request stopped by its
+ * signal fails at once either way, as policy.js fails it. `answer()` lets the
  * request under way finish, answered as the recorded run answered the
  * questions named (`asked`), and `fail(error)` fails it, as a worker reset
  * fails every request. `sent` counts the requests it was given, and
@@ -196,8 +197,7 @@ function workerOfPasses({ asked } = {}) {
       waiting.push(request);
       deepest = Math.max(deepest, waiting.length);
       signal?.addEventListener('abort', () => {
-        if (waiting.indexOf(request) < 1) return;
-        waiting.splice(waiting.indexOf(request), 1);
+        if (waiting.indexOf(request) > 0) waiting.splice(waiting.indexOf(request), 1);
         reject(new DOMException('Match changed', 'AbortError'));
       }, { once: true });
     }),
@@ -253,6 +253,30 @@ test('a pass waits for the review\'s batch already with the worker, so that what
   }
   assert.equal((await search).status, 'searched');
   assert.deepEqual([worker.sent, worker.deepest, review(), batches.gate()], [SEARCH.length + 1, 1, null, null]);
+});
+
+test('a review batch stopped by its signal holds the passes back until the worker has answered it, and one stopped before it is sent is not sent', async () => {
+  // The player stops the review with its Stop button while its batch runs,
+  // and opens a decision whose Why line asks. The worker runs the batch to
+  // its end, so the Why line's pass, sent at once, would wait behind it.
+  const worker = workerOfPasses(), batches = new Asking(), { insight } = insightOf(worker, new Asking(), new Asking(), batches);
+  const reviewBatch = countedBatches(worker.analyzeBatch, batches), stop = new AbortController();
+  const analysis = new PhysicalAnalysis(entry.position);
+  const table = { planes: analysis.agent_observation_mortal(), mask: analysis.agent_mask_mortal() };
+  analysis.free();
+  const reviewed = reviewBatch([table], stop.signal);
+  stop.abort();
+  await assert.rejects(reviewed, { name: 'AbortError' });
+  const why = insight.why(questionOf(reviewedDecision(), entry.position));
+  for (let count = 0; count < 20; count++) await turn();
+  assert.deepEqual([worker.sent, batches.gate() instanceof Promise], [1, true], 'the stopped batch runs on, and the Why line waits');
+  worker.answer();
+  await until(() => worker.sent === 2, 'the Why line sends its pass once the batch is answered');
+  worker.answer();
+  assert.equal((await why).label, 'Partly');
+  assert.deepEqual([worker.deepest, batches.gate()], [1, null]);
+  await assert.rejects(reviewBatch([table], stop.signal), { name: 'AbortError' });
+  assert.equal(worker.sent, 2, 'nothing sent for a batch stopped before it went');
 });
 
 test('a search stopped while its pass is with the worker holds the review back until the worker has answered that pass', async () => {
