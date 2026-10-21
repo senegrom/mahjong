@@ -71,8 +71,8 @@ test('the full panel and reflection remain encoded, with a zero-stretch playable
 });
 
 test('the peacock completes all nine disks without changing neighboring selections or hidden faces', () => {
-  assert.equal(set.tiles.length, 27);
-  assert.equal(set.placeholders.length, 7);
+  assert.equal(set.tiles.length, 28);
+  assert.equal(set.placeholders.length, 6);
   assert.deepEqual(set.tiles.map(tile => tile.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(tile => tile.tile).sort(), [...TILE_TYPES].sort());
   for (let rank = 1; rank <= 9; rank++) {
@@ -91,7 +91,7 @@ test('the peacock completes all nine disks without changing neighboring selectio
 
 test('the peacock appears in the gallery without changing the fourteen-tile hand', () => {
   const preview = read('web/public/tiles/dali/preview.html').toString();
-  for (const text of ['27 approved faces', 'The Peacock of Small Universes — C', 'Ranks 1–9 of disks are complete', 'remaining 7 tiles']) assert.ok(preview.includes(text), text);
+  for (const text of ['28 approved faces', 'The Peacock of Small Universes — C', 'Ranks 1–9 of disks are complete', 'remaining 6 tiles']) assert.ok(preview.includes(text), text);
   assert.match(preview.match(/<div class="gallery">([\s\S]*?)<\/div>/)[1], /approved\/Pin9\.svg/);
   const hand = preview.match(/<div class="hand">([\s\S]*?)<\/div>/)[1];
   assert.deepEqual([...hand.matchAll(/src="approved\/([^"/]+)\.svg"/g)].map(match => match[1]),

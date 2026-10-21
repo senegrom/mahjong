@@ -494,6 +494,23 @@
       }
     },
     {
+      "name": "Hatsu",
+      "tile": "6z",
+      "label": "Green dragon",
+      "direction": "The River That Escaped — Green B",
+      "status": "approved",
+      "svg": "approved/Hatsu.svg",
+      "source": "docs/design/dali/studies/green-dragon-b-river-approved.svg",
+      "sourceSha256": "d25dd23f919dff9f8fc700c4c45527f31d944a858c8c2479bebd9a7684500205",
+      "svgSha256": "d25dd23f919dff9f8fc700c4c45527f31d944a858c8c2479bebd9a7684500205",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 606,
+        "height": 808
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -544,9 +561,6 @@
     },
     {
       "tile": "3z"
-    },
-    {
-      "tile": "6z"
     }
   ]
 }
