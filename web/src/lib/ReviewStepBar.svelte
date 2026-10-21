@@ -33,10 +33,11 @@
    * tiles. Either is the bar's one reveal, `onreveal(byKeyboard)`, told
    * whether a keyboard pressed it (pressedByKeyboard). A move the player
    * picked before the answer was shown (`pick`) is given as Now, between the
-   * two.
+   * two. `hiding` is whether the settings keep anything back at all, at any
+   * decision, so that the line keeps the reveal's room at every one.
    */
   let { hand, step, decision = null, previous = null, next = null, waiting = false, filter = 'every', moveHidden = false, tilesHidden = false,
-    pick = null, onstep, onreveal = () => {}, height = $bindable(0) } = $props();
+    hiding = false, pick = null, onstep, onreveal = () => {}, height = $bindable(0) } = $props();
 
   // What Previous and Next step to, after the word each shows, which their
   // names begin with, so that a player who says the word reaches the button.
@@ -107,7 +108,7 @@
   </div>
   <!-- "decision" goes on the narrowest screens, as "Trained" does below. -->
   <p class="place" data-step>{hand.name} · <span class="long">{'decision '}</span>{step + 1} of {hand.frames.length}</p>
-  <p class="moves" data-move-line>
+  <p class="moves" class:hiding data-move-line>
     {#if brief.offered}<span class="on">On {discarder}'s{robbing ? ' kan' : ''} <Tile tile={brief.offered} size="tiny" />:</span>{/if}
     <span class="part">You {@render token(brief.you)}{#if yours?.weight != null}{' '}{percent(yours.weight)}{#if yours.given && !brief.ai}, given riichi{/if}{/if}</span>
     {#if now}
@@ -166,8 +167,15 @@
   /* The player's move, the one they picked, Trained AI's and the flag,
      parted by dots that only the eye is given: a screen reader hears the
      moves. The reveal sits where Trained AI's move would be, wrapping with
-     the rest. */
+     the rest. While the settings keep anything back, the line is as tall as
+     the reveal with or without it, so that the bar keeps its height as a
+     reveal takes the button away and as the next decision kept back brings
+     it again: where the line has a row of its own, a bar that changed height
+     would move the table beneath it, and at the top of the page no scroll
+     could put the table back. With nothing kept back there is no button, and
+     the line takes no more room than its moves. */
   .moves { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  .moves.hiding { min-height: 44px; }
   .on, .part, .token { display: inline-flex; align-items: center; gap: 4px; }
   .dot { opacity: .7; }
   .flag { font-weight: 650; color: var(--gold); }

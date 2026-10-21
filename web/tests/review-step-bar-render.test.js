@@ -112,6 +112,15 @@ test("with only the other players' tiles kept back, the step bar gives both move
   assert.doesNotMatch(bar({ decision: flagged }), /data-reveal/);
 });
 
+test("while the settings keep anything back, the line of moves keeps the reveal's room with the button or without, so that a reveal leaves the bar as tall, and otherwise takes only its moves' room", () => {
+  const flagged = decision(1, discards[1], { judgement: { flagged: true } });
+  /** Whether the line keeps the room of the reveal's button. */
+  const room = html => /<p class="moves[^"]*\bhiding\b[^"]*" data-move-line="">/.test(html);
+  assert.equal(room(bar({ decision: flagged, moveHidden: true, tilesHidden: true, hiding: true })), true, 'kept back, the button there');
+  assert.equal(room(bar({ decision: flagged, pick: { kind: 'discard', tile: '8s' }, hiding: true })), true, 'revealed, the button gone');
+  assert.equal(room(bar({ decision: flagged })), false, 'nothing kept back at any decision');
+});
+
 test("a move the player picked before the answer was shown is given as Now, with its weight, between their move and Trained AI's, and said in the step's line", () => {
   const flagged = decision(1, discards[1], { judgement: { flagged: true } }), pick = { kind: 'discard', tile: '8s' };
   const html = bar({ decision: flagged, pick });

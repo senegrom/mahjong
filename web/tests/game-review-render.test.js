@@ -239,6 +239,7 @@ test("the header offers the review's two settings, off unless set, and with Trai
   assert.ok(plain.indexOf('game-review-title') < plain.indexOf('data-hide-move') && plain.indexOf('data-hide-tiles') < plain.indexOf('data-close-review'),
     'between the heading and Back');
   assert.doesNotMatch(plain, /data-reveal/, 'nothing kept back, nothing to show');
+  assert.doesNotMatch(plain, /<p class="moves[^"]*\bhiding\b/, "the step bar's line takes only its moves' room");
   // Every decision listed, each hand's first flagged and its second agreed:
   // a line gives the player's move and the flag, and keeps Trained AI's move
   // back, and that it agreed, to the eye and to a screen reader alike.
@@ -258,6 +259,10 @@ test("the header offers the review's two settings, off unless set, and with Trai
   assert.deepEqual(lines(answered).map(({ key, shown }) => [key, shown]),
     [['0:0', '1 → Flagged'], ['0:1', '2 → ?'], ['1:0', '1 → ? Flagged'], ['1:1', '2 → ?'], ['2:0', '1 → Flagged'], ['2:1', '2 → ?']]);
   assert.equal(moveLine(answered), 'You · Now · Trained AI · Flagged');
+  // The step bar's line keeps the reveal's room, revealed or not, so that a
+  // reveal leaves the bar, and the table under it, where they were.
+  assert.match(hidden, /<p class="moves[^"]*\bhiding\b[^"]*" data-move-line="">/);
+  assert.match(answered, /<p class="moves[^"]*\bhiding\b[^"]*" data-move-line="">/);
   // The other players' tiles alone kept back: Show tiles, both moves on show.
   assert.equal(moveLine(page({ review: reviewed, hideTiles: true })), 'You · Trained AI Show tiles · Flagged');
 });

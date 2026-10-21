@@ -647,12 +647,12 @@ async function tabsClear(page) {
 /** What the decision on show keeps back, as the page shows it: what the step
  * bar's reveal says, if it has one; whether Trained AI's view is there; each
  * opponent's rack, by its name, how many of its tiles are face down, whether
- * any tile names itself in an attribute, and where the rack lies in the
- * table and how large it is; in the player's hand, the tiles ringed, whether
- * a tile is tagged AI, which tile is tagged Now, the tiles a press picks and
- * the moves under the hand, by name, and what the hand is described by; the
- * step bar's line and the step's status; and the list's line of the
- * decision, by name. */
+ * any tile names itself in an attribute, and where the rack lies in the table
+ * and how large it is; how tall the table is and where its top lies on the
+ * screen; in the player's hand, the tiles ringed, whether a tile is tagged AI,
+ * which tile is tagged Now, the tiles a press picks and the moves under the
+ * hand, by name, and what the hand is described by; the step bar's line and
+ * the step's status; and the list's line of the decision, by name. */
 const shownAt = page => page.evaluate(() => {
   const decision = document.querySelector('[data-decision]'), board = decision.querySelector('.board').getBoundingClientRect();
   const tags = [...decision.querySelectorAll('.mine .hand .hand-tile')].map(tile => tile.querySelector('.tag')?.textContent ?? '');
@@ -667,6 +667,7 @@ const shownAt = page => page.evaluate(() => {
         box: [box.top - board.top, box.left - board.left, box.width, box.height].map(value => Math.round(value * 2) / 2) };
     }),
     board: Math.round(board.height),
+    top: Math.round(board.top * 2) / 2,
     ringed: decision.querySelectorAll('.mine .hand .tile.selected').length,
     ai: tags.some(tag => /\bAI\b/.test(tag)),
     now: tags.findIndex(tag => /\bNow\b/.test(tag)),
@@ -707,8 +708,8 @@ async function keptBack(page, place, { tiles = true, game = hands } = {}) {
 }
 /** Checks that the decision on show, `place`, shows everything again, its
  * racks turned over in place: each in the same place in the table, the same
- * size, as they were `before` (shownAt), with the tiles the engine held.
- * Says what it saw. */
+ * size, as they were `before` (shownAt), and the table where it was on the
+ * screen, with the tiles the engine held. Says what it saw. */
 async function shownAgain(page, place, before = null) {
   const shown = await shownAt(page), frame = hands[place.hand].frames[place.step], seats = frame.view.seats;
   const at = `at ${place.hand}:${place.step}`;
@@ -723,6 +724,7 @@ async function shownAgain(page, place, before = null) {
   if (before) {
     assert.deepEqual(shown.racks.map(rack => rack.box), before.racks.map(rack => rack.box), `each rack where it was, as large, ${at}`);
     assert.equal(shown.board, before.board, `the table as tall ${at}`);
+    assert.ok(Math.abs(shown.top - before.top) <= 1, `the table where it was on the screen ${at}: ${before.top}, then ${shown.top}`);
   }
   return shown;
 }
@@ -1601,12 +1603,18 @@ try {
 
     // Show answer, by keyboard: the answer and the tiles shown together, the
     // racks turned over where they lay, and focus handed on to Next as the
-    // button goes, never to the page. Enter is held down: its repeats, which
-    // reach Next once it has focus, press nothing, so the review stays on the
-    // answer just shown.
+    // button goes, never to the page. It is pressed at the top of the page,
+    // where the step bar lies in its place rather than stuck: no scroll could
+    // keep the table still there, had the bar changed height as the button
+    // went. Enter is held down: its repeats, which reach Next once it has
+    // focus, press nothing, so the review stays on the answer just shown.
     await stepTo(page, keyOf(byButton));
-    const first = await keptBack(page, byButton);
+    await keptBack(page, byButton);
     await shot(page, 'game-review-hidden');
+    await page.evaluate(() => scrollTo(0, 0));
+    await settle(page);
+    assert.ok(await page.$eval('[data-game-review] [data-steps]', bar => bar.getBoundingClientRect().top > 1), 'the step bar in its place at the top of the page');
+    const first = await shownAt(page);
     await page.focus('[data-game-review] [data-reveal]');
     await page.keyboard.down('Enter');
     await answered();
@@ -1681,11 +1689,13 @@ try {
     await press(page, '[data-game-review] [data-hide-move]');
     const tilesOnly = choiceful.find(place => ![byButton, byKey, byDigit, byTile].includes(place));
     await stepTo(page, keyOf(tilesOnly));
+    await page.$eval('[data-game-review] [data-reveal]', button => button.scrollIntoView({ block: 'center' }));
+    await settle(page);
     const covered = await shownAt(page);
     assert.equal(covered.reveal, 'Show tiles');
     assert.equal(covered.view, true, "Trained AI's view on show");
     assert.ok(covered.racks.every(rack => rack.label.endsWith(', face down') && rack.down === rack.tiles), 'the racks face down');
-    await press(page, '[data-game-review] [data-reveal]');
+    await page.click('[data-game-review] [data-reveal]');
     await answered();
     await shownAgain(page, tilesOnly, covered);
     await stepFocused();
@@ -1712,6 +1722,37 @@ try {
     await tabsClear(page);
     assert.ok(await overflow(page), 'the review fits a phone with the hand live');
     await shot(page, 'game-review-hidden-phone');
+    // Answered there by a tile pressed, the racks turn over where they lay,
+    // and the table stays where it was on the screen as the line under the
+    // hand goes from between the player's seat and the table; so it does at
+    // an answer to a discard, whose moves under the hand go with the line.
+    // Each is answered with the player's seat just under the bars, as the
+    // player scrolls to it, the table below it on the screen.
+    const seatUnderBars = async () => {
+      await page.$eval('[data-decision] [data-overview] .mine', seat => {
+        const bars = document.querySelector('header.bar').getBoundingClientRect().bottom
+          + document.querySelector('[data-game-review] [data-steps]').offsetHeight;
+        scrollBy(0, seat.getBoundingClientRect().top - bars - 8);
+      });
+      await settle(page);
+    };
+    await seatUnderBars();
+    const upright = await shownAt(page);
+    await page.click(handTile(digitOf(phoneAt)));
+    await answered();
+    await shownAgain(page, phoneAt, upright);
+    const callAt = choiceful.find(place => ![byButton, byKey, byDigit, byTile, tilesOnly, phoneAt].includes(place)
+      && hands[place.hand].frames[place.step].view.phase === 'call');
+    assert.ok(callAt, 'an answer to a discard to reveal on a phone');
+    await stepTo(page, keyOf(callAt));
+    await keptBack(page, callAt);
+    await press(page, 'details[data-review-index] > summary');
+    await page.waitForFunction(() => !document.querySelector('details[data-review-index]').open, { timeout: 5000 });
+    await seatUnderBars();
+    const offered = await shownAt(page);
+    await page.click('[data-decision] [data-pick]');
+    await answered();
+    await shownAgain(page, callAt, offered);
 
     // On a screen 500 pixels high or less the step bar stays in its place,
     // above the table. A tile of the live hand pressed by pointer answers the

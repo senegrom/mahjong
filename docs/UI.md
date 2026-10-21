@@ -677,20 +677,23 @@ opponents' tiles lie face down in their racks at every decision, the same size,
 the drawn tile's gap kept, named "South's tiles, Right (Club), face down" and
 nothing more, until the decision is revealed; where only they are kept back the
 step bar offers **Show tiles**, and **Show answer** shows both. The racks turn
-over where they lie, so nothing moves. The key s does what the step bar's
-button does, and while the hand is live the digits pick its first nine tiles
-and 0 the one just drawn, as in play. A reveal takes away the control that made
-it, the button, the moves under the hand or the tile, so focus goes on to Next,
-or to Previous at the end; a key leaves focus where it was, unless the control
-that had it goes. Only a keyboard's press moves the page to show Next: on a
-screen 500 pixels high or less Next is often far above, and a pointer's press
-leaves the hand it pressed on the screen. Enter held down presses once, so it
-does not step on past the answer it showed. A reveal is kept for the match
-(App's `reviewRevealed`, by "hand:step"), through steps, closing and opening
-the review, and hands added later; a new game or a reload asks again. A setting
-turned on keeps back only what the player has not revealed, and turned off
-shows everything. Show tiles in a hand not reviewed yet leaves its move to be
-answered once Trained AI has. Nothing kept back holds Next.
+over where they lie, and the table stays where it was on the screen: the step
+bar keeps its height as its button goes, and where the question under the hand
+lies above the table, on a phone held upright, the page moves by as much as it
+took. The key s does what the step bar's button does, and while the hand is
+live the digits pick its first nine tiles and 0 the one just drawn, as in play.
+A reveal takes away the control that made it, the button, the moves under the
+hand or the tile, so focus goes on to Next, or to Previous at the end; a key
+leaves focus where it was, unless the control that had it goes. Only a
+keyboard's press moves the page to show Next: on a screen 500 pixels high or
+less Next is often far above, and a pointer's press leaves the hand it pressed
+on the screen. Enter held down presses once, so it does not step on past the
+answer it showed. A reveal is kept for the match (App's `reviewRevealed`, by
+"hand:step"), through steps, closing and opening the review, and hands added
+later; a new game or a reload asks again. A setting turned on keeps back only
+what the player has not revealed, and turned off shows everything. Show tiles
+in a hand not reviewed yet leaves its move to be answered once Trained AI has.
+Nothing kept back holds Next.
 
 **Stepping.** The step bar stays at the top of the screen, under the game's bar
 on a phone, except on a screen 500 pixels high or less, where it would take a

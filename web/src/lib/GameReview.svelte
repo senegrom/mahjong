@@ -204,11 +204,25 @@
   // does: on a screen 500 pixels high or less the step bar stays in its
   // place, often far above, and a scroll there would take the hand the
   // player just pressed, and the answer it brought, off the screen.
+  //
+  // The other players' racks turn over where they lie, and the table stays
+  // where the player was looking: what goes with the question can still move
+  // it. On a phone held upright the line under the hand and the moves offered
+  // there lie between the player's seat and the table, and the step bar's
+  // line of moves can take another row once it gives the answer. So the page
+  // is moved by as far as the table moved, before focus is handed on, alike
+  // in every browser, as Safari has no scroll anchoring; unless the table
+  // lies wholly below the screen, where it is not what the player is looking
+  // at, and what they are looking at, above it, has not moved.
   async function revealHere(move, byKeyboard) {
     if (!at || (!hidden.move && !hidden.tiles) || (move && !hidden.move)) return;
     const had = root?.contains(document.activeElement);
+    const table = () => root?.querySelector('[data-decision] .board')?.getBoundingClientRect().top ?? null;
+    const before = table();
     revealed = { ...revealed, [decisionKey(at.hand, at.step)]: revealing(current, move) };
     await tick();
+    const after = table();
+    if (before !== null && after !== null && before < innerHeight && Math.abs(after - before) >= 0.5) scrollBy(0, after - before);
     if (had && lost(document.activeElement)) (stepButton() ?? heading)?.focus({ preventScroll: !byKeyboard });
   }
 
@@ -368,7 +382,8 @@
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
         <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} moveHidden={hidden.move}
-          tilesHidden={hidden.tiles} {pick} onstep={go} onreveal={byKeyboard => revealHere(null, byKeyboard)} bind:height={barHeight} />
+          tilesHidden={hidden.tiles} hiding={hideMove || hideTiles} {pick} onstep={go} onreveal={byKeyboard => revealHere(null, byKeyboard)}
+          bind:height={barHeight} />
       {/if}
       {#if !wide}
         <details class="list" data-review-index bind:open={listOpen}>
