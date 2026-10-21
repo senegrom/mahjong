@@ -46,6 +46,7 @@ const your = tile => `your ${tileWords(tile)}`;
 const an = tile => `${tile[0] === '8' || tile === '1z' ? 'an' : 'a'} ${tileWords(tile)}`;
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'];
 const nth = index => ORDINALS[index] ?? `${index + 1}th`;
+const COUNT = ['no', 'one', 'two', 'three', 'four'];
 const points = value => Math.round(value).toLocaleString('en');
 const capital = text => `${text[0].toUpperCase()}${text.slice(1)}`;
 const lower = text => `${text[0].toLowerCase()}${text.slice(1)}`;
@@ -194,7 +195,10 @@ export function singleEdits(position, { played, preferred }) {
   }
 
   // An opponent's riichi taken back, or declared a discard earlier or later,
-  // or declared by a closed opponent with its latest discard.
+  // or declared by a closed opponent with its latest discard. Every discard
+  // after a declaration is the tile just drawn, so a riichi declared with a
+  // tile from the hand cannot have come a discard earlier: that tile would
+  // then follow the declaration out of the hand, which no game plays.
   position.players.forEach((player, seat) => {
     if (seat === me) return;
     const at = player.discards.findIndex(discard => discard.riichi);
@@ -207,7 +211,7 @@ export function singleEdits(position, { played, preferred }) {
       }, { undeclares: true });
       for (const step of [-1, 1]) {
         const to = at + step;
-        if (to < 0 || to >= player.discards.length || player.discards[to].claimed) continue;
+        if (to < 0 || to >= player.discards.length || player.discards[to].claimed || (step < 0 && !player.discards[at].drawn)) continue;
         add('riichi', `riichi:${seat}`, `${WINDS[seat]} had declared riichi one discard ${step < 0 ? 'earlier' : 'later'}, on the ${tileWords(player.discards[to].tile)}`, table => {
           const them = table.players[seat];
           them.discards[at].riichi = false;
@@ -290,15 +294,22 @@ export function applyEdits(position, ...edits) {
   return table;
 }
 
-/** What a change did, in the engine's facts about the two tiles and the hand. */
+/** What a change did, in the engine's facts about the two tiles and the hand:
+ * among them the seats in riichi after it (`standing`), and those whose
+ * riichi it took back or added, which a count alone would hide where a pair
+ * of changes takes one back and adds another. */
 function factDelta(F0, F1, P, A) {
   const p0 = F0.tiles[P], p1 = F1.tiles[P], a0 = F0.tiles[A], a1 = F1.tiles[A];
   const both = (x, y, read) => (x && y ? read(y) - read(x) : 0);
   return { shantenP: both(p0, p1, t => t.shanten), accP: both(p0, p1, t => t.acceptance), shantenA: both(a0, a1, t => t.shanten),
-    dora: F1.doraHeld - F0.doraHeld, valuedPairs: F1.valuedPairs.length - F0.valuedPairs.length, threats: F1.threats.length - F0.threats.length,
+    dora: F1.doraHeld - F0.doraHeld, valuedPairs: F1.valuedPairs.length - F0.valuedPairs.length,
+    standing: F1.threats, taken: F0.threats.filter(seat => !F1.threats.includes(seat)), added: F1.threats.filter(seat => !F0.threats.includes(seat)),
     tierA: a0 && a1 && a0.tier !== a1.tier ? [a0.tier, a1.tier] : null, tierP: p0 && p1 && p0.tier !== p1.tier ? [p0.tier, p1.tier] : null,
     unseenA: both(a0, a1, t => t.unseen), unseenP: both(p0, p1, t => t.unseen), safeHeld: F1.safeHeld.length - F0.safeHeld.length };
 }
+
+/** Whether a change put a riichi on the table or took one off it. */
+const riichiMoved = d => d.taken.length > 0 || d.added.length > 0;
 
 const TABLE = new Set(['scores', 'round']);
 
@@ -308,7 +319,7 @@ function ideasOf(edit, d) {
   if (TABLE.has(edit.family)) ideas.add('table');
   // A tile in question seen once more or less changes how safe it is, even
   // with nobody in riichi.
-  if (['riichi', 'river'].includes(edit.family) || d.threats || d.tierA || d.tierP || d.safeHeld || d.unseenA || d.unseenP) ideas.add('safety');
+  if (['riichi', 'river'].includes(edit.family) || riichiMoved(d) || d.tierA || d.tierP || d.safeHeld || d.unseenA || d.unseenP) ideas.add('safety');
   if (d.shantenP < 0 || (d.shantenP === 0 && d.accP >= 4)) ideas.add('faster');
   if (d.dora > 0 || d.valuedPairs > 0 || edit.family === 'dora') ideas.add('worth more');
   if (!ideas.size) ideas.add(edit.family === 'hand' ? 'shape' : 'other');
@@ -327,25 +338,39 @@ function primary(change, unseen) {
   return d.tierA || d.tierP || livens(unseen.A, d.unseenA) || livens(unseen.P, d.unseenP) ? 'safety' : 'worth more';
 }
 
-/** What a change did, in a few words; `threats` is how many riichi stood. */
-function deltaWords(d, A, P, threats, unseen) {
+/** How a tile in question stands after a change, its exposure `[was, is]`
+ * against the riichi standing before and after: safe, no longer safe, or
+ * safer or less safe by the order of TIERS. A tile exposed where nobody was
+ * in riichi before is less safe. */
+function exposureWords(name, [was, is]) {
+  if (is === 'safe') return `${name} safe`;
+  if (was === 'safe') return `${name} no longer safe`;
+  return was != null && TIERS.indexOf(is) < TIERS.indexOf(was) ? `${name} safer` : `${name} less safe`;
+}
+
+/** What a change did, in a few words, read from the engine's facts after it
+ * (`d`, factDelta's). Who is in riichi is said as the facts stand after the
+ * change: nobody, only the riichi still standing where one was taken back,
+ * or the riichi added counted among all those standing. */
+function deltaWords(d, A, P, unseen) {
   const out = [];
   if (d.shantenP < 0) out.push('your hand a step closer to waiting');
   else if (d.shantenP > 0) out.push('your hand a step further from waiting');
   else if (d.accP >= 4) out.push(`${d.accP} more tiles that improve your hand`);
   if (d.dora > 0) out.push(`${d.dora} more dora in your hand`);
   if (d.valuedPairs > 0) out.push('a pair of a valued honour');
-  const tier = (name, [was, is]) => (is === 'safe' ? `${name} safe` : was === 'safe' ? `${name} no longer safe` : `${name} less safe`);
-  if (d.threats < 0) out.push('nobody in riichi');
+  if (d.taken.length && !d.standing.length) out.push('nobody in riichi');
   else {
-    if (d.threats > 0) out.push(threats ? 'a second riichi' : 'a riichi');
-    if (d.tierA) out.push(tier(the(A), d.tierA));
-    if (d.tierP) out.push(tier(your(P), d.tierP));
+    if (d.taken.length) out.push(`only ${list(d.standing.map(seat => WINDS[seat]))} in riichi`);
+    else if (d.added.length === 1) out.push(d.standing.length === 1 ? 'a riichi' : `a ${nth(d.standing.length - 1)} riichi`);
+    else if (d.added.length) out.push(`${COUNT[d.added.length]} ${d.added.length < d.standing.length ? 'more ' : ''}riichi`);
+    if (d.tierA) out.push(exposureWords(the(A), d.tierA));
+    if (d.tierP) out.push(exposureWords(your(P), d.tierP));
   }
   // Copies in sight matter where a tile was dead, every copy seen.
   if (d.unseenA && unseen.A === 0) out.push(`not every ${tileWords(A)} in sight`);
   if (d.unseenP && unseen.P === 0) out.push(`not every ${tileWords(P)} in sight`);
-  if (d.safeHeld && !d.tierA && !d.tierP && !d.threats) {
+  if (d.safeHeld && !d.tierA && !d.tierP && !riichiMoved(d)) {
     out.push(d.safeHeld === -1 ? 'one safe tile fewer' : `${Math.abs(d.safeHeld)} ${d.safeHeld > 0 ? 'more' : 'fewer'} safe tile${Math.abs(d.safeHeld) === 1 ? '' : 's'} in your hand`);
   }
   return out;
@@ -361,6 +386,19 @@ function formWords(F0, F1, A) {
     if (before == null || before === after || before !== was.shanten || before === was.forms.regular) return [];
     return [`${form} a step ${after > before ? 'further' : 'closer'}`];
   });
+}
+
+/** What a change did, in the few words said in brackets after it: what it
+ * did to a special hand that Trained AI's tile keeps, then to the facts. */
+const changeSaid = (F0, change, A, P, unseen) => [...formWords(F0, change.facts, A), ...deltaWords(change.delta, A, P, unseen)];
+
+/** The words said in brackets after a change of a question's table, as the
+ * search says them for the change it shows, read from the engine's facts
+ * (`facts`, review_facts) before and after: nothing is asked of Trained AI. */
+export function changeWords({ position, played, preferred, facts }, ...edits) {
+  const F0 = factsOf(facts(position), position), table = applyEdits(position, ...edits);
+  const F1 = factsOf(facts(table), table), P = played.tile, A = preferred.tile;
+  return changeSaid(F0, { facts: F1, delta: factDelta(F0, F1, P, A) }, A, P, { A: F0.tiles[A]?.unseen, P: F0.tiles[P]?.unseen });
 }
 
 /** The hand swaps worth asking, picked without the network: those that bring
@@ -523,10 +561,11 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
   }
 
   // Pairs of the eight changes nearest to flipping it, only when no single
-  // change does: two that touch the same thing are never paired.
+  // change does, a score step past 8,000 points among them: two that touch
+  // the same thing are never paired.
   const one = changes.filter(change => !change.refused && change.cost === 1 && !change.removesPreferred);
   let pairs = [];
-  if (!one.some(change => change.flips)) {
+  if (!one.some(change => change.flips) && !thresholds.length) {
     const chosen = [];
     for (const change of [...one].sort((x, y) => y.margin - x.margin)) {
       if (chosen.length < PAIRED && !chosen.some(other => other.key === change.key)) chosen.push(change);
@@ -546,48 +585,65 @@ const UNLIKE = 'This table does not replay as the review asked it, so no change 
 const IDEAS = ['faster', 'worth more', 'safety', 'shape', 'table'];
 const TITLES = { faster: 'A faster hand', 'worth more': 'A hand worth more', safety: 'What is safe', shape: 'The shape of the hand', table: 'The table' };
 
+/** A move as the panel names it: a discard by its tile, and a quad of either
+ * kind a kan of its tile, as the hand's list of decisions calls it. */
+export function moveWords({ kind, tile }) {
+  if (kind === 'discard') return the(tile);
+  if (kind === 'riichi') return 'riichi';
+  if (kind === 'tsumo') return 'the win';
+  return /kan$/.test(kind) && tile ? `a kan of the ${tileWords(tile)}` : kind;
+}
+
 /** The weights after a change: the move it now rates highest first. */
 function weightsAfter(change, A, P) {
   const { top } = change, at = tile => top.kind === 'discard' && top.tile === tile;
   if (at(P)) return `${your(P)} ${percent(change.played)}, ${the(A)} ${percent(change.preferred ?? 0)}`;
   if (at(A)) return `${the(A)} ${percent(change.preferred)}, ${your(P)} ${percent(change.played)}`;
-  const named = top.kind === 'discard' ? the(top.tile) : { riichi: 'riichi', tsumo: 'the win' }[top.kind] ?? `a ${top.kind}`;
-  return `${named} ${percent(top.weight)}, ${your(P)} ${percent(change.played)}, ${the(A)} ${percent(change.preferred ?? 0)}`;
+  return `${moveWords(top)} ${percent(top.weight)}, ${your(P)} ${percent(change.played)}, ${the(A)} ${percent(change.preferred ?? 0)}`;
+}
+
+const byMargin = (x, y) => y.margin - x.margin;
+
+/** The table's line, or null where nothing at the table flips the choice:
+ * the smallest score step found either way, everyone level, and the round
+ * that does it most. A step found past 8,000 points is said with the rest:
+ * it is one change, if a large one, and the line of what moved nothing
+ * leaves the score out once any step has moved it. */
+function tableSaid(one, thresholds, A, P) {
+  const parts = thresholds.map(step => `from ${points(Math.abs(step.at))} points ${step.at > 0 ? 'more' : 'fewer'}: ${weightsAfter(step, A, P)}`);
+  const level = one.find(change => change.family === 'scores' && change.param == null && change.flips);
+  if (level) parts.push(`if ${level.words}: ${weightsAfter(level, A, P)}`);
+  const [round] = one.filter(change => change.family === 'round' && change.flips).sort(byMargin);
+  if (round) parts.push(`if ${round.words}: ${weightsAfter(round, A, P)}`);
+  return parts.length ? `${TITLES.table}: ${parts.join('; ')}.` : null;
 }
 
 /** The search's findings in version 1's words: a lead line, and either the
  * ideas that flip it, each with its strongest change and how many changes of
- * that idea were tried, or the pair that does, or the nearest change; then
- * what moved nothing. */
+ * that idea were tried, and the table's line, or the pair that does, or the
+ * nearest change; then what moved nothing. */
 function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
   const one = changes.filter(change => !change.refused && change.cost === 1 && !change.removesPreferred);
-  const flips = one.filter(change => change.flips);
+  const flips = one.filter(change => change.flips), table = tableSaid(one, thresholds, A, P);
   const said = { lead: '', detail: '', items: [], still: '' };
-  if (flips.length) {
+  if (flips.length || table) {
     said.lead = `One change and it throws ${your(P)}:`;
     for (const idea of IDEAS) {
-      const members = flips.filter(change => primary(change, unseen) === idea).sort((x, y) => y.margin - x.margin);
-      if (!members.length) continue;
       if (idea === 'table') {
-        const parts = ['scores', 'round'].flatMap(family => {
-          const first = members.find(change => change.family === family);
-          if (!first) return [];
-          const step = family === 'scores' ? thresholds[0] : null;
-          return [step ? `from ${points(Math.abs(step.at))} points ${step.at > 0 ? 'more' : 'fewer'}: ${weightsAfter(step, A, P)}`
-            : `if ${first.words}: ${weightsAfter(first, A, P)}`];
-        });
-        said.items.push(`${TITLES.table}: ${parts.join('; ')}.`);
+        if (table) said.items.push(table);
         continue;
       }
-      const [best] = members, also = [...formWords(F0, best.facts, A), ...deltaWords(best.delta, A, P, F0.threats.length, unseen)];
+      const members = flips.filter(change => primary(change, unseen) === idea).sort(byMargin);
+      if (!members.length) continue;
+      const [best] = members, also = changeSaid(F0, best, A, P, unseen);
       const tried = one.filter(change => primary(change, unseen) === idea).length;
       said.items.push(`${TITLES[idea]} (${members.length} of ${tried} tried): if ${best.words}${also.length ? ` (${list(also)})` : ''}: ${weightsAfter(best, A, P)}.`);
     }
   } else {
-    const pair = pairs.filter(change => !change.refused && change.flips).sort((x, y) => y.margin - x.margin)[0];
-    const near = [...one].sort((x, y) => y.margin - x.margin)[0];
+    const pair = pairs.filter(change => !change.refused && change.flips).sort(byMargin)[0];
+    const near = [...one].sort(byMargin)[0];
     if (pair) {
-      const also = deltaWords(pair.delta, A, P, F0.threats.length, unseen);
+      const also = deltaWords(pair.delta, A, P, unseen);
       said.lead = 'No single change does it. Two together:';
       said.detail = `if ${pair.words}${also.length ? ` (${list(also)})` : ''}: ${weightsAfter(pair, A, P)}.`;
     } else {
@@ -610,7 +666,6 @@ export function saidLines(said) {
 }
 
 const far = n => (n === 0 ? 'waiting' : n < 0 ? 'complete' : `${n} from waiting`);
-const COUNT = ['no', 'one', 'two', 'three', 'four'];
 
 /** Every engine fact on which Trained AI's tile `A` and the player's `P`
  * differ, with the side it favours (after the facts study's differences). */
@@ -685,23 +740,28 @@ function massOf(fact, F, weight, A, P) {
   }
 }
 
+/** Several changes made as one, said one after another: the probe that takes
+ * a fact away where one change alone would leave it standing. */
+function together(family, parts) {
+  return parts.length < 2 ? parts : [{ family, key: family, cost: parts.length, words: parts.map(part => part.words).join(', and '), parts,
+    apply: table => parts.forEach(part => part.apply(table)) }];
+}
+
 /** The change that takes the leading fact away, where it has a clean one: a
- * copy of the dead tile out of sight again, every riichi taken back, the
- * player's discard of the furiten tile made another, another tile made the
- * dora. A change that leaves the fact standing would test nothing, so a
- * tile the player threw more than once has no furiten change. Distance,
- * speed and a plan have none either. */
+ * copy of the dead tile out of sight again, every riichi taken back, every
+ * discard the player made of the furiten tile made another, another tile
+ * made the dora. A change that leaves the fact standing would test nothing:
+ * one copy of the furiten tile left in the river keeps a wait on it furiten,
+ * so a copy another seat claimed, which cannot be changed, leaves no change
+ * to try. Distance, speed and a plan have none either. */
 function probeFor(fact, singles, me, river, A, P) {
   const first = picked => singles.filter(picked).slice(0, 1);
   if (fact?.family === 'safety' && fact.dead) return first(e => e.family === 'river' && e.from === A.tile);
-  if (fact?.family === 'safety') {
-    const parts = singles.filter(e => e.undeclares);
-    return parts.length < 2 ? parts : [{ family: 'riichi', key: 'riichi', cost: parts.length, words: parts.map(e => e.words).join(', and '), parts,
-      apply: table => parts.forEach(part => part.apply(table)) }];
-  }
+  if (fact?.family === 'safety') return together('riichi', singles.filter(e => e.undeclares));
   if (fact?.family === 'furiten') {
-    const tile = A.ownRiver ? A.tile : P.tile, thrown = river.filter(discard => discard.tile === tile);
-    return thrown.length === 1 && !thrown[0].claimed ? first(e => e.family === 'river' && e.seat === me && e.from === tile) : [];
+    const tile = A.ownRiver ? A.tile : P.tile;
+    if (river.some(discard => discard.tile === tile && discard.claimed)) return [];
+    return together('river', singles.filter(e => e.family === 'river' && e.seat === me && e.from === tile));
   }
   if (fact?.family === 'value' && fact.dora) return first(e => e.family === 'dora' && e.into !== A.tile && e.into !== P.tile);
   return [];
@@ -739,20 +799,20 @@ export async function explainWhy({ position, played, preferred, weights, facts, 
     const before = lead(weight[A.tile] ?? 0, weight[P.tile] ?? 0);
     probes = judged(tries, answers.slice(1), { base: position, played, preferred, F0, facts }).filter(change => !change.refused).map(change => {
       const d = change.delta, after = change.removesPreferred ? null : lead(change.preferred, change.played);
-      const other = { safety: d.shantenP || d.shantenA || d.dora, furiten: d.tierA || d.tierP || d.threats,
+      const other = { safety: d.shantenP || d.shantenA || d.dora, furiten: d.tierA || d.tierP || riichiMoved(d),
         value: d.unseenA || d.unseenP || d.tierA || d.tierP }[fact.family];
       return { ...change, halved: after != null && after <= before / 2, void: Boolean(other) };
     });
   }
   const probe = probes.find(change => !change.void) ?? null;
   const verdict = !fact ? 'not explained' : (mass?.mass ?? 0) >= MASS && (probe ? probe.halved : true) ? 'explained' : 'partly explained';
-  return { verdict, ...whySaid({ verdict, fact, mass, probe, voided: probes.find(change => change.void), diffs, A: A.tile, P: P.tile, threats: F0.threats.length, unseen }) };
+  return { verdict, ...whySaid({ verdict, fact, mass, probe, voided: probes.find(change => change.void), diffs, A: A.tile, P: P.tile, unseen }) };
 }
 
 /** The Why line in version 1's words, which leave out what the table above it
  * already shows, and the check's workings, for a tooltip on Partly and Not
  * explained. */
-function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, threats, unseen }) {
+function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, unseen }) {
   const massSaid = mass ? `Trained AI puts ${percent(mass.mass)} on ${mass.what}.` : '';
   const facts = family => diffs.filter(d => d.favours === 'you' && family.includes(d.family)).map(d => lower(sentence(d.text)));
   if (verdict === 'explained') {
@@ -765,7 +825,7 @@ function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, threats, uns
     if (yours.length) text += ` On your side: ${yours.join('; ')}.`;
     const check = [];
     if (!probe && voided) {
-      const others = deltaWords(voided.delta, A, P, threats, unseen).filter(said => !/closer|further|improve/.test(said));
+      const others = deltaWords(voided.delta, A, P, unseen).filter(said => !/closer|further|improve/.test(said));
       check.push(`The check that takes it away (${voided.words}) also ${others.length ? `leaves ${list(others)}` : 'changes another fact of the two tiles'}, so it cannot say which counts.`);
     }
     if (probe && !probe.halved) check.push('Taking it away did not halve Trained AI\'s lead.');

@@ -95,13 +95,13 @@ test('Trained AI is asked through analyzeBatch in passes of at most 32, and its 
   const why = await insight.why(question);
   assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away');
   const search = await insight.search(question);
-  assert.deepEqual(network.sizes, [2, PASS, 7]);
+  assert.deepEqual(network.sizes, [2, PASS, 6]);
   assert.deepEqual([...saidLines(why), ...saidLines(search.said)], [
     'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
     'One change and it throws your west wind:',
     '- A faster hand (7 of 7 tried): if your white dragon had been a 2 circles (your hand a step closer to waiting and one safe tile fewer): your west wind 99.6%, the 7 characters 0.2%.',
     '- A hand worth more (4 of 14 tried): if the dora indicator had been the 8 bamboo, not the 9 bamboo, making the 9 bamboo dora (2 more dora in your hand): your west wind 94.3%, the 7 characters 2.0%.',
-    '- What is safe (2 of 9 tried): if South had declared riichi with their last discard, the west wind (a second riichi and the 7 characters no longer safe): your west wind 70.8%, the 7 characters <0.1%.',
+    '- What is safe (2 of 8 tried): if South had declared riichi with their last discard, the west wind (a second riichi and the 7 characters no longer safe): your west wind 70.8%, the 7 characters <0.1%.',
     'Not moved by the score (±16,000) or the round.',
   ]);
 });
@@ -117,7 +117,7 @@ test('a search shuts the review\'s gate while it asks, and opens it however it e
   await insight.search(questionOf(reviewedDecision(), entry.position), { onProgress: step => progress.push(step) });
   assert.ok(shutWhileAsking instanceof Promise, 'shut while the search asked');
   assert.equal(review(), null, 'open once it has ended');
-  assert.deepEqual(progress.at(-1), { asked: 39, planned: 39 });
+  assert.deepEqual(progress.at(-1), { asked: 38, planned: 38 });
   // A search that fails ends its spell too.
   const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
   await assert.rejects(failing.insight.search(questionOf(reviewedDecision(), entry.position)), /did not answer in time/);
@@ -136,7 +136,7 @@ test('a search waits while the hand\'s notes ask, and goes on where it was', asy
   assert.deepEqual(network.sizes, [PASS], 'no pass while the notes ask');
   stopNotes();
   const found = await search;
-  assert.deepEqual(network.sizes, [PASS, 7]);
+  assert.deepEqual(network.sizes, [PASS, 6]);
   assert.equal(found.status, 'searched');
 });
 

@@ -1,4 +1,4 @@
-{"source": "insight prototype, out/results-run1.json, Trained AI 0.1.1110, each answer with a digest of the planes it was asked on",
+{"source": "insight prototype, out/results-run1.json, Trained AI 0.1.1110, each answer with a digest of the planes it was asked on; the last of East 2 · 2 honba #14's, its probe of both 8 bamboo, asked of the same network in the page's runtime on 21 October 2026, which gives the run's own numbers bitwise for the tables both asked",
 "questions": [
 {"id":"e3-5","title":"East 3, decision 5","hand":3,"decision":4,"played":"3z","preferred":"7m","riichi":null,"weights":[["7m",0.9301453990323166],["3z",0.051947223668020265],["5z",0.0179],["9p",0],["2z",0],["9m",0],["6m",0],["9s",0],["2s",0],["3p",0],["4s",0],["1p",0]],"planes":"38bd518691dc02e8","thresholds":[],
 "answers": [
@@ -144,7 +144,8 @@
 ["the dora indicator had been the 5 bamboo, not the 2 circles, making the 6 bamboo dora",3.534329438174945e-8,0.9892317648133649,"discard","8s",0.9892317648133649,-17.147,false,["worth more"],"50e8f0a98285d0ed"],
 ["North had declared riichi with their last discard, the 5 bamboo",4.6333689484528515e-9,0.000011733531125347929,"discard","2s",0.9385434225602235,-19.127,false,["safety"],"93ab35d2da4837a7"],
 ["West had declared riichi with their last discard, the 2 circles",2.24797898252692e-9,0.0000010389357045923547,"discard","5z",0.9999941382497877,-19.913,false,["safety"],"1e9b95ad5b68c876"],
-["East had declared riichi with their last discard, the 3 bamboo",1.2438459166699427e-9,4.899476225863216e-9,"discard","4p",0.9500611767773914,-20.454,false,["safety"],"5299c8fdd5a252e8"]
+["East had declared riichi with their last discard, the 3 bamboo",1.2438459166699427e-9,4.899476225863216e-9,"discard","4p",0.9500611767773914,-20.454,false,["safety"],"5299c8fdd5a252e8"],
+["your second discard had been a 1 characters, not the 8 bamboo, and your ninth discard had been a 1 characters, not the 8 bamboo",0.00010256845490507557,0.00015385811404999605,"discard","2s",0.6639858531966877,-8.775,false,["safety"],"f5ae9be0ee7134bd"]
 ]},
 {"id":"s1-9","title":"South 1, decision 9","hand":5,"decision":8,"played":"6p","preferred":"3s","riichi":null,"weights":[["3s",0.8661462166469288],["4z",0.0546],["2m",0.0355],["6p",0.01684035060189691],["9s",0.0135],["6s",0.0091],["4s",0.0029],["2z",0.0008],["5z",0.0003],["2s",0.0002],["3p",0.0001],["2p",0]],"planes":"647ed02fdfacb0f0","thresholds":[],
 "answers": [
