@@ -159,8 +159,7 @@ export function rankDecisions(decisions) {
  * filter gives them: the flagged decisions, every decision where Trained AI
  * chose differently (the flagged ones among them), and every decision. */
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
-/** What each filter's button says, before how many decisions it holds: the
- * verdicts a replayed hand's list gives each decision (decisionInBrief). */
+/** What each filter's button says, before how many decisions it holds. */
 export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI differed', every: 'Every decision' });
 /** A filter button's title, where it has one. The Flagged button's is the
  * rule a decision is flagged by, kept at hand but out of the way: a pointer

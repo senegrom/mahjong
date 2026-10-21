@@ -547,7 +547,7 @@ try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   browser = await launchChrome();
-  await cases.check('a finished match is reviewed whole, ranked from the real answers, replayed and chosen again', async () => {
+  await cases.check("a finished match is reviewed whole, ranked from the real answers, and replayed with Trained AI's move on show in the step bar, over its tile and in its view", async () => {
     const page = await openPage(1100, 900);
     await page.click('.standings [data-review-game]');
     await page.waitForSelector('[data-game-review]');
