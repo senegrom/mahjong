@@ -1,0 +1,39 @@
+{
+  "tile": "6z",
+  "name": "Hatsu",
+  "status": "approved",
+  "direction": "The River That Escaped — Green B",
+  "selectedOption": "B (middle), greener river dragon from the latest triptych",
+  "source": "docs/design/dali/studies/green-dragon-b-river-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Hatsu.svg",
+  "originalFilename": "a_wide_triptych_fantasy_surreal_digital_painting.png",
+  "originalSha256": "c58942a46c6833a55b2e15e6bda3d51e8ae7a429c3745884ae3a69d7eb72e768",
+  "originalDimensions": [
+    1881,
+    836
+  ],
+  "originalCrop": {
+    "x": 639,
+    "y": 0,
+    "width": 606,
+    "height": 808
+  },
+  "cropSha256": "91cf1d2c3f93d7bdeb39a734fd18d8e24bdf7f6b090b48d0e63ba050c54f71da",
+  "originalStoredInRepository": false,
+  "originalLocation": "Original triptych and lossless panel crop preserved in dali-green-dragon-B-originals.zip supplied in chat; repository retains full-dimension AVIF and self-contained SVGs.",
+  "rasterDimensions": [
+    606,
+    808
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterSource": "docs/design/dali/studies/green-dragon-b-river-hires.avif",
+  "rasterSha256": "928ca85d303521af0996374e4e4380d030cc7d20239ad9164c7f48d97658fea9",
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 0,
+    "lossless": false
+  },
+  "processing": "Mechanical 606 x 808 (3:4) extraction of the latest triptych middle panel at (639, 0), excluding separators, small side margins and bottom option letters. No resizing, stretching, repainting, further recolouring, added frame or tile texture. Existing 300 x 400 logical face, rounded clipping and 1% bleed are unchanged.",
+  "svgSha256": "d25dd23f919dff9f8fc700c4c45527f31d944a858c8c2479bebd9a7684500205"
+}
