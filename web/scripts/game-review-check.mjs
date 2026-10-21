@@ -549,15 +549,52 @@ async function overviewIsRight(page, hand, step) {
   return shown;
 }
 
+/** Waits until the page has stopped moving: the scroll, where the stage and
+ * the player's tiles lie and how tall the page is, the same over three
+ * frames running. A change of the screen's size takes the page and the
+ * browser a few frames to settle, the browser's own scroll that keeps what
+ * was in view in view (scroll anchoring) among them. Gives up after two
+ * seconds, leaving what is measured next to say what moved. */
+const steady = page => page.evaluate(() => new Promise(done => {
+  const read = () => [scrollY, document.documentElement.scrollHeight,
+    ...['[data-game-review] [data-stage]', '[data-decision] .mine .hand .tile'].map(selector => Math.round(document.querySelector(selector)?.getBoundingClientRect().top ?? 0))].join();
+  let last = read(), same = 0, frames = 0;
+  const frame = () => {
+    const now = read();
+    same = now === last ? same + 1 : 0;
+    last = now;
+    if (same >= 3 || ++frames >= 120) done();
+    else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}));
+
 /** Checks that the stage fits the screen, the player's tiles scrolled to as
  * a focused control is: the step bar on the screen, stuck flush under the
  * game's bar where that stays at the top of a phone's screen, or at the top
  * of the screen, once the page is scrolled past it, and the tiles clear of
  * it; where the step bar stays in its place, the tiles clear of the game's
  * bar. Says what was measured, once the page has been drawn after the
- * scroll, as the player sees it. */
+ * scroll, as the player sees it.
+ *
+ * The page is let settle first, and the tiles scrolled to again once it has:
+ * at 390 by 844, just after the screen changed size, CI found the page 374
+ * pixels on from where the scroll had put it a few frames before, as if the
+ * browser's own scroll for the change of size had come after the check's.
+ * Where the page moves after the first scroll, the log says how far; what
+ * the first scroll found is said too, should the second fail. */
 async function stageFits(page) {
-  await page.$eval('[data-decision] .mine .hand .tile', tile => tile.scrollIntoView({ block: 'start' }));
+  const tiles = '[data-decision] .mine .hand .tile';
+  const where = () => page.evaluate(selector => ({ scrolled: Math.round(scrollY),
+    tile: Math.round(document.querySelector(selector).getBoundingClientRect().top),
+    stage: Math.round(document.querySelector('[data-game-review] [data-stage]').getBoundingClientRect().top) }), tiles);
+  await steady(page);
+  await page.$eval(tiles, tile => tile.scrollIntoView({ block: 'start' }));
+  const first = await where();
+  await settle(page);
+  await steady(page);
+  const then = await where();
+  await page.$eval(tiles, tile => tile.scrollIntoView({ block: 'start' }));
   await settle(page);
   const shown = await page.evaluate(() => {
     const tile = document.querySelector('[data-decision] .mine .hand .tile');
@@ -565,9 +602,12 @@ async function stageFits(page) {
     const barSticks = getComputedStyle(bar).position === 'sticky', edge = steps.getBoundingClientRect();
     return { sticks: getComputedStyle(steps).position === 'sticky', top: barSticks ? Math.round(bar.getBoundingClientRect().bottom) : 0,
       stage: Math.round(document.querySelector('[data-game-review] [data-stage]').getBoundingClientRect().top),
-      steps: { top: Math.round(edge.top), bottom: Math.round(edge.bottom) }, tile: Math.round(tile.getBoundingClientRect().top), height: innerHeight };
+      steps: { top: Math.round(edge.top), bottom: Math.round(edge.bottom) }, tile: Math.round(tile.getBoundingClientRect().top), height: innerHeight,
+      scrolled: Math.round(scrollY) };
   });
-  const size = `${page.viewport().width}x${page.viewport().height}`, said = JSON.stringify(shown);
+  const size = `${page.viewport().width}x${page.viewport().height}`, said = `${JSON.stringify(shown)}; the first scroll ${JSON.stringify(first)}, `
+    + `settled ${JSON.stringify(then)}`;
+  if (then.tile !== first.tile || then.scrolled !== first.scrolled) console.log(`the page moved after the first scroll to the tiles at ${size}: ${said}`);
   if (shown.sticks) {
     assert.ok(shown.steps.top >= shown.top - 1 && shown.steps.bottom <= shown.height, `the step bar on the screen at ${size}: ${said}`);
     if (shown.stage < shown.top) assert.ok(Math.abs(shown.steps.top - shown.top) <= 1, `the step bar stuck flush at the top at ${size}: ${said}`);
