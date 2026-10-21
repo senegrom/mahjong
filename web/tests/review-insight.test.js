@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changeWords, explainWhy, judge, moveWords, saidLines, searchOffered, singleEdits,
-  tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
+  tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
@@ -279,6 +279,7 @@ function discardTables(snapshot) {
   return tables;
 }
 const reviewCheck = discardTables(reviewCheckGame(Game)), clubFive = discardTables(clubAdvisedGame(Game, 5));
+const clubSixteen = discardTables(clubAdvisedGame(Game, 16));
 const asked = (P, A) => ({ played: { kind: 'discard', tile: P }, preferred: { kind: 'discard', tile: A } });
 
 test('no change, alone or paired, has a seat in riichi throw a tile from its hand after its declaration', () => {
@@ -389,4 +390,32 @@ test('a quad is named a kan of its tile, as the hand\'s list of decisions names 
   }
   assert.deepEqual(kans.map(move => [move.kind, moveWords(move)]), [['extended-kan', 'a kan of the green dragon'], ['concealed-kan', 'a kan of the green dragon']]);
   assert.deepEqual([{ kind: 'discard', tile: '2p' }, { kind: 'riichi', tile: null }, { kind: 'tsumo', tile: null }].map(moveWords), ['the 2 circles', 'riichi', 'the win']);
+});
+
+test('every copy of a tile the player threw is changed at once to take a furiten away, on a table the rules accept', () => {
+  // Each copy becomes the same tile. Where every tile of the other suits is
+  // in sight it is one with room for them all: in Club seed 16's South 3 #20
+  // the player had thrown two 1 circles, and the 1 characters, three of them
+  // in sight, once took both, a fifth copy the rules refuse; the 2
+  // characters, two in sight, take them now.
+  const crowded = [];
+  let tables = 0;
+  for (const [game, decisions] of [['The review check\'s game', reviewCheck], ['Club seed 5', clubFive], ['Club seed 16', clubSixteen]]) {
+    for (const [where, { position, discards }] of decisions) {
+      const river = position.players[position.seat].discards, seen = visibleCounts(position);
+      for (const tile of discards) {
+        const copies = river.filter(discard => discard.tile === tile);
+        if (copies.length < 2 || copies.some(discard => discard.claimed)) continue;
+        const edits = singleEdits(position, asked(discards.find(other => other !== tile), tile))
+          .filter(edit => edit.family === 'river' && edit.seat === position.seat && edit.from === tile);
+        const [into, ...others] = new Set(edits.map(edit => edit.into)), table = applyEdits(position, ...edits);
+        assert.deepEqual([edits.length, others], [copies.length, []], `${game}, ${where}: the ${tile}`);
+        assert.ok(!table.players[table.seat].discards.some(discard => discard.tile === tile), `${game}, ${where}: the ${tile}`);
+        assert.doesNotThrow(() => { facts(table); new PhysicalAnalysis(table).free(); }, `${game}, ${where}: the ${tile} made ${into}`);
+        if (seen[into]) crowded.push(`${game}, ${where}: ${copies.length} copies of ${tile} made ${into}, ${seen[into]} in sight`);
+        tables++;
+      }
+    }
+  }
+  assert.deepEqual([tables, crowded], [14, ['Club seed 16, South 3 #20: 2 copies of 1p made 2m, 2 in sight']]);
 });

@@ -241,14 +241,20 @@ export function singleEdits(position, { played, preferred }) {
   // The river tiles that decide what is safe: each copy of either tile in a
   // river made a tile nobody can see, and either tile put into a riichi
   // player's river in place of their latest discard since the declaration.
-  const neutral = tile => TILE_TYPES.find(t => t !== P && t !== A && !seen[t] && t[1] !== 'z' && t[1] !== tile[1])
-    ?? TILE_TYPES.find(t => t !== P && t !== A && seen[t] < 4);
+  // Where none is left, a tile with room for every copy in that river is
+  // taken instead, so that the copies changed together, as the Why line
+  // changes every copy the player threw to take a furiten away, never put a
+  // fifth in sight, which the rules refuse; with no such tile, there is no
+  // such change.
+  const neutral = (tile, copies) => TILE_TYPES.find(t => t !== P && t !== A && !seen[t] && t[1] !== 'z' && t[1] !== tile[1])
+    ?? TILE_TYPES.find(t => t !== P && t !== A && seen[t] + copies <= 4);
   position.players.forEach((player, seat) => {
     player.discards.forEach((discard, index) => {
       if (discard.claimed || (discard.tile !== P && discard.tile !== A)) return;
-      const into = neutral(discard.tile);
+      const into = neutral(discard.tile, player.discards.filter(other => !other.claimed && other.tile === discard.tile).length);
+      if (!into) return;
       add('river', `river:${seat}:${index}`, `${seat === me ? 'your' : `${WINDS[seat]}'s`} ${nth(index)} discard had been ${an(into)}, not the ${tileWords(discard.tile)}`,
-        table => { table.players[seat].discards[index].tile = into; }, { seat, from: discard.tile });
+        table => { table.players[seat].discards[index].tile = into; }, { seat, index, from: discard.tile, into });
     });
     if (seat === me || player.riichi === 'none') return;
     const declared = player.discards.findIndex(discard => discard.riichi);
