@@ -449,13 +449,21 @@ function formWords(F0, F1, A) {
  * did to a special hand that Trained AI's tile keeps, then to the facts. */
 const changeSaid = (F0, change, A, P, unseen) => [...formWords(F0, change.facts, A), ...deltaWords(change.delta, A, P, unseen)];
 
+/** How many hand swaps of each kind are asked at most (pickSwaps). */
+const SWAPS = { closer: 5, pair: 2, dora: 2 };
+
+/** The hand swaps that may be asked: none that touches either tile in
+ * question. */
+const swapsOf = (singles, P, A) => singles.filter(e => e.family === 'hand' && !e.removesPreferred && ![P, A].includes(e.out) && ![P, A].includes(e.into));
+
 /** The hand swaps worth asking, picked without the network: those that bring
  * the hand closer to waiting once the player's tile is thrown (the five that
  * leave the most tiles to improve it), a valued pair (two) and a dora (two).
- * A swap that touches either tile in question is left out. */
+ * Each is read in the engine's facts about the table it makes, a few hundred
+ * tables a question. */
 function pickSwaps(singles, base, F0, P, A, facts) {
   const after = F0.tiles[P]?.shanten ?? F0.best;
-  const swaps = singles.filter(e => e.family === 'hand' && !e.removesPreferred && ![P, A].includes(e.out) && ![P, A].includes(e.into)).flatMap(edit => {
+  const swaps = swapsOf(singles, P, A).flatMap(edit => {
     let raw;
     try { raw = facts(applyEdits(base, edit)); } catch { return []; }
     const thrown = raw.discards.find(discard => discard.tile === P);
@@ -463,7 +471,7 @@ function pickSwaps(singles, base, F0, P, A, facts) {
       pair: raw.valued_pairs.some(tile => !F0.valuedPairs.includes(tile)) }] : [];
   });
   const most = (picked, count) => swaps.filter(picked).sort((x, y) => y.acceptance - x.acceptance).slice(0, count);
-  return [...new Set([...most(s => s.closer, 5), ...most(s => s.pair, 2), ...most(s => s.dora, 2)].map(s => s.edit))];
+  return [...new Set([...most(s => s.closer, SWAPS.closer), ...most(s => s.pair, SWAPS.pair), ...most(s => s.dora, SWAPS.dora)].map(s => s.edit))];
 }
 
 /** Where the unedited table's answer stands apart from the review's own
@@ -548,13 +556,19 @@ function budgetOf(position, { played, preferred }, F0, facts) {
   return [...singles.filter(edit => edit.family !== 'hand'), ...pickSwaps(singles, position, F0, played.tile, preferred.tile, facts)];
 }
 
-/** How many tables a search of the question asks before any score step or
- * pair: the unedited table and its budget of single changes, which is most
- * of what it asks. The page times it by the review's own time a position to
- * say about how long the search takes. None where nothing is searched. */
-export function tablesFirstAsked({ position, played, preferred, weights, facts }) {
-  const start = baselineOf({ position, played, preferred, weights, facts });
-  return start && start.baseline.margin >= MARGIN_FLOOR ? budgetOf(position, { played, preferred }, start.F0, facts).length + 1 : 0;
+/** How many tables a search of the question asks at most before any score
+ * step or pair, which is most of what it asks: the unedited table, every
+ * single change but the hand swaps, and as many swaps as it picks at most.
+ * The page times it by the review's own time a position to say about how
+ * long the search takes, beside every decision's button, so it is counted
+ * without the engine: picking the swaps reads its facts about the table each
+ * swap makes, a few hundred, which only the search, once pressed, pays.
+ * None where nothing is searched. */
+export function tablesFirstAsked(question) {
+  if (!searchOffered(question)) return 0;
+  const P = question.played.tile, A = question.preferred.tile, singles = singleEdits(question.position, question);
+  const swaps = Math.min(SWAPS.closer + SWAPS.pair + SWAPS.dora, swapsOf(singles, P, A).length);
+  return 1 + singles.filter(edit => edit.family !== 'hand').length + swaps;
 }
 
 /** What would change Trained AI's mind: the single changes, of the budget the

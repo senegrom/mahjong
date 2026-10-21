@@ -119,10 +119,11 @@ test('every table the recorded run answered is written by the page as the run as
 });
 
 test('the search asks only tables the recorded run asked, the unedited one first, in passes of at most the review\'s batch', async () => {
-  const passes = {};
+  const passes = {}, planned = {};
   for (const entry of searched) {
     const asked = [], { ask, unanswered } = recordedAsk(entry);
-    await whatWouldChangeItsMind({ ...entry, facts, ask: positions => { asked.push(positions); return ask(positions); } });
+    await whatWouldChangeItsMind({ ...entry, facts, ask: positions => { asked.push(positions); return ask(positions); },
+      onProgress: step => { planned[entry.id] ??= step.planned; } });
     passes[entry.id] = asked.map(pass => pass.length);
     assert.deepEqual(asked[0][0], entry.position, `${entry.title}: the unedited table first`);
     assert.ok(asked.every(pass => pass.length <= PASS), entry.title);
@@ -148,10 +149,13 @@ test('the search asks only tables the recorded run asked, the unedited one first
   // pairs.
   assert.deepEqual(passes, { 'e3-5': [8, 8, 8, 8, 4], 's3-4': [8, 8, 8, 7, 8, 8, 8, 4], 'e1-20': [8, 8, 7], 's1-9': [8, 8, 8, 5],
     's4-18': [8, 8, 8, 4], 'why7-1m': [8, 8, 8, 7, 1, 1, 1] });
-  // What the button's estimate counts before the search begins: the unedited
-  // table and the single changes, the passes before any score step or pair.
-  const first = { 'e3-5': 36, 's3-4': 31, 'e1-20': 23, 's1-9': 29, 's4-18': 28, 'why7-1m': 31, 'e2b-14': 0, 'why7-2s': 0 };
-  for (const entry of questions) assert.equal(tablesFirstAsked({ ...entry, facts }), first[entry.id], entry.title);
+  // What the button's estimate counts, given no engine to ask, against the
+  // tables the search plans before any score step or pair: the unedited table
+  // and the single changes, the hand swaps counted as many as it picks at
+  // most, nine, where it picked as few as five.
+  assert.deepEqual(planned, { 'e3-5': 36, 's3-4': 31, 'e1-20': 23, 's1-9': 29, 's4-18': 28, 'why7-1m': 31 });
+  const first = { 'e3-5': 36, 's3-4': 33, 'e1-20': 27, 's1-9': 31, 's4-18': 30, 'why7-1m': 31, 'e2b-14': 0, 'why7-2s': 0 };
+  for (const entry of questions) assert.equal(tablesFirstAsked(entry), first[entry.id], entry.title);
 });
 
 test('each change is grouped by what it did to the engine\'s facts, as the prototype grouped it', async () => {
