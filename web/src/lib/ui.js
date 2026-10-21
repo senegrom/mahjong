@@ -110,6 +110,10 @@ export function land(heading, scroll) {
  * held sideways, up to 760 pixels wide. */
 export const RESULT_SHEET = '(max-width: 760px)';
 
+/** Where the game's review has room for its list of hands and decisions in a
+ * column of its own beside the decision on show, rather than folded above it. */
+export const REVIEW_WIDE = '(min-width: 1100px) and (min-height: 600px)';
+
 /** Why Club reviews a hand in Trained AI's place: the network cannot be
  * reached now, or, once the match has no engine (another window took it
  * over), there is no hand left to put to Trained AI. */
@@ -126,6 +130,33 @@ export function acceptsHandKey(event, hand) {
   if (target.closest('input, select, textarea, a, [contenteditable]:not([contenteditable="false"])')) return false;
   const button = target.closest('button');
   return !button || button.classList.contains('tile');
+}
+
+/** What a key does in the game's review, by name, or null: 'previous' and
+ * 'next' for ← and →, 'previous-hand' and 'next-hand' with Shift, 'reveal'
+ * for s and 'back' for Esc; and, while the player's `hand` is live for them
+ * to pick a move from, 'pick-1' to 'pick-9' for its first nine tiles and
+ * 'pick-drawn' for the tile just drawn (0), as in play. Keys are left to
+ * whatever else has them as play leaves them: while a dialog is open over the
+ * page (`dialogOpen`), with Ctrl, Alt or Meta held, while text is composed,
+ * once something has handled them, and in a field; and in the live hand ← and
+ * → move along it, as in play, rather than step. */
+export function reviewKey(event, { hand = null, dialogOpen = false } = {}) {
+  if (dialogOpen || event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return null;
+  const target = event.target;
+  if (target?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])')) return null;
+  // Chrome sends a keydown with no key when a field is filled in for the player.
+  const key = event.key ?? '', inHand = Boolean(hand && target && hand.contains(target));
+  if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    const step = key === 'ArrowLeft' ? 'previous' : 'next';
+    if (event.shiftKey) return `${step}-hand`;
+    return inHand ? null : step;
+  }
+  if (key === 'Escape') return 'back';
+  if (key.toLowerCase() === 's') return 'reveal';
+  if (!hand || event.shiftKey) return null;
+  if (/^[1-9]$/.test(key)) return `pick-${key}`;
+  return key === '0' ? 'pick-drawn' : null;
 }
 
 /** A called set as the table lays it out: its tiles, and `turned`, the slot
