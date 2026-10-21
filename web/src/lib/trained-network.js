@@ -40,7 +40,7 @@ export const playedNetwork = () => playing;
  * build's page will, so a waiting update saves the network its page plays. */
 export const pickedVersion = () => picked;
 
-/** How the page names the network it plays: "Trained 0.1.1110". */
+/** How the page names the network it plays: "Trained 0.1.1410". */
 export const trainedName = (name = 'Trained') => `${name} ${playing.version}`;
 
 // The placement bonus, best place to worst: the winner bonus of the rules,

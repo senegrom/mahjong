@@ -24,12 +24,17 @@ test('the manifest lists every network whole, the default first, and keeps expor
   }
 });
 
-test('0.1.1110 is the default, and 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
-  // Generation 1110 of the placement fork, at the owner's word; 810 and 410
-  // are the exports the site played before it, byte for byte.
+test('0.1.1410 is the default, and 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
+  // Generation 1410 of the placement fork that pays points at alpha 0.05, at
+  // the owner's word; 1110, 810 and 410 are the exports the site played
+  // before it, byte for byte.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
-  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1110', '0.1.810', '0.1.410']);
-  assert.equal(MANIFEST, find('0.1.1110'));
+  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
+  assert.equal(MANIFEST, find('0.1.1410'));
+  assert.deepEqual({ ...find('0.1.1410') }, { version: '0.1.1410', source: 'fusion-place-a005/history/gen-01410', generation: 1410,
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107858348, origin,
+    object: 'models/g1410/5c34e472d19e61714d8b2e32320fcbc46415dff932ef4ec2c3da603fe55fbf26',
+    sha256: '5c34e472d19e61714d8b2e32320fcbc46415dff932ef4ec2c3da603fe55fbf26' });
   assert.deepEqual({ ...find('0.1.1110') }, { version: '0.1.1110', source: 'fusion-place-a0/history/gen-01110', generation: 1110,
     reward: { kind: 'placement', alpha: 0 }, precision: 'float32', bytes: 116633861, storedBytes: 107857675, origin,
     object: 'models/g1110/f3ef362fa4a93c04677f62c0aa296c0f5d39a52d402d2e5bc1c4aca3da643136',
