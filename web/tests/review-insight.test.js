@@ -521,6 +521,19 @@ test('a dora indicator moved onto the last unseen copy of an honour in question 
   assert.equal(saidOfChange(line), '1 more dora in your hand and every west wind in sight');
 });
 
+test('a pair of hand swaps that moves the hand two steps says so', async () => {
+  // The review check's East 1 #14, the player's red dragon against the 3
+  // characters: the north wind made an 8 circles, or the 5 bamboo a 7
+  // bamboo, each brings the hand a step closer once the red dragon is
+  // thrown, and the two together leave it waiting, which was said as "a step
+  // closer to waiting".
+  const asking = questionAt(reviewCheck, 'East 1 #14', ['7z', '3m']), swaps = ['your north wind had been an 8 circles', 'your 5 bamboo had been a 7 bamboo'];
+  const singles = singleEdits(asking.position, asking), distance = (...words) => facts(applyEdits(asking.position,
+    ...words.map(text => singles.find(edit => edit.words === text)))).discards.find(discard => discard.tile === '7z').shanten;
+  assert.deepEqual([distance(), distance(swaps[0]), distance(swaps[1]), distance(...swaps)], [2, 1, 1, 0]);
+  assert.equal(await saidOf(asking, ...swaps), 'your hand waiting');
+});
+
 /** South 1 #9's search, Trained AI throwing the 6 circles on a table where
  * `flips(gain)` holds of the points the player gained, the scores not
  * levelled, as the recorded run answered the dora change that makes it throw

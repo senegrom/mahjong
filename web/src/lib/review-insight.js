@@ -345,7 +345,7 @@ export function applyEdits(position, ...edits) {
 function factDelta(F0, F1, P, A) {
   const p0 = F0.tiles[P], p1 = F1.tiles[P], a0 = F0.tiles[A], a1 = F1.tiles[A];
   const both = (x, y, read) => (x && y ? read(y) - read(x) : 0);
-  return { shantenP: both(p0, p1, t => t.shanten), accP: both(p0, p1, t => t.acceptance), shantenA: both(a0, a1, t => t.shanten),
+  return { shantenP: both(p0, p1, t => t.shanten), leftP: p1?.shanten, accP: both(p0, p1, t => t.acceptance), shantenA: both(a0, a1, t => t.shanten),
     dora: F1.doraHeld - F0.doraHeld, valuedPairs: F1.valuedPairs.length - F0.valuedPairs.length,
     standing: F1.threats, taken: F0.threats.filter(seat => !F1.threats.includes(seat)), added: F1.threats.filter(seat => !F0.threats.includes(seat)),
     tierA: a0 && a1 && a0.tier !== a1.tier ? [a0.tier, a1.tier] : null, tierP: p0 && p1 && p0.tier !== p1.tier ? [p0.tier, p1.tier] : null,
@@ -405,8 +405,12 @@ function exposureWords(name, [was, is]) {
  * or the riichi added counted among all those standing. */
 function deltaWords(d, A, P, unseen) {
   const out = [];
-  if (d.shantenP < 0) out.push('your hand a step closer to waiting');
-  else if (d.shantenP > 0) out.push('your hand a step further from waiting');
+  // One swap moves the hand a step at most, but a pair of swaps can move it
+  // two, which is said, as is a hand left waiting by them.
+  const steps = count => (count === 1 ? 'a step' : `${COUNT[count]} steps`);
+  if (d.shantenP < -1 && d.leftP === 0) out.push('your hand waiting');
+  else if (d.shantenP < 0) out.push(`your hand ${steps(-d.shantenP)} closer to waiting`);
+  else if (d.shantenP > 0) out.push(`your hand ${steps(d.shantenP)} further from waiting`);
   else if (d.accP >= 4) out.push(`${d.accP} more tiles that improve your hand`);
   if (d.dora > 0) out.push(`${d.dora} more dora in your hand`);
   if (d.valuedPairs > 0) out.push('a pair of a valued honour');
@@ -879,7 +883,7 @@ function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, unseen }) {
     if (yours.length) text += ` On your side: ${yours.join('; ')}.`;
     const check = [];
     if (!probe && voided) {
-      const others = deltaWords(voided.delta, A, P, unseen).filter(said => !/closer|further|improve/.test(said));
+      const others = deltaWords(voided.delta, A, P, unseen).filter(said => !/^your hand |improve/.test(said));
       check.push(`The check that takes it away (${voided.words}) also ${others.length ? `leaves ${list(others)}` : 'changes another fact of the two tiles'}, so it cannot say which counts.`);
     }
     if (probe && !probe.halved) check.push('Taking it away did not halve Trained AI\'s lead.');
