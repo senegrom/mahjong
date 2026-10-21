@@ -588,8 +588,9 @@ stands for "Trained AI". A status line, in the page from the start, says the
 step in one line as it changes ("East 4, decision 12 of 15. Your turn, 36
 tiles left. You: discards the red dragon, 2.0%. Trained AI: discards the 8
 bamboo, 95.5%. Flagged."). A step that disables the button pressed hands
-keyboard focus to the other rather than dropping it, and a control focused
-below the bar is brought into view under it, never beneath it. In the hand,
+keyboard focus to the other rather than dropping it, without moving the page,
+and a control focused below the bar is brought into view under it, never
+beneath it, also when a step makes the bar taller. In the hand,
 "You" stands over the tile the player threw and "AI" over Trained AI's, which
 is ringed in blue as Agent watch and Guided play ring the agent's choice ("You
 · AI" where they agreed); a screen reader hears them after the tile's name
@@ -729,7 +730,8 @@ its button keeping focus, the whole-game review with the shipped network (its
 batches, flags, Trained AI's move on show in the list, the step bar, the hand
 and the view, keyboard focus, in the flagged list too as later hands rank it
 afresh, and trend, every hand face up at every step of a replayed hand at
-desktop, tablet and phone sizes, the filters of its list and of a hand's
+desktop, tablet and phone sizes, focus there never under the step bar nor
+moving the page as it lands on the bar, the filters of its list and of a hand's
 decisions, by keyboard and pointer, its lists staying open or folded as the
 player leaves them while the steps change and later hands are reviewed, by
 touch and by keyboard, and its way in and out on a phone, by touch and by

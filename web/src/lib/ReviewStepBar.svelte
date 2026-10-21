@@ -41,19 +41,43 @@
   let robbing = $derived(Boolean(quadOnOffer(frame.view)));
   let previousButton = $state(null);
   let nextButton = $state(null);
+  let bar = $state(null);
+  // The bar's height when last measured, to tell how far a step grew it.
+  let measured = 0;
 
   // A step to either end disables the button pressed, which would drop its
   // focus to the page, so focus goes on to the other. Any other press keeps
-  // it where it is.
+  // it where it is. The other button is beside it, on the screen, so the
+  // page is not scrolled to it, which would move the page under the player
+  // wherever the bar is stuck at the top of the screen.
   async function press(place, pressed, other) {
     const focused = document.activeElement === pressed;
     onstep(place);
     await tick();
-    if (focused && pressed.disabled && !other.disabled) other.focus();
+    if (focused && pressed.disabled && !other.disabled) other.focus({ preventScroll: true });
   }
+
+  // A step can make the bar taller, where the moves it gives take another
+  // line. While the bar is stuck at the top of the screen, the page beneath
+  // it stays where it was and the bar grows down over it: a control focused
+  // just under it, such as a step's button in the hand's list, would end up
+  // beneath it. Such a control is brought back into view 8 pixels under the
+  // bar, where scroll-margin brings a control focused below it
+  // (DecisionReplay). One that was beneath the bar already, or further down
+  // the page, stays where the player left it.
+  $effect(() => {
+    const grown = measured ? height - measured : 0;
+    measured = height;
+    const focused = document.activeElement;
+    if (grown <= 0 || !bar || !focused || focused === document.body || bar.contains(focused)) return;
+    const edge = bar.getBoundingClientRect(), box = focused.getBoundingClientRect();
+    if (box.left < edge.right && box.right > edge.left && box.top >= edge.bottom - grown && box.top < edge.bottom + 8) {
+      scrollBy(0, box.top - edge.bottom - 8);
+    }
+  });
 </script>
 
-<div class="steps" role="group" aria-label="Steps" data-steps bind:offsetHeight={height}>
+<div class="steps" role="group" aria-label="Steps" data-steps bind:offsetHeight={height} bind:this={bar}>
   <div class="buttons">
     <button class="app-control" data-previous aria-label={`Previous ${STEPS[filter]}`} disabled={!previous} bind:this={previousButton}
       onclick={() => press(previous, previousButton, nextButton)}>Previous</button>
@@ -112,8 +136,21 @@
   .dot { opacity: .7; }
   .flag { font-weight: 650; color: var(--gold); }
   /* Flush under the game's bar where that stays at the top of the screen
-     (AppSettings): on a phone held upright. */
-  @media (max-width: 760px) { .steps { top: 56px; } }
-  @media (max-height: 500px) { .steps { position: static; } }
+     (AppSettings): on a phone held upright.
+
+     The bar's own buttons are on the screen wherever the bar is, so a focus
+     that lands on them, handed on at either end or tabbed back to, keeps
+     clear only of what stays above the bar, never of the bar itself, which
+     would scroll the page whenever the bar is stuck: of the game's bar on a
+     phone held upright, and where the bar stays in its place, of the game's
+     bar as the headings keep clear of it. */
+  @media (max-width: 760px) {
+    .steps { top: 56px; }
+    .steps button { scroll-margin-top: 56px; }
+  }
+  @media (max-height: 500px) {
+    .steps { position: static; }
+    .steps button { scroll-margin-top: 72px; }
+  }
   @media (max-width: 480px) { .long { display: none; } }
 </style>

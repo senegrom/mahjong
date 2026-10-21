@@ -848,6 +848,25 @@ try {
       assert.notEqual(await focused(), 'the page', `focus stays in the replay at ${width}x${height}`);
       await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
+      // The step bar is stuck at the top of the screen now, over the table,
+      // and its own buttons are on the screen with it: keyboard focus that
+      // lands on them, as it does when handed on at either end or tabbed
+      // back to, moves nothing. On a screen 500 pixels high or less the bar
+      // stays in its place, and a button focused there is brought into view
+      // below the game's bar, which stays at the top.
+      for (const button of ['[data-previous]', '[data-next]']) {
+        const selector = `[data-decision] ${button}:not(:disabled)`;
+        if (!await page.$(selector)) continue;
+        const before = await page.evaluate(() => scrollY);
+        await page.focus(selector);
+        await settle(page);
+        const after = await page.evaluate(selector => ({ scrolled: scrollY,
+          sticks: getComputedStyle(document.querySelector('[data-decision] [data-steps]')).position === 'sticky',
+          top: document.querySelector(selector).getBoundingClientRect().top,
+          below: document.querySelector('header.bar').getBoundingClientRect().bottom }), selector);
+        if (after.sticks) assert.equal(after.scrolled, before, `focus on ${button} moved the page at ${width}x${height}`);
+        else assert.ok(after.top >= after.below, `${button} at ${after.top}, under the game's bar to ${after.below}, at ${width}x${height}`);
+      }
       if (phoneSized(page)) {
         // The player's seat from its top, just below the bars that stay at
         // the top of the screen: the game's, and the step bar under it where
@@ -861,13 +880,26 @@ try {
         await shot(page, `review-overview-${width}x${height}-yours`);
       }
       // Every step of the hand at this size, by its button in the hand's
-      // list, measured.
+      // list, measured. Each button is brought to the top of the screen
+      // first, just under the step bar where that stays, as a button focused
+      // there is: it keeps focus, and stays clear of the bar also where its
+      // step makes the bar taller over the page.
       for (const at of frames.keys()) {
-        await page.$eval(`[data-decision] [data-step-to="${at}"]`, el => el.scrollIntoView({ block: 'center' }));
+        await page.$eval(`[data-decision] [data-step-to="${at}"]`, el => el.scrollIntoView({ block: 'start' }));
         await page.click(`[data-decision] [data-step-to="${at}"]`);
         await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
           placeOf(chosen, at));
         await measured(at);
+        await settle(page);
+        const held = await page.evaluate(() => {
+          const steps = document.querySelector('[data-decision] [data-steps]'), active = document.activeElement;
+          return { focus: active.dataset.stepTo ?? null, top: Math.round(active.getBoundingClientRect().top),
+            sticks: getComputedStyle(steps).position === 'sticky', edge: Math.round(steps.getBoundingClientRect().bottom) };
+        });
+        assert.equal(held.focus, String(at), `focus on the button of step ${at + 1} at ${width}x${height}`);
+        if (held.sticks) {
+          assert.ok(held.top >= held.edge, `the button of step ${at + 1} at ${held.top}, under the step bar to ${held.edge}, at ${width}x${height}`);
+        }
       }
       step = frames.length - 1;
     }

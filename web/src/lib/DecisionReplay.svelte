@@ -326,13 +326,15 @@
      own height, and on a phone held upright the game's bar above it too.
      Where the screen is 500 pixels high or less the step bar stays in its
      place, and only the game's bar, which stays there in landscape, is kept
-     clear of, as the headings keep clear of it. */
-  .decision :global(:is(button, summary)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
+     clear of, as the headings keep clear of it. The bar's own buttons are
+     left out: they are in the bar, and keep clear only of what stays above
+     it (ReviewStepBar). */
+  .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
   @media (max-width: 760px) {
-    .decision :global(:is(button, summary)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
+    .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
   }
   @media (max-height: 500px) {
-    .decision :global(:is(button, summary)) { scroll-margin-top: 72px; }
+    .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: 72px; }
   }
   /* Below the game's bar where it stays at the top of the screen (AppSettings). */
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
