@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
-import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
+import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -111,4 +111,45 @@ test('a written position is refused where it names a seating no game has or a qu
     refused = true;
   });
   assert.ok(refused);
+});
+
+test('the riichi\'s second question of a written position is the review\'s own, in the first hand and after it', () => {
+  const wrong = [];
+  let asked = 0, later = 0;
+  eachDecision(Game, clubAdvisedGame(Game, 5), ({ hand, index, engine, position }) => {
+    if (!engine.review_mask_mortal(index)[37]) return;
+    const analysis = new PhysicalAnalysis(position);
+    try {
+      if (!same(engine.review_observation_after_reach(index), analysis.agent_observation_after_reach())
+        || !same(engine.review_mask_after_reach(index), analysis.agent_mask_after_reach())) wrong.push(`${hand.name}, decision ${index + 1}`);
+    } finally { analysis.free(); }
+    asked++;
+    // From a round's second hand on, a seat's player number is not its own.
+    later += Number(position.kyoku > 1);
+  });
+  assert.deepEqual(wrong, []);
+  assert.ok(later > 0, `${asked} riichi questions, none after a round's first hand`);
+});
+
+test('a table typed in at any hand number asks the riichi\'s second question of its own declaration', () => {
+  const seat = hand => ({ hand, melds: [], discards: [], score: 25000, riichi: 'none', ippatsu: false, furiten: false });
+  // East on the first turn, as Guided play and Physical play enter a table,
+  // ready to declare with fourteen tiles of fourteen kinds: the 5 bamboo just
+  // drawn makes 3-4-5 bamboo, and the 3 or the 4 circles goes.
+  const table = kyoku => ({ seat: 0, turn: 0, phase: 'act', round: 0, kyoku, counters: 0, riichi_sticks: 0, wall: 69,
+    indicators: ['7z'], players: [seat(['1m', '2m', '3m', '6m', '7m', '8m', '3p', '4p', '6p', '7p', '8p', '3s', '4s', '5s']),
+      seat([]), seat([]), seat([])],
+    drawn: '5s', pending: null, pending_kind: 'discard', just_claimed: null, after_quad: false, first_turns: true });
+  const declared = kyoku => {
+    const analysis = new PhysicalAnalysis(table(kyoku));
+    try {
+      assert.equal(analysis.agent_mask_mortal()[37], 1, `riichi is offered in East ${kyoku}`);
+      return planesDiffering(analysis.agent_observation_mortal(), analysis.agent_observation_after_reach());
+    } finally { analysis.free(); }
+  };
+  // The declaration changes what East reads in the same planes at every hand
+  // number, as East's own, whichever player number East has.
+  const first = declared(1);
+  assert.ok(first.length > 0);
+  for (const kyoku of [2, 3, 4]) assert.deepEqual(declared(kyoku), first, `East ${kyoku}`);
 });

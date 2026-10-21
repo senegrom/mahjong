@@ -159,8 +159,21 @@ fn furiten_unshown(hand: &Hand, who: Wind, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{describe_action, may_reach_from, mortal_mask_of, Game, MORTAL_VERSION};
+    use crate::{describe_action, may_reach_from, mortal_mask_of, Game};
     use riichi_core::game::{Action, Call};
+
+    /// How the player plays a whole game in these tests.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Plays {
+        /// As the review check's player: every win and every riichi, and
+        /// otherwise the tile just drawn and a pass.
+        Draws,
+        /// The same, with every quad and every set it may take besides.
+        Calls,
+        /// As the club player plays, which comes to riichi far more often
+        /// than a player throwing its draws.
+        Club,
+    }
 
     /// The move the review check's player makes at a turn: a win, then a
     /// riichi, then with `calls` a quad of its own, then the tile just
@@ -178,13 +191,17 @@ mod tests {
             .expect("a turn always offers a move")
     }
 
-    /// Plays a whole game against `opponents` as the review check's player:
-    /// every win and every riichi, with `calls` every quad and set it may
-    /// take, and otherwise the tile just drawn and a pass. Shows `look`
-    /// each hand once it is over and before the next is dealt, which is
-    /// when a review reads the hand's decisions.
-    fn whole_game(seed: f64, opponents: &str, calls: bool, mut look: impl FnMut(&Game)) {
+    /// Plays a whole game against `opponents` as `plays` says, and shows
+    /// `look` each hand once it is over and before the next is dealt, which
+    /// is when a review reads the hand's decisions. The club player is the
+    /// player's own adviser, as the page asks it for a move.
+    fn whole_game(seed: f64, opponents: &str, plays: Plays, mut look: impl FnMut(&Game)) {
         let mut game = Game::new(seed, Some(opponents.into()));
+        let player = game.player;
+        if plays == Plays::Club {
+            game.bots[player].style = riichi_core::bot::Style::club();
+        }
+        let calls = plays == Plays::Calls;
         for _ in 0..20_000 {
             game.play_on().unwrap();
             match game.hand.phase {
@@ -196,7 +213,12 @@ mod tests {
                     }
                 }
                 Phase::Act => {
-                    let chosen = describe_action(turn_move(&game.hand, calls));
+                    let action = if plays == Plays::Club {
+                        game.bots[player].act(&game.hand)
+                    } else {
+                        turn_move(&game.hand, calls)
+                    };
+                    let chosen = describe_action(action);
                     game.choose(&chosen.kind, chosen.tile).unwrap();
                 }
                 Phase::CallWindow => {
@@ -207,16 +229,20 @@ mod tests {
                         .find(|(seat, _)| *seat == game.seat)
                         .map(|(_, offered)| offered)
                         .expect("play stops in a window only for the player");
-                    let call = [Call::Ron, Call::Kan, Call::Pon]
-                        .into_iter()
-                        .chain(
-                            offered
-                                .iter()
-                                .copied()
-                                .filter(|c| matches!(c, Call::Chii(_))),
-                        )
-                        .find(|c| offered.contains(c) && (calls || *c == Call::Ron))
-                        .unwrap_or(Call::Pass);
+                    let call = if plays == Plays::Club {
+                        game.bots[player].call(&game.hand, game.seat, &offered)
+                    } else {
+                        [Call::Ron, Call::Kan, Call::Pon]
+                            .into_iter()
+                            .chain(
+                                offered
+                                    .iter()
+                                    .copied()
+                                    .filter(|c| matches!(c, Call::Chii(_))),
+                            )
+                            .find(|c| offered.contains(c) && (calls || *c == Call::Ron))
+                            .unwrap_or(Call::Pass)
+                    };
                     let chosen = describe_call(call);
                     game.choose(&chosen.kind, chosen.tile).unwrap();
                 }
@@ -266,26 +292,20 @@ mod tests {
     }
 
     /// What a written position asks, read back as `PhysicalAnalysis` reads
-    /// it: Mortal's state from the replay of the position.
+    /// it, through the very function that answers the page: Mortal's state
+    /// from the replay of the position, and for a riichi's second question
+    /// that state once the seat has declared.
     fn asked(hand: &Hand, seat: Wind, history: &History) -> Option<Asked> {
-        let state = mortal_log::state_for(hand, seat, history)?;
-        let planes = |state: &riichi::state::PlayerState| -> Vec<f32> {
-            state
-                .encode_obs(MORTAL_VERSION, false)
-                .0
-                .iter()
-                .copied()
-                .collect()
+        let reach = if may_reach_from(hand, seat) {
+            Some((
+                replayed_planes(hand, seat, history, true)?,
+                mortal_mask_of(hand, seat, true),
+            ))
+        } else {
+            None
         };
-        let reach = may_reach_from(hand, seat).then(|| {
-            let mut declared = state.clone();
-            let _ = declared.update(&MortalEvent::Reach {
-                actor: history.seating[seat.index()] as u8,
-            });
-            (planes(&declared), mortal_mask_of(hand, seat, true))
-        });
         Some(Asked {
-            planes: planes(&state),
+            planes: replayed_planes(hand, seat, history, false)?,
             mask: mortal_mask_of(hand, seat, false),
             reach,
             choices: listed(hand, seat),
@@ -323,10 +343,12 @@ mod tests {
     /// asked, every one of the thousand and twelve planes, the mask, a
     /// riichi's second question and the listed choices, at every decision
     /// of whole games. The review check's game (seed 5, Beginner opponents,
-    /// no calls) is among them, and the games that call every set and
-    /// declare every quad reach the claims, the quads and the tied scores
-    /// that a typed-in table read wrong until it carried the game's seating
-    /// and each quad's turn.
+    /// no calls) is among them; the games that call every set and declare
+    /// every quad reach the claims, the quads and the tied scores that a
+    /// typed-in table read wrong until it carried the game's seating and
+    /// each quad's turn; and the games the club player plays come to riichi
+    /// questions after the first hand, where the seat's player number is
+    /// not its seat's.
     #[test]
     fn every_decision_written_as_a_position_asks_what_the_review_asked() {
         /// How many decisions reached each thing a table typed in by hand
@@ -339,22 +361,25 @@ mod tests {
             tied: usize,
             renumbered: usize,
             riichi_questions: usize,
+            renumbered_riichi_questions: usize,
             riichi_draws: usize,
         }
         let mut reached = Reached::default();
         let mut wrong = Vec::new();
-        let games: [(f64, &str, bool); 4] = [
-            (5.0, "beginner", false),
-            (16.0, "beginner", true),
-            (31.0, "club", true),
-            (81.0, "club", true),
+        let games: [(f64, &str, Plays); 6] = [
+            (5.0, "beginner", Plays::Draws),
+            (16.0, "beginner", Plays::Calls),
+            (31.0, "club", Plays::Calls),
+            (81.0, "club", Plays::Calls),
+            (5.0, "club", Plays::Club),
+            (16.0, "club", Plays::Club),
         ];
-        for (seed, opponents, calling) in games {
+        for (seed, opponents, plays) in games {
             let mut in_game = 0;
-            whole_game(seed, opponents, calling, |game| {
+            whole_game(seed, opponents, plays, |game| {
                 for index in 0..game.decisions.len() {
                     let at = format!(
-                        "seed {seed}, hand {}, decision {index}",
+                        "seed {seed} against {opponents}, hand {}, decision {index}",
                         game.table.hands_played
                     );
                     let (hand, seat, history) = read_back(game, index);
@@ -383,10 +408,13 @@ mod tests {
                         usize::from((1..4).any(|at| scores[..at].contains(&scores[at])));
                     reached.renumbered += usize::from(history.seating != [0, 1, 2, 3]);
                     reached.riichi_questions += usize::from(want.reach.is_some());
+                    reached.renumbered_riichi_questions += usize::from(
+                        want.reach.is_some() && history.seating[seat.index()] != seat.index(),
+                    );
                     reached.riichi_draws += usize::from(history.riichi_draw.is_some());
                 }
             });
-            if seed == 5.0 {
+            if (seed, plays) == (5.0, Plays::Draws) {
                 assert_eq!(in_game, 139, "the review check's game has 139 decisions");
             }
         }
@@ -401,7 +429,7 @@ mod tests {
         assert!(reached.quad_turns > 0, "{reached:?}");
         assert!(reached.tied > 50, "{reached:?}");
         assert!(reached.renumbered > 100, "{reached:?}");
-        assert!(reached.riichi_questions > 0, "{reached:?}");
+        assert!(reached.renumbered_riichi_questions > 3, "{reached:?}");
         assert!(reached.riichi_draws > 0, "{reached:?}");
     }
 
@@ -411,7 +439,7 @@ mod tests {
     #[test]
     fn a_written_position_holds_only_what_the_deciding_seat_could_see() {
         let mut checked = 0;
-        whole_game(31.0, "club", true, |game| {
+        whole_game(31.0, "club", Plays::Calls, |game| {
             for decision in &game.decisions {
                 let position =
                     written(&decision.position, decision.seat, game.hand_seating).unwrap();

@@ -671,18 +671,35 @@ impl PhysicalAnalysis {
 
 impl PhysicalAnalysis {
     fn planes(&self, after_reach: bool) -> Result<Vec<f32>, JsValue> {
-        let mut state = mortal_log::state_for(&self.hand, self.seat, &self.history)
-            .ok_or_else(|| JsValue::from_str(&replay_refusal(&self.hand)))?;
-        if after_reach && super::may_reach_from(&self.hand, self.seat) {
-            // Put to a copy of the state, never to a game: the declaration
-            // itself is recorded only when the move is actually made.
-            let _ = state.update(&MortalEvent::Reach {
-                actor: self.seat.index() as u8,
-            });
-        }
-        let (observation, _mask) = state.encode_obs(super::MORTAL_VERSION, false);
-        Ok(observation.iter().copied().collect())
+        replayed_planes(&self.hand, self.seat, &self.history, after_reach)
+            .ok_or_else(|| JsValue::from_str(&replay_refusal(&self.hand)))
     }
+}
+
+/// The planes Mortal's encoder builds for `seat` of a position replayed with
+/// `history`, and with `after_reach`, where the seat may declare riichi, the
+/// planes once it has, for the second question a declaration asks. `None`
+/// where the replay refuses the position.
+///
+/// The declaration is put to a copy of the state, never to a game: it is
+/// recorded only when the move is actually made. It is told as the seat's
+/// player number, which the replay numbered the seat by. Told as another
+/// number it would be another player's riichi, and the seat's own state
+/// would read it as holding a tile too many.
+pub(super) fn replayed_planes(
+    hand: &Hand,
+    seat: Wind,
+    history: &History,
+    after_reach: bool,
+) -> Option<Vec<f32>> {
+    let mut state = mortal_log::state_for(hand, seat, history)?;
+    if after_reach && super::may_reach_from(hand, seat) {
+        let _ = state.update(&MortalEvent::Reach {
+            actor: history.seating[seat.index()] as u8,
+        });
+    }
+    let (observation, _mask) = state.encode_obs(super::MORTAL_VERSION, false);
+    Some(observation.iter().copied().collect())
 }
 
 /// Why the replay refused a position. The editor takes a called set and the
@@ -1514,5 +1531,54 @@ mod tests {
             ),
             "an ordinary shape waiting on the five could not, so it declined nothing"
         );
+    }
+
+    /// East to act on the first turn of the `kyoku`th hand, typed in as a
+    /// guided or physical table gives it, ready to declare riichi with
+    /// fourteen tiles of fourteen kinds: the 5 bamboo just drawn makes
+    /// 3-4-5 bamboo, and either the 3 or the 4 circles goes.
+    fn ready_to_declare(kyoku: u8) -> Position {
+        let mut position = acting();
+        position.kyoku = kyoku;
+        position.wall = 69;
+        position.indicators = vec!["7z".into()];
+        position.first_turns = true;
+        position.players[0] = seat("1m 2m 3m 6m 7m 8m 3p 4p 6p 7p 8p 3s 4s 5s");
+        position.drawn = Some("5s".into());
+        position
+    }
+
+    /// A riichi's second question is asked of the seat once it has declared.
+    /// Mortal numbers the players from the game's first dealer, so from the
+    /// second hand on a seat's player number is not its seat's. Told as the
+    /// seat's player number, the declaration is the seat's own at every hand
+    /// number, and changes exactly the planes it changes in the first hand,
+    /// where the two numbers agree. Told as the seat's index it was another
+    /// player's riichi, which left the seat reading a tile too many, and with
+    /// fourteen kinds held the encoder panicked.
+    #[test]
+    fn a_riichis_second_question_is_the_seats_own_declaration_at_every_hand_number() {
+        let changed = |kyoku: u8| -> Vec<usize> {
+            let position = ready_to_declare(kyoku);
+            let (hand, seat) = position.build().expect("a valid position");
+            assert!(
+                crate::may_reach_from(&hand, seat),
+                "riichi is offered in hand {kyoku}"
+            );
+            let history = position.history();
+            let before = replayed_planes(&hand, seat, &history, false).expect("the replay builds");
+            let after = replayed_planes(&hand, seat, &history, true).expect("the riichi is told");
+            (0..before.len() / 34)
+                .filter(|plane| before[plane * 34..][..34] != after[plane * 34..][..34])
+                .collect()
+        };
+        let first = changed(1);
+        assert!(
+            !first.is_empty(),
+            "a declaration changes what the seat reads"
+        );
+        for kyoku in 2..=4 {
+            assert_eq!(changed(kyoku), first, "hand {kyoku}");
+        }
     }
 }
