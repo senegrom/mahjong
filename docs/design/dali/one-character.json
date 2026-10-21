@@ -1,0 +1,51 @@
+{
+  "tile": "1m",
+  "name": "Man1",
+  "status": "approved",
+  "direction": "The Aqueduct That Flows Upward — A",
+  "selectedOption": "A (left), the aqueduct",
+  "source": "docs/design/dali/studies/one-character-a-aqueduct-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Man1.svg",
+  "originalFilename": "dalí_inspired_mahjong_three_surreal_horizons.png",
+  "originalDimensions": [
+    1448,
+    1086
+  ],
+  "originalSha256": "1047241d3c1451d00d92c3ebbff04eeca8ff4afabf153390dd1819c355218287",
+  "originalBytes": 2832790,
+  "originalCrop": {
+    "x": 24,
+    "y": 190,
+    "width": 454,
+    "height": 804
+  },
+  "cropSha256": "f08dc9d99b8574679908ea4821bd9c48174eeb9a15122b4df08e0db9c94cd7d6",
+  "originalStoredInRepository": false,
+  "originalLocation": "Untouched original board and lossless complete artwork panel preserved in dali-one-character-A-originals.zip supplied in chat.",
+  "rasterDimensions": [
+    454,
+    804
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterSource": "docs/design/dali/studies/one-character-a-aqueduct-hires.avif",
+  "rasterSha256": "7aba9e73d7754bed3274235ebc262d0b73579aa21c9a0acdabef40dfca82077f",
+  "rasterBytes": 41959,
+  "encoding": {
+    "quality": 50,
+    "speed": 0,
+    "lossless": false
+  },
+  "fit": {
+    "painting": [
+      454,
+      804
+    ],
+    "stretch": 0.02,
+    "anchor": 0.6666666666666666,
+    "bleedPixels": 0
+  },
+  "processing": "Artwork-only A panel extracted without resizing, repainting or recolouring; full 454 x 804 panel encoded as quality-50 AVIF. The existing 3:4 face fit uses 2% horizontal stretch and zero side bleed, crops surrounding sky and foreground, and retains the aqueduct, red-stone character and water connection. Full sky and foreground remain in the source raster.",
+  "approval": "Carl selected the aqueduct A and explicitly requested GitHub deployment as Dali 1 character. Do not substitute the zipper B or brush C.",
+  "sourceSvgSha256": "a33eb1b7f79fe603f59d363b93650428f1b10b0ff159bbbabdf89367261c03a3",
+  "runtimeSvgSha256": "be55c915b9e280937e947967f3047ea3acca5de76a2832c48044a6a1a47c0f34"
+}

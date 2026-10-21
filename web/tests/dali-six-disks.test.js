@@ -55,8 +55,8 @@ test('the complete full-resolution portrait is pinned in identical source and ru
 });
 
 test('six disks completes ranks 1 through 6 with one entry per tile', () => {
-  assert.equal(set.tiles.length, 26);
-  assert.equal(set.placeholders.length, 8);
+  assert.equal(set.tiles.length, 29);
+  assert.equal(set.placeholders.length, 5);
   assert.deepEqual(set.tiles.map(entry => entry.tile), [...DALI_APPROVED]);
   assert.deepEqual([...set.tiles, ...set.placeholders].map(entry => entry.tile).sort(), [...TILE_TYPES].sort());
   for (let n = 1; n <= 6; n++) {
@@ -82,6 +82,6 @@ test('the approved spiral is registered in the exporter and shown in the preview
   const preview = read('web/public/tiles/dali/preview.html').toString();
   assert.ok(preview.includes('approved/Pin6.svg'));
   assert.ok(preview.includes('The Spiral Staircase'));
-  assert.ok(preview.includes('26 approved faces'));
-  assert.ok(preview.includes('remaining 8 tiles show their names'));
+  assert.ok(preview.includes('29 approved faces'));
+  assert.ok(preview.includes('remaining 5 tiles show their names'));
 });

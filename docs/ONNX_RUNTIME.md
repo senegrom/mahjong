@@ -6,15 +6,17 @@
 can pick, the default first, each by its version with its source, generation,
 the reward it learned from, precision, decoded byte count, stored byte count,
 origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
-0.1.1110, the default since 19 October 2026, then 0.1.810 and 0.1.410, which
-the site played before it. Inspect those fields for the current release.
+0.1.1410, the default, published on 21 October 2026, then 0.1.1110 (the
+default from 19 October), 0.1.810 and 0.1.410, which the site played before
+it. Inspect those fields for the current release.
 
 The reward is what the network's value estimates, and the page names and
 explains the value by the reward of the network it plays: `{ "kind": "hybrid" }`
 for 810 and 410, a hand's points over 4,000 plus the game's placement bonus,
-and `{ "kind": "placement", "alpha": 0 }` for 1110, the bonus the scoreboard
-promises at the start of the next hand plus alpha times the hand's points over
-4,000, and after the game's last hand the bonus itself
+and `{ "kind": "placement", "alpha": 0.05 }` for 1410 and
+`{ "kind": "placement", "alpha": 0 }` for 1110, the bonus the scoreboard
+promises at the start of the next hand, or after the game's last hand the
+bonus itself, plus alpha times the hand's points over 4,000
 (`neural/train_combined.py --reward`, `neural/place_model.py`).
 
 `neural.export` checks the graph's operators; the publication tool
@@ -87,14 +89,15 @@ network and never beside another network download, or else by the update's
 own page after it starts, once per visit while connected. The update's
 network is the one its page will play for this player: the waiting worker
 reads the pick against its own list, and answers with its default when the
-player picked nothing or a version it no longer lists. The update that made
-1110 the default is the one exception: its pages drop every pick saved before
-it (settings record version 3), which its waiting worker cannot tell from the
-running page's message, so for a player who had picked an older network
-(0.1.410, or 0.1.810 picked before #139 made picking the default no pick) nothing new is
-saved ahead, and the update's own page saves 1110 once it runs, while
-connected. A new version never plays a network it does not list, even one an
-earlier version left saved.
+player picked nothing or a version it no longer lists. The updates that
+made 1110 and 1410 the default are the exceptions: their pages drop every
+pick saved before them (settings record versions 3 and 4), which their
+waiting workers cannot tell from the running page's message, so for a player
+who had picked an older network (before 1110, 0.1.410, or 0.1.810 picked
+before #139 made picking the default no pick; before 1410, 0.1.810 or
+0.1.410) nothing new is saved ahead, and the update's own page saves the new
+default once it runs, while connected. A new version never plays a network
+it does not list, even one an earlier version left saved.
 Normal waiting-worker activation is retained: there is no forced mid-match
 upgrade.
 

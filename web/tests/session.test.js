@@ -173,7 +173,7 @@ test('a first visit meets Trained opponents and is reviewed by Trained AI', () =
     assert.equal(DEFAULT_REVIEW_ADVISER, 'strong');
   }
   // A record this build cannot read is no choice at all.
-  for (const version of [0, 4, '3', undefined]) {
+  for (const version of [0, 5, '4', undefined]) {
     assert.deepEqual(table(readSettings({ getItem: () => JSON.stringify({ version, difficulty: 'club' }) })), ['neural', 'neural', 'neural']);
   }
 });
@@ -223,32 +223,32 @@ const OLDER = NETWORKS.slice(1).map(network => network.version);
 test('a picked trained network is kept by version, and without a listed pick the default plays', () => {
   const read = value => readSettings({ getItem: () => JSON.stringify(value) });
   // A first visit, and a record that holds no pick, play the default.
-  for (const settings of [readSettings(null), readSettings({ getItem: () => null }), read({ version: 3, difficulty: 'club' })]) {
+  for (const settings of [readSettings(null), readSettings({ getItem: () => null }), read({ version: 4, difficulty: 'club' })]) {
     assert.equal(Object.hasOwn(settings, 'trainedNetwork'), false);
     assert.equal(playing(settings), MANIFEST.version);
   }
   // Every listed network is read back as it was picked.
   assert.ok(OLDER.length >= 2, 'the networks played before the default stay listed');
   for (const version of NETWORKS.map(network => network.version)) {
-    assert.equal(read({ version: 3, trainedNetwork: version }).trainedNetwork, version);
+    assert.equal(read({ version: 4, trainedNetwork: version }).trainedNetwork, version);
   }
   // Anything that is not a listed version is no pick: the default plays.
   for (const trainedNetwork of ['0.1.36', '0.1.4100', 'strong', 'full', '', 410, null, ['0.1.410'], { version: '0.1.410' }]) {
-    const settings = read({ version: 3, trainedNetwork, hints: false });
+    const settings = read({ version: 4, trainedNetwork, hints: false });
     assert.equal(Object.hasOwn(settings, 'trainedNetwork'), false, JSON.stringify(trainedNetwork));
     assert.equal(playing(settings), MANIFEST.version);
     assert.equal(settings.hints, false, 'the rest of the record stands');
   }
   // A record from before 810 holds no pick; it would not be read if it did.
   assert.equal(Object.hasOwn(read({ version: 1, trainedNetwork: '0.1.410' }), 'trainedNetwork'), false);
-  // Round trip: written with the other preferences, in the version 3 record.
+  // Round trip: written with the other preferences, in the version 4 record.
   const writes = new Map();
   const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
   const preferences = { difficulty: 'neural', opponents: ['neural', 'neural', 'neural'], hints: true, confirmDiscards: false,
     shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false,
     reviewFilter: 'flagged' };
   writeSettings(storage, { ...preferences, trainedNetwork: '0.1.410' });
-  assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 3, ...preferences, trainedNetwork: '0.1.410' });
+  assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 4, ...preferences, trainedNetwork: '0.1.410' });
   assert.deepEqual(readSettings(storage), { ...preferences, trainedNetwork: '0.1.410' });
   // A player who has picked nothing writes no pick, so a newer default reaches them.
   writeSettings(storage, { ...preferences, trainedNetwork: undefined });
@@ -256,22 +256,25 @@ test('a picked trained network is kept by version, and without a listed pick the
   assert.equal(playing(readSettings(storage)), MANIFEST.version);
 });
 
-test('a record from before 1110 plays the default once, whatever it picked, and keeps every other choice', () => {
+test('a record from before 1110 or 1410 plays the default once, whatever it picked, and keeps every other choice', () => {
   // Every other choice a record holds, none of them a default.
   const chosen = { difficulty: 'custom', opponents: ['beginner', 'club', 'neural'], hints: false, confirmDiscards: true,
     shortcuts: false, tileFace: 'van-gogh', reviewAdviser: 'club', reviewHideMove: true, reviewHideTiles: true, reviewFilter: 'every' };
   // What builds before 1110 wrote: 810 was the default then and was never
   // written as a pick, but a record that holds it gives it up all the same.
-  for (const trainedNetwork of [...OLDER, undefined, '0.1.36']) {
-    const writes = new Map([[SETTINGS_KEY, JSON.stringify({ version: 2, ...chosen, trainedNetwork })]]);
+  // Builds before 1410 wrote version 3, with 1110 the default, and a record
+  // of theirs gives up its pick the same way.
+  const before = [2, 3].flatMap(record => [...OLDER, undefined, '0.1.36'].map(trainedNetwork => ({ record, trainedNetwork })));
+  for (const { record, trainedNetwork } of before) {
+    const writes = new Map([[SETTINGS_KEY, JSON.stringify({ version: record, ...chosen, trainedNetwork })]]);
     const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
     const settings = readSettings(storage);
-    assert.deepEqual(settings, chosen, String(trainedNetwork));
+    assert.deepEqual(settings, chosen, `version ${record}, ${trainedNetwork}`);
     assert.equal(playing(settings), MANIFEST.version);
-    // The page writes the record back as it loads (App's effect), as version 3
+    // The page writes the record back as it loads (App's effect), as version 4
     // and without a pick, so the next load reads the same.
     writeSettings(storage, settings);
-    assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 3, ...chosen });
+    assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 4, ...chosen });
     assert.deepEqual(readSettings(storage), chosen);
     // A pick made after that is kept, load after load.
     for (const version of OLDER) {
@@ -293,7 +296,7 @@ test('a record from before 1110 plays the default once, whatever it picked, and 
 });
 
 test('a match saved with Trained opponents before the settings reset resumes, and asks the page for the next move', async () => {
-  // A match's own save is unchanged: version 1, as before 810 and 1110.
+  // A match's own save is unchanged: version 1, as before 810, 1110 and 1410.
   const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => mask[37] ? 37 : 0 });
   await match.run();
   await match.choose({ kind: 'discard', tile: '1m' });
@@ -339,7 +342,7 @@ test('preferences are written when they change, not each time the effect reruns'
   let last = writeSettings(storage, preferences);
   // App's effect reruns with an equal copy after every move of a match.
   for (let move = 0; move < 5; move++) last = writeSettings(storage, { ...preferences, opponents: [...preferences.opponents] }, last);
-  assert.deepEqual(writes, [[SETTINGS_KEY, JSON.stringify({ version: 3, ...preferences })]]);
+  assert.deepEqual(writes, [[SETTINGS_KEY, JSON.stringify({ version: 4, ...preferences })]]);
   assert.deepEqual(readSettings({ getItem: () => writes[0][1] }).opponents, preferences.opponents);
   // Another tab's change stays until this tab changes something itself.
   last = writeSettings(storage, { ...preferences, hints: false }, last);

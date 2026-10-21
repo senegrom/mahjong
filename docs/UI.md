@@ -770,8 +770,8 @@ until the owner decides which reading holds. The table is more often silent:
 for 60% of the flags, and 82% of Club's, it gives no reason for Trained AI's
 choice, which the hand review calls a judgement, a trade of speed against
 value or safety that its numbers do not capture. All of this was measured
-with 0.1.810; 0.1.1110, the default since 19 October, has not been measured
-so.
+with 0.1.810; 0.1.1110 and 0.1.1410, the defaults since, have not been
+measured so.
 
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a

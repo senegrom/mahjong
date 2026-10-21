@@ -15,12 +15,12 @@ const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
 
-test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes K and uses Almond Blossom C for white dragon', () => {
+test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes K and uses Almond Blossom C for white dragon and Painter C for red dragon', () => {
   const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m', '7m', '4p', '8m', '6p', '7p', '9m', '8p', '6z', '1m', '2z', '3z'];
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'E', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -58,7 +58,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z', '3z', '5z'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
@@ -82,8 +82,8 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
 });
 
-test('Dali resolves twenty-six approved images and no picture for the rest', () => {
-  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '6p', '7p', '8p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '5z', '7z']);
+test('Dali resolves twenty-nine approved images and no picture for the rest', () => {
+  const approved = new Set(['1p', '2p', '3p', '4p', '5p', '6p', '7p', '8p', '9p', '1s', '2s', '3s', '4s', '5s', '6s', '7s', '8s', '9s', '1m', '5m', '6m', '7m', '8m', '9m', '1z', '4z', '5z', '6z', '7z']);
   for (const tile of TILE_TYPES) {
     const url = tileImage(tile, 'dali');
     if (!approved.has(tile)) {
@@ -93,7 +93,7 @@ test('Dali resolves twenty-six approved images and no picture for the rest', () 
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(url, /\/dali\/approved\//);
-    assert.match(svg, ['2p', '4p', '6p', '7p', '8p', '3s', '4s', '5z'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
+    assert.match(svg, ['1m', '2p', '4p', '6p', '7p', '8p', '9p', '3s', '4s', '5z', '6z'].includes(tile) ? /data:image\/avif;base64,/ : ['3s', '4s', '6s', '7s', '8s', '9s', '1z', '4z'].includes(tile) ? /data:image\/webp;base64,/ : /data:image\/png;base64,/);
   }
   assert.equal(tileImage('1p', 'dali'), 'tiles/dali/approved/Pin1.svg');
   assert.equal(tileImage('2p', 'dali'), 'tiles/dali/approved/Pin2.svg');
@@ -115,6 +115,7 @@ test('Dali resolves twenty-six approved images and no picture for the rest', () 
   assert.equal(tileImage('1z', 'dali'), 'tiles/dali/approved/Ton.svg');
   assert.equal(tileImage('4z', 'dali'), 'tiles/dali/approved/Pei.svg');
   assert.equal(tileImage('5z', 'dali'), 'tiles/dali/approved/Haku.svg');
+  assert.equal(tileImage('6z', 'dali'), 'tiles/dali/approved/Hatsu.svg');
   assert.equal(tileImage('7z', 'dali'), 'tiles/dali/approved/Chun.svg');
 });
 
@@ -207,10 +208,10 @@ test('tile face survives preference restoration and retired or invalid settings 
   for (const tileFace of [undefined, null, '', false, {}, 'other', '../other']) {
     assert.equal(read({ version: 1, tileFace }).tileFace, 'classic');
   }
-  // Neither settings reset touched the tile face; a record of a version this
+  // No settings reset touched the tile face; a record of a version this
   // build does not know is not read.
-  for (const version of [2, 3]) assert.equal(read({ version, tileFace: 'dali' }).tileFace, 'dali');
-  assert.equal(read({ version: 4, tileFace: 'dali' }).tileFace, 'classic');
+  for (const version of [2, 3, 4]) assert.equal(read({ version, tileFace: 'dali' }).tileFace, 'dali');
+  assert.equal(read({ version: 5, tileFace: 'dali' }).tileFace, 'classic');
 });
 
 test('the real Tile component respects the selected face and hidden state', async () => {
