@@ -4,10 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement,
-  decisionInBrief, decisionKey, differed, filterCounts, filterDecisions, filterSaid, handEntry, handName, judgement, landing, listedIn,
-  movedNote, moveToken, moveWeight, neighbour, ordinal, playlist, rankDecisions, scanMatch, seatNotes, stepSaid, tableSaid,
-  weightsSaid } from '../src/lib/game-review.js';
+import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement,
+  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, handEntry, handName, judgement, landing, listedIn, moveToken, moveWeight,
+  neighbour, playlist, rankDecisions, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -204,34 +203,22 @@ test('a decision is flagged only where the player had under 5% and the network a
   assert.equal(withheld.flagged, false);
 });
 
-test("a judged decision's weights are said in the list in the words the Flagged filter's title states the rule in", () => {
-  assert.equal(weightsSaid({ stage: 'move', played: 0.02, preferred: 0.81 }), "Your move 2.0%, Trained AI's choice 81.0%.");
-  assert.equal(weightsSaid({ stage: 'move', played: 0.0004, preferred: 1 }), "Your move <0.1%, Trained AI's choice 100.0%.");
-  // Where both declared riichi, the tiles are judged given the declaration.
-  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }), "Given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
-  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more" });
+test("the filters' buttons say in a word what each keeps, and the Flagged and Differed buttons' titles what keeps them", () => {
+  assert.deepEqual(FILTERS, ['flagged', 'differed', 'every']);
+  assert.deepEqual(FILTER_LABELS, { flagged: 'Flagged', differed: 'Differed', every: 'All' });
+  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more", differed: 'Trained AI chose another move' });
 });
 
-test('flagged decisions rank by the gap, ties in the order played, and agreement leaves forced moves out', () => {
+test('flagged decisions are counted by the gap, ties in the order played, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
   const ranked = rankDecisions([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]);
   assert.deepEqual(ranked.map(entry => entry.name), ['b', 'a', 'd']);
-  assert.equal(LEADING, 5);
   assert.deepEqual(agreement([{ agreed: true }, { agreed: false }, { agreed: true, forced: true }, { agreed: true }]),
     { matched: 2, decisions: 3, share: 2 / 3 });
   assert.deepEqual(agreement([]), { matched: 0, decisions: 0, share: null });
 });
 
-test('a decision ranked lower by the hands reviewed since is told where it went, in places as they are said', () => {
-  assert.deepEqual([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal),
-    ['1st', '2nd', '3rd', '4th', '10th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st', '111th', '112th']);
-  // The place only, and first: how many are flagged grows with every hand
-  // reviewed, and a count said once would go stale while the place still held.
-  assert.equal(movedNote(6, true), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(2, false), 'Now 3rd: decisions reviewed since departed further.');
-});
-
-test('a filter lists the flagged decisions, those where Trained AI chose differently, or every one, and counts each', () => {
+test('a filter counts the flagged decisions, those where Trained AI chose differently, and every one', () => {
   const decision = (name, values = {}) => ({ name, agreed: false, forced: false, judgement: null, ...values });
   const decisions = [
     decision('agreed', { agreed: true }),
@@ -244,37 +231,25 @@ test('a filter lists the flagged decisions, those where Trained AI chose differe
     decision('flag2', { judgement: { gap: 0.7, flagged: true } }),
     decision('unscored2'),
   ];
-  assert.deepEqual(filterDecisions(decisions, 'flagged').map(entry => entry.name), ['flag', 'flag2']);
-  // By the gap, flagged or not, then the moves that could not be compared,
-  // in the order played. A forced move never differs.
-  assert.deepEqual(filterDecisions(decisions, 'differed').map(entry => entry.name), ['wide', 'flag', 'flag2', 'near', 'unscored', 'unscored2']);
-  assert.deepEqual(filterDecisions(decisions, 'every').map(entry => entry.name), decisions.map(entry => entry.name));
+  // A forced move never differs, and a move that could not be compared does.
   assert.deepEqual(filterCounts(decisions), { flagged: 2, differed: 6, every: 9 });
   assert.deepEqual(filterCounts([]), { flagged: 0, differed: 0, every: 0 });
   assert.equal(differed(decisions[6]), false);
+  assert.equal(differed(decisions[4]), true);
 });
 
-test('a list says what its filter shows as it is chosen, and where it puts a decision the review has moved', () => {
+test('the review says what its filter keeps as it is chosen, in no order but the order played', () => {
   const counts = { flagged: 7, differed: 64, every: 182 };
-  assert.equal(filterSaid('flagged', counts, { leading: LEADING }), '7 flagged decisions, widest departure first. First 5 listed.');
-  assert.equal(filterSaid('differed', counts, { leading: LEADING }),
-    '64 decisions where Trained AI differed, 7 of them flagged, widest departure first. First 5 listed.');
-  assert.equal(filterSaid('every', counts, { leading: LEADING }), 'All 182 decisions, in the order played. First 5 listed.');
-  const hand = { flagged: 1, differed: 3, every: 9 }, inHand = { scope: ' in this hand', ranked: false };
-  assert.equal(filterSaid('flagged', hand, inHand), '1 flagged decision in this hand.');
-  assert.equal(filterSaid('differed', hand, inHand), '3 decisions in this hand where Trained AI differed, 1 of them flagged, in the order played.');
-  assert.equal(filterSaid('differed', { ...hand, flagged: 0 }, inHand), '3 decisions in this hand where Trained AI differed, in the order played.');
-  assert.equal(filterSaid('every', hand, inHand), 'All 9 decisions in this hand, in the order played.');
-  assert.equal(filterSaid('every', { ...hand, every: 1 }, inHand), 'The one decision in this hand.');
-  assert.equal(filterSaid('flagged', { flagged: 0, differed: 0, every: 4 }, inHand), 'None flagged in this hand.');
+  assert.equal(filterSaid('flagged', counts), '7 flagged decisions.');
+  assert.equal(filterSaid('differed', counts), '64 decisions where Trained AI differed, 7 of them flagged.');
+  assert.equal(filterSaid('every', counts), 'All 182 decisions.');
+  assert.equal(filterSaid('flagged', { flagged: 1, differed: 3, every: 9 }), '1 flagged decision.');
+  assert.equal(filterSaid('differed', { flagged: 0, differed: 1, every: 9 }), '1 decision where Trained AI differed.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 1 }), 'The one decision.');
+  // Where the filter keeps nothing.
+  assert.equal(filterSaid('flagged', { flagged: 0, differed: 3, every: 4 }), 'None flagged.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
-  // A ranked list says a decision went lower because later ones departed
-  // further, and the list of every decision because earlier ones arrived;
-  // any list that grew to keep it says so in the same words.
-  assert.equal(movedNote(6, true, 'flagged'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(6, true, 'differed'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(29, false, 'every'), 'Now 30th: decisions reviewed since came before it.');
-  assert.equal(movedNote(29, true, 'every'), 'Now 30th: decisions reviewed since came before it, so the whole list is shown.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'No decisions.');
 });
 
 test("the table at a step is said in a sentence, each seat says what it was doing, and a hand's line gives both moves", () => {
@@ -468,21 +443,24 @@ test('a step says in one line where it is, the table, both moves with their weig
     'a move Trained AI gave no weight');
 });
 
-test("a real review's lists hold what their filters say: the flagged among the different moves, and every decision", async () => {
+test("a real review's lists hold what their filters count, in the order played: the flagged among the different moves, and every decision", async () => {
   const review = new MatchReview(Game, game, { analyzeBatch: network() });
   try {
     review.review();
     await settled(review);
     const decisions = review.decisions, counts = filterCounts(decisions);
-    const flagged = filterDecisions(decisions, 'flagged'), other = filterDecisions(decisions, 'differed');
+    const at = place => review.hands[place.hand].decisions[place.step];
+    const flagged = playlist(review.hands, 'flagged').map(at), other = playlist(review.hands, 'differed').map(at);
     assert.equal(counts.every, decisions.length);
     assert.equal(counts.flagged, flagged.length);
-    assert.equal(counts.differed, decisions.filter(decision => !decision.agreed && !decision.forced).length);
+    assert.equal(counts.differed, other.length);
     assert.ok(counts.flagged > 0 && counts.differed >= counts.flagged && counts.every > counts.differed, JSON.stringify(counts));
-    assert.ok(flagged.every(decision => other.includes(decision)), 'every flagged decision differs');
-    const gaps = other.filter(decision => decision.judgement).map(decision => decision.judgement.gap);
-    assert.deepEqual(gaps, [...gaps].sort((a, b) => b - a), 'those that differ, the widest gap first');
-    assert.deepEqual(filterDecisions(decisions, 'every'), decisions, 'every decision in the order played');
+    assert.ok(flagged.every(decision => decision.judgement.flagged && other.includes(decision)), 'every flagged decision differs');
+    assert.ok(other.every(decision => !decision.agreed && !decision.forced));
+    // Hand by hand, each hand's decisions in the order they were made.
+    const order = decision => decisions.indexOf(decision);
+    for (const list of [flagged, other]) assert.deepEqual(list.map(order), [...list.map(order)].sort((a, b) => a - b));
+    assert.deepEqual(playlist(review.hands, 'every').map(at), decisions, 'every decision in the order played');
   } finally { review.dispose(); }
 });
 
@@ -517,7 +495,7 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
       } finally { match.dispose(); }
     }
     const flagged = rankDecisions(decisions);
-    assert.ok(flagged.length > LEADING, 'a network sure of other moves flags many');
+    assert.ok(flagged.length > 5, 'a network sure of other moves flags many');
     assert.ok(flagged.every(decision => decision.judgement.flagged && !decision.agreed));
   } finally { review.dispose(); }
 });

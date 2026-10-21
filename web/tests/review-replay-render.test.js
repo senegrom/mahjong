@@ -5,14 +5,17 @@ import { render } from 'svelte/server';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { text } from './fixtures/markup-text.js';
-import { MatchReview, moveToken, moveWeight, stepSaid } from '../src/lib/game-review.js';
+import { MatchReview, filterCounts, moveToken, moveWeight, stepSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
 import { percent, quadOnOffer } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
-const DecisionReplay = await componentLoader()('DecisionReplay.svelte');
+const component = componentLoader();
+const DecisionReplay = await component('DecisionReplay.svelte');
+const ReviewStepBar = await component('ReviewStepBar.svelte');
+const ReviewIndex = await component('ReviewIndex.svelte');
 
 /** A whole game against Club players, by a player who takes every win,
  * declares every riichi, calls every set and quad offered, and otherwise
@@ -53,7 +56,10 @@ const hand = review.hands.filter(entry => entry.decisions.some(decision => decis
 assert.ok(hand, 'a hand with flagged decisions and others');
 const flaggedAt = hand.decisions.findIndex(decision => decision.judgement?.flagged);
 const plainAt = hand.decisions.findIndex(decision => !decision.forced && !decision.judgement?.flagged);
-const replay = props => render(DecisionReplay, { props: { hand, hints: true, onback() {}, ...props } }).body;
+const replay = props => render(DecisionReplay, { props: { hand, hints: true, ...props } }).body;
+/** The review's step bar at a step of the hand, as the review draws it there. */
+const stepBar = (step, values = {}) => render(ReviewStepBar, { props: { hand, step, decision: hand.decisions[step], previous: null, next: null,
+  onstep() {}, ...values } }).body;
 
 /** The names of the tiles shown in a piece of markup, in order. */
 const tileNames = markup => [...markup.matchAll(/class="tile [^"]*"[^>]*aria-label="([^"]*)"/g)].map(match => match[1]);
@@ -108,9 +114,9 @@ function expectedLine(decision, frame) {
     + `${theirs.given ? ', given riichi' : ''}${decision.judgement?.flagged ? ' · Flagged' : ''}`;
 }
 
-test('every step of a replayed hand shows every hand face up, each a list named by its seat, both moves tagged, and no control hides them', () => {
+test('every step of a reviewed hand shows every hand face up, each a list named by its seat, both moves tagged, and nothing that hides them', () => {
   for (const [index, frame] of hand.frames.entries()) {
-    const html = replay({ start: index, whole: true }), decision = hand.decisions[index];
+    const html = replay({ step: index }), decision = hand.decisions[index];
     const { opponents, own } = handsIn(html), seats = frame.view.seats;
     assert.equal(opponents.length, 3, `three opponents' hands at step ${index}`);
     // MatchTable draws Opposite, then Left, then Right.
@@ -127,9 +133,6 @@ test('every step of a replayed hand shows every hand face up, each a list named 
     // or to show the answer, which is on show.
     assert.doesNotMatch(html, /class="held|class="back|type="checkbox"|data-peek|data-reveal/);
     assert.doesNotMatch(text(html), /(Show|Hide) (the )?(other players'|every|all) (tiles|hands)|Show answer/i);
-    // The step bar says the step, the table and both moves as the step changes.
-    assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand, step: index, decision })}</p>`), `the status at step ${index}`);
-    assert.equal(moveLine(html).said, expectedLine(decision, frame), `the move line at step ${index}`);
     assert.match(html, new RegExp(`<div class="wall[^"]*"><strong[^>]*>${frame.view.wall}</strong>`));
     for (const indicator of frame.view.dora_indicators) assert.ok(html.includes(`data-tile="${indicator}"`));
     // Whose turn it is, in words: the player to play or to answer.
@@ -138,39 +141,40 @@ test('every step of a replayed hand shows every hand face up, each a list named 
     // Trained AI's view of the move wherever it was asked.
     assert.deepEqual(tagged(html), tagsOf(frame, decision), `the tags at step ${index}`);
     assert.equal(/data-view=""/.test(html), !decision.forced, `Trained AI's view at step ${index}`);
+    // The decision alone: the step bar and the list are the review's, above
+    // it, and it has no heading or way back of its own.
+    assert.doesNotMatch(html, /data-steps|data-step-to|data-decisions|data-back|decision-title|Back to the list/);
   }
 });
 
-test("a flagged decision shows Trained AI's move beside the player's, in the step bar, over its tile and in its view, and offers nothing to choose again", () => {
-  const decision = hand.decisions[flaggedAt], frame = hand.frames[flaggedAt];
-  const html = replay({ start: flaggedAt });
-  // Where it is, and both moves, the flag after them.
-  assert.match(html, new RegExp(`<p class="place[^"]*" data-step="">${hand.name} · <span class="long[^"]*">decision </span>`
-    + `${flaggedAt + 1} of ${hand.frames.length}</p>`));
-  const line = moveLine(html), advised = moveToken(decision.advised_kind, decision.advised_tile ?? null);
-  assert.equal(line.said, expectedLine(decision, frame));
+test("the step bar gives each decision of a reviewed hand, the move made beside Trained AI's with the weights the review gave them, and says it in one line", () => {
+  for (const [index, frame] of hand.frames.entries()) {
+    const html = stepBar(index), decision = hand.decisions[index];
+    assert.match(html, new RegExp(`<p class="place[^"]*" data-step="">${hand.name} · <span class="long[^"]*">decision </span>`
+      + `${index + 1} of ${hand.frames.length}</p>`));
+    assert.equal(moveLine(html).said, expectedLine(decision, frame), `the move line at step ${index}`);
+    assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand, step: index, decision })}</p>`), `the status at step ${index}`);
+  }
+  // A flagged decision gives both moves' tiles, and the flag after them.
+  const decision = hand.decisions[flaggedAt], frame = hand.frames[flaggedAt], line = moveLine(stepBar(flaggedAt));
   assert.match(line.said, / · Flagged$/);
-  assert.deepEqual(line.tiles, [...moveToken(frame.played.kind, frame.played.tile).tiles, ...advised.tiles].map(tileWords));
-  assert.match(html, /<strong class="flag[^"]*">Flagged<\/strong>/);
+  assert.deepEqual(line.tiles, [...moveToken(frame.played.kind, frame.played.tile).tiles,
+    ...moveToken(decision.advised_kind, decision.advised_tile ?? null).tiles].map(tileWords));
+});
+
+test("a flagged decision shows Trained AI's move over its tile and in its view, and offers nothing to choose again", () => {
+  const html = replay({ step: flaggedAt });
   assert.match(html, /data-view=""/);
-  assert.match(text(html), /Trained AI's view/);
+  assert.match(html, /<h3 id="view-title"[^>]*>Trained AI's view<\/h3>/);
   // Nothing of choosing again: no offer, no retry, no answer to wait for.
   assert.doesNotMatch(html, /data-answer=|data-offer=|data-reveal=|data-retry=|data-again=|data-choose-here=|>First<|>This decision</);
   assert.doesNotMatch(text(html), /Choose again|Show answer|Trained AI's answer/);
-  // The replay goes on past it: every decision of the hand is a step, and
-  // Next goes on unless the decision is the hand's last.
-  assert.equal([...html.matchAll(/data-step-to="(\d+)"/g)].length, hand.frames.length);
-  assert.match(html, new RegExp(`data-step-to="${flaggedAt}"[^>]*aria-current="step"`));
-  assert.equal(/<button[^>]*\bdata-next\b[^>]*\bdisabled\b/.test(html), flaggedAt === hand.frames.length - 1);
 });
 
 test("a decision that was not flagged shows the move and Trained AI's view, said in words for the hand, with no bullets and no explainer", () => {
-  const decision = hand.decisions[plainAt], frame = hand.frames[plainAt];
-  const html = replay({ start: plainAt });
-  assert.match(html, new RegExp(`data-step="">${hand.name} · <span class="long[^"]*">decision </span>${plainAt + 1} of ${hand.frames.length}</p>`));
-  assert.equal(moveLine(html).said, expectedLine(decision, frame));
-  assert.doesNotMatch(moveLine(html).said, /Flagged/);
+  const html = replay({ step: plainAt });
   assert.match(html, /data-view=""/);
+  assert.doesNotMatch(moveLine(stepBar(plainAt)).said, /Flagged/);
   // The view lists the moves by weight, marking Trained AI's choice and the
   // move made, without the lines that said them over again or the line that
   // said what a percentage is, which the tile guide says.
@@ -186,7 +190,7 @@ test("Trained AI's view gives each move as its tile or word, tagged as the hand 
   let tables = 0;
   for (const entry of review.hands) {
     for (const [index, decision] of entry.decisions.entries()) {
-      const html = render(DecisionReplay, { props: { hand: entry, start: index, hints: true, onback() {} } }).body;
+      const html = render(DecisionReplay, { props: { hand: entry, step: index, hints: true } }).body;
       // What happened since the previous decision starts folded.
       assert.doesNotMatch(html, /<details class="lines[^"]*" open/);
       if (decision.forced) continue;
@@ -226,17 +230,23 @@ test("Trained AI's view gives each move as its tile or word, tagged as the hand 
   assert.ok(tables > 0, 'some decision compares what each move leaves');
 });
 
-test("the hand's list gives every decision, each with the player's move and Trained AI's, by the filter, its name saying both in words", () => {
-  const html = replay({ start: flaggedAt, whole: true });
-  assert.match(html, /<h3 id="decision-title"[^>]*>[^<]+, whole hand<\/h3>/);
-  // Each line a button to its step: its number, the player's move in tiles
-  // and words, then Trained AI's after an arrow, or a tick where it agreed,
-  // or that the move was the only one; Flagged where this list shows every
-  // decision. Its name says the same in the engine's words.
-  const items = [...html.matchAll(/<button class="app-control[^"]*" data-step-to="(\d+)"[^>]*aria-label="([^"]*)"[^>]*>([^]*?)<\/button>/g)]
-    .map(([, step, label, inner]) => ({ step: Number(step), label, shown: text(inner), tiles: tileNames(inner) }));
-  assert.equal(items.length, hand.frames.length);
-  assert.match(html, /<div class="decision-list[^"]*">[^]*?<ol[^>]*\brole="list"[^>]*>(?:<!--[^>]*-->)*<li[^>]*><button class="app-control[^"]*" data-step-to="0"/);
+test("the list gives each decision of a reviewed hand a line with the player's move and Trained AI's, its name saying both in words", () => {
+  const decisions = review.hands.flatMap(entry => entry.decisions);
+  const counts = { ...filterCounts(decisions), every: decisions.length };
+  const html = render(ReviewIndex, { props: { hands: review.hands, place: { hand: hand.index, step: flaggedAt }, filter: 'every', counts,
+    hints: true, trainedAvailable: true, onplace() {}, onreview() {} } }).body;
+  // The hand's own list: a line a decision, a button to it, giving its
+  // number, the player's move in tiles and words, then Trained AI's after an
+  // arrow, or a tick where it agreed, or that the move was the only one, and
+  // Flagged where the list keeps more than the flagged decisions. Its name
+  // says the same in the engine's words.
+  const lines = [...html.matchAll(/<button type="button" class="line[^"]*" data-step-to="(\d+):(\d+)"([^>]*)>([^]*?)<\/button>/g)]
+    .map(([, handIndex, step, rest, inner]) => ({ hand: Number(handIndex), step: Number(step), label: /aria-label="([^"]*)"/.exec(rest)[1],
+      current: /aria-current="step"/.test(rest), shown: text(inner), tiles: tileNames(inner) }));
+  assert.equal(lines.length, decisions.length, 'every decision of the game, every hand reviewed');
+  assert.deepEqual(lines.filter(line => line.current).map(line => [line.hand, line.step]), [[hand.index, flaggedAt]], 'the decision on show is current');
+  const items = lines.filter(line => line.hand === hand.index);
+  assert.deepEqual(items.map(item => item.step), hand.frames.map((_, step) => step));
   for (const { step, label, shown, tiles } of items) {
     const decision = hand.decisions[step], frame = hand.frames[step], you = moveToken(frame.played.kind, frame.played.tile);
     const ai = decision.forced || decision.agreed ? null : moveToken(decision.advised_kind, decision.advised_tile ?? null);
@@ -250,16 +260,4 @@ test("the hand's list gives every decision, each with the player's move and Trai
     assert.ok(label.startsWith(`Decision ${step + 1}. `) && label.endsWith(`${answer}${decision.judgement?.flagged ? ' Flagged.' : ''}`), label);
     assert.match(label, /You: [a-z]/, label);
   }
-  // Its filter opens on every decision and counts each choice.
-  const filter = /role="group" aria-label="Which of this hand's decisions to list"[^>]*>([^]*?)<p class="visually-hidden[^"]*" role="status" data-filter-said=""><\/p>/.exec(html);
-  assert.ok(filter, 'the filter, with its status line in the page from the start');
-  const options = [...filter[1].matchAll(/aria-pressed="(true|false)" data-filter-option="(\w+)">([^]*?)<\/button>/g)]
-    .map(([, pressed, option, label]) => [option, pressed, text(label)]);
-  const flagged = hand.decisions.filter(decision => decision.judgement?.flagged).length;
-  const different = hand.decisions.filter(decision => !decision.agreed && !decision.forced).length;
-  assert.deepEqual(options, [['flagged', 'false', `Flagged (${flagged})`], ['differed', 'false', `Trained AI differed (${different})`],
-    ['every', 'true', `Every decision (${hand.frames.length})`]]);
-  // The Flagged filter's title says what flags a decision, here as in the
-  // whole game's list.
-  assert.match(filter[1], /<button[^>]*\btitle="Your move under 5%, Trained AI's choice 60% or more"[^>]*\bdata-filter-option="flagged"/);
 });

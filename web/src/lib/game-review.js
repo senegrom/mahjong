@@ -1,5 +1,5 @@
 /** The game's review: every decision the player made in a match, put to the
- * trained network and ranked by how far the player's move departed from its
+ * trained network and flagged where the player's move departed far from its
  * choice. From any hand's result it reviews the game so far, and once the
  * match is over the whole game; it is taken on to each later result as the
  * match goes on, so that a hand reviewed once is never asked about again.
@@ -21,8 +21,6 @@ export const FLAG_PLAYED_BELOW = 0.05;
 /** ...while the network's own choice had at least this. A network that is
  * not decisive is not asked to overrule anyone: near-ties never flag. */
 export const FLAG_PREFERRED_FROM = 0.6;
-/** How many of the flagged decisions the review leads with. */
-export const LEADING = 5;
 /** Positions asked in one forward pass. Natively eight cost about half as
  * much a position as one at a time (35 ms against 66); in the browser's
  * single-threaded runtime they cost about the same (157 ms against 163, in
@@ -139,15 +137,9 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
-/** A judged decision's two weights as the whole game's list gives them, under
- * the two moves: the player's move and Trained AI's choice, or where both
- * declared riichi the player's tile given riichi. */
-export function weightsSaid({ stage, played, preferred }) {
-  return `${stage === 'tile' ? 'Given riichi, your tile' : 'Your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
-}
-
 /** The flagged decisions of the reviewed hands, the widest gap first; equal
- * gaps keep the order they were played in. */
+ * gaps keep the order they were played in. The trend counts them; the review
+ * lists them in the order they were played (playlist). */
 export function rankDecisions(decisions) {
   return decisions.map((decision, order) => ({ decision, order, gap: decision.judgement?.flagged ? decision.judgement.gap : null }))
     .filter(entry => entry.gap !== null)
@@ -155,41 +147,27 @@ export function rankDecisions(decisions) {
     .map(entry => entry.decision);
 }
 
-/** The lists of the player's decisions a review can show, by the names its
- * filter gives them: the flagged decisions, every decision where Trained AI
- * chose differently (the flagged ones among them), and every decision. */
+/** The decisions a review steps through, by the names its filter gives them:
+ * the flagged decisions, every decision where Trained AI chose differently
+ * (the flagged ones among them), and every decision. session.js keeps the
+ * same list for the filter the player last chose. */
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
 /** What each filter's button says, before how many decisions it holds. */
-export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI differed', every: 'Every decision' });
-/** A filter button's title, where it has one. The Flagged button's is the
- * rule a decision is flagged by, kept at hand but out of the way: a pointer
- * shows it as a tooltip, and a screen reader reads it as the button's
- * description, after its name. It is put in the words each decision's
- * weights are given in (weightsSaid), so it reads like the figures it applies
- * to. Like the app's other button titles, it is not a sentence. */
+export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Differed', every: 'All' });
+/** A filter button's title, where it has one, kept at hand but out of the
+ * way: a pointer shows it as a tooltip, and a screen reader reads it as the
+ * button's description, after its name. The Flagged button's is the rule a
+ * decision is flagged by, in the words of the step bar's weights, "You" and
+ * "Trained AI"; the Differed button's says what its one word stands for.
+ * Like the app's other button titles, neither is a sentence. */
 export const FILTER_TITLES = Object.freeze({
   flagged: `Your move under ${Math.round(FLAG_PLAYED_BELOW * 100)}%, Trained AI's choice ${Math.round(FLAG_PREFERRED_FROM * 100)}% or more`,
+  differed: 'Trained AI chose another move',
 });
 
 /** Whether Trained AI chose differently: a real choice, made otherwise. A
  * forced move was no choice, so it never differs. */
 export const differed = decision => !decision.agreed && !decision.forced;
-
-/** The decisions a filter holds, in the order the whole-game review lists
- * them: the flagged ones, and those where Trained AI chose differently, the
- * widest gap first as `rankDecisions` ranks them, a different move whose
- * weights could not be compared after the rest; every decision in the order
- * it was made. Equal gaps keep the order they were played in. */
-export function filterDecisions(decisions, filter) {
-  if (filter === 'flagged') return rankDecisions(decisions);
-  if (filter === 'every') return [...decisions];
-  const gap = decision => decision.judgement?.gap ?? -Infinity;
-  return decisions.map((decision, order) => ({ decision, order }))
-    .filter(entry => differed(entry.decision))
-    // Two moves that could not be compared give NaN, and keep their order.
-    .sort((a, b) => (gap(b.decision) - gap(a.decision)) || a.order - b.order)
-    .map(entry => entry.decision);
-}
 
 /** How many decisions each filter holds. */
 export function filterCounts(decisions) {
@@ -244,46 +222,19 @@ export function landing(hands, filter) {
   return null;
 }
 
-/** What a list says as the player chooses its filter: how many decisions it
- * shows now, of which kind, `scope` such as " in this hand" saying where, and
- * in what order; and, where the list leads with a few and keeps the rest
- * behind a button, that it does. The flagged decisions among those where
- * Trained AI differed are counted too. It is said as a button is pressed,
- * so it names the list without saying that it is shown. */
-export function filterSaid(filter, counts, { scope = '', ranked = filter !== 'every', leading = Infinity } = {}) {
+/** What the review says as the player chooses its filter: how many decisions
+ * Previous and Next now step through, and of which kind, the flagged ones
+ * among those where Trained AI differed counted too. Every list is in the
+ * order played, so it says no order. It is said as a button is pressed, so
+ * it names the decisions without saying that they are shown. */
+export function filterSaid(filter, counts) {
   const count = counts[filter], s = count === 1 ? '' : 's';
-  if (!count) {
-    return { flagged: `None flagged${scope}.`, differed: `Trained AI agreed at every decision${scope}.`,
-      every: `No decisions${scope}.` }[filter];
-  }
-  const shown = {
-    flagged: `${count} flagged decision${s}${scope}`,
-    differed: `${count} decision${s}${scope} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
-    every: count === 1 ? `The one decision${scope}` : `All ${count} decisions${scope}`,
+  if (!count) return { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.', every: 'No decisions.' }[filter];
+  return {
+    flagged: `${count} flagged decision${s}.`,
+    differed: `${count} decision${s} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}.`,
+    every: count === 1 ? 'The one decision.' : `All ${count} decisions.`,
   }[filter];
-  const order = count === 1 ? '' : ranked ? ', widest departure first' : ', in the order played';
-  return `${shown}${order}.${count > leading ? ` First ${leading} listed.` : ''}`;
-}
-
-/** A place in the ranking as it is said: "1st", "2nd", "3rd", "11th", "22nd". */
-export function ordinal(number) {
-  const suffix = number % 100 >= 11 && number % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][number % 10] ?? 'th';
-  return `${number}${suffix}`;
-}
-
-/** What the whole-game list says when the decision a player is on, or came
- * back to, has been put lower by the hands reviewed since: where it is now,
- * and whether every decision the filter holds had to be shown to keep it. A
- * ranked list moves a decision down when later ones departed further; the
- * list of every decision, when the decisions of an earlier hand arrive after
- * it. Not how many the list holds: that grows with every hand reviewed while
- * the place stays, so a count said once goes stale, and a status that kept it
- * current would be read out again at every hand. It leads with the place, the
- * one thing it must say; focus is on the decision, so it need not say which,
- * and a list that grew to keep it shows all it holds, whichever list it is. */
-export function movedNote(rank, everyShown, filter = 'flagged') {
-  const why = filter === 'every' ? 'decisions reviewed since came before it' : 'decisions reviewed since departed further';
-  return `Now ${ordinal(rank + 1)}: ${why}${everyShown ? ', so the whole list is shown' : ''}.`;
 }
 
 /** How many of the player's real choices were the network's own. A forced

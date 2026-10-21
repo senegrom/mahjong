@@ -75,15 +75,18 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
-- A list the player opens or folds stays that way. The whole-game review's
-  lists keep whether they are open in their own component (`bind:open`),
-  never in an `open` set from other state: Svelte sets such an attribute
-  again whenever anything drawn beside it changes, which folded a replayed
-  hand's list of decisions under the player's press, at every step and as
-  later hands were reviewed, and dropped keyboard focus on a step's button
-  in it to the page. So do a replay's events since the previous decision and
-  its table of what each move leaves, which start folded and are taken from
-  the page by a step that has none.
+- A list the player opens or folds stays that way. The game's review keeps
+  whether its lists are open in its own components (`bind:open`), never in an
+  `open` set from other state: Svelte sets such an attribute again whenever
+  anything drawn beside it changes, which folded a replayed hand's list of
+  decisions under the player's press, at every step and as later hands were
+  reviewed, and dropped keyboard focus on a step's button in it to the page.
+  So the list of hands and decisions, folded above the decision on a narrow
+  screen, the trend at its top and the trend's table of games, a decision's
+  events since the previous decision and its table of what each move leaves,
+  which start folded and are taken from the page by a step that has none, all
+  stay as the player leaves them across steps, hands and the hands reviewed
+  meanwhile.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:
@@ -112,11 +115,10 @@ an unfinished match has progress, including between hands.
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more;
-  - the lines that say what a filter of the player's decisions shows, under
-    the whole-game review's list and in a replayed hand's list of decisions,
-    which come into the page with their buttons, speak only when one is
-    pressed, and go quiet again when focus leaves the buttons or the counts
-    they gave change.
+  - the line that says which decisions the game's review now steps through,
+    under the filter at the top of its list, which comes into the page with
+    the filter's buttons, speaks only when one is pressed, and goes quiet
+    again when focus leaves the buttons or the counts it gave change.
 
   Two lines still do not speak where the player pressed. The trained network
   picker's refusal, on the notice line, lies behind the settings' dialog on a
@@ -127,11 +129,11 @@ an unfinished match has progress, including between hands.
 
   Other status lines still come into the page with their words: the line that
   says the game is loading, the settings' line that new tile graphics are
-  loading, a yaku's explanation on a hand's result, the whole-game review's
-  headline (with the review, and again on Back to the list), the decision
-  replay's step line, which says the step, the table and both moves in one
-  line as the step changes, and the status lines of Agent watch (its file
-  note among them), the guided physical game and physical agent play.
+  loading, a yaku's explanation on a hand's result, the game review's
+  headline and its step bar's line, which says the step, the table and both
+  moves in one line as the step changes, both with the review, and the status
+  lines of Agent watch (its file note among them), the guided physical game
+  and physical agent play.
 
 ## Verification
 

@@ -1,57 +1,64 @@
-/** The whole-game review on the production build, with the trained worker.
+/** The game's review on the production build, with the trained worker: one
+ * screen, a step bar over the decision on show, and the list of hands and
+ * decisions folded above it.
  *
  * A finished match is restored from its save and reviewed hand by hand by the
- * shipped network. Every batch the page sends is captured with the worker's
- * answer, and the flags, their order and the agreement figure are worked out
- * again here from those answers alone. A flagged decision is then replayed,
- * Trained AI's move on show at once, from the worker's answer: in the step
- * bar with both weights, over its tile in the hand, ringed, and in its view;
- * the hand is stepped through to its deal and back by keyboard, with keyboard
- * focus checked after every press; the saved match must be exactly as it
- * was, and the game must enter the trend once, under the version of Trained
- * AI that judged it. A reviewed hand is replayed whole, by keyboard and
- * pointer, and at every step every player's tiles must be the ones the engine
- * held, face up, each hand a list named by its seat, with the board as it
- * stood and nothing offering to hide them, fitting the screen at desktop,
- * tablet and phone sizes, an opponent's tiles on one row, or on two where one
- * would draw them under 18 pixels wide; the hand's list of decisions and the
- * review's own list are filtered to the flagged decisions, those where
- * Trained AI chose differently or every one, saying how many each holds and
- * naming Trained AI's move in each. A list the player opens or folds stays as
- * they left it: a hand's list of decisions, folded on a phone and open on a
- * wider screen, as its steps are pressed by touch and by keyboard while later
- * hands are reviewed, focus staying on the step's button; a slow device's
- * list of hands as the review goes on; a hand's events across a step with
- * none; and the trend's games across a replay. A flagged answer to another's
- * discard, from a game whose player calls everything, says in the step bar
- * whose tile it answers, which that seat's row outlines. While the review
- * goes on, a flagged decision that later hands rank out of the leading five
- * keeps keyboard focus, in the list, while the player is in another window,
- * and back from its replay, and the list says where it went in words that
- * stay true as the list grows, from a status line that is in the page before
- * it speaks. On a phone,
- * where the final result covers the standings, the review must be reachable
- * from the result itself by touch and come back to the standings; held
- * sideways, from the standings beside the result; and from the standings' own
- * button under the result, by keyboard, it must leave the page as the
- * result's own button does, with the result's chip bringing it back, focus
- * and all.
+ * shipped network, its final hand first, the hand the review opens on. Every
+ * batch the page sends is captured with the worker's answer, and the flags and
+ * the agreement figure are worked out again here from those answers alone:
+ * the list's flagged lines must be those decisions, hand by hand in the order
+ * played, each naming both moves, and the step bar must give both moves with
+ * the weights the worker gave them, Trained AI's tile tagged and ringed in the
+ * hand and its view tagged too. Previous and Next step through the flagged
+ * decisions across hands by keyboard, keeping focus, handing it on at either
+ * end; Esc goes back to the standings, focus on the button that opened the
+ * review; the saved match must be exactly as it was, and the game must enter
+ * the trend once, under the version of Trained AI that judged it.
+ *
+ * A hand is walked under All, by the arrow key and by Next, and at every step
+ * every player's tiles must be the ones the engine held, face up, each hand a
+ * list named by its seat, with the board as it stood and nothing offering to
+ * hide them, at desktop, tablet and phone sizes: the dense table's opponents
+ * in a row under its centre from tablet width up, an opponent's tiles on one
+ * row or on two where one would draw them under 18 pixels wide, the step bar
+ * on the screen, flush under the game's bar on a phone, and the player's
+ * tiles, scrolled to, clear of it; no focus lands under the bar, tabbing
+ * through the decision or stepping by the list, nor moves the page as it
+ * lands on the bar's own buttons. The filter keeps the flagged decisions,
+ * those where Trained AI differed or every one, saying how many each holds;
+ * Next and Previous visit only what it keeps, a decision it leaves out stays
+ * shown, dim, and the filter is kept across a reload. A list the player opens
+ * or folds stays as they left it: the folded list as steps are pressed by
+ * touch and by keyboard while later hands are reviewed, focus staying on the
+ * line pressed; a slow device's list, which opens by itself once, with a
+ * Review in each header still to review; a hand's events across a step with
+ * none, and the trend across steps and hands. The review's buttons hand focus
+ * on as they go. A flagged answer to another's discard, from a game whose
+ * player calls everything, says in the step bar whose tile it answers, which
+ * that seat's row outlines. The keys step, change hand and go back, and do
+ * nothing under the settings' dialog, in a field, with a modifier held or
+ * with the shortcuts off. On a phone, where the final result covers the
+ * standings, the review must be reachable from the result itself by touch and
+ * come back to the standings; held sideways, from the standings beside the
+ * result; and from the standings' own button under the result, by keyboard, it
+ * must leave the page as the result's own button does, with the result's chip
+ * bringing it back, focus and all.
  *
  * Before the end, any hand's result opens the review of the game so far,
- * restored from a save waiting at that result. It must ask Trained AI about
- * the hand just played first, then about the rest from the first deal, every
- * group once; lead with that hand, whose own row replays it and takes focus
- * back from the replay; keep the game out of the trend; and come back to the
- * result as it was, with focus on the button that opened it, by keyboard and
- * pointer at desktop and phone sizes, where the sheet must be up again with
- * no chip, and held sideways, where the button shows beside the table. Next
- * hand on the last hand stops it, and the standings' review must then ask
- * about no hand it reviewed before; a game every hand of which was reviewed
- * at the last result must join the trend as Next hand ends it, once. Next
- * hand on an earlier hand, pressed as the review runs, stops it too: nothing
- * is asked while the next hand is played in the page, and that hand's result
- * must open the review leading with it, asking about it first and then only
- * about the hands left waiting, none it had reviewed.
+ * restored from a save waiting at that result. It must open on the hand just
+ * played, at its first decision, and ask Trained AI about it first, then about
+ * the rest from the first deal, every group once; keep the game out of the
+ * trend; come back to the result as it was, with focus on the button that
+ * opened it, by keyboard and pointer at desktop and phone sizes, where the
+ * sheet must be up again with no chip, and held sideways, where the button
+ * shows beside the table; and open again where the player left it. Next hand
+ * on the last hand stops it, and the standings' review must then open where
+ * the player left it and ask about no hand it reviewed before; a game every
+ * hand of which was reviewed at the last result must join the trend as Next
+ * hand ends it, once. Next hand on an earlier hand, pressed as the review
+ * runs, stops it too: nothing is asked while the next hand is played in the
+ * page, and that hand's result must open the review on it, asking about it
+ * first and then only about the hands left waiting, none it had reviewed.
  */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -62,7 +69,7 @@ import { fileURLToPath } from 'node:url';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
-import { BATCH, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, filterSaid, scanMatch, tableSaid } from '../src/lib/game-review.js';
+import { BATCH, FILTER_LABELS, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, filterSaid, scanMatch, tableSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
 import { quadOnOffer } from '../src/lib/ui.js';
@@ -257,10 +264,12 @@ const tappable = (page, selector) => page.$eval(selector, element => {
  * Trained AI out of reach and never downloads it. `answerDelay` holds each
  * batch the review sends that many milliseconds before the worker has it, as
  * a slower device would take, and `trend` is the games the trend holds from
- * before. `ready` is what the page is waited for by: the standings' review,
- * or for a match saved at a hand's result, that result's. */
+ * before. `settings` is the preferences the page first loads with, Beginner
+ * opponents and hints unless given. `ready` is what the page is waited for
+ * by: the standings' review, or for a match saved at a hand's result, that
+ * result's. */
 async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, trend = null,
-  ready = '.standings [data-review-game]' } = {}) {
+  settings = { version: 2, difficulty: 'beginner', hints: true }, ready = '.standings [data-review-game]' } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
@@ -274,9 +283,9 @@ async function openPage(width, height, { touch = false, network = true, saved = 
       void answer.catch(() => {}); // A context can close while a request is pending.
     });
   }
-  await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, trendKey, trend) => {
+  await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, trendKey, trend, settings) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(saved));
-    if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({ version: 2, difficulty: 'beginner', hints: true }));
+    if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify(settings));
     if (trend && !localStorage.getItem(trendKey)) localStorage.setItem(trendKey, JSON.stringify({ version: 1, games: trend }));
     // Every batch the review sends, and the worker's answer to it.
     window.reviewBatches = [];
@@ -300,21 +309,11 @@ async function openPage(width, height, { touch = false, network = true, saved = 
         super.postMessage(data, ...rest);
       }
     };
-  }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, TREND_KEY, trend);
+  }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, TREND_KEY, trend, settings);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
   await page.waitForSelector(ready);
   return page;
 }
-
-/** A place as the list says it: 1st, 2nd, 3rd, 4th, ... 11th, 21st. */
-const nth = number => `${number}${[11, 12, 13].includes(number % 100) ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[number % 10] ?? 'th'}`;
-
-/** The flagged decisions listed, in the order shown. */
-const listed = page => page.$$eval('[data-game-review] [data-flagged]', items => items.map(item => item.dataset.flagged));
-const focusedDecision = page => page.evaluate(() => {
-  const active = document.activeElement;
-  return active?.dataset.open ?? (!active || active === document.body ? 'the page' : active.outerHTML.slice(0, 80));
-});
 
 /** Opens the review and has it go through every hand unheld, however slow
  * the device: Continue asks for every hand, as a player who wants all of it
@@ -330,66 +329,54 @@ async function reviewWholeGame(page, from = '.standings [data-review-game]') {
   await page.$eval('[data-game-review] [data-continue]', button => button.click());
 }
 
-/** The flagged decision listed last of the leading few, once the first hands
- * reviewed have filled them: the one decisions reviewed later push down. */
-async function lastOfLeading(page) {
-  await page.waitForFunction(count => document.querySelectorAll('[data-game-review] [data-flagged]').length >= count,
-    { timeout: 300000, polling: 50 }, LEADING);
-  return (await listed(page))[LEADING - 1];
-}
-
-/** The player turns to another window or tab, or comes back from it. The page
- * loses focus, but the element that had it keeps it and has it again when the
- * window comes back: Chrome sends that element a blur and a focusout with no
- * element taking focus, while document.activeElement stays on it, and focus
- * and focusin on the way back, as a real tab switch shows. A headless page
- * cannot be kept in view while another window has focus, so the events are
- * sent here as the window sends them. */
-const windowAway = (page, back = false) => page.evaluate(back => {
+/** Where the step bar says a step of a hand is: "East 4 · decision 12 of 15". */
+const placeOf = (hand, step) => `${hand.name} · decision ${step + 1} of ${hand.frames.length}`;
+/** Where the step bar says the review is. */
+const stepText = page => page.$eval('[data-game-review] [data-step]', el => el.textContent);
+/** Waits until the step bar says the review is at `step` of `hand`. */
+const onPlace = (page, hand, step) => page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent === text,
+  { timeout: 5000 }, placeOf(hand, step));
+/** What has keyboard focus, as a failure says it. */
+const focusedName = page => page.evaluate(() => {
   const active = document.activeElement;
-  active.dispatchEvent(new FocusEvent(back ? 'focus' : 'blur', { relatedTarget: null }));
-  active.dispatchEvent(new FocusEvent(back ? 'focusin' : 'focusout', { bubbles: true, relatedTarget: null }));
-}, back);
-
-/** Opens the review, has it go through the whole game, and puts keyboard
- * focus on the flagged decision listed last of the leading five once the
- * first hands have filled them; with `away`, the player then turns to another
- * window. Waits until a later hand ranks a decision that departed further
- * above it, out of the leading five, or focus leaves it, or the review ends,
- * and says which decision it was. */
-async function focusUntilRankedOut(page, { away = false } = {}) {
-  await reviewWholeGame(page);
-  const key = await lastOfLeading(page);
-  await page.focus(`[data-game-review] [data-open="${key}"]`);
-  if (away) await windowAway(page);
-  await page.waitForFunction((key, leading) => {
-    const active = document.activeElement, keys = [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged);
-    return active?.dataset.open !== key || keys.indexOf(key) >= leading
-      || /^All hands reviewed/.test(document.querySelector('[data-game-review] .headline')?.textContent ?? '');
-  }, { timeout: 300000, polling: 50 }, key, LEADING);
-  return key;
+  return !active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim().slice(0, 60);
+});
+/** Whether keyboard focus is on what `selector` names. */
+const focusOn = (page, selector) => page.evaluate(selector => Boolean(document.activeElement?.matches(selector)), selector);
+/** Brings what `selector` names to the middle of the screen, clear of the
+ * bars that stay at its top, and clicks it. */
+async function press(page, selector) {
+  await page.$eval(selector, element => element.scrollIntoView({ block: 'center' }));
+  await page.click(selector);
+}
+/** Opens the list of hands and decisions, by pointer, where it is folded
+ * above the decision. */
+async function openList(page) {
+  if (!await page.$('details[data-review-index]:not([open])')) return;
+  await press(page, 'details[data-review-index] > summary');
+  await page.waitForFunction(() => document.querySelector('details[data-review-index]').open, { timeout: 5000 });
+  await settle(page);
+}
+/** A decision's line in the list, by its key, "hand:step". */
+const line = key => `[data-review-index] [data-step-to="${key}"]`;
+/** Goes to a decision by its line in the list, by pointer: of the
+ * tile-throwing game unless `game` is another game's hands. */
+async function stepTo(page, key, game = hands) {
+  await openList(page);
+  await press(page, line(key));
+  const [hand, step] = key.split(':').map(Number);
+  await onPlace(page, game[hand], step);
+}
+/** The filter's button for one filter. */
+const option = name => `[data-game-review] [data-filter-option="${name}"]`;
+/** Chooses a filter by its button, by pointer. */
+async function choose(page, name) {
+  await openList(page);
+  await press(page, option(name));
+  await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option(name));
 }
 
-/** What the status line says of a flagged decision, read at one moment with
- * the list, must be true of the list at that moment: the place it names, any
- * count of the flagged decisions it gives, and that every one is shown. Says
- * what was read. */
-async function saysWhereItIs(page, key) {
-  const now = await page.evaluate(key => {
-    const keys = [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged);
-    return { rank: keys.indexOf(key), count: keys.length, note: document.querySelector('[data-game-review] [data-moved]')?.textContent ?? '',
-      toggle: document.querySelector('[data-game-review] [data-every-flag]')?.textContent ?? '' };
-  }, key);
-  const said = /^Now (\d+)(?:st|nd|rd|th)(?: of (\d+))?: decisions reviewed since departed further(, so the whole list is shown)?\.$/
-    .exec(now.note);
-  assert.ok(said, `the status says where the decision went: "${now.note}"`);
-  assert.equal(Number(said[1]), now.rank + 1, `the place it names is where the decision is now: "${now.note}"`);
-  if (said[2] !== undefined) assert.equal(Number(said[2]), now.count, `a count it names is how many are flagged now: "${now.note}"`);
-  if (said[3]) assert.equal(now.toggle, `Show the first ${LEADING}`, 'the whole list is shown, as it says');
-  return now;
-}
-
-/** The replay's overview as the page draws it: each opponent's hand, a list
+/** The decision's overview as the page draws it: each opponent's hand, a list
  * named by its seat, and the player's own, with the names of their tiles,
  * the narrowest tile, how many rows the tiles take and how many are on the
  * first, whether every tile is on the screen and whether the list spills out
@@ -411,6 +398,7 @@ const overviewAt = page => page.evaluate(() => {
       riichi: Boolean(seat.querySelector('.stick, .riichi')) };
   };
   const overview = document.querySelector('[data-decision] [data-overview]');
+  const board = box(overview.querySelector('.board')), mine = box(overview.querySelector('.mine'));
   return { opponents: [...overview.querySelectorAll('ul.revealed')].map(hand), own: hand(overview.querySelector('.hand[role="list"]')),
     // A concealed quad shows two of its tiles face down, as at a table; a
     // hand shows none.
@@ -425,13 +413,15 @@ const overviewAt = page => page.evaluate(() => {
     fits: document.documentElement.scrollWidth <= innerWidth + 1,
     // The table's layout: whether the screen takes the dense one (761 pixels
     // wide or more, over 500 high), where each opponent's seat begins and the
-    // centre ends, and the height of the table with the player's own seat.
+    // centre ends, whether the player's seat comes first, as on a phone held
+    // upright, and the height of the table and the player's seat together.
     dense: innerWidth >= 761 && innerHeight > 500,
     seatTops: [...overview.querySelectorAll('.board > .place')].map(place => Math.round(box(place).top)),
     centreBottom: Math.round(box(overview.querySelector('.board > .centre')).bottom),
-    height: Math.round(box(overview.querySelector('.mine')).bottom - box(overview.querySelector('.board')).top),
-    step: document.querySelector('[data-decision] [data-step]').textContent,
-    said: document.querySelector('[data-decision] [data-step-said]').textContent,
+    seatFirst: mine.top < board.top,
+    height: Math.round(Math.max(board.bottom, mine.bottom) - Math.min(board.top, mine.top)),
+    step: document.querySelector('[data-game-review] [data-step]').textContent,
+    said: document.querySelector('[data-game-review] [data-step-said]').textContent,
     wall: Number(overview.querySelector('.wall strong').textContent),
     notes: [...overview.querySelectorAll('.note')].map(note => note.textContent) };
 });
@@ -439,9 +429,6 @@ const overviewAt = page => page.evaluate(() => {
 const named = held => [...held.hand.map(tileWords), ...(held.drawn ? [`${tileWords(held.drawn)}, just drawn`] : [])];
 /** Tile names without the marks they go on to give, such as dora. */
 const unmarked = names => names.map(name => name.split(', ').filter((part, index) => !index || part === 'just drawn').join(', '));
-
-/** Where the step bar says a step of a hand is: "East 4 · decision 12 of 15". */
-const placeOf = (hand, step) => `${hand.name} · decision ${step + 1} of ${hand.frames.length}`;
 
 /** Says what the overview shows, having checked it shows, for this step of a
  * hand, every player's tiles as the engine held them, face up, each list
@@ -487,6 +474,10 @@ async function overviewIsRight(page, hand, step) {
     assert.equal(new Set(shown.seatTops).size, 1, `the opponents in one row: ${shown.seatTops.join(', ')}`);
     assert.ok(shown.centreBottom <= Math.min(...shown.seatTops), `the centre above them: ${shown.centreBottom}, ${shown.seatTops.join(', ')}`);
   }
+  // The player's seat comes first on a phone held upright, where it is the
+  // first thing under the step bar, and after the table everywhere else.
+  const { width, height } = page.viewport();
+  assert.equal(shown.seatFirst, width <= 760 && height >= width, `the player's seat ${shown.seatFirst ? 'before' : 'after'} the table at ${width}x${height}`);
   // The step, the table in a sentence and both moves, and whether Trained AI
   // flagged the move there, in the one line said as the step changes.
   const lead = `${hand.name}, decision ${step + 1} of ${hand.frames.length}. ${tableSaid(frame.view)} You: `;
@@ -495,6 +486,59 @@ async function overviewIsRight(page, hand, step) {
   assert.equal(shown.wall, frame.view.wall);
   assert.ok(shown.notes.includes(frame.view.phase === 'act' ? 'To play' : 'To answer'), `whose move it was: ${shown.notes.join(', ')}`);
   return shown;
+}
+
+/** Checks that the stage fits the screen, the player's tiles scrolled to as
+ * a focused control is: the step bar on the screen, stuck flush under the
+ * game's bar where that stays at the top of a phone's screen, or at the top
+ * of the screen, once the page is scrolled past it, and the tiles clear of
+ * it; where the step bar stays in its place, the tiles clear of the game's
+ * bar. Says what was measured. */
+async function stageFits(page) {
+  const shown = await page.evaluate(() => {
+    const tile = document.querySelector('[data-decision] .mine .hand .tile');
+    tile.scrollIntoView({ block: 'start' });
+    const bar = document.querySelector('header.bar'), steps = document.querySelector('[data-game-review] [data-steps]');
+    const barSticks = getComputedStyle(bar).position === 'sticky', edge = steps.getBoundingClientRect();
+    return { sticks: getComputedStyle(steps).position === 'sticky', top: barSticks ? Math.round(bar.getBoundingClientRect().bottom) : 0,
+      stage: Math.round(document.querySelector('[data-game-review] [data-stage]').getBoundingClientRect().top),
+      steps: { top: Math.round(edge.top), bottom: Math.round(edge.bottom) }, tile: Math.round(tile.getBoundingClientRect().top), height: innerHeight };
+  });
+  const size = `${page.viewport().width}x${page.viewport().height}`, said = JSON.stringify(shown);
+  if (shown.sticks) {
+    assert.ok(shown.steps.top >= shown.top - 1 && shown.steps.bottom <= shown.height, `the step bar on the screen at ${size}: ${said}`);
+    if (shown.stage < shown.top) assert.ok(Math.abs(shown.steps.top - shown.top) <= 1, `the step bar stuck flush at the top at ${size}: ${said}`);
+    assert.ok(shown.tile >= shown.steps.bottom, `the player's tiles clear of the step bar at ${size}: ${said}`);
+  } else {
+    assert.ok(shown.tile >= shown.top, `the player's tiles clear of the game's bar at ${size}: ${said}`);
+  }
+  return shown;
+}
+
+/** Tabs on from the step bar's last button until focus leaves the stage,
+ * checking that each control it lands on is on the screen and clear of the
+ * step bar. Says how many it landed on. */
+async function tabsClear(page) {
+  const size = `${page.viewport().width}x${page.viewport().height}`;
+  await page.evaluate(() => [...document.querySelectorAll('[data-game-review] [data-steps] button:not(:disabled)')].at(-1).focus());
+  let landed = 0;
+  for (let presses = 0; presses < 150; presses++) {
+    await page.keyboard.press('Tab');
+    await settle(page);
+    const at = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!document.querySelector('[data-game-review] [data-stage]').contains(active)) return null;
+      const box = active.getBoundingClientRect(), steps = document.querySelector('[data-game-review] [data-steps]').getBoundingClientRect();
+      return { name: active.getAttribute('aria-label') ?? active.textContent.trim().slice(0, 40), top: box.top, bottom: box.bottom,
+        edge: steps.bottom, height: innerHeight };
+    });
+    if (!at) break;
+    landed++;
+    assert.ok(at.top >= at.edge - 0.5, `${at.name} at ${at.top}, under the step bar to ${at.edge}, at ${size}`);
+    assert.ok(at.bottom <= at.height + 0.5, `${at.name} below the screen at ${size}`);
+  }
+  assert.ok(landed > 0, `Tab goes on into the stage at ${size}`);
+  return landed;
 }
 
 /** Waits for every hand to be reviewed, of the game so far or of the whole
@@ -547,19 +591,23 @@ try {
   await mkdir(output, { recursive: true });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   browser = await launchChrome();
-  await cases.check("a finished match is reviewed whole, ranked from the real answers, and replayed with Trained AI's move on show in the step bar, over its tile and in its view", async () => {
+  await cases.check("a finished match is reviewed whole, its final hand first, flagged from the real answers hand by hand, stepped through by keyboard with Trained AI's move on show, and left by Esc", async () => {
     const page = await openPage(1100, 900);
     await page.click('.standings [data-review-game]');
     await page.waitForSelector('[data-game-review]');
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title'); // The review takes focus.
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Whole game');
     assert.equal(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table steps aside');
+    // It opens on the final hand the player made a decision in, at its first
+    // decision, which is asked about first.
+    const final = hands.findLast(hand => hand.frames.length);
+    assert.equal(await stepText(page), placeOf(final, 0));
     // Waiting on Stop: when the review ends, the button goes, and focus moves
-    // on to the flagged decisions rather than to the page.
+    // on to Next, or Previous at the end, rather than to the page.
     await page.waitForSelector('[data-game-review] [data-stop-review]');
     await page.focus('[data-game-review] [data-stop-review]');
     await reviewed(page);
-    await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] h3'), { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Flagged decisions');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'), { timeout: 5000 });
 
     // Every batch, in the order the review asks: a finished game's final
     // hand first, then the rest from the first deal.
@@ -570,24 +618,25 @@ try {
 
     const verdicts = facts.flatMap((decisions, hand) => decisions.map((fact, index) => {
       const key = `${hand}:${index}`;
-      if (fact.forced) return { key, forced: true };
-      return { key, order: 0, ...judged(fact, first.get(key), second.get(key)) };
+      if (fact.forced) return { key, hand, index, forced: true };
+      return { key, hand, index, ...judged(fact, first.get(key), second.get(key)) };
     }));
-    verdicts.forEach((verdict, order) => { verdict.order = order; });
     const counted = verdicts.filter(verdict => !verdict.forced);
     const matched = counted.filter(verdict => verdict.agreed).length;
     assert.match(await page.$eval('[data-trend] .count', el => el.textContent), new RegExp(`^${matched} of ${counted.length} decisions? with a choice$`));
-    const flagged = verdicts.filter(verdict => verdict.flagged)
-      .sort((a, b) => (b.preferred - b.playedWeight) - (a.preferred - a.playedWeight) || a.order - b.order);
-    assert.ok(flagged.length > 0, 'Trained AI flags some of a tile-throwing game');
-    const shown = await page.$$eval('[data-game-review] [data-flagged]', items => items.map(item => ({
-      key: item.dataset.flagged, weight: item.querySelector('.weight').textContent })));
-    assert.deepEqual(shown.map(item => item.key), flagged.slice(0, LEADING).map(verdict => verdict.key), 'flagged and ranked by the gap');
-    shown.forEach((item, index) => {
-      const { stage, playedWeight, preferred } = flagged[index];
-      assert.equal(item.weight, `${stage === 'tile' ? 'Given riichi, your tile' : 'Your move'} ${percent(playedWeight)}, `
-        + `Trained AI's choice ${percent(preferred)}.`);
+    // The list's flagged lines are the decisions flagged from the answers,
+    // hand by hand in the order played, each named by both moves.
+    const flagged = verdicts.filter(verdict => verdict.flagged);
+    assert.ok(flagged.length >= 2, 'Trained AI flags some of a tile-throwing game');
+    const shown = await page.$$eval('[data-review-index] [data-flagged]', lines => lines.map(line => ({ key: line.dataset.flagged,
+      label: line.getAttribute('aria-label') })));
+    assert.deepEqual(shown.map(item => item.key), flagged.map(verdict => verdict.key), 'flagged, hand by hand in the order played');
+    shown.forEach((item, at) => {
+      const { hand, index, played, advised } = flagged[at], view = hands[hand].frames[index].view;
+      const offered = view.phase === 'call' && view.pending_discard ? `On the ${tileWords(view.pending_discard)}. ` : '';
+      assert.equal(item.label, `Decision ${index + 1}. ${offered}You: ${played.label}. Trained AI: ${advised.label}. Flagged.`);
     });
+    await openList(page);
     await shot(page, 'game-review-list');
 
     // The game enters the trend once, with the figure shown and the version
@@ -596,39 +645,51 @@ try {
     assert.equal(trend.games.length, 1);
     assert.deepEqual({ ...trend.games[0], at: 0 }, { id: `${snapshot.seed}:${snapshot.commands.length}`, network: MANIFEST.version,
       at: 0, matched, decisions: counted.length, flagged: flagged.length });
-    assert.equal(await page.$eval('[data-trend] .label', el => el.textContent), `Matched Trained AI ${MANIFEST.version}`);
+    assert.ok((await page.$eval('[data-trend] > summary', el => el.textContent.trim())).startsWith(`Matched Trained AI ${MANIFEST.version}: `));
 
-    // The highest-ranked flagged decision with two of the player's decisions
-    // before it in its hand, so there is a hand to step through, opened
-    // where it was made, with Trained AI's move on show at once.
-    const lead = flagged.find(verdict => Number(verdict.key.split(':')[1]) >= 2);
-    assert.ok(lead, 'a flagged decision late enough in its hand to replay');
-    const [hand, index] = lead.key.split(':').map(Number), frames = hands[hand].frames;
-    if (!shown.some(item => item.key === lead.key)) {
-      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
+    // Every flagged decision by keyboard, from the last back to the first by
+    // Previous and on again by Next, across hands. Each keeps focus until an
+    // end disables it, which hands focus to the other, never to the page,
+    // and each step says where it is, the table and both moves.
+    const said = () => page.$eval('[data-game-review] [data-step-said]', el => el.textContent);
+    const focusLabel = label => page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label, { timeout: 5000 }, label);
+    await stepTo(page, flagged.at(-1).key);
+    await page.focus('[data-game-review] [data-previous]');
+    for (let at = flagged.length - 2; at >= 0; at--) {
+      await page.keyboard.press('Enter');
+      const { hand, index } = flagged[at], frames = hands[hand].frames;
+      await onPlace(page, hands[hand], index);
+      assert.ok((await said()).startsWith(`${hands[hand].name}, decision ${index + 1} of ${frames.length}. ${tableSaid(frames[index].view)} You: `));
+      assert.match(await said(), / Flagged\.$/);
+      await focusLabel(at ? 'Previous flagged decision' : 'Next flagged decision');
     }
-    await page.click(`[data-game-review] [data-open="${lead.key}"]`);
+    for (let at = 1; at < flagged.length; at++) {
+      await page.keyboard.press('Enter');
+      await onPlace(page, hands[flagged[at].hand], flagged[at].index);
+      await focusLabel(at < flagged.length - 1 ? 'Next flagged decision' : 'Previous flagged decision');
+    }
+
+    // A flagged decision with two of the player's decisions before it in its
+    // hand, gone to from its line, with Trained AI's move on show.
+    const lead = flagged.find(verdict => verdict.index >= 2) ?? flagged[0];
+    await stepTo(page, lead.key);
     await page.waitForSelector('[data-decision] [data-view]');
-    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${hands[hand].name}, decision ${index + 1}`);
-    const status = () => page.$eval('[data-decision] [data-step]', el => el.textContent);
-    const said = () => page.$eval('[data-decision] [data-step-said]', el => el.textContent);
-    assert.equal(await status(), placeOf(hands[hand], index));
-    const wall = () => page.$eval('[data-decision] .wall strong', el => Number(el.textContent));
-    assert.equal(await wall(), frames[index].view.wall, 'the table as it was at the decision');
+    const frames = hands[lead.hand].frames, index = lead.index;
+    assert.equal(await page.$eval('[data-decision] .wall strong', el => Number(el.textContent)), frames[index].view.wall, 'the table as it was');
     // The step bar says both moves with the weights the worker gave them,
     // the tiles given riichi where both declared it, and the flag.
     const given = lead.stage === 'tile' ? ' given riichi' : '';
-    assert.equal(await said(), `${hands[hand].name}, decision ${index + 1} of ${frames.length}. ${tableSaid(frames[index].view)} `
+    assert.equal(await said(), `${hands[lead.hand].name}, decision ${index + 1} of ${frames.length}. ${tableSaid(frames[index].view)} `
       + `You: ${lead.played.label}, ${percent(lead.playedWeight)}${given}. Trained AI: ${lead.advised.label}, ${percent(lead.preferred)}${given}. Flagged.`,
     "both moves, from the worker's answer");
-    assert.match(await page.$eval('[data-decision] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
+    assert.match(await page.$eval('[data-game-review] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
     // Trained AI's view tags its choice and the move made as the hand does,
     // and for a turn compares what each leaves, folded until it is opened.
     const tags = await page.$$eval('[data-view] .row[data-move]', rows => rows.map(row => ({ move: row.dataset.move,
       tag: row.querySelector('.tag')?.textContent ?? '' })));
     assert.equal(tags.find(row => row.move === lead.advised.label)?.tag, 'AI', JSON.stringify(tags));
     assert.equal(tags.find(row => row.move === lead.played.label)?.tag, 'You', JSON.stringify(tags));
-    const fact = facts[hand][index];
+    const fact = facts[lead.hand][index];
     if (!lead.played.kind.match(/pass|pon|chii|kan|ron/) && !fact.note.call_tile) {
       assert.equal(await page.$eval('[data-view] details.numbers', details => details.open), false, 'a turn compares what each move leaves');
     }
@@ -648,45 +709,17 @@ try {
     if (throws(lead.played)) assert.equal(tagged.filter(tile => /^You\b/.test(tile.tag)).length, 1, 'the tile the player threw');
     await shot(page, 'game-review-decision');
 
-    // Stepped back to the hand's first decision by keyboard, a decision of the
-    // player's at a time, and on again to the flagged one, each step saying
-    // where it is, the table and both moves. Previous keeps focus until the
-    // first decision disables it, which hands focus to Next, never to the
-    // page; nothing holds the replay at the flagged decision.
-    const focusOn = label => page.waitForFunction(label => document.activeElement?.getAttribute('aria-label') === label,
-      { timeout: 5000 }, label);
-    const onStep = step => page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text,
-      { timeout: 5000 }, placeOf(hands[hand], step));
-    await page.focus('[data-decision] [data-previous]');
-    for (let step = index - 1; step >= 0; step--) {
-      await page.keyboard.press('Enter');
-      await onStep(step);
-      assert.equal(await wall(), frames[step].view.wall);
-      assert.ok((await said()).startsWith(`${hands[hand].name}, decision ${step + 1} of ${frames.length}. ${tableSaid(frames[step].view)} You: `));
-      await focusOn(step ? 'Previous decision' : 'Next decision');
-    }
-    for (let step = 1; step <= index; step++) {
-      await page.keyboard.press('Enter');
-      await onStep(step);
-      await focusOn(step < frames.length - 1 ? 'Next decision' : 'Previous decision');
-    }
-    assert.match(await said(), / Flagged\.$/);
-    // Then back to the list where it was opened, focus on the decision opened.
-    await page.click('[data-decision] [data-back]');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, lead.key);
-
     // Trained AI's view leads with five moves and those it marks. A decision
     // with more hides the rest behind a button that stays to hide them again,
-    // so focus stays on it both ways.
-    const wide = flagged.find(verdict => {
-      const [at, number] = verdict.key.split(':').map(Number);
-      return facts[at][number].choices.length >= 8;
-    });
-    assert.ok(wide, 'a flagged decision with more moves than the view leads with');
-    if (!await page.$(`[data-game-review] [data-open="${wide.key}"]`)) {
-      await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent)).click());
-    }
-    await page.click(`[data-game-review] [data-open="${wide.key}"]`);
+    // so focus stays on it both ways; a step to a decision with fewer takes
+    // the button away, and focus goes on to Next rather than to the page.
+    // Under every decision, so that Next goes to the decision after it.
+    await choose(page, 'every');
+    const all = facts.flatMap((decisions, hand) => decisions.map((entry, at) => ({ hand, at, entry })));
+    const wide = all.find(({ hand, entry }, place) => !entry.forced && entry.choices.length >= 8 && hand === all[place + 1]?.hand
+      && all[place + 1].entry.choices.length <= 5);
+    assert.ok(wide, 'a decision with more moves than the view leads with, before one with fewer');
+    await stepTo(page, `${wide.hand}:${wide.at}`);
     await page.waitForSelector('[data-decision] [data-view] [data-every-move]');
     const rows = () => page.$$eval('[data-view] .row', items => items.length);
     const leading = await rows();
@@ -699,55 +732,42 @@ try {
     await page.waitForFunction(() => document.activeElement?.matches('[data-view] [data-every-move]')
       && /^Show \d+ more moves?$/.test(document.activeElement.textContent), { timeout: 5000 });
     assert.equal(await rows(), leading);
-    await page.click('[data-decision] [data-back]');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, {}, wide.key);
+    await page.keyboard.press('ArrowRight');
+    await onPlace(page, hands[wide.hand], wide.at + 1);
+    await page.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'), { timeout: 5000 })
+      .catch(async () => assert.fail(`focus on Next, or Previous at the end, once the button went, not on ${await focusedName(page)}`));
 
-    // On a phone, the list and a decision fit the screen. Only the size
-    // changes: emulating touch would reload the page, and the review with it.
+    // On a phone the review fits the screen. Only the size changes: emulating
+    // touch would reload the page, and the review with it.
     await page.setViewport({ width: 360, height: 780 });
-    assert.ok(await page.$('[data-game-review] [data-flagged]'), 'the review is still open');
-    assert.ok(await overflow(page), 'the list fits a phone');
+    await settle(page);
+    assert.ok(await overflow(page), 'the review fits a phone');
     await shot(page, 'game-review-phone');
-    await page.click(`[data-game-review] [data-open="${lead.key}"]`);
-    await page.waitForSelector('[data-decision]');
-    assert.ok(await overflow(page), 'the replayed table fits a phone');
-    // The decision's heading is brought to the top of the screen, below the
-    // game's bar, which stays there on a phone.
-    await page.waitForFunction(() => {
-      const bar = document.querySelector('header.bar').getBoundingClientRect();
-      const heading = document.querySelector('#decision-title').getBoundingClientRect();
-      return heading.top >= bar.bottom && heading.bottom <= innerHeight;
-    });
-    await shot(page, 'game-review-phone-decision');
-    await page.click('[data-decision] [data-back]');
-    await page.waitForSelector('[data-game-review] [data-flagged]');
+    await page.setViewport({ width: 1100, height: 900 });
 
-    // Back to the standings, as they were; the saved match is untouched.
-    await page.evaluate(() => scrollTo(0, 0));
-    await page.click('[data-game-review] [data-close-review]');
-    await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('.standings [data-review-game]'));
+    // Esc goes back to the standings, as they were, focus on the button that
+    // opened the review; the saved match is untouched.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('.standings [data-review-game]'),
+      { timeout: 5000 });
     assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none');
     const { _storage, ...kept } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
     assert.deepEqual(kept, snapshot, 'the save is unchanged');
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('a reviewed hand replays from its deal with every hand face up and the board at every step, at desktop, tablet and phone sizes, by keyboard and pointer', async () => {
+  await cases.check('every step of a hand shows every hand face up and the board as it stood, walked by the arrow key and by Next at desktop, tablet and phone sizes, the step bar on the screen and nothing focused under it', async () => {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
     // Of the hands with a flagged decision, the one with the most on the
     // table: sets called and riichi declared.
-    await page.evaluate(() => [...document.querySelectorAll('[data-game-review] [data-every-flag]')].find(b => /^Show all/.test(b.textContent))?.click());
-    const flaggedHands = new Set((await listed(page)).map(key => Number(key.split(':')[0])));
+    const flaggedHands = new Set(await page.$$eval('[data-review-index] [data-flagged]', lines => lines.map(line => Number(line.dataset.flagged.split(':')[0]))));
     const busy = hand => hand.frames.reduce((sum, frame) => sum
       + frame.view.seats.reduce((count, seat) => count + seat.melds.length + (seat.riichi ? 1 : 0), 0), 0);
     const chosen = hands.filter(hand => hand.frames.length >= 4 && flaggedHands.has(hand.index)).sort((a, b) => busy(b) - busy(a))[0];
     assert.ok(chosen, 'a hand of four decisions or more with one flagged');
-    const { frames } = chosen, focused = () => page.evaluate(() => {
-      const active = document.activeElement;
-      return !active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim();
-    });
+    const { frames } = chosen;
     /** The overview at a step, checked, its figures kept by the size of the
      * screen: how wide the opponents' tiles and the player's are drawn, and
      * how tall the table and the player's seat are together. They are said
@@ -762,91 +782,52 @@ try {
       kept.height.push(shown.height);
       return shown;
     };
-    // By keyboard: the list of hands, unless a slow device's review opened
-    // it already, then the hand's own button.
-    if (!await page.$eval('[data-game-review] .hands', details => details.open)) {
-      await page.focus('[data-game-review] .hands summary');
-      await page.keyboard.press('Enter');
-    }
-    await page.waitForSelector(`[data-game-review] [data-replay-hand="${chosen.index}"]`, { visible: true });
-    await page.focus(`[data-game-review] [data-replay-hand="${chosen.index}"]`);
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'decision-title', { timeout: 5000 });
-    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${chosen.name}, whole hand`);
-    // Every step by keyboard, from the deal to the hand's last decision. A
-    // step keeps focus on Next, and the last hands it to Previous.
-    await page.focus('[data-decision] [data-next]');
+    // Every decision, from the hand's name in the list, under All.
+    await choose(page, 'every');
+    const name = `[data-review-index] [data-hand-row="${chosen.index}"]`;
+    await press(page, name);
+    // By the arrow key, every step of the hand. The key leaves focus where it
+    // was, on the hand's name.
     for (const step of frames.keys()) {
-      await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-        placeOf(chosen, step));
+      await onPlace(page, chosen, step);
       await measured(step);
-      assert.equal(await focused(), step < frames.length - 1 ? 'Next decision' : 'Previous decision', `focus after step ${step + 1}`);
-      if (step < frames.length - 1) await page.keyboard.press('Enter');
+      if (step < frames.length - 1) await page.keyboard.press('ArrowRight');
     }
+    assert.ok(await focusOn(page, name), `the key leaves focus where it was, not on ${await focusedName(page)}`);
     await shot(page, 'review-overview-1100x900');
-
-    // By pointer, through the hand's list of decisions, open beside the
-    // table on a wide screen: a step's button keeps focus as it shows it.
-    const target = Math.floor(frames.length / 2);
-    await page.click(`[data-decision] [data-step-to="${target}"]`);
-    await overviewIsRight(page, chosen, target);
-    assert.equal(await page.evaluate(() => document.activeElement?.dataset.stepTo), String(target));
-    assert.equal(await page.$eval(`[data-decision] [data-step-to="${target}"]`, el => el.getAttribute('aria-current')), 'step');
-    // A flagged decision reached in a hand replayed whole shows Trained AI's
-    // move as any other does, with every hand still in view: its view, and
-    // the flag after both moves in the step bar.
-    const flaggedStep = Number(await page.$$eval('[data-decision] [data-step-to]', buttons =>
-      buttons.find(button => button.classList.contains('flag'))?.dataset.stepTo));
-    await page.click(`[data-decision] [data-step-to="${flaggedStep}"]`);
-    await overviewIsRight(page, chosen, flaggedStep);
-    assert.ok(await page.$('[data-decision] [data-view]'), "Trained AI's view");
-    assert.match(await page.$eval('[data-decision] [data-move-line]', el => el.textContent.trim()), /Flagged$/);
-    assert.equal(await page.$('[data-decision] :is([data-offer], [data-reveal], [data-choose-here], [data-answer])'), null, 'nothing to choose again');
-    await page.click(`[data-decision] [data-step-to="${target}"]`);
-    // Its filter, by keyboard: the moves where Trained AI chose differently,
-    // each naming Trained AI's move, said as the list changes, and then every
-    // decision again.
-    const filterOption = option => `[data-decision] [data-decisions] [data-filter-option="${option}"]`;
-    const counted = async option => Number(/\((\d+)\)$/.exec(await page.$eval(filterOption(option), el => el.textContent.trim()))[1]);
-    const counts = { flagged: await counted('flagged'), differed: await counted('differed'), every: await counted('every') };
-    assert.equal(counts.every, frames.length, 'the list holds every decision of the hand');
-    await page.focus(filterOption('differed'));
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, filterOption('differed'));
-    assert.equal(await page.$eval('[data-decision] [data-decisions] [data-filter-said]', el => el.textContent),
-      filterSaid('differed', counts, { scope: ' in this hand', ranked: false }));
-    const lines = await page.$$eval('[data-decision] [data-step-to]', items => items.map(item => ({
-      differs: Boolean(item.querySelector('.arrow')), flagged: item.querySelector('.flag-mark')?.textContent === 'Flagged',
-      named: /^Decision \d+\. .*You: .+\. Trained AI: .+\./.test(item.getAttribute('aria-label')) })));
-    assert.equal(lines.length, counts.differed);
-    assert.ok(lines.every(line => line.differs && line.named), "each line gives Trained AI's move, and its name says both moves");
-    assert.equal(lines.filter(line => line.flagged).length, counts.flagged);
-    assert.ok(await page.evaluate(selector => document.activeElement?.matches(selector), filterOption('differed')), 'focus stays on the filter');
-    // Focus leaving the filter quiets the line, which spoke of the list as it was.
-    await page.focus('[data-decision] [data-back]');
-    await page.waitForFunction(() => document.querySelector('[data-decision] [data-decisions] [data-filter-said]')?.textContent === '', { timeout: 5000 });
-    await page.click(filterOption('every'));
-    assert.equal(await page.$$eval('[data-decision] [data-step-to]', items => items.length), frames.length);
+    // By Next from the hand's first decision, which keeps focus to the
+    // hand's last.
+    await press(page, name);
+    await onPlace(page, chosen, 0);
+    await page.focus('[data-game-review] [data-next]');
+    for (let step = 1; step < frames.length; step++) {
+      await page.keyboard.press('Enter');
+      await onPlace(page, chosen, step);
+      assert.ok(await focusOn(page, '[data-game-review] [data-next]'), `focus on Next at step ${step + 1}, not on ${await focusedName(page)}`);
+    }
+    await stageFits(page);
+    // Tabbing on from the step bar lands on nothing under it.
+    await tabsClear(page);
 
     // The same overview at each size, the hands fitting the screen, and a
     // step by pointer at each. Only the size changes: emulating touch would
     // reload the page, and the review with it. A phone's picture is of the
     // screen, so there are two: the table, and the player's own seat.
-    let step = target;
-    for (const [width, height] of [[1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
+    let step = frames.length - 1;
+    for (const [width, height] of [[1440, 900], [1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
       await overviewIsRight(page, chosen, step);
+      await stageFits(page);
       const forward = step < frames.length - 1;
       step += forward ? 1 : -1;
       // Brought to the middle of the screen first, clear of the game's bar,
       // which stays over the page on a phone held either way.
-      await page.$eval('[data-decision] [data-steps]', el => el.scrollIntoView({ block: 'center' }));
-      await page.click(`[data-decision] ${forward ? '[data-next]' : '[data-previous]'}`);
-      await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-        placeOf(chosen, step));
+      await page.$eval('[data-game-review] [data-steps]', el => el.scrollIntoView({ block: 'center' }));
+      await page.click(`[data-game-review] ${forward ? '[data-next]' : '[data-previous]'}`);
+      await onPlace(page, chosen, step);
       await overviewIsRight(page, chosen, step);
-      assert.notEqual(await focused(), 'the page', `focus stays in the replay at ${width}x${height}`);
+      assert.notEqual(await focusedName(page), 'the page', `focus stays in the review at ${width}x${height}`);
       await page.$eval('[data-decision] [data-overview]', el => el.scrollIntoView({ block: 'start' }));
       await shot(page, `review-overview-${width}x${height}`);
       // The step bar is stuck at the top of the screen now, over the table,
@@ -859,14 +840,14 @@ try {
       // it already, and focusing an element that has focus does nothing,
       // scrolling included.
       for (const button of ['[data-previous]', '[data-next]']) {
-        const selector = `[data-decision] ${button}:not(:disabled)`;
+        const selector = `[data-game-review] [data-steps] ${button}:not(:disabled)`;
         if (!await page.$(selector)) continue;
         await page.evaluate(() => document.activeElement?.blur());
         const before = await page.evaluate(() => scrollY);
         await page.focus(selector);
         await settle(page);
         const after = await page.evaluate(selector => ({ scrolled: scrollY, landed: document.activeElement === document.querySelector(selector),
-          sticks: getComputedStyle(document.querySelector('[data-decision] [data-steps]')).position === 'sticky',
+          sticks: getComputedStyle(document.querySelector('[data-game-review] [data-steps]')).position === 'sticky',
           top: document.querySelector(selector).getBoundingClientRect().top,
           below: document.querySelector('header.bar').getBoundingClientRect().bottom }), selector);
         assert.ok(after.landed, `focus on ${button} at ${width}x${height}`);
@@ -879,34 +860,36 @@ try {
         // that stays too.
         await page.$eval('[data-decision] [data-overview] .mine', el => {
           const bar = document.querySelector('header.bar').getBoundingClientRect().bottom;
-          const steps = document.querySelector('[data-decision] [data-steps]');
+          const steps = document.querySelector('[data-game-review] [data-steps]');
           const top = getComputedStyle(steps).position === 'sticky' ? bar + steps.offsetHeight : bar;
           scrollBy(0, el.getBoundingClientRect().top - top - 8);
         });
         await shot(page, `review-overview-${width}x${height}-yours`);
       }
-      // Every step of the hand at this size, by its button in the hand's
-      // list, measured. Each button is brought to the top of the screen
-      // first, just under the step bar where that stays, as a button focused
-      // there is: it keeps focus, and stays clear of the bar also where its
-      // step makes the bar taller over the page.
+      // Every step of the hand at this size, by its line in the list,
+      // measured. Each line is brought to the top of the screen first, just
+      // under the step bar where that stays, as a line focused there is: it
+      // keeps focus, and stays clear of the bar also where its step makes the
+      // bar taller over the page.
+      await openList(page);
       for (const at of frames.keys()) {
-        await page.$eval(`[data-decision] [data-step-to="${at}"]`, el => el.scrollIntoView({ block: 'start' }));
-        await page.click(`[data-decision] [data-step-to="${at}"]`);
-        await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-          placeOf(chosen, at));
+        await page.$eval(line(`${chosen.index}:${at}`), el => el.scrollIntoView({ block: 'start' }));
+        await page.click(line(`${chosen.index}:${at}`));
+        await onPlace(page, chosen, at);
         await measured(at);
         await settle(page);
         const held = await page.evaluate(() => {
-          const steps = document.querySelector('[data-decision] [data-steps]'), active = document.activeElement;
+          const steps = document.querySelector('[data-game-review] [data-steps]'), active = document.activeElement;
           return { focus: active.dataset.stepTo ?? null, top: Math.round(active.getBoundingClientRect().top),
-            sticks: getComputedStyle(steps).position === 'sticky', edge: Math.round(steps.getBoundingClientRect().bottom) };
+            sticks: getComputedStyle(steps).position === 'sticky', edge: Math.round(steps.getBoundingClientRect().bottom),
+            inStage: document.querySelector('[data-game-review] [data-stage]').contains(active) };
         });
-        assert.equal(held.focus, String(at), `focus on the button of step ${at + 1} at ${width}x${height}`);
-        if (held.sticks) {
-          assert.ok(held.top >= held.edge, `the button of step ${at + 1} at ${held.top}, under the step bar to ${held.edge}, at ${width}x${height}`);
+        assert.equal(held.focus, `${chosen.index}:${at}`, `focus on the line of step ${at + 1} at ${width}x${height}`);
+        if (held.sticks && held.inStage) {
+          assert.ok(held.top >= held.edge, `the line of step ${at + 1} at ${held.top}, under the step bar to ${held.edge}, at ${width}x${height}`);
         }
       }
+      if (width === 390) await tabsClear(page);
       step = frames.length - 1;
     }
     // The figures at each size, from every step of the hand: the narrowest
@@ -917,78 +900,57 @@ try {
       console.log(`review overview at ${size}: opponents' tiles ${span(kept.opponents.map(Math.round))} px wide, the player's `
         + `${span(kept.own.map(Math.round))}; the table and the player's seat ${span(kept.height)} px tall`);
     }
-
-    // Back to the list, by pointer: focus returns to the hand's own button.
-    await page.setViewport({ width: 1100, height: 900 });
-    await page.click('[data-decision] [data-back]');
-    await page.waitForFunction(index => document.activeElement?.dataset.replayHand === String(index), { timeout: 5000 }, chosen.index);
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("a hand's list of decisions, folded on a phone and open on a wider screen, stays as the player leaves it, with focus on the step's button pressed, as the step changes and later hands are reviewed, by touch and keyboard", async () => {
-    // A page loaded at each size, one at a time. On a phone the list starts
-    // folded under the step bar; at 1100 by 900, which has room for it, open.
-    // Each batch reaches the worker a second late, so that later hands are
-    // still being reviewed while the list is used, however fast the machine.
-    for (const [width, height] of [[390, 844], [320, 568], [844, 390], [1100, 900]]) {
+  await cases.check('the list of hands, folded under the step bar, stays open or folded as the player leaves it, with focus on the line pressed, as the step changes and later hands are reviewed, by touch and keyboard', async () => {
+    // A page loaded at each size, one at a time, where the list is folded
+    // above the decision. Each batch reaches the worker a second late, so
+    // that later hands are still being reviewed while the list is used,
+    // however fast the machine.
+    for (const [width, height] of [[390, 844], [320, 568], [844, 390], [800, 1280]]) {
       const size = `${width}x${height}`, page = await openPage(width, height, { touch: true, answerDelay: 1000 });
       await reviewWholeGame(page);
-      if (phoneSized(page)) {
-        // The first hand reviewed, replayed whole from the list of hands.
-        const hand = await (await page.waitForFunction(() => document.querySelector('[data-game-review] [data-replay-hand]')?.dataset.replayHand ?? false,
-          { timeout: 300000, polling: 100 })).jsonValue();
-        if (!await page.$eval('[data-game-review] .hands', details => details.open)) await tapAt(page, '[data-game-review] .hands summary');
-        await tapAt(page, `[data-game-review] [data-replay-hand="${hand}"]`);
-      } else {
-        // A flagged decision with two of the player's decisions before it.
-        const key = await (await page.waitForFunction(() => {
-          const all = document.querySelector('[data-game-review] [data-every-flag]');
-          if (all && /^Show all/.test(all.textContent)) all.click();
-          return [...document.querySelectorAll('[data-game-review] [data-flagged]')].map(item => item.dataset.flagged)
-            .find(key => Number(key.split(':')[1]) >= 2) ?? false;
-        }, { timeout: 300000, polling: 100 })).jsonValue();
-        await tapAt(page, `[data-game-review] [data-open="${key}"]`);
-      }
-      const list = '[data-decision] [data-decisions]';
-      await page.waitForSelector(list);
-      /** Whether the list is open, and the step whose button has focus, or
+      const list = 'details[data-review-index]';
+      /** Whether the list is open, and the decision whose line has focus, or
        * what else has it. */
       const state = () => page.evaluate(list => {
         const active = document.activeElement;
         return { open: document.querySelector(list).open, focus: active?.dataset.stepTo
           ?? (!active || active === document.body ? 'the page' : active.getAttribute('aria-label') ?? active.textContent.trim()) };
       }, list);
-      const onStep = index => page.waitForFunction((list, index) => document.querySelector(`${list} [data-step-to="${index}"]`)
-        ?.getAttribute('aria-current') === 'step', { timeout: 5000 }, list, index);
-      const startsOpen = !phoneSized(page);
-      assert.equal((await state()).open, startsOpen, `the list starts ${startsOpen ? 'open' : 'folded'} at ${size}`);
-      // By touch: the list opened where it is folded, then a step's button.
-      if (!startsOpen) {
-        await tapAt(page, `${list} summary`);
-        await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
-        await settle(page);
-      }
-      await tapAt(page, `${list} [data-step-to="1"]`);
-      await onStep(1);
+      const current = key => page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-current') === 'step',
+        { timeout: 5000 }, line(key));
+      assert.equal((await state()).open, false, `the list starts folded at ${size}`);
+      // By touch: the list opened, every decision chosen, then a line of the
+      // first hand with two decisions.
+      const first = hands.find(hand => hand.frames.length >= 2).index;
+      await tapAt(page, `${list} > summary`);
+      await page.waitForFunction(list => document.querySelector(list).open, { timeout: 5000 }, list);
       await settle(page);
-      assert.deepEqual(await state(), { open: true, focus: '1' }, `a step's button tapped at ${size}`);
-      // By keyboard: another step's button.
-      await page.focus(`${list} [data-step-to="0"]`);
+      await tapAt(page, option('every'));
+      await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('every'));
+      await tapAt(page, line(`${first}:1`));
+      await current(`${first}:1`);
+      await settle(page);
+      assert.deepEqual(await state(), { open: true, focus: `${first}:1` }, `a line tapped at ${size}`);
+      // By keyboard: another line.
+      await page.focus(line(`${first}:0`));
       await page.keyboard.press('Enter');
-      await onStep(0);
+      await current(`${first}:0`);
       await settle(page);
-      assert.deepEqual(await state(), { open: true, focus: '0' }, `a step's button pressed by keyboard at ${size}`);
+      assert.deepEqual(await state(), { open: true, focus: `${first}:0` }, `a line pressed by keyboard at ${size}`);
       // Later hands are reviewed meanwhile, and nothing is pressed: the list
-      // stays open, and focus on the button.
+      // stays open, and focus on the line.
       await answeredBeyond(page, await answered(page), 2);
       await settle(page);
-      assert.deepEqual(await state(), { open: true, focus: '0' }, `later hands reviewed at ${size}`);
+      assert.deepEqual(await state(), { open: true, focus: `${first}:0` }, `later hands reviewed at ${size}`);
       // Folded by touch, it stays folded as the step changes and the review
       // goes on.
-      await tapAt(page, `${list} summary`);
+      await tapAt(page, `${list} > summary`);
       await page.waitForFunction(list => !document.querySelector(list).open, { timeout: 5000 }, list);
-      await tapAt(page, '[data-decision] [data-next]');
-      await onStep(1);
+      await tapAt(page, '[data-game-review] [data-next]');
+      await current(`${first}:1`);
       await answeredBeyond(page, await answered(page));
       await settle(page);
       assert.equal((await state()).open, false, `the list stays folded at ${size}`);
@@ -997,12 +959,13 @@ try {
     }
   });
 
-  await cases.check("the review's other lists stay as the player leaves them: a slow device's list of hands as the review goes on, a hand's events across a step with none, and the trend's games across a replay, by keyboard and pointer", async () => {
+  await cases.check("on a slow device the list opens by itself once, offering each hand still to review, and the review's lists stay as the player leaves them: the list as the review goes on, a hand's events across a step with none and across hands, and the trend", async () => {
     // Each batch reaches the worker four and a half seconds late, over half a
     // second a position: a device slow enough to hold after each hand, for
-    // which the list of hands opens. A game reviewed before this one puts the
-    // trend's table of games on the page from the first hand.
-    const page = await openPage(1100, 900, { answerDelay: 4500,
+    // which the list opens. A game reviewed before this one gives the trend a
+    // table of games. A tablet's width, where the list is folded above the
+    // decision.
+    const page = await openPage(800, 1280, { answerDelay: 4500,
       trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4 }] });
     // What the page did not keep as the player left it, said together at the
     // end, so that each list is checked whatever the others do.
@@ -1011,138 +974,139 @@ try {
       await settle(page);
       if (await page.$eval(selector, details => details.open) !== open) changed.push(what);
     };
-    const handList = '[data-game-review] .hands', games = '[data-game-review] [data-trend] details.games';
+    const list = 'details[data-review-index]', trendTile = '[data-game-review] details[data-trend]';
     await page.click('.standings [data-review-game]');
     await page.waitForSelector('[data-game-review] [data-next-hand]', { timeout: 300000 });
-    assert.equal(await page.$eval(handList, details => details.open), true, 'the list of hands opens for the hold');
+    assert.equal(await page.$eval(list, details => details.open), true, 'the list opens for the hold');
+    // Each hand not reviewed yet offers to be reviewed next, in its header.
+    const offered = await page.$$eval('[data-review-index] [data-review-hand]', buttons => buttons.map(button => button.getAttribute('aria-label')));
+    assert.ok(offered.length && offered.every(label => /^Review: \w+ \d/.test(label)), offered.join(', '));
     // Folded by keyboard, it stays folded, also while the next hand is
     // reviewed and at the hold after it.
-    await page.focus(`${handList} summary`);
+    await page.focus(`${list} > summary`);
     await page.keyboard.press('Enter');
-    await stays(handList, false, 'the list of hands opened again as it was folded');
+    await stays(list, false, 'the list opened again as it was folded');
     const before = await answered(page);
     await page.focus('[data-game-review] [data-next-hand]');
     await page.keyboard.press('Enter');
     await answeredBeyond(page, before);
-    await stays(handList, false, 'the list of hands opened again as the review went on');
+    await stays(list, false, 'the list opened again as the review went on');
     await page.waitForSelector('[data-game-review] [data-next-hand]', { timeout: 300000 });
-    await stays(handList, false, "the list of hands opened again at the review's next hold");
+    await stays(list, false, "the list opened again at the review's next hold");
 
-    // The trend's table of games, opened by pointer.
-    await page.click(`${games} summary`);
-    await page.waitForFunction(games => document.querySelector(games).open, { timeout: 5000 }, games);
-    // A reviewed hand with a step that nothing happened before, between two
-    // that had events, replayed whole by pointer: its events, which start
-    // folded, opened at the step before, stay open at the step after.
-    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(button => Number(button.dataset.replayHand)));
-    const quiet = hands.filter(hand => done.includes(hand.index)).flatMap(hand => hand.frames.map((_, step) => ({ hand, step })))
+    // The trend, opened by pointer in the list, which the player opens again.
+    await openList(page);
+    await press(page, `${trendTile} > summary`);
+    await page.waitForFunction(selector => document.querySelector(selector).open, { timeout: 5000 }, trendTile);
+    // A step that nothing happened before, between two that had events, gone
+    // to under every decision, which holds the hands not reviewed yet too:
+    // its events, which start folded, opened at the step before, stay open at
+    // the step after, and at another hand's.
+    const quiet = hands.flatMap(hand => hand.frames.map((_, step) => ({ hand, step })))
       .find(({ hand, step }) => step > 0 && step < hand.frames.length - 1 && !hand.frames[step].lines.length
         && hand.frames[step - 1].lines.length && hand.frames[step + 1].lines.length);
-    assert.ok(quiet, `a reviewed hand with a step that nothing happened before, among hands ${done.join(', ')}`);
-    if (!await page.$eval(handList, details => details.open)) await page.click(`${handList} summary`);
-    await page.click(`[data-game-review] [data-replay-hand="${quiet.hand.index}"]`);
-    const lines = '[data-decision] details.lines', next = '[data-decision] [data-next]';
-    const onStep = step => page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text,
-      { timeout: 5000 }, placeOf(quiet.hand, step));
-    await page.click(`[data-decision] [data-decisions] [data-step-to="${quiet.step - 1}"]`);
-    await onStep(quiet.step - 1);
+    assert.ok(quiet, 'a hand with a step that nothing happened before');
+    const elsewhere = hands.find(hand => hand.index !== quiet.hand.index && hand.frames.length > 1 && hand.frames[1].lines.length);
+    assert.ok(elsewhere, 'another hand with events before its second decision');
+    await choose(page, 'every');
+    await stepTo(page, `${quiet.hand.index}:${quiet.step - 1}`);
+    const lines = '[data-decision] details.lines', next = '[data-game-review] [data-next]';
     assert.equal(await page.$eval(lines, details => details.open), false, "a hand's events start folded");
-    await page.click(`${lines} summary`);
+    await press(page, `${lines} > summary`);
     await page.waitForFunction(lines => document.querySelector(lines).open, { timeout: 5000 }, lines);
-    await page.click(next);
-    await onStep(quiet.step);
+    await press(page, next);
+    await onPlace(page, quiet.hand, quiet.step);
     assert.equal(await page.$(lines), null, 'no events since the previous decision');
-    await page.click(next);
-    await onStep(quiet.step + 1);
+    await press(page, next);
+    await onPlace(page, quiet.hand, quiet.step + 1);
     await stays(lines, true, "a hand's events folded again after a step with none");
-    // Back to the list by keyboard: focus returns to the hand's own button,
-    // and the trend's games are open still.
-    await page.focus('[data-decision] [data-back]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(index => document.activeElement?.dataset.replayHand === String(index), { timeout: 5000 }, quiet.hand.index);
-    await stays(games, true, "the trend's games folded after a replay");
+    await stepTo(page, `${elsewhere.index}:1`);
+    await stays(lines, true, "a hand's events folded again in another hand");
+    await stays(trendTile, true, 'the trend folded again across steps and hands');
+    await stays(list, true, 'the list folded again across steps and hands');
     assert.deepEqual(changed, [], 'every list stays as the player left it');
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("the list shows the flagged decisions, those where Trained AI chose differently or every one, says how many each holds, and opens any of them, by keyboard and pointer", async () => {
+  await cases.check('the filter keeps the flagged decisions, those where Trained AI differed or every one, says how many each holds, has Next visit only those across hands, keeps a decision it leaves out in view, dim, and is kept across a reload', async () => {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
-    const option = name => `[data-game-review] [data-filter] [data-filter-option="${name}"]`;
+    await openList(page);
     const counted = async name => Number(/\((\d+)\)$/.exec(await page.$eval(option(name), el => el.textContent.trim()))[1]);
     const counts = { flagged: await counted('flagged'), differed: await counted('differed'), every: await counted('every') };
     const total = Number(/^All hands reviewed: (\d+) decisions?\.$/.exec(await page.$eval('[data-game-review] .headline', el => el.textContent))[1]);
     assert.equal(counts.every, total, 'every decision of the game');
     assert.ok(counts.flagged > 0 && counts.differed > counts.flagged && counts.every > counts.differed, JSON.stringify(counts));
-    assert.equal(await page.$eval(option('flagged'), el => el.getAttribute('aria-pressed')), 'true', 'the list opens on the flagged decisions');
-    const items = () => page.$$eval('[data-game-review] [data-listed]', entries => entries.map(entry => ({ key: entry.dataset.listed,
-      flagged: entry.hasAttribute('data-flagged'), said: entry.innerText.replace(/\s+/g, ' ').trim() })));
-    const showAll = () => page.evaluate(() => [...document.querySelectorAll('[data-game-review] [data-every-flag]')].find(b => /^Show all/.test(b.textContent))?.click());
-    const heading = () => page.$eval('[data-game-review] h3', el => el.textContent);
-    await showAll();
-    assert.equal((await items()).length, counts.flagged);
+    assert.equal(await page.$eval(option('flagged'), el => el.getAttribute('aria-pressed')), 'true', 'the review opens on the flagged decisions');
+    /** The decisions the list has a line for that its filter keeps, and
+     * whether each says it is flagged. */
+    const kept = () => page.$$eval('[data-review-index] [data-step-to]:not(.outside)', lines => lines.map(line => ({ key: line.dataset.stepTo,
+      flagged: line.hasAttribute('data-flagged'), said: line.innerText.replace(/\s+/g, ' ').trim() })));
+    const summary = async () => (await page.$('details[data-review-index]'))
+      ? page.$eval('details[data-review-index] > summary', el => el.textContent.trim()) : null;
+    assert.equal((await kept()).length, counts.flagged);
 
-    // By pointer: those where Trained AI chose differently, each naming its
-    // move, the flagged ones marked among them, said as the list changes, with
-    // focus on the button.
-    await page.click(option('differed'));
+    // By pointer: those where Trained AI chose differently, said as the
+    // filter changes, with focus on its button; the flagged ones say so.
+    await press(page, option('differed'));
     await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('differed'));
-    assert.equal(await heading(), 'Where Trained AI differed');
-    assert.equal(await page.$eval('[data-game-review] [data-filter-said]', el => el.textContent), filterSaid('differed', counts, { leading: LEADING }));
-    assert.ok(await page.evaluate(selector => document.activeElement?.matches(selector), option('differed')));
-    assert.equal((await items()).length, Math.min(LEADING, counts.differed), 'the leading few, the rest behind Show all');
-    await showAll();
-    const different = await items();
+    assert.equal(await page.$eval('[data-game-review] [data-filter-said]', el => el.textContent), filterSaid('differed', counts));
+    assert.ok(await focusOn(page, option('differed')), 'focus stays on the button pressed');
+    const folded = await summary();
+    if (folded !== null) assert.equal(folded, `Hands · ${FILTER_LABELS.differed} (${counts.differed})`);
+    const different = await kept();
     assert.equal(different.length, counts.differed);
     assert.equal(different.filter(item => item.flagged).length, counts.flagged);
-    assert.ok(different.filter(item => item.flagged).every(item => / · Flagged /.test(item.said)));
-    assert.ok(different.every(item => /Trained AI: /.test(item.said) && / Replay$/.test(item.said)));
-    assert.ok(!different.some(item => /Choose again/.test(item.said)));
+    assert.ok(different.every(item => item.flagged === /Flagged$/.test(item.said)), 'the flagged ones say so');
 
-    // A decision that was not flagged opens on its step with the position,
-    // the move and Trained AI's view; back by keyboard, focus returns to it.
+    // Next visits only those, across hands, in the order played, by keyboard,
+    // from the first; at the last it hands focus to Previous.
+    const at = key => key.split(':').map(Number);
+    await stepTo(page, different[0].key);
+    await page.focus('[data-game-review] [data-next]');
+    for (const item of different.slice(1)) {
+      await page.keyboard.press('Enter');
+      const [hand, step] = at(item.key);
+      await onPlace(page, hands[hand], step);
+    }
+    await page.waitForFunction(() => document.activeElement?.matches('[data-steps] [data-previous]'), { timeout: 5000 });
+    assert.equal(await page.$eval('[data-game-review] [data-next]', el => el.disabled), true, 'Next is disabled at the last');
+
+    // A decision the flagged ones leave out, on show as the filter changes,
+    // stays in view and in the list, dim, current, until the player moves on.
     const plain = different.find(item => !item.flagged);
-    const [handIndex, index] = plain.key.split(':').map(Number);
-    await page.click(`[data-game-review] [data-open="${plain.key}"]`);
-    await page.waitForSelector('[data-decision] [data-view]');
-    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${hands[handIndex].name}, decision ${index + 1}`);
-    await overviewIsRight(page, hands[handIndex], index);
-    assert.equal(await page.$('[data-decision] :is([data-reveal], [data-again], [data-retry], [data-choose-here], [data-answer])'), null, 'no retry');
-    assert.match(await page.$eval('[data-decision] [data-step-said]', el => el.textContent), / Trained AI: [^.]+, [<\d.]+%( given riichi)?\.$/);
+    await stepTo(page, plain.key);
+    await choose(page, 'flagged');
+    const [plainHand, plainStep] = at(plain.key);
+    assert.equal(await stepText(page), placeOf(hands[plainHand], plainStep), 'the decision on show stays');
+    assert.deepEqual(await page.$eval(line(plain.key), el => [el.classList.contains('outside'), el.getAttribute('aria-current')]), [true, 'step']);
+    await overviewIsRight(page, hands[plainHand], plainStep);
     await shot(page, 'review-overview-plain-decision');
-    await page.focus('[data-decision] [data-back]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, plain.key);
-    assert.equal(await heading(), 'Where Trained AI differed', 'the list is as it was left');
+    // Moved on, it is no longer listed.
+    await page.$eval('[data-game-review] [data-steps]', el => el.scrollIntoView({ block: 'center' }));
+    await page.click(`[data-game-review] ${(await page.$('[data-game-review] [data-next]:not(:disabled)')) ? '[data-next]' : '[data-previous]'}`);
+    await page.waitForFunction(selector => !document.querySelector(selector), { timeout: 5000 }, line(plain.key));
 
-    // A flagged one opens with Trained AI's move on show as well, every hand
-    // in view, the flag said after both moves.
-    const flaggedItem = different.find(item => item.flagged);
-    const [flaggedHand, flaggedIndex] = flaggedItem.key.split(':').map(Number);
-    await page.click(`[data-game-review] [data-open="${flaggedItem.key}"]`);
-    await page.waitForSelector('[data-decision] [data-view]');
-    await overviewIsRight(page, hands[flaggedHand], flaggedIndex);
-    assert.match(await page.$eval('[data-decision] [data-step-said]', el => el.textContent), / Trained AI: .+\. Flagged\.$/);
-    await page.click('[data-decision] [data-back]');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, flaggedItem.key);
-
-    // By keyboard: every decision, in the order played, each saying how it went.
+    // By keyboard: every decision, in the order played, hand by hand.
     await page.focus(option('every'));
     await page.keyboard.press('Enter');
     await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { timeout: 5000 }, option('every'));
-    assert.equal(await heading(), 'Every decision');
-    assert.equal(await page.$eval('[data-game-review] [data-filter-said]', el => el.textContent), filterSaid('every', counts, { leading: LEADING }));
-    // The screen as it shows the first few: every one of them makes a page
-    // too long to keep a picture of.
-    await page.screenshot({ path: resolve(output, 'review-overview-every-decision.png') });
-    await showAll();
-    const every = await items();
-    assert.deepEqual(every.map(item => item.key), hands.flatMap(hand => hand.frames.map((_, step) => `${hand.index}:${step}`)));
-    assert.ok(every.every(item => /(Trained AI agreed\.|Only move\.|Your move .+|Given riichi, .+|Trained AI: .+) Replay$/.test(item.said)));
-    // Focus moving on quiets the line, which spoke of the list as it was.
-    await page.focus('[data-game-review] h3');
+    assert.equal(await page.$eval('[data-game-review] [data-filter-said]', el => el.textContent), filterSaid('every', counts));
+    assert.deepEqual((await kept()).map(item => item.key), hands.flatMap(hand => hand.frames.map((_, step) => `${hand.index}:${step}`)));
+    // Focus moving on quiets the line, which spoke of the filter as it was.
+    await page.focus('[data-game-review] [data-close-review]');
     await page.waitForFunction(() => document.querySelector('[data-game-review] [data-filter-said]')?.textContent === '', { timeout: 5000 });
+
+    // The filter is kept with the other preferences: after a reload, the
+    // review opens on the decisions it was left on.
+    await choose(page, 'differed');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).reviewFilter === 'differed', { timeout: 5000 }, SETTINGS_KEY);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('.standings [data-review-game]');
+    await page.click('.standings [data-review-game]');
+    await page.waitForSelector('[data-game-review]');
+    assert.equal(await page.$eval(option('differed'), el => el.getAttribute('aria-pressed')), 'true', 'the filter after a reload');
     assert.deepEqual(page.errors, []);
   });
 
@@ -1159,93 +1123,14 @@ try {
     await focused('[data-game-review] [data-stop-review]');
     await page.keyboard.press('Enter');
     await focused('[data-game-review] [data-continue]');
-    // A hand reviewed on its own loses its button once it is under review;
-    // focus stays with the list of hands.
-    await page.focus('[data-game-review] .hands summary');
+    // A hand reviewed on its own loses its Review once it is under review;
+    // focus goes to the hand's name, beside where the button was.
+    await openList(page);
+    await page.waitForSelector('[data-review-index] [data-review-hand]');
+    const hand = await page.$eval('[data-review-index] [data-review-hand]', button => button.dataset.reviewHand);
+    await page.focus(`[data-review-index] [data-review-hand="${hand}"]`);
     await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-game-review] [data-review-hand]');
-    await page.focus('[data-game-review] [data-review-hand]');
-    await page.keyboard.press('Enter');
-    await focused('[data-game-review] .hands summary');
-    assert.deepEqual(page.errors, []);
-  });
-
-  await cases.check('a flagged decision keeps keyboard focus while hands reviewed later rank it out of the leading five, and the list says where it is as it grows', async () => {
-    const page = await openPage(1100, 900);
-    const key = await focusUntilRankedOut(page);
-    assert.equal(await focusedDecision(page), key, 'focus stays on the decision the player is on');
-    const keys = await listed(page), rank = keys.indexOf(key);
-    assert.ok(rank >= LEADING, `hands reviewed later rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
-    // It is listed still, as every flagged decision is, and the status says
-    // where it went and why the list grew.
-    assert.equal(await page.$eval('[data-game-review] [data-every-flag]', el => el.textContent), `Show the first ${LEADING}`);
-    assert.equal(await page.$eval('[data-game-review] [data-moved]', el => el.getAttribute('role')), 'status');
-    await saysWhereItIs(page, key);
-    await shot(page, 'game-review-moved');
-    // The hands reviewed after that flag more decisions, most of them below
-    // it, while focus stays: what the status says stays true of the list.
-    await page.waitForFunction(count => document.querySelectorAll('[data-game-review] [data-flagged]').length > count,
-      { timeout: 300000, polling: 50 }, keys.length);
-    assert.equal(await focusedDecision(page), key);
-    const now = await saysWhereItIs(page, key);
-    assert.ok(now.count > keys.length, 'the list has grown since it said so');
-    // The place, and no count. Should a later hand move it again before this
-    // is read, the line says the new place without repeating that the whole
-    // list is shown, which it said as the list grew.
-    assert.match(now.note, new RegExp(`^Now ${nth(now.rank + 1)}: decisions reviewed since departed further`
-      + '(, so the whole list is shown)?\\.$'));
-    // Focus moving on clears the note, which spoke of the decision it left.
-    await page.focus('[data-game-review] [data-every-flag]');
-    await page.waitForFunction(() => document.querySelector('[data-game-review] [data-moved]')?.textContent === '', { timeout: 5000 });
-    assert.deepEqual(page.errors, []);
-  });
-
-  await cases.check('a flagged decision keeps keyboard focus while the player is in another window and hands reviewed meanwhile rank it out of the leading five', async () => {
-    const page = await openPage(1100, 900);
-    const key = await focusUntilRankedOut(page, { away: true });
-    // The window took focus from the page, not from the decision, so its
-    // button is kept as the list moves, and the player comes back to it.
-    assert.equal(await focusedDecision(page), key, 'focus stays on the decision the player is on');
-    const keys = await listed(page), rank = keys.indexOf(key);
-    assert.ok(rank >= LEADING, `hands reviewed meanwhile rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
-    await saysWhereItIs(page, key);
-    // Back in the window, the decision has focus again, and the status still
-    // says where it is.
-    await windowAway(page, true);
-    assert.equal(await focusedDecision(page), key);
-    await saysWhereItIs(page, key);
-    assert.deepEqual(page.errors, []);
-  });
-
-  await cases.check('back from a decision the review ranked out of the leading five while it was open, focus returns to it and the list says where it went, from a status line in the page all along', async () => {
-    const page = await openPage(1100, 900);
-    await reviewWholeGame(page);
-    const key = await lastOfLeading(page);
-    await page.click(`[data-game-review] [data-open="${key}"]`);
-    await page.waitForSelector('[data-decision]');
-    // A screen reader hears a status only once it is in the accessibility
-    // tree. So the line that says where the decision went waits in the page,
-    // silent, while the decision is open, rather than coming back with the
-    // list already speaking.
-    const line = await page.$('[data-game-review] [data-moved]');
-    assert.ok(line, 'the status line is in the page while a decision is open');
-    assert.equal(await line.evaluate(el => el.textContent), '', 'and silent');
-    assert.equal((await page.accessibility.snapshot({ root: line, interestingOnly: false }))?.role, 'status', 'and in the accessibility tree');
-    // The review goes on behind the decision until every hand is reviewed,
-    // which enters the game in the trend.
-    await page.waitForFunction(trendKey => Boolean(localStorage.getItem(trendKey)), { timeout: 300000, polling: 250 }, TREND_KEY);
-    await page.focus('[data-decision] [data-back]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-game-review] [data-flagged]');
-    await page.waitForFunction(key => document.activeElement?.dataset.open === key, { timeout: 5000 }, key).catch(() => {});
-    assert.equal(await focusedDecision(page), key, 'focus returns to the decision opened');
-    const keys = await listed(page), rank = keys.indexOf(key);
-    assert.ok(rank >= LEADING, `the hands reviewed while it was open rank ${key} out of the leading ${LEADING}: ${keys.join(', ')}`);
-    // The line that waited is the one that speaks, not one rebuilt with the
-    // list.
-    assert.ok(await line.evaluate(el => el.isConnected), 'the status line that waited is still in the page');
-    assert.equal(await line.evaluate(el => el.textContent),
-      `Now ${nth(rank + 1)}: decisions reviewed since departed further, so the whole list is shown.`);
+    await focused(`[data-review-index] [data-hand-row="${hand}"]`);
     assert.deepEqual(page.errors, []);
   });
 
@@ -1256,18 +1141,18 @@ try {
     await page.click('.standings [data-review-game]');
     await page.waitForSelector('[data-game-review]');
     await reviewed(page);
-    await page.evaluate(() => [...document.querySelectorAll('[data-game-review] button')].find(b => /^Show all/.test(b.textContent))?.click());
-    const key = await page.$$eval('[data-game-review] [data-flagged]', items =>
-      items.find(item => /^Response to/.test(item.querySelector('.context')?.textContent.trim() ?? ''))?.dataset.flagged);
+    // A flagged line named for the tile it answers.
+    const key = await page.$$eval('[data-review-index] [data-flagged]', lines =>
+      lines.find(line => /^Decision \d+\. On the /.test(line.getAttribute('aria-label')))?.dataset.flagged);
     assert.ok(key, 'a flagged answer to a discard');
     const [handIndex, index] = key.split(':').map(Number), hand = callingHands[handIndex], view = hand.frames[index].view;
-    await page.click(`[data-game-review] [data-open="${key}"]`);
+    await stepTo(page, key, callingHands);
     await page.waitForSelector('[data-decision] [data-view]');
     /** What the step bar shows of the moves, and the tile on offer in the
      * row of the seat that let it go, by name, if any. */
     const shown = () => page.evaluate(() => ({
-      line: document.querySelector('[data-decision] [data-move-line]').textContent.replace(/\s+/g, ' ').trim(),
-      said: document.querySelector('[data-decision] [data-step-said]').textContent,
+      line: document.querySelector('[data-game-review] [data-move-line]').textContent.replace(/\s+/g, ' ').trim(),
+      said: document.querySelector('[data-game-review] [data-step-said]').textContent,
       outlined: [...document.querySelectorAll('[data-decision] [data-overview] .seat .offered .tile')].map(tile => tile.getAttribute('aria-label')),
     }));
     // Whose tile the player answered, in the bar and in the step's line; a
@@ -1289,18 +1174,19 @@ try {
     assert.equal(await page.$$eval('[data-decision] .hand button:not(:disabled)', buttons => buttons.length), 0, 'no tile to throw');
     assert.equal(await page.$$eval('[data-decision] .hand :is(.tag b, .tile.selected)', marks => marks.length), 0, 'no tile tagged or ringed');
     // Away and back by keyboard, Previous or Next keeping focus: the same.
-    const away = index > 0 ? '[data-previous]' : '[data-next]', back = index > 0 ? '[data-next]' : '[data-previous]';
-    await page.focus(`[data-decision] ${away}`);
+    const away = (await page.$('[data-game-review] [data-previous]:not(:disabled)')) ? '[data-previous]' : '[data-next]';
+    const back = away === '[data-previous]' ? '[data-next]' : '[data-previous]';
+    await page.focus(`[data-game-review] ${away}`);
     await page.keyboard.press('Enter');
-    await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent !== text, { timeout: 5000 },
+    await page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent !== text, { timeout: 5000 },
       placeOf(hand, index));
-    await page.focus(`[data-decision] ${back}`);
+    await page.focus(`[data-game-review] ${back}`);
     await page.keyboard.press('Enter');
-    await page.waitForFunction(text => document.querySelector('[data-decision] [data-step]')?.textContent === text, { timeout: 5000 },
-      placeOf(hand, index));
+    await onPlace(page, hand, index);
     await check();
     assert.deepEqual(page.errors, []);
   });
+
 
   await cases.check('on a phone the final result, which covers the standings, opens the review, and the review comes back to the standings', async () => {
     for (const [width, height] of [[390, 844], [320, 568], [844, 390]]) {
@@ -1397,7 +1283,7 @@ try {
     }
   });
 
-  await cases.check('after a hand, its result opens the review of the game so far, which asks Trained AI about that hand first and leads with it, keeps the game out of the trend, and comes back to the result, by keyboard and pointer at desktop and phone sizes', async () => {
+  await cases.check('after a hand, its result opens the review of the game so far on the hand just played, which it asks Trained AI about first, keeps the game out of the trend, comes back to the result and opens again where the player left it, by keyboard and pointer at desktop and phone sizes', async () => {
     const button = '.screen [data-review-game]', latest = hands[2], where = page => `at ${page.viewport().width}x${page.viewport().height}`;
     const focused = (page, selector) => page.evaluate(selector => Boolean(document.activeElement?.matches(selector)), selector);
     /** Back from the review, which goes, to the result's button, which has
@@ -1415,12 +1301,11 @@ try {
     await page.focus(button);
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
-    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Your game so far, looked at again');
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Game so far');
     assert.equal(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table and the result step aside');
     assert.equal(await page.$eval('[data-game-review] [data-close-review]', el => el.textContent.trim()), 'Back to the result');
-    // It leads with the hand just played.
-    assert.equal(await page.$eval('[data-game-review] [data-latest-hand]', el => Number(el.dataset.latestHand)), latest.index);
-    assert.equal(await page.$eval('[data-game-review] [data-latest-hand] .name', el => el.textContent), latest.name);
+    // It opens on the hand just played, at its first decision.
+    assert.equal(await stepText(page), placeOf(latest, 0));
     await reviewed(page);
 
     // Every batch: the hand just played first, then the others from the
@@ -1434,26 +1319,31 @@ try {
     const trend = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), TREND_KEY);
     assert.deepEqual(trend.games.map(game => game.id), ['earlier'], 'the game so far is not in the trend');
     assert.match(await page.$eval('[data-trend]', el => el.textContent), /Joins your trend once the game is over and fully reviewed\./);
+    // The hand just played, with every hand face up, where the review opened.
+    await overviewIsRight(page, latest, 0);
     await shot(page, 'game-review-so-far');
 
-    // The hand just played, replayed whole from its own row by keyboard,
-    // with every hand face up, and back to the row's button.
-    await page.focus('[data-game-review] [data-replay-latest]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'decision-title', { timeout: 5000 });
-    assert.equal(await page.$eval('#decision-title', el => el.textContent), `${latest.name}, whole hand`);
-    await overviewIsRight(page, latest, 0);
-    await page.focus('[data-decision] [data-back]');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.matches('[data-game-review] [data-replay-latest]'), { timeout: 5000 });
+    // The player moves on, back a decision under every decision, by the key.
+    await choose(page, 'every');
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent !== text, { timeout: 5000 },
+      placeOf(latest, 0));
+    const left = await stepText(page);
 
     // Back to the result as it was, with focus on the button that opened the
-    // review, and the save untouched.
+    // review, and the save untouched; open again, the review is where the
+    // player left it.
     await page.focus('[data-game-review] [data-close-review]');
     await page.keyboard.press('Enter');
     await backOnResult(page);
     assert.notEqual(await page.$eval('.match-view', el => getComputedStyle(el).display), 'none', 'the table and the result are back');
     assert.ok(await tappable(page, button), 'the button is in view, uncovered');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await stepText(page), left, 'opened again where the player left it');
+    await page.focus('[data-game-review] [data-close-review]');
+    await page.keyboard.press('Enter');
+    await backOnResult(page);
     const { _storage, ...save } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
     assert.deepEqual(save, midway, 'the save is unchanged');
     assert.deepEqual(page.errors, []);
@@ -1516,11 +1406,12 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("a review of the game so far goes on into the whole game's: Next hand stops it, the hands it reviewed are not asked again, and the game joins the trend once, as it ends", async () => {
+  await cases.check("a review of the game so far goes on into the whole game's: Next hand stops it, the review opens again where the player left it, the hands it reviewed are not asked again, and the game joins the trend once, as it ends", async () => {
     const button = '.screen [data-review-game]', standing = '.standings [data-review-game]';
     const id = `${snapshot.seed}:${snapshot.commands.length}`;
     const trendIds = page => page.evaluate(key => (JSON.parse(localStorage.getItem(key)) ?? { games: [] }).games.map(game => game.id), TREND_KEY);
     const sent = page => page.evaluate(() => window.reviewBatches.length);
+    const reviewedHands = page => page.$$eval('[data-review-index] [data-hand][data-status="done"]', items => items.map(item => Number(item.dataset.hand)));
     /** Back to the last hand's result by keyboard, and its Next hand, which
      * ends the game and hands focus on to the standings' heading. */
     async function backAndOn(page) {
@@ -1539,10 +1430,11 @@ try {
     let page = await openPage(1100, 900, { saved: lastResult, ready: button, answerDelay: 1000 });
     await page.waitForFunction(() => document.activeElement?.matches('.screen'));
     await reviewWholeGame(page, button);
-    // The hand just played is asked about first: once it is reviewed, its
-    // row offers its replay while the hands before it are reviewed.
-    await page.waitForSelector('[data-game-review] [data-replay-latest]', { timeout: 300000 });
+    // The hand just played is asked about first: once it is reviewed, the
+    // review goes on to the hands before it.
+    await page.waitForSelector(`[data-review-index] [data-hand="${hands.at(-1).index}"][data-status="done"]`, { timeout: 300000 });
     assert.ok(await page.$('[data-game-review] [data-stop-review]'), 'the review goes on to the earlier hands');
+    const left = await stepText(page);
     await backAndOn(page);
     // The deal that ended the game stopped the review, which asks nothing
     // more until it is opened again.
@@ -1552,13 +1444,15 @@ try {
     assert.deepEqual(await trendIds(page), [], 'a game not reviewed whole is not in the trend');
     await page.click(standing);
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
-    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Your game, looked at again');
-    assert.equal(await page.$('[data-game-review] [data-latest-hand]'), null, 'a finished game leads with no hand');
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Whole game');
+    // The game ended without a hand more to look at, so the review opens
+    // where the player left it.
+    assert.equal(await stepText(page), left, 'it opens where the player left it');
     // The hands reviewed before Next hand, read before the review could
     // finish another, a batch taking a second to reach the worker: none of
     // them is asked about again, and every other hand is, once, from the
     // first deal.
-    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(entry => Number(entry.dataset.replayHand)));
+    const done = await reviewedHands(page);
     assert.ok(done.includes(hands.at(-1).index), `the last hand was reviewed before the game ended: ${done.join(', ')}`);
     await reviewed(page);
     const after = (await page.evaluate(() => window.reviewBatches)).slice(stopped);
@@ -1593,7 +1487,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("a review of the game so far goes on at the next hand's result: Next hand stops it as it runs, and that result's review asks about the hand just played first, then only about the hands left waiting, none it had reviewed", async () => {
+  await cases.check("a review of the game so far goes on at the next hand's result: Next hand stops it as it runs, and that result's review opens on the hand just played, asks about it first, then only about the hands left waiting, none it had reviewed", async () => {
     const button = '.screen [data-review-game]', sent = page => page.evaluate(() => window.reviewBatches.length);
     // The hand played in the page: the first after the third that asks
     // Trained AI about a decision, so that batches of its own lead what its
@@ -1608,7 +1502,7 @@ try {
     await page.waitForFunction(() => document.activeElement?.matches('.screen'));
     await reviewWholeGame(page, button);
     // A hand is reviewed, and the review goes on to the others.
-    await page.waitForSelector('[data-game-review] [data-replay-hand]', { timeout: 300000 });
+    await page.waitForSelector('[data-review-index] [data-hand][data-status="done"]', { timeout: 300000 });
     assert.ok(await page.$('[data-game-review] [data-stop-review]'), 'the review goes on to the other hands');
     // Back to the result by keyboard, and its Next hand while the review
     // runs, which stops it.
@@ -1625,15 +1519,14 @@ try {
     assert.equal(await sent(page), stopped, 'no batch is sent while the review is shut');
     const { _storage, ...save } = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
     assert.deepEqual(save, savedAfter(snapshot, next.end), 'the hand was played as the game played it');
-    // That hand's result opens the review again, which leads with that hand.
-    // The hands reviewed before Next hand are read before the review could
-    // finish another, a batch taking a second to reach the worker.
+    // That hand's result opens the review again, on that hand, at its first
+    // decision. The hands reviewed before Next hand are read before the
+    // review could finish another, a batch taking a second to reach the
+    // worker.
     await page.click(button);
     await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-game-review] [data-latest-hand]', el => Number(el.dataset.latestHand)), next.index,
-      'the review leads with the hand just played');
-    assert.equal(await page.$eval('[data-game-review] [data-latest-hand] .name', el => el.textContent), next.name);
-    const done = await page.$$eval('[data-game-review] [data-replay-hand]', buttons => buttons.map(entry => Number(entry.dataset.replayHand)));
+    assert.equal(await stepText(page), placeOf(next, 0), 'the review opens on the hand just played');
+    const done = await page.$$eval('[data-review-index] [data-hand][data-status="done"]', items => items.map(item => Number(item.dataset.hand)));
     assert.ok(done.length > 0 && !done.includes(next.index), `hands reviewed before Next hand, and not the hand played since: ${done.join(', ')}`);
     await reviewed(page);
     // Every batch sent since walks the hand just played first, then the
@@ -1643,6 +1536,97 @@ try {
     const after = (await page.evaluate(() => window.reviewBatches)).slice(stopped);
     const rest = [next.index, ...hands.slice(0, next.index).map(hand => hand.index).filter(index => !done.includes(index))];
     assert.equal(walkBatches(after, rest).walked, after.length, `only hands ${rest.join(', ')} are asked about, in that order, each once`);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check('the keys step, change hand and go back, and do nothing under a dialog, in a field, with a modifier held or with the shortcuts off', async () => {
+    let page = await openPage(1100, 900);
+    await reviewWholeGame(page);
+    await reviewed(page);
+    // Every decision, so that each key's step is known: a hand of three
+    // decisions or more, and the next hand with one.
+    await choose(page, 'every');
+    const from = hands.find(hand => hand.frames.length >= 3 && hands.some(other => other.index > hand.index && other.frames.length));
+    const after = hands.find(hand => hand.index > from.index && hand.frames.length);
+    await stepTo(page, `${from.index}:1`);
+    const key = async (name, shift = false) => {
+      if (shift) await page.keyboard.down('Shift');
+      await page.keyboard.press(name);
+      if (shift) await page.keyboard.up('Shift');
+    };
+    // ← and → step as Previous and Next do; with Shift, to the hand after or
+    // before, at its first decision the filter keeps.
+    await key('ArrowRight');
+    await onPlace(page, from, 2);
+    await key('ArrowLeft');
+    await onPlace(page, from, 1);
+    await key('ArrowRight', true);
+    await onPlace(page, after, 0);
+    await key('ArrowLeft', true);
+    await onPlace(page, from, 0);
+    // Nothing with Ctrl, Alt or Meta held, or in a field. The keys are sent
+    // as the page would have them, without the browser's own use of them,
+    // such as Alt+← going back a page.
+    const still = async (what, send, ...values) => {
+      const before = await stepText(page);
+      await page.evaluate(send, ...values);
+      await settle(page);
+      assert.equal(await stepText(page), before, what);
+    };
+    for (const modifier of ['ctrlKey', 'altKey', 'metaKey']) {
+      await still(`→ with ${modifier}`, modifier => document.body.dispatchEvent(new KeyboardEvent('keydown',
+        { key: 'ArrowRight', [modifier]: true, bubbles: true, cancelable: true })), modifier);
+    }
+    await still('→ in a select', () => document.querySelector('select').dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'ArrowRight', bubbles: true, cancelable: true })));
+    // Under the table's dialog of discards the arrow does not step, and Esc
+    // closes the dialog, not the review.
+    await press(page, '[data-decision] .inspect');
+    await page.waitForFunction(() => document.querySelector('dialog[open]'), { timeout: 5000 });
+    await key('ArrowRight');
+    await settle(page);
+    assert.equal(await stepText(page), placeOf(from, 0), '→ under a dialog');
+    await key('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'), { timeout: 5000 });
+    assert.ok(await page.$('[data-game-review]'), 'Esc closed the dialog, not the review');
+    // Esc goes back to the standings, focus on the button that opened the
+    // review.
+    await key('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review]') && document.activeElement?.matches('.standings [data-review-game]'),
+      { timeout: 5000 });
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // Under the settings' dialog on a phone, not a touch one, the keys are
+    // left to the dialog: the arrow does not step, and Esc closes the dialog.
+    page = await openPage(390, 844, { network: false });
+    await page.$eval('.standings [data-review-game]', button => button.click());
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    await choose(page, 'every');
+    const before = await stepText(page);
+    await page.click('.settings-trigger');
+    await page.waitForFunction(() => document.querySelector('dialog.settings-dialog[open]'), { timeout: 5000 });
+    await key('ArrowLeft');
+    await settle(page);
+    assert.equal(await stepText(page), before, '← under the settings');
+    await key('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'), { timeout: 5000 });
+    assert.ok(await page.$('[data-game-review]'), 'Esc closed the settings, not the review');
+    assert.deepEqual(page.errors, []);
+    await closePage(page);
+
+    // With the shortcuts off, as with play's, no key does anything.
+    page = await openPage(1100, 900, { network: false, settings: { version: 2, difficulty: 'beginner', hints: true, shortcuts: false } });
+    await page.click('.standings [data-review-game]');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    await choose(page, 'every');
+    const at = await stepText(page);
+    for (const name of ['ArrowLeft', 'ArrowRight', 'Escape']) {
+      await key(name);
+      await settle(page);
+      assert.ok(await page.$('[data-game-review]'), `${name} with the shortcuts off`);
+      assert.equal(await stepText(page), at, `${name} with the shortcuts off`);
+    }
     assert.deepEqual(page.errors, []);
   });
 } finally {

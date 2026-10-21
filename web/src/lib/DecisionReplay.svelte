@@ -1,50 +1,54 @@
 <script>
+  import { onMount } from 'svelte';
   import Tile from './Tile.svelte';
-  import DecisionFilter from './DecisionFilter.svelte';
-  import ReviewStepBar from './ReviewStepBar.svelte';
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
-  import { decisionInBrief, differed, filterCounts, moveToken, sameMove, seatNotes } from './game-review.js';
+  import { decisionInBrief, decisionKey, moveToken, sameMove, seatNotes } from './game-review.js';
   import { TAG_SAID, percent } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
 
   /**
-   * A reviewed hand, replayed a decision of the player's at a time from the
-   * deal, with what the others did in between, and the whole table as it
-   * stood at each step: every player's tiles face up, the tile just drawn
-   * apart, the sets, the discards and the board. The replay's own engine
-   * read the tiles once the hand was over (scanMatch), never the match.
+   * The decision the review is on, `step` of `hand`: the table as it stood
+   * there, every player's tiles face up, the tile just drawn apart, the sets,
+   * the discards and the board; the player's own seat; what the others did
+   * since the player's previous decision; and, where Trained AI was asked,
+   * its view of every move open there. The replay's own engine read the
+   * tiles once the hand was over (scanMatch), never the match.
    *
-   * Every step shows the move made there and, where Trained AI was asked,
-   * its own: in the step bar at the top of the screen, over its tile in the
-   * hand, which is ringed in blue as Agent watch and Guided play ring the
-   * network's choice, and in its view of every move open there. `start` is
-   * the step opened at, and `whole` says the hand was opened from its deal
-   * rather than at a decision. The saved match is never touched, and nothing
-   * is played on from any step.
+   * The move made there and Trained AI's are tagged over their tiles in the
+   * hand, Trained AI's ringed in blue as Agent watch and Guided play ring the
+   * network's choice; the step bar above gives both (ReviewStepBar). The
+   * decision stays on the page as the review steps, across hands too, so
+   * that what the player opened or folded here stays as they left it. The
+   * saved match is never touched, and nothing is played on from any step.
    */
-  let { hand, start = 0, whole = false, hints = true, onback } = $props();
+  let { hand, step, hints = true } = $props();
 
-  let step = $derived(start);
-  let everyMove = $state(false);
-  let listFilter = $state('every');
-  let heading = $state(null);
-  // The step bar's height, which a control below it is kept clear of.
-  let barHeight = $state(0);
-  // The list of the hand's decisions starts open where the screen has room
-  // for it above the table; after that it is the player's to open and fold.
-  // So are the list of what happened since the previous decision and the
-  // table of what each move leaves, which start folded, read less than the
-  // table and the weights, and stay as the player leaves them across a step
-  // that takes them from the page. Each is held here rather than set on the
-  // list from the step: the page sets that afresh at every step, and as
-  // later hands are reviewed, which folded a list under the player's press
-  // and dropped keyboard focus on a step's button to the page.
-  const roomy = !(globalThis.matchMedia?.('(max-width: 760px), (max-height: 500px) and (orientation: landscape)').matches ?? true);
-  let listOpen = $state(roomy);
+  // The events since the previous decision and the table of what each move
+  // leaves start folded, read less than the table and the weights, and stay
+  // as the player leaves them across a step that takes them from the page.
+  // Each is held here rather than set on the list from the step: the page
+  // sets that afresh at every step, and as later hands are reviewed, which
+  // folded a list under the player's press.
   let linesOpen = $state(false);
   let numbersOpen = $state(false);
+  // Every move of the view, where the player asked for them at this
+  // decision; the next decision leads with the few again.
+  let everyMoveAt = $state(null);
+  // On a phone held upright the player's seat comes before the table, so that
+  // the player's tiles are the first thing under the step bar; held sideways,
+  // and on every larger screen, it comes after, as in play. It is drawn in
+  // one place or the other rather than moved by CSS, so that a screen reader
+  // and the keyboard go through it in the order it is seen.
+  let upright = $state(false);
+  onMount(() => {
+    const media = matchMedia('(max-width: 760px) and (orientation: portrait)');
+    upright = media.matches;
+    const changed = () => { upright = media.matches; };
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
+  });
 
   let frame = $derived(hand.frames[step]);
   let current = $derived(hand.decisions?.[step] ?? null);
@@ -52,9 +56,8 @@
   let me = $derived(frame.view.seats[0]);
   let shownDora = $derived(hints ? frame.view.dora_types ?? [] : []);
   let brief = $derived(decisionInBrief(frame, current));
-  // Previous and Next step through every decision of the hand.
-  let previous = $derived(step > 0 ? { hand: hand.index, step: step - 1 } : null);
-  let next = $derived(step < hand.frames.length - 1 ? { hand: hand.index, step: step + 1 } : null);
+  let key = $derived(decisionKey(hand.index, step));
+  let everyMove = $derived(everyMoveAt === key);
 
   // The decision whose view of every move this step shows: any that was put
   // to Trained AI, which a move with no alternative never was.
@@ -99,13 +102,6 @@
   ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null }))
     .filter(entry => entry.measure));
 
-  // Every decision of the hand, each a step of its own, for the list, which
-  // shows those its filter keeps in the order played.
-  let reached = $derived(hand.frames.map((entry, index) => ({ index, frame: entry, decision: hand.decisions?.[index] ?? null })));
-  let listCounts = $derived(filterCounts(reached.flatMap(entry => (entry.decision ? [entry.decision] : []))));
-  let listed = $derived(reached.filter(({ decision }) => listFilter === 'every'
-    || (decision && (listFilter === 'flagged' ? Boolean(decision.judgement?.flagged) : differed(decision)))));
-
   function marked(choice) {
     return [advised, played].some(move => move && sameMove(choice, move.kind, move.tile));
   }
@@ -119,68 +115,22 @@
     if (value === 0) return 'waiting';
     return `${value} from waiting`;
   }
-
-  // A step's own button, in the list, keeps focus as it shows its step, and
-  // the step bar hands its own on where a step disables the one pressed.
-  function goTo(target) {
-    if (target !== step) everyMove = false;
-    step = target;
-  }
-
-  $effect(() => { heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' }); });
 </script>
 
-<section class="decision" aria-labelledby="decision-title" data-decision style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
-  <header>
-    <h3 id="decision-title" tabindex="-1" bind:this={heading}>{whole ? `${hand.name}, whole hand` : `${hand.name}, decision ${start + 1}`}</h3>
-    <button class="app-control" data-back onclick={onback}>Back to the list</button>
-  </header>
-
-  <ReviewStepBar {hand} {step} decision={current} {previous} {next} onstep={place => goTo(place.step)} bind:height={barHeight} />
-
-  <!-- Every decision of the hand, each a button to its step, which keeps
-       focus as the step it shows changes. -->
-  <details class="decisions" bind:open={listOpen} data-decisions>
-    <summary>Decisions in this hand ({reached.length})</summary>
-    <div class="decision-list">
-      <DecisionFilter bind:value={listFilter} counts={listCounts} label="Which of this hand's decisions to list"
-        said={{ scope: ' in this hand', ranked: false }} />
-      {#if listed.length}
-        <!-- Drawn without markers, so said to be a list in so many words:
-             Safari does not tell VoiceOver that a list without them is one.
-             Each line shows the player's move and Trained AI's in tiles and
-             words; its name says them in the engine's words. -->
-        <ol role="list">
-          {#each listed as entry (entry.index)}
-            {@const line = decisionInBrief(entry.frame, entry.decision)}
-            <li>
-              <button class="app-control" class:flag={line.flagged} data-step-to={entry.index}
-                aria-current={entry.index === step ? 'step' : undefined} aria-label={`Decision ${entry.index + 1}. ${line.said}`}
-                onclick={() => goTo(entry.index)}>
-                <span class="number">{entry.index + 1}</span>
-                {#if line.offered}<span class="token">on <Tile tile={line.offered} size="tiny" dora={shownDora.includes(line.offered)} /></span>{/if}
-                {@render token(line.you)}
-                {#if !line.reviewed}<span class="verdict">…</span>
-                {:else if line.forced}<span class="verdict">Only move</span>
-                {:else if line.agreed}<span class="verdict">✓</span>
-                {:else}<span class="arrow">→</span>{@render token(line.ai)}{/if}
-                {#if line.flagged && listFilter !== 'flagged'}<strong class="flag-mark">Flagged</strong>{/if}
-              </button>
-            </li>
-          {/each}
-        </ol>
-      {:else}
-        <p class="empty">{listFilter === 'flagged' ? 'None flagged.' : 'Trained AI agreed at every decision.'}</p>
-      {/if}
-    </div>
-  </details>
-
-  <!-- The table as it stood at this step, all of it, every player's tiles
-       face up: the board and the other players around it, what happened
-       since the player's previous decision, then the player's own seat. The
-       step bar says it as the step changes. -->
+<!-- The table as it stood at this step, all of it, every player's tiles face
+     up: the player's own seat and the board with the other players around
+     it, the seat after the board but on a phone held upright, then what
+     happened since the player's previous decision. The step bar says it as
+     the step changes. -->
+<div class="decision" data-decision>
   <div class="overview" data-overview>
-    <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
+    {#if upright}{@render seat()}{/if}
+    <!-- Drawn afresh for another hand, so that a seat does not announce a
+         call made in the hand before. -->
+    {#key hand.index}
+      <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review />
+    {/key}
+    {#if !upright}{@render seat()}{/if}
 
     {#if frame.lines.length}
       <details class="lines" bind:open={linesOpen}>
@@ -190,13 +140,6 @@
         <ol>{#each frame.lines as line, index (index)}<li>{line}</li>{/each}</ol>
       </details>
     {/if}
-
-    <PlayerHand view={frame.view} engine={null} closed={true} {hints} busy={false} blocked={false}
-      discardChoices={[]} confirmDiscards={false} picked={null} selected={trained}
-      canDiscard={() => false} selectTile={() => {}} syncHandFocus={() => {}}
-      handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} {tags} />
-    <!-- What the hand is described by: the two moves, in words. -->
-    <p id="hand-help" class="visually-hidden">{brief.said}</p>
   </div>
 
   {#if shown}
@@ -204,7 +147,7 @@
          holds for every decision it was asked about: each move open there by
          its weight, tagged as the hand tags its tiles. -->
     <section class="view" aria-labelledby="view-title" data-view>
-      <h4 id="view-title">Trained AI's view</h4>
+      <h3 id="view-title">Trained AI's view</h3>
       {#if stage === 'tile'}<p class="note">Both declared riichi: tiles compared given riichi.</p>{/if}
 
       <div class="weights" role="list" aria-label="Trained AI's weight for each move">
@@ -221,7 +164,7 @@
           {/if}
         {/each}
       </div>
-      {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMove = !everyMove; }}>{everyMove ? 'Show fewer moves' : `Show ${extra} more move${extra === 1 ? '' : 's'}`}</button>{/if}
+      {#if extra}<button class="app-control quiet" data-every-move onclick={() => { everyMoveAt = everyMove ? null : key; }}>{everyMove ? 'Show fewer moves' : `Show ${extra} more move${extra === 1 ? '' : 's'}`}</button>{/if}
 
       {#if compared.length > 1}
         <!-- Counted as the hand review counts it (docs/UI.md); a player reads
@@ -248,7 +191,17 @@
       {/if}
     </section>
   {/if}
-</section>
+</div>
+
+<!-- The player's own seat, with the words over the tiles the moves concern,
+     and what the hand is described by: the two moves, in words. -->
+{#snippet seat()}
+  <PlayerHand view={frame.view} engine={null} closed={true} {hints} busy={false} blocked={false}
+    discardChoices={[]} confirmDiscards={false} picked={null} selected={trained}
+    canDiscard={() => false} selectTile={() => {}} syncHandFocus={() => {}}
+    handLabel={`${NAMES[me.seat]}'s tiles, yours`} listed note={notes[0]} {tags} />
+  <p id="hand-help" class="visually-hidden">{brief.said}</p>
+{/snippet}
 
 {#snippet token(move)}
   <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" dora={shownDora.includes(tile)} />{/each}</span>
@@ -273,29 +226,10 @@
 
 <style>
   .decision { display: grid; gap: 10px; min-width: 0; }
-  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
-  h3 { margin: 0; font-size: 1rem; }
-  h4 { margin: 0; font-size: .95rem; }
-  h3:focus { outline: none; }
-  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-  .decisions, .lines { font-size: .82rem; }
-  .decisions summary, .lines summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
-  .decision-list { display: grid; gap: 8px; }
-  /* As many to a row as fit, two on the narrowest phone, so a hand's dozen
-     or more decisions take a few rows rather than a column. */
-  .decisions ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 6px; }
-  .decisions li { display: flex; min-width: 0; }
-  .decisions button { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 5px 8px; text-align: left; font-size: .8rem; }
-  .decisions .number { min-width: 1.3em; font-weight: 650; font-variant-numeric: tabular-nums; }
+  h3 { margin: 0; font-size: .95rem; }
+  .lines { font-size: .82rem; }
+  .lines summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .token { display: inline-flex; align-items: center; gap: 3px; }
-  .decisions .verdict { opacity: .85; }
-  .arrow { opacity: .7; }
-  /* A flagged decision is marked by an edge as the whole-game list marks it,
-     and outside the flagged ones says so in words; the step shown is gold. */
-  .decisions .flag { border-left: 3px solid var(--accent); }
-  .flag-mark { font-weight: 650; color: var(--gold); }
-  .decisions [aria-current='step'] { border-color: var(--gold); background: rgba(216, 161, 42, .2); }
-  .empty { margin: 0; opacity: .82; }
   .overview { display: grid; gap: 10px; min-width: 0; }
   .lines ol { margin: 0; padding: 6px 12px 6px 28px; display: grid; gap: 2px; background: #0003; border-radius: 8px; }
   .quiet { justify-self: start; background: transparent; }
@@ -321,23 +255,4 @@
   .numbers td { padding: 2px 10px 2px 0; }
   .worse { color: var(--warning-text); }
   @media (max-width: 400px) { meter { width: 56px; } }
-  /* A control focused below the step bar, which stays at the top of the
-     screen, is brought into view below it rather than under it: the bar's
-     own height, and on a phone held upright the game's bar above it too.
-     Where the screen is 500 pixels high or less the step bar stays in its
-     place, and only the game's bar, which stays there in landscape, is kept
-     clear of, as the headings keep clear of it. The bar's own buttons are
-     left out: they are in the bar, and keep clear only of what stays above
-     it (ReviewStepBar). */
-  .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
-  @media (max-width: 760px) {
-    .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
-  }
-  @media (max-height: 500px) {
-    .decision :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: 72px; }
-  }
-  /* Below the game's bar where it stays at the top of the screen (AppSettings). */
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h3 { scroll-margin-top: 72px; }
-  }
 </style>

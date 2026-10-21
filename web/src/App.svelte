@@ -113,6 +113,11 @@
   // while the hand's own notes ask Trained AI (notesAsking).
   let matchReview = $state.raw(null);
   let reviewingGame = $state(false);
+  // Where the player is in that review, `{ hand, step }`, kept for the match
+  // so that closing the review and opening it again comes back to the same
+  // decision. It is let go when the review is taken on to hands played since,
+  // so that the review opens on the newest of them, and with the review.
+  let reviewPlace = $state(null);
   // The hand's own notes, opened by View table / my hand or Review final
   // hand, ask Trained AI a decision at a time (Review), of the page's one
   // worker, which answers its requests in turn. The review asks the same
@@ -501,7 +506,7 @@
     // as it ends, rather than whenever its review is next opened, which may
     // be never. Should the review not be taken on to the finished match, the
     // standings' Review whole game tries again, and says why.
-    try { matchReview?.extend(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
+    try { takeReviewOn(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
     standingsFocused = byKeyboard;
     await tick();
     land(standingsHeading, byKeyboard);
@@ -590,6 +595,15 @@
   // Why the match could not be replayed for review, the last time it could
   // not, for the same press to take back once a review opens.
   let replayFailure = '';
+  // Takes the review on to the match as it now stands (MatchReview.extend).
+  // Where that adds hands, the place the player left goes with the old
+  // newest hand, and the review opens next on the hand just played, or the
+  // final one, as it first did. Throws as extend does, changing nothing.
+  function takeReviewOn(snapshot) {
+    const known = matchReview?.hands.length ?? 0;
+    matchReview?.extend(snapshot);
+    if ((matchReview?.hands.length ?? 0) > known) reviewPlace = null;
+  }
   // The match is replayed from its saved commands on an engine of the
   // review's own, so the match and its save are left as they are. The first
   // press builds the review; each press after takes it on to the match as it
@@ -598,12 +612,13 @@
   // judges it, and the trend keeps which version that was.
   function openGameReview() {
     try {
-      if (matchReview) matchReview.extend(session.snapshot());
+      if (matchReview) takeReviewOn(session.snapshot());
       else {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch, gate: () => notesAsking.gate(),
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
+        reviewPlace = null;
       }
     } catch (error) {
       replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
@@ -646,6 +661,7 @@
     matchReview?.dispose();
     matchReview = null;
     reviewingGame = false;
+    reviewPlace = null;
   }
 
   // Watch, Guided and Physical play ask the same network, and go first.
@@ -707,7 +723,8 @@
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} bind:filter={reviewFilter} />
+      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
+        bind:filter={reviewFilter} bind:place={reviewPlace} />
     {/if}
     <!-- Hidden rather than closed while the review is open, so the result
          and the standings come back as they were left. -->

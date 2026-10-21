@@ -19,10 +19,11 @@
    * hears a status only once it knows it. The place is not a status of its
    * own, which would say it twice.
    *
-   * `previous` and `next` are the places Previous and Next go to, or null at
-   * either end; `filter` is the decisions they step through, which their
-   * names say; `onstep(place)` goes there. `height` is the bar's own, for
-   * whatever lies under it to keep clear of it.
+   * `previous` and `next` are the places Previous and Next go to, across
+   * hands, or null at either end, and Next while the hand on show is being
+   * reviewed (GameReview); `filter` is the decisions they step through, which
+   * their names say; `onstep(place)` goes there. `height` is the bar's own,
+   * for whatever lies under it to keep clear of it.
    */
   let { hand, step, decision = null, previous = null, next = null, filter = 'every', onstep, height = $bindable(0) } = $props();
 
@@ -60,11 +61,11 @@
   // A step can make the bar taller, where the moves it gives take another
   // line. While the bar is stuck at the top of the screen, the page beneath
   // it stays where it was and the bar grows down over it: a control focused
-  // just under it, such as a step's button in the hand's list, would end up
-  // beneath it. Such a control is brought back into view 8 pixels under the
-  // bar, where scroll-margin brings a control focused below it
-  // (DecisionReplay). One that was beneath the bar already, or further down
-  // the page, stays where the player left it.
+  // just under it, such as a decision's line in the list of hands, would end
+  // up beneath it. Such a control is brought back into view 8 pixels under
+  // the bar, where scroll-margin brings a control focused below it
+  // (GameReview). One that was beneath the bar already, or further down the
+  // page, stays where the player left it.
   $effect(() => {
     const grown = measured ? height - measured : 0;
     measured = height;
