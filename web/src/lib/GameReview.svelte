@@ -95,7 +95,7 @@
       if (!wide) listOpen = true;
       await tick();
       const again = name && root?.querySelector(`[data-review-index] [${name}="${active.getAttribute(name)}"]`);
-      (again || root?.querySelector('[data-review-index] [aria-current="step"]') || stepButton() || heading)?.focus({ preventScroll: true });
+      (again || root?.querySelector('[data-review-index] [aria-current="step"]') || stepButton() || heading)?.focus();
     };
     media.addEventListener('change', changed);
     return () => media.removeEventListener('change', changed);

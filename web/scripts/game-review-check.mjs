@@ -542,7 +542,7 @@ async function tabsClear(page) {
   const size = `${page.viewport().width}x${page.viewport().height}`;
   await page.evaluate(() => [...document.querySelectorAll('[data-game-review] [data-steps] button:not(:disabled)')].at(-1).focus());
   let landed = 0;
-  for (let presses = 0; presses < 150; presses++) {
+  for (let presses = 0; presses < 200; presses++) {
     await page.keyboard.press('Tab');
     await settle(page);
     const at = await page.evaluate(() => {
@@ -912,7 +912,14 @@ try {
           assert.ok(held.top >= held.edge, `the line of step ${at + 1} at ${held.top}, under the step bar to ${held.edge}, at ${width}x${height}`);
         }
       }
-      if (width === 390) await tabsClear(page);
+      // On a phone, tabbing on from the step bar through the open list, under
+      // the flagged decisions, so that Tab goes through its lines and on into
+      // the decision, lands on nothing under the bars.
+      if (width === 390) {
+        await choose(page, 'flagged');
+        await tabsClear(page);
+        await choose(page, 'every');
+      }
       step = frames.length - 1;
     }
     // The figures at each size, from every step of the hand: the narrowest
