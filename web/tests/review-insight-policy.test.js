@@ -5,14 +5,14 @@ import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.j
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove } from '../src/lib/review-insight.js';
-import { anyGate, handTables, passFor, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
+import { anyGate, countedBatches, handTables, passFor, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
-const entry = recordedQuestions(Game, PhysicalAnalysis).find(question => question.id === 'e3-5');
+const questions = recordedQuestions(Game, PhysicalAnalysis), entry = questions.find(question => question.id === 'e3-5');
 /** East 3 #5's search: the unedited table and its 35 changes, in passes of
  * the review's batch. */
 const SEARCH = [PASS, PASS, PASS, PASS, 4];
@@ -43,17 +43,19 @@ function mortalWeights(table, moves) {
 const weighed = moves => moves.filter(move => move.weight > 0).sort((a, b) => (a.tile ?? '').localeCompare(b.tile ?? ''));
 const planesKey = (planes, mask) => `${Array.from(mask).join('')}:${Array.from(planes).flatMap((value, at) => (value ? [`${at}=${value}`] : [])).join(',')}`;
 
-/** The policy worker as the recorded run answered East 3 #5, keyed by the
- * planes the engine writes for each table the record answers, so that every
- * table goes through the page's own encoding and back. `sizes` notes each
- * batch; `onBatch(sent)` hears each before it is answered, with how many
- * came before it. A pass is never cancelled: the worker runs one it has
- * begun to its end. */
-function recordedNetwork({ onBatch = () => {} } = {}) {
+/** The policy worker as the recorded run answered East 3 #5, or the questions
+ * named (`asked`), keyed by the planes the engine writes for each table the
+ * record answers, so that every table goes through the page's own encoding
+ * and back. `sizes` notes each batch; `onBatch(sent)` hears each before it is
+ * answered, with how many came before it. A pass is never cancelled: the
+ * worker runs one it has begun to its end. */
+function recordedNetwork({ onBatch = () => {}, asked = [entry] } = {}) {
   const byPlanes = new Map();
-  for (const [key, answer] of recordedAsk(entry).answers) {
-    const { planes, mask, weights } = mortalWeights(JSON.parse(key), answer.moves);
-    byPlanes.set(planesKey(planes, mask), weights);
+  for (const question of asked) {
+    for (const [key, answer] of recordedAsk(question).answers) {
+      const { planes, mask, weights } = mortalWeights(JSON.parse(key), answer.moves);
+      byPlanes.set(planesKey(planes, mask), weights);
+    }
   }
   const sizes = [];
   const analyzeBatch = async positions => {
@@ -69,20 +71,22 @@ function recordedNetwork({ onBatch = () => {} } = {}) {
   return { analyzeBatch, sizes };
 }
 
-/** East 3 #5 as the review keeps it: the player's discard and Trained AI's,
- * and every move's weight read into the listed choices, as the review reads
- * the network's answer (weightsByChoice). */
-function reviewedDecision() {
-  const analysis = new PhysicalAnalysis(entry.position);
+/** East 3 #5, or another recorded question, as the review keeps it: the
+ * player's discard and Trained AI's, and every move's weight read into the
+ * listed choices, as the review reads the network's answer (weightsByChoice). */
+function reviewedDecision(question = entry) {
+  const analysis = new PhysicalAnalysis(question.position);
   try {
-    const { weights } = mortalWeights(entry.position, entry.weights);
-    return { played_kind: 'discard', played_tile: entry.played.tile, advised_kind: 'discard', advised_tile: entry.preferred.tile,
+    const { weights } = mortalWeights(question.position, question.weights);
+    return { played_kind: 'discard', played_tile: question.played.tile, advised_kind: 'discard', advised_tile: question.preferred.tile,
       weighted: weightsByChoice(analysis, analysis.agent_choices(), weights, action => analysis.agent_action_from_mortal(action, false)) };
   } finally { analysis.free(); }
 }
 
-const insightOf = (network, asking = new Asking(), notes = new Asking()) => ({ asking, notes,
-  insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes }) });
+/** The reasoning asked of `network`, with the spells of asking, of the notes
+ * and of the worker's batches it keeps to. */
+const insightOf = (network, asking = new Asking(), notes = new Asking(), batches = new Asking()) => ({ asking, notes, batches,
+  insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches }) });
 
 test('a hand\'s tables are the positions the engine writes at the hand\'s end, read from a replay of their own', () => {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot), written = [];
@@ -166,24 +170,90 @@ test('a table the rules refuse is answered as refused, and never sent', async ()
   assert.deepEqual(weighed(answers[1].moves), weighed(entry.weights));
 });
 
-test('a search needs a spell of asking apart from the notes\'', () => {
-  const shared = new Asking();
-  assert.throws(() => reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: async () => [], asking: shared, notes: shared }), /apart from the notes/);
+test('a search needs spells of asking apart from the notes\' and from the worker\'s batches', () => {
+  const shared = new Asking(), own = new Asking(), ask = { PhysicalAnalysis, review_facts, analyzeBatch: async () => [] };
+  assert.throws(() => reviewInsight({ ...ask, asking: shared, notes: shared, batches: own }), /apart from the notes/);
+  for (const batches of [undefined, shared]) {
+    assert.throws(() => reviewInsight({ ...ask, asking: shared, notes: own, batches }), /batches need spells of their own/);
+  }
 });
 
-/** The policy worker as it runs passes: each to its end once begun, whatever
- * is cancelled, answering as the recorded run did once `answer()` lets the
- * pass under way finish, or failing it with `fail(error)`, as a worker reset
- * fails every request. `sent` counts the passes it was given. */
-function workerOfPasses() {
-  const recorded = recordedNetwork(), waiting = [];
+/** The policy worker as it runs requests, as policy.worker.js runs them: one
+ * at a time, in turn, each to its end once begun, whatever is cancelled, and
+ * one still queued dropped when its signal stops it. `answer()` lets the
+ * request under way finish, answered as the recorded run answered the
+ * questions named (`asked`), and `fail(error)` fails it, as a worker reset
+ * fails every request. `sent` counts the requests it was given, and
+ * `deepest` the most it held at once. */
+function workerOfPasses({ asked } = {}) {
+  const recorded = recordedNetwork({ asked }), waiting = [];
+  let deepest = 0;
   return {
     get sent() { return recorded.sizes.length + waiting.length; },
-    analyzeBatch: positions => new Promise((resolve, reject) => waiting.push({ positions, resolve, reject })),
+    get deepest() { return deepest; },
+    analyzeBatch: (positions, signal) => new Promise((resolve, reject) => {
+      const request = { positions, resolve, reject };
+      waiting.push(request);
+      deepest = Math.max(deepest, waiting.length);
+      signal?.addEventListener('abort', () => {
+        if (waiting.indexOf(request) < 1) return;
+        waiting.splice(waiting.indexOf(request), 1);
+        reject(new DOMException('Match changed', 'AbortError'));
+      }, { once: true });
+    }),
     answer: () => { const pass = waiting.shift(); recorded.analyzeBatch(pass.positions).then(pass.resolve, pass.reject); },
     fail: error => waiting.shift().reject(error),
   };
 }
+
+test('the reasoning\'s passes wait their turn in the page, one with the worker at a time, and a question stopped while it waits sends nothing', async () => {
+  // The three recorded decisions whose Why lines ask Trained AI, opened one
+  // after another, each Why line stopped as the next decision opens, on a
+  // device slow enough that the first pass is still with the worker. Passes
+  // sent as each Why line asked would wait in the worker's queue, where
+  // their deadlines run, and run however stopped, being sent without a
+  // signal: the stopped ones then kept the last one waiting.
+  const probing = ['e3-5', 's3-4', 'e2b-14'].map(id => questions.find(question => question.id === id));
+  const worker = workerOfPasses({ asked: probing }), { insight } = insightOf(worker), stops = [], lines = [];
+  for (const question of probing) {
+    stops.at(-1)?.abort();
+    stops.push(new AbortController());
+    lines.push(insight.why(questionOf(reviewedDecision(question), question.position), { signal: stops.at(-1).signal })
+      .then(why => saidLines(why), error => error.name));
+    for (let count = 0; count < 20; count++) await turn();
+  }
+  assert.equal(worker.sent, 1, 'the first Why line\'s pass, and no other');
+  worker.answer();
+  await until(() => worker.sent === 2, 'the last Why line sends its pass once the first is answered');
+  worker.answer();
+  assert.deepEqual(await Promise.all(lines), ['AbortError', 'AbortError', [
+    'Why: You had already thrown an 8 bamboo, so a wait on it would be furiten. Trained AI puts 99.2% on tiles you had already thrown. If your second and ninth discards had each been a 1 characters, not the 8 bamboo: the 2 bamboo 66.4%, your 6 bamboo <0.1%, the 8 bamboo <0.1%.',
+  ]]);
+  assert.deepEqual([worker.sent, worker.deepest], [2, 1]);
+});
+
+test('a pass waits for the review\'s batch already with the worker, so that what is sent next waits behind one request at most', async () => {
+  // The review's batch is with the worker when the search is pressed. The
+  // search's first pass, sent behind the batch, would keep whatever came
+  // next behind both: the notes' first question behind sixteen positions.
+  const worker = workerOfPasses(), batches = new Asking(), { insight, notes, asking } = insightOf(worker, new Asking(), new Asking(), batches);
+  const reviewBatch = countedBatches(worker.analyzeBatch, batches), review = anyGate(notes, asking);
+  const analysis = new PhysicalAnalysis(entry.position);
+  const table = { planes: analysis.agent_observation_mortal(), mask: analysis.agent_mask_mortal() };
+  analysis.free();
+  const reviewed = reviewBatch([table]);
+  const search = insight.search(questionOf(reviewedDecision(), entry.position));
+  for (let count = 0; count < 20; count++) await turn();
+  assert.deepEqual([worker.sent, review() instanceof Promise], [1, true], 'the search waits for the batch, and the review for the search');
+  worker.answer();
+  assert.equal((await reviewed).length, 1);
+  for (let pass = 0; pass < SEARCH.length; pass++) {
+    await until(() => worker.sent === pass + 2, 'the next pass is with the worker');
+    worker.answer();
+  }
+  assert.equal((await search).status, 'searched');
+  assert.deepEqual([worker.sent, worker.deepest, review(), batches.gate()], [SEARCH.length + 1, 1, null, null]);
+});
 
 test('a search stopped while its pass is with the worker holds the review back until the worker has answered that pass', async () => {
   // The worker runs the pass to its end whatever is cancelled, and a batch
@@ -213,8 +283,8 @@ test('a pass is the review\'s batch, or fewer where a question sent behind a who
   // At the review's measured time a position: none measured yet, desktop
   // Chromium's 157 ms, the slow threshold, and slower still.
   assert.deepEqual([null, 157, 500, 1875, 2000, 2500, 7500, 20000].map(passFor), [PASS, PASS, PASS, PASS, 7, 6, 2, 1]);
-  const network = recordedNetwork(), asking = new Asking(), notes = new Asking();
-  const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, positionMs: () => 2500 });
+  const network = recordedNetwork(), asking = new Asking(), notes = new Asking(), batches = new Asking();
+  const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 2500 });
   const found = await insight.search(questionOf(reviewedDecision(), entry.position));
   assert.deepEqual([found.status, network.sizes], ['searched', [6, 6, 6, 6, 6, 6]]);
 });
