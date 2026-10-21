@@ -603,8 +603,18 @@ on the screen, an opponent's 18 pixels wide or more on one row or on two of
 seven, the dense table's opponents in one row under its centre and the player's
 tiles in one row, the player's seat first only on a phone held upright, the
 step bar on the screen with the player's tiles, scrolled to, clear of it, and
-no page scrolls sideways. It says at each size how wide the tiles were drawn
-and how tall the table and the player's seat were together.
+no page scrolls sideways. Measured over every step of that hand, in Chromium,
+in pixels:
+
+| Screen | Opponents' tiles | Player's tiles | Table and player's seat, tall |
+| --- | ---: | ---: | ---: |
+| 1440x900 | 24 | 52 | 617 to 719 |
+| 1366x768 | 24 | 52 | 617 to 719 |
+| 1100x900, beside the list | 24 | 42 | 565 to 743 |
+| 800x1280 | 24 | 42 | 600 to 743 |
+| 390x844 | 22 | 39 to 41 | 714 to 996 |
+| 320x568 | 24 | 29 to 31 | 811 to 1044 |
+| 844x390 | 24 | 44 | 581 to 658 |
 
 **Trained AI's move, on show.** Wherever Trained AI was asked, its move is on
 show: in the decision's line in the list (above), in the step bar, over its tile
