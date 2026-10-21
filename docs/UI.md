@@ -824,32 +824,37 @@ and opened on, its flags hand by hand in the order played, Trained AI's move on
 show in the list, the step bar, the hand and the view, Previous and Next across
 hands by keyboard, focus handed on at either end and as a control goes, Next
 keeping focus while it waits for a hand's answers, the keys and where they are
-left alone, and the trend, every hand face up at every step of a hand at
-desktop, tablet and phone sizes, the step bar on the screen as the screen
-changes size and at each step, and focus never under it nor moving the page as
-it lands on the bar, the filter that Next follows, a decision it leaves out
-kept in view, and the filter kept across a reload, by keyboard and pointer, its
-lists staying open or folded as the player leaves them while the steps change
-and later hands are reviewed, by touch and by keyboard, the folded list showing
-the line on show as it opens and bringing it out from under the bars at each
-step, the list a column of its own on a wide screen that keeps the line on show
-in view and keeps still what the player looks at, a line or a filter pressed or
-an earlier hand, as later hands are reviewed, the page still, the player's
-tiles in one row from tablet width, its two settings, the same in Options and
-in its header and kept across a reload, a decision keeping Trained AI's move
-and the other players' tiles back until Show answer, s, a digit, a tile or a
-call picked by keyboard answers it, the pick kept as Now and the racks turning
-over where they lay, focus going on to Next as the control used goes, the page
-moved to show it only for a keyboard's press on a low screen, a held Enter
-pressing once, a tile of the live hand keeping focus as the phone turns
-upright, the live hand tabbed through clear of the bars on a phone, and each
-reveal kept through steps and opening again and gone after a reload, and its
-way in and out on a phone, by touch and by keyboard; and the review of the game
-so far from a hand's result, opened on the hand just played and asking about it
-first, kept out of the trend, back to the result's button at desktop and phone
-sizes and open again where it was left, stopped by Next hand and asking nothing
-again at the next hand's result or at the standings), the review, of the game
-so far or of the whole game, waiting while a hand's own notes ask Trained AI
-and going on where it was, history and export, and settlements that balance
-event by event. Its browser checks run in Chromium, including narrow portrait
-and landscape sizes; they are not physical-iPhone or Safari testing.
+left alone, a hand entered by Shift and an arrow or by its name at its first
+decision the filter keeps, and the trend, every hand face up at every step of a
+hand at desktop, tablet and phone sizes, the step bar on the screen as the
+screen changes size and at each step, the page staying where a scroll put it,
+and focus never under it nor moving the page as it lands on the bar, the filter
+that Next follows, a decision it leaves out kept in view, and the filter kept
+across a reload, by keyboard and pointer, its lists staying open or folded as
+the player leaves them while the steps change and later hands are reviewed, by
+touch and by keyboard, the folded list showing the line on show as it opens and
+bringing it out from under the bars at each step, the list a column of its own
+on a wide screen that keeps the line on show in view and keeps still what the
+player looks at, a line or a filter pressed or an earlier hand, as later hands
+are reviewed, the page still, a line of the list keeping focus as the list
+moves between its column and its fold, the player's tiles in one row from
+tablet width, its two settings, the same in Options and, from tablet width, in
+its header and kept across a reload, a decision keeping Trained AI's move and
+the other players' tiles back until Show answer, s, a digit, a tile or a call
+picked by keyboard answers it, the pick kept as Now and the racks turning over
+where they lay, the table staying where it was on the screen at the top of a
+desktop's page and on a phone held upright, focus going on to Next as the
+control used goes, the page moved to show it only for a keyboard's press on a
+low screen, a held Enter pressing once, a tile of the live hand keeping focus
+as the phone turns upright, the live hand tabbed through clear of the bars on a
+phone, and each reveal kept through steps and opening again and gone after a
+reload and in a new game, and its way in and out on a phone, by touch and by
+keyboard; and the review of the game so far from a hand's result, opened on the
+hand just played and asking about it first, kept out of the trend, back to the
+result's button at desktop and phone sizes and open again where it was left,
+stopped by Next hand and asking nothing again at the next hand's result or at
+the standings), the review, of the game so far or of the whole game, waiting
+while a hand's own notes ask Trained AI and going on where it was, history and
+export, and settlements that balance event by event. Its browser checks run in
+Chromium, including narrow portrait and landscape sizes; they are not
+physical-iPhone or Safari testing.

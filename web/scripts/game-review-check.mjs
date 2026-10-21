@@ -25,10 +25,13 @@
  * under 18 pixels wide, the player's seat first on a phone held upright, the
  * step bar on the screen, flush under the game's bar on a phone, as soon as
  * the screen changes size and at the step pressed, and the player's tiles,
- * scrolled to, clear of it; no focus lands under the bar, tabbing through the
- * decision or stepping by the list, nor moves the page as it lands on the
- * bar's own buttons; and where the open list's box runs up under the bars,
- * Previous brings each line it steps to out from under them.
+ * scrolled to, clear of it, the page staying where that scroll put it; no
+ * focus lands under the bar, tabbing through the decision or stepping by the
+ * list, nor moves the page as it lands on the bar's own buttons; where the
+ * open list's box runs up under the bars, Previous brings each line it steps
+ * to out from under them; and where the screen crosses the size that gives
+ * the list a column of its own, either way, a line of the list that had focus
+ * has it again where the list is drawn now.
  * The filter keeps the flagged decisions, those where Trained AI differed or
  * every one, saying how many each holds; Next and Previous visit only what it
  * keeps, a decision it leaves out stays shown, dim, and the filter is kept
@@ -49,23 +52,27 @@
  * row outlines; with Trained AI's move kept back, it is answered by a call or
  * Pass picked by keyboard, kept as Now. The review's two settings, "Hide
  * Trained AI's move" and "Hide other players' tiles", are the same in Options
- * and in the review's header, kept across a reload, and on a phone in the
- * settings alone. With both on, a decision keeps the move and the other
- * players' tiles back, every legal discard a tile to press and every other
- * move a button under the hand, until Show answer, s, a digit or a tile
- * pressed reveals it, a pick kept as Now and the racks turning over where
- * they lay, focus going on to Next as the control used goes; on a phone its
- * live hand is tabbed through clear of the bars; each reveal stays through
- * steps, Back and opening again, and is gone after a reload; with the tiles
- * alone kept back, Show tiles turns them over. The keys step, change hand,
- * show what a decision keeps back, move along and pick from its live hand, 0
- * the tile just drawn, and go back, and do nothing under a dialog, in a
- * field, with a modifier held or with the shortcuts off. On a phone, where
- * the final result covers the standings, the review must be reachable from
- * the result itself by touch and come back to the standings; held sideways,
- * from the standings beside the result; and from the standings' own button
- * under the result, by keyboard, it must leave the page as the result's own
- * button does, with the result's chip bringing it back, focus and all.
+ * and, from tablet width, in the review's header, kept across a reload, and on
+ * a phone in the settings alone. With both on, a decision keeps the move and
+ * the other players' tiles back, every legal discard a tile to press and every
+ * other move a button under the hand, until Show answer, s, a digit or a tile
+ * pressed reveals it, a pick kept as Now and the racks turning over where they
+ * lay, the table staying where it was on the screen, at the top of a desktop's
+ * page and on a phone held upright, at a turn and at an answer to a discard,
+ * and focus going on to Next as the control used goes; on a phone its live
+ * hand is tabbed through clear of the bars; each reveal stays through steps,
+ * Back and opening again, and is gone after a reload, and in a new game; with
+ * the tiles alone kept back, Show tiles turns them over. The keys step, change
+ * hand, at the first decision the filter keeps there as a hand's name in the
+ * list does, show what a decision keeps back, move along and pick from its
+ * live hand, 0 the tile just drawn, and go back, and do nothing under a
+ * dialog, in a field, with a modifier held or with the shortcuts off. On a
+ * phone, where the final result covers the standings, the review must be
+ * reachable from the result itself by touch and come back to the standings;
+ * held sideways, from the standings beside the result; and from the standings'
+ * own button under the result, by keyboard, it must leave the page as the
+ * result's own button does, with the result's chip bringing it back, focus and
+ * all.
  *
  * Before the end, any hand's result opens the review of the game so far,
  * restored from a save waiting at that result. It must open on the hand just
@@ -286,12 +293,13 @@ const tappable = (page, selector) => page.$eval(selector, element => {
  * since turning touch on reloads it; without `network` the page finds
  * Trained AI out of reach and never downloads it. `answerDelay` holds each
  * batch the review sends that many milliseconds before the worker has it, as
- * a slower device would take, and `trend` is the games the trend holds from
+ * a slower device would take, and `positionDelay` that many more for each
+ * position the batch asks about; `trend` is the games the trend holds from
  * before. `settings` is the preferences the page first loads with, Beginner
  * opponents and hints unless given. `ready` is what the page is waited for
  * by: the standings' review, or for a match saved at a hand's result, that
  * result's. */
-async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, trend = null,
+async function openPage(width, height, { touch = false, network = true, saved = snapshot, answerDelay = 0, positionDelay = 0, trend = null,
   settings = { version: 2, difficulty: 'beginner', hints: true }, ready = '.standings [data-review-game]' } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.errors = [];
@@ -306,7 +314,7 @@ async function openPage(width, height, { touch = false, network = true, saved = 
       void answer.catch(() => {}); // A context can close while a request is pending.
     });
   }
-  await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, trendKey, trend, settings) => {
+  await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, positionDelay, trendKey, trend, settings) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(saved));
     if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify(settings));
     if (trend && !localStorage.getItem(trendKey)) localStorage.setItem(trendKey, JSON.stringify({ version: 1, games: trend }));
@@ -324,15 +332,16 @@ async function openPage(width, height, { touch = false, network = true, saved = 
       postMessage(data, ...rest) {
         if (data?.count) {
           window.reviewBatches.push({ id: data.id, count: data.count, mask: Array.from(data.mask) });
-          if (answerDelay) {
-            setTimeout(() => super.postMessage(data, ...rest), answerDelay);
+          const delay = answerDelay + positionDelay * data.count;
+          if (delay) {
+            setTimeout(() => super.postMessage(data, ...rest), delay);
             return;
           }
         }
         super.postMessage(data, ...rest);
       }
     };
-  }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, TREND_KEY, trend, settings);
+  }, SAVE_KEY, SETTINGS_KEY, saved, answerDelay, positionDelay, TREND_KEY, trend, settings);
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/`, { waitUntil: 'networkidle0' });
   await page.waitForSelector(ready);
   return page;
@@ -577,12 +586,12 @@ const steady = page => page.evaluate(() => new Promise(done => {
  * bar. Says what was measured, once the page has been drawn after the
  * scroll, as the player sees it.
  *
- * The page is let settle first, and the tiles scrolled to again once it has:
- * at 390 by 844, just after the screen changed size, CI found the page 374
- * pixels on from where the scroll had put it a few frames before, as if the
- * browser's own scroll for the change of size had come after the check's.
- * Where the page moves after the first scroll, the log says how far; what
- * the first scroll found is said too, should the second fail. */
+ * The page is let settle first, as a change of the screen's size takes the
+ * page and the browser a few frames, and must then stay where the scroll to
+ * the tiles put it: a page that went on moving by itself would take the
+ * tiles from under the player's eyes, or under the bars. (Measured in the
+ * same frame as a change of size, CI once found the page 374 pixels on from
+ * where the scroll had put it, at 390 by 844.) */
 async function stageFits(page) {
   const tiles = '[data-decision] .mine .hand .tile';
   const where = () => page.evaluate(selector => ({ scrolled: Math.round(scrollY),
@@ -593,9 +602,6 @@ async function stageFits(page) {
   const first = await where();
   await settle(page);
   await steady(page);
-  const then = await where();
-  await page.$eval(tiles, tile => tile.scrollIntoView({ block: 'start' }));
-  await settle(page);
   const shown = await page.evaluate(() => {
     const tile = document.querySelector('[data-decision] .mine .hand .tile');
     const bar = document.querySelector('header.bar'), steps = document.querySelector('[data-game-review] [data-steps]');
@@ -605,9 +611,8 @@ async function stageFits(page) {
       steps: { top: Math.round(edge.top), bottom: Math.round(edge.bottom) }, tile: Math.round(tile.getBoundingClientRect().top), height: innerHeight,
       scrolled: Math.round(scrollY) };
   });
-  const size = `${page.viewport().width}x${page.viewport().height}`, said = `${JSON.stringify(shown)}; the first scroll ${JSON.stringify(first)}, `
-    + `settled ${JSON.stringify(then)}`;
-  if (then.tile !== first.tile || then.scrolled !== first.scrolled) console.log(`the page moved after the first scroll to the tiles at ${size}: ${said}`);
+  const size = `${page.viewport().width}x${page.viewport().height}`, said = `${JSON.stringify(shown)}; the scroll to the tiles ${JSON.stringify(first)}`;
+  assert.ok(shown.tile === first.tile && shown.scrolled === first.scrolled, `the page moved after the scroll to the tiles at ${size}: ${said}`);
   if (shown.sticks) {
     assert.ok(shown.steps.top >= shown.top - 1 && shown.steps.bottom <= shown.height, `the step bar on the screen at ${size}: ${said}`);
     if (shown.stage < shown.top) assert.ok(Math.abs(shown.steps.top - shown.top) <= 1, `the step bar stuck flush at the top at ${size}: ${said}`);
@@ -762,7 +767,8 @@ const savedTo = (key, count, selector) => JSON.parse(localStorage.getItem(key))?
  * move is applied, so every command a hand saves is a move of the player's.
  * Waits for the hand's result. */
 async function playHand(page, hand) {
-  for (let at = hands[hand.index - 1].end + 1; at < hand.end; at++) {
+  // A hand's commands follow the one that dealt it, the hand before's end.
+  for (let at = hand.index ? hands[hand.index - 1].end + 1 : 0; at < hand.end; at++) {
     const command = snapshot.commands[at], frame = decisionAt.get(at);
     assert.ok(command.type === 'choose' && frame, `command ${at} is a move of the player's`);
     const call = frame.choices.filter(choice => choice.kind !== 'discard')
@@ -947,7 +953,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("every step of a hand shows every hand face up and the board as it stood, walked by the arrow key and by Next at desktop, tablet and phone sizes, the step bar on the screen, nothing focused under it, and the open list's line on show stepped out from under it", async () => {
+  await cases.check("every step of a hand shows every hand face up and the board as it stood, walked by the arrow key and by Next at desktop, tablet and phone sizes, the step bar on the screen, nothing focused under it, the open list's line on show stepped out from under it, and a line keeping focus as the list moves between its column and its fold", async () => {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
@@ -1005,16 +1011,33 @@ try {
     // reload the page, and the review with it. A phone's picture is of the
     // screen, so there are two: the table, and the player's own seat.
     let step = frames.length - 1;
+    /** Whether the screen gives the list a column of its own (REVIEW_WIDE). */
+    const wideAt = (width, height) => width >= 1100 && height >= 600;
+    /** Waits until the line of the decision `key` has focus in the list as
+     * it is drawn now, the column or the folded list, which is then open,
+     * and checks that the line is in view there. */
+    const lineKeeps = async (key, size) => {
+      await page.waitForFunction(selector => document.activeElement?.matches(selector), { timeout: 5000 }, line(key))
+        .catch(async () => assert.fail(`the line of ${key} keeps focus across ${size}, not ${await focusedName(page)}`));
+      assert.equal(await page.$('details[data-review-index]:not([open])'), null, `the list open for the line at ${size}`);
+      assert.equal(await lineInView(page), true, `the line of ${key} in view at ${size}`);
+    };
+    let wasWide = true;
     for (const [width, height] of [[1440, 900], [1366, 768], [800, 1280], [390, 844], [320, 568], [844, 390]]) {
       await page.setViewport({ width, height });
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+      // Across the size that gives the list a column of its own, the list is
+      // drawn afresh in its other place, and the line pressed last at the
+      // size before has focus there again: in the folded list, opened for it.
+      if (wideAt(width, height) !== wasWide) await lineKeeps(`${chosen.index}:${frames.length - 1}`, `${width}x${height}`);
+      wasWide = wideAt(width, height);
       await overviewIsRight(page, chosen, step);
       // The stage fits the screen as soon as the screen changes, before any
       // press: narrowed to a phone's, the step bar sticks under the game's
-      // bar. Measured in the same task as the scroll to the player's tiles,
-      // CI found the bar at the top of the screen under it, and a frame
-      // after that scroll, as stageFits measures now, where it belongs.
-      // Should it fail, the picture shows what the player saw.
+      // bar. stageFits lets the page settle from the change of size before
+      // it scrolls to the player's tiles, and the page must then stay where
+      // that scroll put it. Should it fail, the picture shows what the
+      // player saw.
       await stageFits(page).catch(async error => {
         await shot(page, `review-resized-${width}x${height}`);
         throw error;
@@ -1122,6 +1145,11 @@ try {
         }
       }
     }
+    // And back across it to a wide screen, from the folded list: the line
+    // pressed last at the size before has focus in the column.
+    await page.setViewport({ width: 1100, height: 900 });
+    await lineKeeps(`${chosen.index}:${frames.length - 1}`, '1100x900');
+    assert.ok(await page.$('aside[data-review-index]'), 'the list a column of its own again at 1100x900');
     // The figures at each size, from every step of the hand: the narrowest
     // and widest tile of the opponents' and of the player's, and the least
     // and most height the table and the player's seat took together.
@@ -1135,11 +1163,16 @@ try {
 
   await cases.check('the list of hands shows the line on show as it opens, stays as the player leaves it, folded under the step bar or open, with focus on the line pressed, as the step changes and later hands are reviewed, by touch and keyboard, and on a wide screen keeps still what the player looks at, a line or a filter pressed or an earlier hand, the page still', async () => {
     // A page loaded at each size, one at a time, where the list is folded
-    // above the decision. Each batch reaches the worker a second late, so
-    // that later hands are still being reviewed while the list is used,
-    // however fast the machine.
+    // above the decision. Each batch reaches the worker 120 milliseconds a
+    // position late, about a second for a full batch, so that later hands
+    // are still being reviewed while the list is used, however fast the
+    // machine. The delay is by the position, not by the batch, so that none
+    // reads as a slow device's, over half a second a position, which would
+    // open the list by itself (GameReview) whatever the player left it as: a
+    // second's delay on a batch of one position, such as a declaration's,
+    // would.
     for (const [width, height] of [[390, 844], [320, 568], [844, 390], [800, 1280]]) {
-      const size = `${width}x${height}`, page = await openPage(width, height, { touch: true, answerDelay: 1000 });
+      const size = `${width}x${height}`, page = await openPage(width, height, { touch: true, positionDelay: 120 });
       await reviewWholeGame(page);
       const list = 'details[data-review-index]';
       /** Whether the list is open, and the decision whose line has focus, or
@@ -1551,6 +1584,15 @@ try {
     await press(page, '[data-game-review] [data-hide-tiles]');
     await stored(false, false);
     assert.deepEqual(await boxes(), all(false));
+    // At a tablet's width, where the list is folded above the decision, the
+    // header still offers them: one turned on there, and Options agrees.
+    await page.setViewport({ width: 800, height: 1280 });
+    await settle(page);
+    assert.notEqual(await page.$eval('[data-game-review] .hiding', el => getComputedStyle(el).display), 'none', 'in the header at 800x1280');
+    await press(page, '[data-game-review] [data-hide-tiles]');
+    await stored(false, true);
+    assert.deepEqual(await boxes(), { 'options move': false, 'header move': false, 'options tiles': true, 'header tiles': true },
+      'the two places agree at 800x1280');
     assert.deepEqual(page.errors, []);
     await closePage(page);
 
@@ -1569,7 +1611,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check("with both settings on, a decision keeps Trained AI's move and the other players' tiles back until asked, by Show answer, s, a tile's digit or the tile itself, a pick kept as Now, the racks turning over in place, each reveal kept through steps, Back and opening again, and gone after a reload", async () => {
+  await cases.check("with both settings on, a decision keeps Trained AI's move and the other players' tiles back until asked, by Show answer, s, a tile's digit, the tile itself or a move under the hand, a pick kept as Now, the racks turning over in place and the table staying where it was, each reveal kept through steps, Back and opening again, and gone after a reload and in a new game", async () => {
     const hiding = { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true, reviewHideTiles: true };
     const page = await openPage(1100, 900, { settings: hiding });
     await reviewWholeGame(page);
@@ -1803,6 +1845,36 @@ try {
     await reviewWholeGame(page);
     await page.waitForSelector(`[data-review-index] [data-hand="${byButton.hand}"][data-status="done"]`, { timeout: 300000 });
     await stepTo(page, keyOf(byButton));
+    await keptBack(page, byButton);
+
+    // Nor is a reveal kept for another match. The game's first decision,
+    // revealed again, is put to the player again at a new game's first
+    // decision, which has the same place in its review. New game deals from
+    // the clock, which is held at this game's seed for the press, so that
+    // the new match is this game again, its first hand played as it was: a
+    // reveal kept across matches would show at the same decision.
+    assert.equal(keyOf(byButton), '0:0', "the game's first decision has a choice");
+    await press(page, '[data-game-review] [data-reveal]');
+    await answered();
+    await page.click('[data-game-review] [data-close-review]');
+    await page.waitForFunction(() => !document.querySelector('[data-game-review]'), { timeout: 5000 });
+    await page.evaluate(seed => {
+      const clock = Date.now;
+      Date.now = () => seed;
+      try { document.querySelector('.restart').click(); } finally { Date.now = clock; }
+    }, snapshot.seed);
+    await playHand(page, hands[0]);
+    await page.click('.screen [data-review-game]');
+    await page.waitForFunction(() => document.activeElement?.id === 'game-review-title', { timeout: 5000 });
+    assert.equal(await page.$eval('#game-review-title', el => el.textContent), 'Game so far', 'a new game');
+    assert.equal(await stepText(page), placeOf(hands[0], 0), "the new game's review opens on its first decision");
+    // Asked again whether Trained AI has answered it yet or not: the racks lie
+    // face down, with Show tiles until it has answered and Show answer after.
+    const asked = await shownAt(page);
+    assert.ok(['Show tiles', 'Show answer'].includes(asked.reveal), `asked again in a new game, not ${asked.reveal}`);
+    assert.ok(asked.racks.length === 3 && asked.racks.every(rack => rack.label.endsWith(', face down') && rack.down === rack.tiles),
+      'the racks face down in a new game');
+    await page.waitForSelector('[data-review-index] [data-hand="0"][data-status="done"]', { timeout: 300000 });
     await keptBack(page, byButton);
     assert.deepEqual(page.errors, []);
   });
@@ -2237,7 +2309,7 @@ try {
     assert.deepEqual(page.errors, []);
   });
 
-  await cases.check('the keys step, change hand, show what a decision keeps back, pick from its live hand and go back, and do nothing under a dialog, in a field, with a modifier held or with the shortcuts off', async () => {
+  await cases.check("the keys step, change hand at the first decision the filter keeps there as the hand's name does, show what a decision keeps back, pick from its live hand and go back, and do nothing under a dialog, in a field, with a modifier held or with the shortcuts off", async () => {
     // Trained AI's move kept back, so that s and the digits have a decision
     // to answer; the arrows step all the same.
     let page = await openPage(1100, 900, { settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true } });
@@ -2292,6 +2364,34 @@ try {
     await key('Escape');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'), { timeout: 5000 });
     assert.ok(await page.$('[data-game-review]'), 'Esc closed the dialog, not the review');
+
+    // Under the flagged decisions, Shift+→ goes into the next hand at its
+    // first flagged decision, which need not be its first, and Shift+← back
+    // into the hand before at its own; the hand's name in the list goes
+    // where Shift+→ went. Each hand's first flagged decision is read from the
+    // list's flagged lines.
+    await choose(page, 'flagged');
+    const firstFlagged = new Map();
+    for (const flagged of await page.$$eval('[data-review-index] [data-flagged]', lines => lines.map(item => item.dataset.flagged))) {
+      const [hand, step] = flagged.split(':').map(Number);
+      if (!firstFlagged.has(hand)) firstFlagged.set(hand, step);
+    }
+    const entryOf = hand => firstFlagged.get(hand.index) ?? 0;
+    const into = hands.find(hand => entryOf(hand) > 0 && hands.some(other => other.index < hand.index && other.frames.length));
+    assert.ok(into, 'a hand whose first flagged decision is not its first, after one the player made a decision in');
+    const earlier = hands.findLast(hand => hand.index < into.index && hand.frames.length);
+    const nameOf = hand => `[data-review-index] [data-hand-row="${hand.index}"]`;
+    await page.focus(nameOf(earlier));
+    await page.keyboard.press('Enter');
+    await onPlace(page, earlier, entryOf(earlier));
+    await key('ArrowRight', true);
+    await onPlace(page, into, entryOf(into));
+    await key('ArrowLeft', true);
+    await onPlace(page, earlier, entryOf(earlier));
+    await page.focus(nameOf(into));
+    await page.keyboard.press('Enter');
+    await onPlace(page, into, entryOf(into));
+    await choose(page, 'every');
 
     // At a turn that keeps its answer back, whose tile just drawn may be
     // thrown: s and the digits do nothing with a modifier held or in a field;
