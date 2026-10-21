@@ -24,12 +24,17 @@ test('the manifest lists every network whole, the default first, and keeps expor
   }
 });
 
-test('0.1.1110 is the default, and 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
-  // Generation 1110 of the placement fork, at the owner's word; 810 and 410
-  // are the exports the site played before it, byte for byte.
+test('0.1.1410 is the default, and 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
+  // Generation 1410 of the placement fork that pays points at alpha 0.05, at
+  // the owner's word; 1110, 810 and 410 are the exports the site played
+  // before it, byte for byte.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
-  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1110', '0.1.810', '0.1.410']);
-  assert.equal(MANIFEST, find('0.1.1110'));
+  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
+  assert.equal(MANIFEST, find('0.1.1410'));
+  assert.deepEqual({ ...find('0.1.1410') }, { version: '0.1.1410', source: 'fusion-place-a005/history/gen-01410', generation: 1410,
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107858348, origin,
+    object: 'models/g1410/5c34e472d19e61714d8b2e32320fcbc46415dff932ef4ec2c3da603fe55fbf26',
+    sha256: '5c34e472d19e61714d8b2e32320fcbc46415dff932ef4ec2c3da603fe55fbf26' });
   assert.deepEqual({ ...find('0.1.1110') }, { version: '0.1.1110', source: 'fusion-place-a0/history/gen-01110', generation: 1110,
     reward: { kind: 'placement', alpha: 0 }, precision: 'float32', bytes: 116633861, storedBytes: 107857675, origin,
     object: 'models/g1110/f3ef362fa4a93c04677f62c0aa296c0f5d39a52d402d2e5bc1c4aca3da643136',
@@ -62,13 +67,20 @@ test("a network's value is named and described by the reward it learned from, as
   assert.deepEqual(placement, {
     label: 'Estimated placement reward',
     title: 'Estimated placement bonus, not a win probability',
-    help: `Trained 0.1.1110 was last trained on placement alone: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself. Points count only through the places they win. This is the network's estimate, not a win probability.`,
+    help: `Trained 0.1.1110 was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, points counting only through the places they win. An estimate, not a win probability.`,
   });
   assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
-  // A placement reward that weighs points says how much they weigh.
-  const tiebreak = valueWords({ version: '0.1.1210', reward: { kind: 'placement', alpha: 0.05 } });
-  assert.equal(tiebreak.label, 'Estimated placement reward');
-  assert.equal(tiebreak.help, `Trained 0.1.1210 was last trained on placement and points: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself, plus 0.05 × its hand's point change ÷ 4,000. This is the network's estimate, not a win probability.`);
+  // 1410: the same at alpha 0.05, which pays the hand's points beside the
+  // bonus and says how much they weigh, in the tooltip too.
+  const tiebreak = valueWords(find('0.1.1410'));
+  assert.deepEqual(tiebreak, {
+    label: 'Estimated placement reward',
+    title: 'Estimated placement bonus plus 0.05 × point change ÷ 4,000, not a win probability',
+    help: `Trained 0.1.1410 was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, plus 0.05 × the hand's point change ÷ 4,000. An estimate, not a win probability.`,
+  });
+  assert.doesNotMatch(tiebreak.help, /training reward|finishing place|only through the places/);
+  // Another weight is said as it was given.
+  assert.match(valueWords({ version: '0.1.9', reward: { kind: 'placement', alpha: 0.4 } }).help, /, plus 0\.4 × the hand's point change ÷ 4,000\./);
   // A reward this build cannot describe is not described.
   for (const reward of [undefined, { kind: 'other' }]) {
     const unknown = valueWords({ version: '0.1.9', reward });
@@ -78,7 +90,7 @@ test("a network's value is named and described by the reward it learned from, as
   // Every listed network is described by its own reward, and the page
   // describes the one it plays.
   for (const network of NETWORKS) {
-    assert.match(valueWords(network).help, /learned from a mixed reward|was last trained on placement/, network.version);
+    assert.match(valueWords(network).help, /learned from a mixed reward|was last trained on the placement bonus/, network.version);
     playNetwork(network.version);
     assert.deepEqual(valueWords(), valueWords(network));
   }
