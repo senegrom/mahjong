@@ -1,0 +1,43 @@
+name: Prepare approved Dali Green Dragon B
+on:
+  push:
+    branches: [art/dali-green-b-prep-20261021]
+    paths:
+      - .dali-green-b-prep/**
+      - .github/workflows/prepare-dali-green-b.yml
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+      - name: Assemble exact selected middle artwork and verify preservation
+        run: node .dali-green-b-prep/prepare.mjs
+      - name: Install verification dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+      - name: Run Dali and tile regressions
+        working-directory: web
+        run: node --test tests/dali-*.test.js tests/tile-faces.test.js
+      - name: Lint scoped exporter and tile tests
+        working-directory: web
+        run: npx eslint scripts/export-dali-tiles.mjs tests/dali-*.test.js tests/tile-faces.test.js --max-warnings 0
+      - name: Recheck preservation and deterministic export after tests
+        run: node .dali-green-b-prep/prepare.mjs --verify
+      - name: Commit clean verified tree on preparation branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r .dali-green-b-prep .github/workflows/prepare-dali-green-b.yml
+          rm -rf .dali-green-b-prep
+          git add docs/design/dali web/public/tiles/dali web/scripts/export-dali-tiles.mjs web/src/lib/dali-faces.js web/tests
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'Prepare approved greener river dragon B as Dali Hatsu with prior artwork unchanged'
+          git push origin HEAD:refs/heads/art/dali-green-b-prep-20261021
+          git rev-parse HEAD HEAD^{tree}
