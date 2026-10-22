@@ -798,6 +798,37 @@ test('a review waits at its gate while the notes ask, and goes on where it was, 
   } finally { review.dispose(); }
 });
 
+test('a review sends a batch in the turn it finds its gate open, so that what begins to ask as the page draws holds the batch back', async () => {
+  // The page draws a moment after the review says it has changed (Svelte,
+  // on a microtask), and a decision drawn then can begin to ask: here, once
+  // the hand just played is reviewed, as the review goes on to the first
+  // hand. A batch sent after the gate was found open and not looked at
+  // again would go to the worker behind what was asked, its deadline
+  // running.
+  const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
+  const asking = new Asking(), sizes = [], waits = [];
+  let drawing = false, stopAsking = null, sentBefore = null;
+  const review = gatedReview(saved, asking, { sizes, waits, onChange: changed => {
+    if (drawing || changed.hands[2].status !== 'done') return;
+    drawing = true;
+    queueMicrotask(() => {
+      stopAsking = asking.begin();
+      sentBefore = sizes.length;
+    });
+  } });
+  try {
+    review.review();
+    await until(() => stopAsking, 'the page begins to ask as it draws the hand just played, reviewed');
+    for (let count = 0; count < 50; count++) await turn();
+    assert.equal(sizes.length, sentBefore, 'no batch is sent while it asks');
+    assert.ok(review.busy && waits.length > 0, 'the review waits at its gate');
+    stopAsking();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.deepEqual(sizes, await ungatedSizes(saved), 'every batch once, the first hand going on where it waited');
+  } finally { review.dispose(); }
+});
+
 test("a slow device waits at the gate as any other, and still holds after the hand for the player's word", async () => {
   const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
   const asking = new Asking(), sizes = [], waits = [], answer = network(sizes);

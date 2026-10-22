@@ -156,10 +156,13 @@
   // review's batch (review-insight-policy.js), each sent only while the notes
   // ask nothing and no batch is with the worker: the review's, counted as it
   // is sent (workerBatches), or another pass. Its spells (insightAsking)
-  // shut the review's gate as the notes' do, so the review's next batch waits
-  // behind one pass at most, and a pass behind one batch. The notes' first
-  // question waits behind whichever of the two is with the worker, one at
-  // most, as it waited behind a batch before.
+  // shut the review's gate as the notes' do, so the review waits there for
+  // the whole of a Why line or a search, until the worker has answered its
+  // last pass, and sends no batch to wait behind one. Neither ever waits in
+  // the worker's queue for the other, where a deadline would run, only at
+  // its gate in the page. The notes' first question waits behind whichever
+  // of the two is with the worker, one at most, as it waited behind a batch
+  // before.
   const insightAsking = new Asking(), workerBatches = new Asking();
   const reviewBatch = countedBatches(analyzeBatch, workerBatches);
   const reasoning = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking: insightAsking, notes: notesAsking,
