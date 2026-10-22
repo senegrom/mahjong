@@ -662,20 +662,32 @@ the tiles that share the fact and, where the fact has a clean change, taking
 it away halves its lead; **Partly** where a check fails; **Not explained**
 where no fact favours its tile ("Partly: You had already thrown a 7
 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles
-you had already thrown."). Partly and Not explained are buttons whose title,
-a tooltip, is the check's workings, and which show them under the line when
-pressed, for a keyboard, a finger or a screen reader. The line is worked out
-as the decision is shown, in the page's engine and at most one forward pass,
-and drawn with what follows it once it is had, so nothing moves under a
-pointer. Then **What would change its mind?**, with about how long the search
-takes at the review's own time a position ("What would change its mind? ·
-about 6 s"). It asks Trained AI about the table changed in one thing the
-player could see, a tile of the hand, a discard, the dora indicator, a riichi,
-the score or the round, only as a game can reach it, and never the wall, the
-dealer or a call taken back; pairs of changes only where no single change
-flips the choice. Pressed, it gives way to its progress ("Trying changes · 8
-of 36") and **Cancel**, focus going to Cancel, and then to what it found,
-focus going to its first line: "One change and it throws your west wind:",
+you had already thrown."); **Not checked** where the check could not be run,
+the fact said all the same: Trained AI, asked the table again, answered it
+otherwise than the review recorded, or could not be asked. Partly, Not
+explained and Not checked are buttons whose title, a tooltip, is the check's
+workings or why it was not run ("Asked again, Trained AI answered this table
+differently, so the check was not run."), and which show them under the line
+when pressed, for a keyboard, a finger or a screen reader. A line that fails
+before it has its fact says why ("Not checked: The trained opponent did not
+answer in time."), and a line that could not ask Trained AI asks again when
+its decision is next shown. The line is worked out as the decision is shown,
+in the page's engine and at most one forward pass, and drawn with what
+follows it once it is had, so nothing moves under a pointer. Then **What
+would change its mind?**, with about how long the search
+takes, from the tables it asks first to the most it may ask, at the review's
+own time a position as it stood when the decision came on show, so the words
+do not change under the player ("What would change its mind? · about 6–10
+s"; one figure where both round alike, "about 1 s", and minutes from a
+minute, "about 3–4 min"). It asks Trained AI about the table changed in one
+thing the player could see, a tile of the hand, a discard, the dora
+indicator, a riichi, the score or the round, only as a game can reach it, and
+never the wall, the dealer or a call taken back; pairs of changes only where
+no single change flips the choice. Pressed, it gives way at once to its
+progress, counted against the most it may ask, so the bar never runs back
+and fills early where no pair is needed ("Trying changes · 8 of 64"), and
+**Cancel**, focus going to Cancel, and then to what it found, focus going to
+its first line: "One change and it throws your west wind:",
 then a line for each kind of change that does, a faster hand, a hand worth
 more, what is safe, the shape of the hand and the table, each with how many of
 its changes did of how many were tried ("A faster hand (7 of 7 tried): if
@@ -685,21 +697,28 @@ what moved nothing ("Not moved by the score (±16,000) or the round."); or the
 pair that does ("No single change does it. Two together: …"); or "Nothing
 asked makes it throw your west wind." with the nearest change. A status line
 says the search began and, unless focus went to it, what it found. The button
-is offered at every such discard, on a phone too, but not where Trained AI
+and Cancel take each other's place, so Enter held down on either presses it
+once, and the second press of a double click or tap, which lands on the one
+that took the first one's place, is let go. The button is offered at every
+such discard, on a phone too, but not where Trained AI
 chose its tile by more than e^7 to one (a margin below −7, where nothing
 small moved it in the prototype), not at a call or a decision to declare
 riichi or not, not while Trained AI cannot be reached, and not where the Why
 line found that Trained AI does not answer the decision's table as the review
-recorded, which a search finding first says ("This table does not replay as
-the review asked it, so no change was tried."). A search asks 27 to 61
-tables: 4 to 10 seconds at desktop Chromium's 157 ms a position, a quarter to
-half a minute at half a second. A step to another decision, **Cancel**,
-closing the review, the next deal and leaving Play stop a search under way,
-which is forgotten; what was found stays with its decision alone, shown
-whenever it is again and never asked again. While the reasoning asks, the review of the rest of the game
-waits at its gate, as it waits for the hand's notes, and each of its passes,
-no longer than the review's batch, waits for any batch with the worker, so
-neither waits behind more than one of the other. Being part of Trained AI's
+recorded. A search finding that first says so ("Asked again, Trained AI
+answered this table differently, so no change was tried."), and the Why line
+is then Not checked too. A search asks 23 to 61 tables: 4 to 10 seconds at
+desktop Chromium's 157 ms a position, 12 to 31 seconds at half a second. A
+step to another decision, **Cancel**, closing the review, the next deal and
+leaving Play stop a search under way, which is forgotten; what was found
+stays with its decision alone, shown whenever it is again and never asked
+again. While the reasoning asks, the
+review of the rest of the game waits at its gate, as it waits for the hand's
+notes, for the whole of a Why line or a search, until the worker has
+answered its last pass. Each of its passes, no longer than the review's
+batch, waits for any batch with the worker, and the review sends a batch in
+the turn it finds its gate open, so neither ever waits in the worker's queue
+for the other, where a deadline would run. Being part of Trained AI's
 view, all of it waits with the view while the settings keep Trained AI's move
 back: nothing of it is drawn, said or asked until the answer is shown. It
 explains Trained AI's choice, not good play, and changes only what the player
@@ -904,7 +923,8 @@ phone, and each reveal kept through steps and opening again and gone after a
 reload and in a new game, and its way in and out on a phone, by touch and by
 keyboard; its reasoning at a discard where Trained AI threw another tile, the
 Why line and, above the margin floor, the button saying about how long, the
-search pressed by keyboard with its progress, Cancel and focus handed on,
+search pressed by keyboard, Enter held down, with its progress, Cancel and
+focus handed on, a double press on Cancel let go,
 what it found grouped by the kind of change, kept for its decision alone and
 fitting a phone, Cancel and a step away stopping it as the review goes on,
 and nothing of it drawn, said or asked while Trained AI's move is kept back,
