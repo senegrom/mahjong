@@ -157,7 +157,6 @@
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && Boolean(tile)}
-    class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:claimed
     class:from-draw={fromDraw}
@@ -187,7 +186,6 @@
     class="tile {size}"
     class:matisse={tileFace === 'matisse' && !facedown && Boolean(tile)}
     class:van-gogh={tileFace === 'van-gogh' && !facedown && Boolean(tile)}
-    class:dali={tileFace === 'dali' && !facedown && Boolean(tile)}
     class:rotated
     class:claimed
     class:from-draw={fromDraw}
@@ -248,7 +246,7 @@
     flex: none;
   }
 
-  .tile.matisse, .tile.dali, .tile.van-gogh {
+  .tile.matisse, .tile.van-gogh {
     /* Match the SVG's 26-unit corners at every tile size. */
     --face-radius: calc(var(--face-width) * 26 / 300);
   }
@@ -532,7 +530,7 @@
      felt there, as at any tile's edge, rather than a light line of the
      ivory beneath it. The ivory stays under the Classic pictures, which
      are drawn on it. */
-  .rotated:is(.matisse, .dali, .van-gogh) .face:not(.unpainted) {
+  .rotated:is(.matisse, .van-gogh) .face:not(.unpainted) {
     background: none;
   }
 

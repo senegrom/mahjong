@@ -5,7 +5,7 @@ import { FACE_HEIGHT, FACE_WIDTH, faceImage, placeStudyImage } from '../scripts/
 
 const root = new URL('../../', import.meta.url);
 const read = relative => readFileSync(new URL(relative, root), 'utf8');
-const SETS = ['matisse', 'dali', 'van-gogh'];
+const SETS = ['matisse', 'van-gogh'];
 const manifests = Object.fromEntries(SETS.map(set => [set, JSON.parse(read(`web/public/tiles/${set}/manifest.json`))]));
 const faces = SETS.flatMap(set => manifests[set].tiles.map(entry => ({ set, entry })));
 

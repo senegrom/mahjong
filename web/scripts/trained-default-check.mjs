@@ -31,7 +31,7 @@ const runtime = new Set([...ai].filter(url => url.endsWith('.wasm')));
 // saves them all before it activates, so this keeps it installing.
 const requested = new Map(), waiting = new Set(), installing = new Set();
 let holding = false, holdingFaces = false;
-const unusedFace = name => ['tiles/dali/', 'tiles/matisse/', 'tiles/van-gogh/'].some(folder => name.startsWith(folder));
+const unusedFace = name => ['tiles/matisse/', 'tiles/van-gogh/'].some(folder => name.startsWith(folder));
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist, intercept: async name => {
   requested.set(name, (requested.get(name) ?? 0) + 1);
   if (holdingFaces && unusedFace(name)) await new Promise(done => installing.add(done));
