@@ -230,6 +230,18 @@ export function keptTime(kept, at, positionMs) {
   return kept?.at === at && kept.ms != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
 }
 
+/** Waits until the page has drawn what was changed before it: a frame, then a
+ * turn of the event loop, which comes once the frame is drawn. A search
+ * pressed shows its progress and Cancel so, before the engine plans it, work
+ * that holds the page for a moment, longer on a phone. Where nothing is drawn,
+ * a page in the background or the tests, a turn alone. */
+function afterDrawing() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame !== 'function' || globalThis.document?.hidden) setTimeout(resolve, 0);
+    else requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
 /** Whether version 1 of the reasoning speaks of a reviewed decision: one
  * where the player threw a tile and Trained AI chose to throw another. A
  * call, a riichi declared or not, a win, an only move and a decision Trained
@@ -354,22 +366,27 @@ export class MatchInsight {
 
   /** Searches for what would change Trained AI's mind at a decision, unless
    * a search is under way there. One had already is asked afresh only by a
-   * page that asks again; the panel offers it no button. Where it finds that
-   * Trained AI does not answer the decision's table as the review recorded,
-   * the decision's Why line, which may have asked nothing, is not checked
-   * either (notChecked). */
+   * page that asks again; the panel offers it no button. It is under way at
+   * once, planned as the most it can ask, and begins once the page has drawn
+   * it (afterDrawing): planning it holds the page for a moment, which would
+   * otherwise come before anything showed that the button was pressed. Where
+   * it finds that Trained AI does not answer the decision's table as the
+   * review recorded, the decision's Why line, which may have asked nothing,
+   * is not checked either (notChecked). */
   search(key) {
     if (this.searches.get(key)?.state === 'searching') return;
     const question = this.question(key);
     if (!question) return;
-    const entry = { state: 'searching', asked: 0, planned: 0, stop: new AbortController() };
+    const entry = { state: 'searching', asked: 0, planned: this.counted(key, question).most, stop: new AbortController() };
     this.searches.set(key, entry);
     const onProgress = ({ asked, planned }) => {
       if (this.searches.get(key) !== entry) return;
       Object.assign(entry, { asked, planned });
       this.notify();
     };
-    this.reasoning.search(question, { signal: entry.stop.signal, onProgress }).then(found => {
+    // A search stopped before the page drew it never begins.
+    const begin = () => (entry.stop.signal.aborted ? null : this.reasoning.search(question, { signal: entry.stop.signal, onProgress }));
+    afterDrawing().then(begin).then(found => {
       if (this.searches.get(key) !== entry) return;
       this.searches.set(key, { state: 'done', status: found.status, said: found.said });
       const why = this.whys.get(key);

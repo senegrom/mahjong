@@ -461,6 +461,24 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   assert.deepEqual(thrown.at(key).why, { state: 'failed', result: null, failure: 'The engine refused this table' });
 });
 
+test('a search pressed is under way at once, planned as the most it can ask, and asks nothing until the page has drawn it; stopped meanwhile, it never asks', async () => {
+  const worker = workerOfPasses(), { insight: reasoning } = insightOf(worker), key = keyOf(entry);
+  const insight = new MatchInsight(Game, reviewOf().review, reasoning);
+  insight.search(key);
+  const { search, most } = insight.at(key);
+  assert.deepEqual([search.state, search.planned, most, worker.sent], ['searching', 64, 64, 0]);
+  insight.cancel(key);
+  for (let count = 0; count < 20; count++) await turn();
+  assert.deepEqual([insight.at(key).search, worker.sent], [null, 0]);
+  // Pressed again, it plans the tables it asks first and room for the pairs,
+  // which its first progress says, and asks.
+  insight.search(key);
+  await until(() => worker.sent === 1, 'the first pass is with the worker');
+  assert.deepEqual([insight.at(key).search.asked, insight.at(key).search.planned], [0, 36 + 28]);
+  insight.leave(key);
+  worker.answer();
+});
+
 test("a search that finds Trained AI answering the decision's table otherwise than the review leaves its Why line not checked", async () => {
   // South 1 #9's Why line is explained without asking; the review recorded
   // the player's weight a hundredth off what Trained AI answers.

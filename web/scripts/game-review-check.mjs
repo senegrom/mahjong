@@ -77,11 +77,13 @@
  * At a discard where Trained AI threw another tile, its view ends with the
  * review's reasoning: a Why line, and above the margin floor "What would
  * change its mind?" saying about how long it takes at the review's own speed.
- * Pressed by keyboard, it gives way to its progress and Cancel, focus going to
- * Cancel, and then to what it found, focus going to its first line: on one of
+ * Pressed by keyboard, Enter held down, it gives way to its progress and
+ * Cancel, focus going to Cancel and the repeats pressing nothing, and then to
+ * what it found, focus going to its first line: on one of
  * the game's discards, the changes that make Trained AI throw the player's
  * tile, a line for each kind of change, in the order the kinds are named,
- * kept for that decision alone, asked once and fitting a phone. Cancel, while
+ * kept for that decision alone, asked once and fitting a phone. The second
+ * press of a double click on Cancel is let go; Cancel pressed, while
  * the review of the rest of the game waits for the search at its gate, brings
  * the button back with focus, and the search asks nothing more as the review
  * goes on to its end; a step to another decision stops a search too, nothing
@@ -2016,13 +2018,19 @@ try {
       assert.match(shown.button ?? '', /^What would change its mind\? · about \d+(–\d+)? (s|min)$/, `the button at ${verdict.key}`);
       searched++;
       await page.focus('[data-decision] [data-insight-search]');
-      await page.keyboard.press('Enter');
+      await page.keyboard.down('Enter');
       // Its progress and Cancel in its place, focus going on to Cancel as the
-      // button goes, and the status line saying the search began.
+      // button goes, and the status line saying the search began. Enter is
+      // held down: its repeats, which reach Cancel once it has focus, press
+      // nothing, so the search goes on.
       await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-cancel]'), { timeout: 5000 })
         .catch(async () => assert.fail(`focus on Cancel as the search begins, not on ${await focusedName(page)}`));
+      await page.keyboard.down('Enter');
+      await page.keyboard.down('Enter');
+      await page.keyboard.up('Enter');
       const under = await insightAt(page);
-      assert.ok(under.searching?.planned > 0 && under.button === null, JSON.stringify(under));
+      assert.ok(under.searching?.planned > 0 && under.button === null, `a held Enter does not cancel the search: ${JSON.stringify(under)}`);
+      assert.ok(await focusOn(page, '[data-decision] [data-insight-cancel]'), `focus stays on Cancel, not on ${await focusedName(page)}`);
       assert.equal(under.said, 'Trying changes…');
       // What it found, under the Why line, and focus on its first line as
       // Cancel goes, which says it, so the status line says nothing more.
@@ -2099,9 +2107,15 @@ try {
     await page.focus('[data-decision] [data-insight-search]');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-cancel]'), { timeout: 5000 });
-    // A pass of the search answered, the next under way or waiting its turn:
-    // Cancel, by keyboard.
+    // A pass of the search answered, the next under way or waiting its turn.
+    // The second press of a double click, which lands on Cancel where the
+    // first one's button gave way and was meant for that one, is let go.
     await page.waitForFunction(() => Number(document.querySelector('[data-decision] [data-insight-progress]')?.value) > 0, { timeout: 120000 });
+    await page.$eval('[data-decision] [data-insight-cancel]', cancel => cancel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 })));
+    await settle(page);
+    assert.ok((await insightAt(page)).searching, "a double click's second press does not cancel the search");
+    assert.ok(await focusOn(page, '[data-decision] [data-insight-cancel]'), `focus stays on Cancel, not on ${await focusedName(page)}`);
+    // Cancel, by keyboard.
     await page.keyboard.press('Enter');
     const cancelled = await page.evaluate(() => window.reviewBatches.length);
     await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-search]'), { timeout: 5000 })

@@ -41,7 +41,11 @@
    * Cancel, from Cancel back to the button, and once the search ends to the
    * line that leads what it found. A status line, in the page from the
    * start, says politely that the search began and what it found, unless
-   * focus went to that line, which says it.
+   * focus went to that line, which says it. The two buttons hand focus to
+   * each other, so each lets go of a press that was meant for the other: the
+   * second of a double click or tap, which lands where the first one's button
+   * gave way; and Enter held down, whose repeats GameReview lets go of, as
+   * it does on the step bar (heldEnter).
    */
   let { insight = null, hand, step, positionMs = null, trainedAvailable = true } = $props();
 
@@ -88,6 +92,11 @@
     return timed.ms;
   });
   let estimate = $derived(shown ? searchTime(shown, speed) : null);
+
+  // The second press of a double click or tap, which lands on the control
+  // that took the place of the one the first pressed, and was meant for that
+  // one: let go.
+  const again = event => event.detail > 1;
 
   // Whether the check's workings are shown under the Why line, which stays as
   // the player leaves it across steps, as the view's other folded parts do.
@@ -157,11 +166,12 @@
         <div class="searching" data-insight-searching>
           <progress max={Math.max(1, search.planned)} value={search.asked} aria-label="Changes tried" data-insight-progress></progress>
           <span class="count">Trying changes · {search.asked} of {search.planned}</span>
-          <button type="button" class="app-control" data-insight-cancel onclick={() => insight.cancel(subject)}>Cancel</button>
+          <button type="button" class="app-control" data-insight-cancel onclick={event => { if (!again(event)) insight.cancel(subject); }}>Cancel</button>
         </div>
       {:else if offered}
         <button type="button" class="app-control ask" data-insight-search
-          aria-label={estimate ? `What would change its mind? About ${estimate.said}` : undefined} onclick={() => insight.search(subject)}
+          aria-label={estimate ? `What would change its mind? About ${estimate.said}` : undefined}
+          onclick={event => { if (!again(event)) insight.search(subject); }}
           >What would change its mind?{#if estimate}<span class="estimate"> · about {estimate.short}</span>{/if}</button>
         {#if search?.state === 'failed'}<p class="failed" data-insight-failure>Search stopped: {search.failure}</p>{/if}
       {/if}
