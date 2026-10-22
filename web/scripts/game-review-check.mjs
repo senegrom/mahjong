@@ -803,6 +803,23 @@ async function reviewed(page) {
 /** The order a whole game's review asks about the tile-throwing game's
  * hands: its final hand first, then the rest from the first deal. */
 const wholeOrder = [hands.at(-1).index, ...hands.slice(0, -1).map(hand => hand.index)];
+/** The batches a review sent once reviewWholeGame had set it going again,
+ * where its first hand, the first of `order`, is asked from its first group
+ * a second time. Its Stop lets go of the batch under way, but the worker
+ * answers it all the same, since the review sends its batches without their
+ * signal (countedBatches), so that batch, and any before it, come first in
+ * `all`. Says where the walk begins in `all` (`from`), and the batches from
+ * there on. */
+function sinceContinue(all, order) {
+  const decisions = facts[order[0]];
+  let group = [];
+  for (let start = 0; !group.length && start < decisions.length; start += BATCH) {
+    group = decisions.slice(start, start + BATCH).filter(decision => !decision.forced).map(decision => decision.mask);
+  }
+  const asks = batch => batch.count === group.length && group.every((mask, slot) => mask.every((open, at) => batch.mask[slot * 46 + at] === open));
+  const from = Math.max(0, all.findIndex((batch, at) => at > 0 && asks(batch)));
+  return { from, batches: all.slice(from) };
+}
 /** Every decision of the hands a review asked about, in the order `order`
  * (a whole game's by default), judged from the worker's answers to the
  * batches it sent (walkBatches), in the order played. */
@@ -1993,7 +2010,7 @@ try {
     const page = await openPage(1100, 900);
     await reviewWholeGame(page);
     await reviewed(page);
-    const verdicts = verdictsOf(await page.evaluate(() => window.reviewBatches));
+    const verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder).batches);
     await choose(page, 'differed');
     // The discards where Trained AI threw another tile: the prototype's East
     // 3 #5 first, which single changes of three kinds flipped there, then the
@@ -2076,7 +2093,8 @@ try {
     await page.setViewport({ width: 1100, height: 900 });
     // The review asked every group once; the reasoning asked in passes of
     // its own between them.
-    assert.ok(walkBatches(await page.evaluate(() => window.reviewBatches), wholeOrder).passes.length >= 5, 'the search asked in passes');
+    const { batches } = sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder);
+    assert.ok(walkBatches(batches, wholeOrder).passes.length >= 5, 'the search asked in passes');
     assert.deepEqual(page.errors, []);
   });
 
@@ -2125,7 +2143,8 @@ try {
     // The review goes on to its end, and the search asks nothing more: no pass
     // of the reasoning is sent after Cancel.
     await reviewed(page);
-    const batches = await page.evaluate(() => window.reviewBatches), { passes } = walkBatches(batches, wholeOrder);
+    const { from, batches } = sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder);
+    const passes = walkBatches(batches, wholeOrder).passes.map(at => from + at);
     assert.ok(passes.length && passes.every(at => at < cancelled), `the reasoning's passes, ${passes.join(', ')}, all sent before Cancel, ${cancelled}`);
     const after = await insightAt(page);
     assert.ok(after.button && after.lead === null, 'the button is offered again, and nothing was found');
@@ -2139,7 +2158,7 @@ try {
     const page = await openPage(1100, 900, { saved: midway, ready: '.screen [data-review-game]', positionDelay: 120 });
     await reviewWholeGame(page, '.screen [data-review-game]');
     await reviewed(page);
-    const order = [2, 0, 1], verdicts = verdictsOf(await page.evaluate(() => window.reviewBatches), order);
+    const order = [2, 0, 1], verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), order).batches, order);
     await choose(page, 'differed');
     // A discard offering the search, with a decision where Trained AI
     // differed after it, which Next goes to.
@@ -2166,7 +2185,8 @@ try {
     assert.equal(await page.$('[data-decision] :is([data-insight-result], [data-insight-searching])'), null, 'nothing of the search where it was not asked for');
     // The pass the worker had ran to its end; since the step, only the Why
     // line of the decision stepped to may have asked.
-    const { passes } = walkBatches(await page.evaluate(() => window.reviewBatches), order);
+    const since = sinceContinue(await page.evaluate(() => window.reviewBatches), order);
+    const passes = walkBatches(since.batches, order).passes.map(at => since.from + at);
     assert.ok(passes.filter(at => at >= stepped).length <= 1, `nothing asked for the search after the step: ${passes.join(', ')}, step at ${stepped}`);
     // Back at the decision searched, its search forgotten: the button again.
     await press(page, '[data-game-review] [data-previous]');
@@ -2183,7 +2203,7 @@ try {
       settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true } });
     await reviewWholeGame(page, '.screen [data-review-game]');
     await reviewed(page);
-    const verdicts = verdictsOf(await page.evaluate(() => window.reviewBatches), [2, 0, 1]);
+    const verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), [2, 0, 1]).batches, [2, 0, 1]);
     await choose(page, 'differed');
     const target = verdicts.find(verdict => reasonedAbout(verdict) && marginOf(verdict) >= MARGIN_FLOOR) ?? verdicts.find(reasonedAbout);
     assert.ok(target, 'a discard where Trained AI threw another tile');
