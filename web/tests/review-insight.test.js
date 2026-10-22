@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
-import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, scoreEdit, searchOffered, singleEdits,
-  tablesAtMost, tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
+import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, notChecked, scoreEdit, searchOffered,
+  singleEdits, tablesAtMost, tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
@@ -248,8 +248,37 @@ test('a search stops at the unedited table where Trained AI does not answer it a
   const { why, search, asked } = await panel(entry, { weights });
   assert.equal(search.status, 'unlike the review');
   assert.deepEqual(asked, [PASS], 'nothing is asked after the first pass');
-  assert.deepEqual(saidLines(search.said), ['This table does not replay as the review asked it, so no change was tried.']);
+  assert.deepEqual(saidLines(search.said), ['Asked again, Trained AI answered this table differently, so no change was tried.']);
+  // The Why line's probe asked the same table: it says its fact, on the
+  // review's weights, not checked, and why in its tooltip.
   assert.equal(why.verdict, 'unlike the review');
+  assert.deepEqual(saidLines(why), ['Not checked: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 2.0% on tiles you had already thrown.']);
+  assert.equal(why.check, 'Asked again, Trained AI answered this table differently, so the check was not run.');
+});
+
+test('a Why line whose check cannot ask Trained AI says its fact all the same, not checked, with why in its tooltip', async () => {
+  const entry = question('e3-5');
+  const failing = await explainWhy({ ...entry, facts, ask: async () => { throw new Error('The trained opponent did not answer in time'); } });
+  assert.deepEqual(saidLines(failing), ['Not checked: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.']);
+  assert.deepEqual([failing.verdict, failing.failure, failing.check],
+    ['not checked', 'The trained opponent did not answer in time', 'The check was not run: The trained opponent did not answer in time.']);
+  // A line stopped while it asks is stopped, not said.
+  const stop = new AbortController();
+  await assert.rejects(explainWhy({ ...entry, facts, signal: stop.signal,
+    ask: async () => { stop.abort(); throw new DOMException('Asking stopped', 'AbortError'); } }), { name: 'AbortError' });
+});
+
+test("a Why line that asked nothing is said as not checked, its fact kept, where a search finds that Trained AI answers the decision's table otherwise", async () => {
+  // South 1 #9's line is explained without asking: its fact is the distance,
+  // which has no change to try.
+  const asked = [], why = await explainWhy({ ...question('s1-9'), facts, ask: async positions => { asked.push(...positions); return []; } });
+  assert.deepEqual([why.verdict, asked], ['explained', []]);
+  const unchecked = notChecked(why);
+  assert.deepEqual(saidLines(unchecked), ["Not checked: Your 6 circles leaves the hand 5 from waiting; Trained AI's 3 bamboo leaves it 4 from waiting. Trained AI puts 98.3% on tiles that keep the hand 4 from waiting."]);
+  assert.deepEqual([unchecked.verdict, unchecked.check], ['unlike the review', 'Asked again, Trained AI answered this table differently, so the check was not run.']);
+  // A line with a probe keeps its fact and its weight, not what the probe
+  // found: South 3 #4's.
+  assert.deepEqual(saidLines(notChecked((await panel(question('s3-4'))).why)), ["Not checked: Against North's riichi your 7 characters is a tile with no suji; Trained AI's white dragon cannot deal in. Trained AI puts 98.3% on tiles that cannot deal in."]);
 });
 
 test('a search stopped by its signal asks nothing more, and says it was stopped', async () => {

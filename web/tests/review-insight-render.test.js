@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { render } from 'svelte/server';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { scanMatch } from '../src/lib/game-review.js';
-import { explainWhy, sameMove, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
+import { explainWhy, notChecked, sameMove, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { text } from './fixtures/markup-text.js';
@@ -117,11 +117,30 @@ test('until the Why line is had, neither it nor the button is drawn, and the sta
     assert.doesNotMatch(html, /data-why=|data-insight-search/);
     assert.equal(statusLine(html), '');
   }
-  // A Why line that failed leaves the button to be pressed all the same.
-  const failed = panel({ ...had, why: { state: 'failed', result: null } });
+  // A Why line that failed before it had its fact says why, as not checked,
+  // and leaves the button to be pressed all the same.
+  const failed = panel({ ...had, why: { state: 'failed', result: null, failure: 'The trained opponent did not answer in time' } });
   assert.match(failed, /data-settled=""/);
-  assert.doesNotMatch(failed, /data-why=/);
+  assert.match(whyLine(failed)[0], /data-why="failed"/);
+  assert.equal(words(whyLine(failed)[1]), 'Not checked: The trained opponent did not answer in time.');
   assert.ok(button(failed), 'the button is offered');
+});
+
+test("a Why line whose check was not run says its fact under Not checked, a button whose tooltip says why, and the button is offered unless Trained AI answered the table otherwise", async () => {
+  // Trained AI could not be asked: the line is had with its fact, and failed.
+  const unasked = await explainWhy({ ...entry, facts: review_facts, ask: async () => { throw new Error('The trained opponent did not answer in time'); } });
+  const html = panel({ ...had, why: { state: 'failed', result: unasked, failure: unasked.failure } });
+  const verdict = /<button type="button" class="verdict[^"]*"([^>]*)>([^<]*)<\/button>/.exec(whyLine(html)[1]);
+  assert.match(whyLine(html)[0], /data-why="not checked"/);
+  assert.equal(words(whyLine(html)[1]), 'Not checked: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.');
+  assert.deepEqual([verdict[2], attribute(verdict[1], 'title')], ['Not checked', 'The check was not run: The trained opponent did not answer in time.']);
+  assert.ok(button(html), 'the button is offered');
+  // Trained AI answered the table otherwise than the review: no button.
+  const unlike = panel({ ...had, why: { state: 'done', result: notChecked(why) }, offered: false });
+  assert.match(whyLine(unlike)[0], /data-why="unlike the review"/);
+  assert.equal(attribute(/<button type="button" class="verdict[^"]*"([^>]*)>/.exec(whyLine(unlike)[1])[1], 'title'),
+    'Asked again, Trained AI answered this table differently, so the check was not run.');
+  assert.equal(button(unlike), null);
 });
 
 test("no button is offered below the margin floor, where Trained AI does not answer the table as the review recorded, or while it cannot be reached, and none says how long without the review's own time a position", () => {

@@ -438,17 +438,48 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   await until(() => review() === null, 'the review goes on once the pass is answered');
   assert.equal(worker.sent, 1, 'the search never asked');
 
-  // A worker that fails every request, as one reset fails them.
+  // A worker that fails every request, as one reset fails them. The Why
+  // line had its fact before its check asked, and says it, not checked.
   const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
   const broken = new MatchInsight(Game, reviewOf().review, failing.insight), key = keyOf(entry);
   broken.explain(key);
   broken.search(key);
-  await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search.state === 'failed', 'both fail');
-  assert.deepEqual(broken.at(key), { why: { state: 'failed', result: null }, tables: broken.at(key).tables, most: broken.at(key).most, offered: true,
+  await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search?.state === 'failed', 'both fail');
+  const { why, ...rest } = broken.at(key);
+  assert.deepEqual(rest, { tables: rest.tables, most: rest.most, offered: true,
     search: { state: 'failed', asked: undefined, planned: undefined, status: undefined, said: undefined, failure: 'The trained opponent did not answer in time' } });
+  assert.deepEqual([why.state, why.failure, why.result.verdict, why.result.check],
+    ['failed', 'The trained opponent did not answer in time', 'not checked', 'The check was not run: The trained opponent did not answer in time.']);
+  assert.deepEqual(saidLines(why.result), [WHY_SAID.replace(/^Partly/, 'Not checked')]);
   broken.explain(key);
   assert.equal(broken.at(key).why.state, 'asking', 'a failed Why line is asked again as it is shown again');
   await until(() => broken.at(key).why.state === 'failed', 'and fails again');
+  // A Why line that fails before it has its fact says only that it failed.
+  const thrown = new MatchInsight(Game, reviewOf().review, { why: async () => { throw new Error('The engine refused this table'); } });
+  thrown.explain(key);
+  await until(() => thrown.at(key).why.state === 'failed', 'it fails');
+  assert.deepEqual(thrown.at(key).why, { state: 'failed', result: null, failure: 'The engine refused this table' });
+});
+
+test("a search that finds Trained AI answering the decision's table otherwise than the review leaves its Why line not checked", async () => {
+  // South 1 #9's Why line is explained without asking; the review recorded
+  // the player's weight a hundredth off what Trained AI answers.
+  const plain = questions.find(question => question.id === 's1-9');
+  const network = recordedNetwork({ asked: [plain] }), { insight: reasoning } = insightOf(network), held = reviewOf([plain]);
+  const decision = held.review.hands[plain.record.hand].decisions[plain.record.decision];
+  decision.weighted = decision.weighted.map(choice => (choice.kind === 'discard' && choice.tile === plain.played.tile
+    ? { ...choice, weight: choice.weight + 0.01 } : choice));
+  const insight = new MatchInsight(Game, held.review, reasoning), key = keyOf(plain);
+  insight.explain(key);
+  await until(() => insight.at(key).why.state === 'done', 'the Why line is had');
+  assert.deepEqual([insight.at(key).why.result.label, network.sizes], ['Why', []], 'explained, asking nothing');
+  insight.search(key);
+  await until(() => insight.at(key).search?.state === 'done', 'the search stops at the unedited table');
+  const { why, search } = insight.at(key);
+  assert.deepEqual(saidLines(search.said), ['Asked again, Trained AI answered this table differently, so no change was tried.']);
+  assert.deepEqual(saidLines(why.result), ["Not checked: Your 6 circles leaves the hand 5 from waiting; Trained AI's 3 bamboo leaves it 4 from waiting. Trained AI puts 98.3% on tiles that keep the hand 4 from waiting."]);
+  assert.deepEqual([why.result.verdict, why.result.check, insight.at(key).offered],
+    ['unlike the review', 'Asked again, Trained AI answered this table differently, so the check was not run.', false]);
 });
 
 test('the button says about how long a search takes, from the tables it asks first to the most it asks, in seconds or in minutes, in words for a screen reader', () => {

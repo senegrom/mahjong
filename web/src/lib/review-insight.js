@@ -684,8 +684,11 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
   return { status: 'searched', asked: net.asked, singles: changes, pairs, thresholds, said };
 }
 
-/** What a search says when the unedited table is not the review's. */
-const UNLIKE = 'This table does not replay as the review asked it, so no change was tried.';
+/** What a search says when Trained AI, asked the unedited table again, does
+ * not answer it as the review recorded; and the workings of a Why line whose
+ * check stopped there, for its tooltip. */
+const UNLIKE = 'Asked again, Trained AI answered this table differently, so no change was tried.';
+const UNCHECKED = 'Asked again, Trained AI answered this table differently, so the check was not run.';
 
 const IDEAS = ['faster', 'worth more', 'safety', 'shape', 'table'];
 const TITLES = { faster: 'A faster hand', 'worth more': 'A hand worth more', safety: 'What is safe', shape: 'The shape of the hand', table: 'The table' };
@@ -897,27 +900,39 @@ function probeFor(fact, singles, me, river, A, P, after) {
  * fact of the two tiles telling nothing. It is explained when both hold,
  * partly when a check fails, and not explained when no fact favours its
  * tile. Asks only where there is a change to try, in one pass with the
- * unedited table first, and stops there, unchecked, where Trained AI does
- * not answer that table as the review recorded.
+ * unedited table first. Where Trained AI does not answer that table as the
+ * review recorded, or cannot be asked, the line says its fact all the same,
+ * not checked, with why in its tooltip.
  *
- * Answers `{ verdict, label, text, check }`, `check` being the workings for a
- * tooltip; or null for a decision version 1 does not reason about. */
+ * Answers `{ verdict, label, text, check, unchecked }`, `check` being the
+ * workings for a tooltip and `unchecked` what the line says where its check
+ * cannot be run (notChecked), and `failure` where Trained AI could not be
+ * asked, the line then worth asking again; or null for a decision version 1
+ * does not reason about. */
 export async function explainWhy({ position, played, preferred, weights, facts, ask, signal }) {
   const start = baselineOf({ position, played, preferred, weights, facts });
   if (!start) return null;
   const { F0, A, P, unseen } = start;
   const diffs = differences(A, P, F0), fact = leading(diffs, F0);
   const weight = Object.fromEntries(weights.filter(move => move.kind === 'discard').map(move => [move.tile, move.weight]));
-  const mass = massOf(fact, F0, weight, A, P);
+  const mass = massOf(fact, F0, weight, A, P), unchecked = factSaid({ fact, mass, diffs, P: P.tile });
   const after = edit => { const table = applyEdits(position, edit); return factsOf(facts(table), table); };
   const tries = probeFor(fact, singleEdits(position, { played, preferred }), F0.me, position.players[F0.me].discards, A, P, after);
   let probes = [];
   if (tries.length) {
     if (signal?.aborted) throw stopped();
-    const answers = await ask([position, ...tries.map(edit => applyEdits(position, edit))], signal);
+    let answers;
+    try {
+      answers = await ask([position, ...tries.map(edit => applyEdits(position, edit))], signal);
+    } catch (error) {
+      if (signal?.aborted) throw stopped();
+      if (error?.name === 'AbortError') throw error;
+      const failure = String(error?.message ?? error);
+      return { verdict: 'not checked', failure, label: 'Not checked', text: unchecked, check: `The check was not run: ${failure.replace(/\.?$/, '.')}`, unchecked };
+    }
     if (signal?.aborted) throw stopped();
     const unlike = unlikeReview(answers?.[0], weights);
-    if (unlike) return { verdict: 'unlike the review', unlike, label: 'Not checked', text: UNLIKE, check: '' };
+    if (unlike) return { verdict: 'unlike the review', unlike, label: 'Not checked', text: unchecked, check: UNCHECKED, unchecked };
     const lead = (a, p) => Math.log(Math.max(a, 1e-9)) - Math.log(Math.max(p, 1e-9));
     const before = lead(weight[A.tile] ?? 0, weight[P.tile] ?? 0);
     probes = judged(tries, answers.slice(1), { base: position, played, preferred, F0, facts }).filter(change => !change.refused).map(change => {
@@ -929,34 +944,52 @@ export async function explainWhy({ position, played, preferred, weights, facts, 
   }
   const probe = probes.find(change => !change.void) ?? null;
   const verdict = !fact ? 'not explained' : (mass?.mass ?? 0) >= MASS && (probe ? probe.halved : true) ? 'explained' : 'partly explained';
-  return { verdict, ...whySaid({ verdict, fact, mass, probe, voided: probes.find(change => change.void), diffs, A: A.tile, P: P.tile, unseen }) };
+  return { verdict, ...whySaid({ verdict, fact, mass, probe, voided: probes.find(change => change.void), diffs, A: A.tile, P: P.tile, unseen }),
+    unchecked };
+}
+
+/** A Why line had, said as not checked: what a search found when Trained AI,
+ * asked the decision's table again, did not answer it as the review recorded,
+ * for a line that asked nothing, whose verdict rests on the review's weights
+ * alone. It keeps its fact and the weight Trained AI puts on it, and says
+ * why it is not checked in its tooltip. */
+export function notChecked(why) {
+  return { ...why, verdict: 'unlike the review', label: 'Not checked', text: why.unchecked ?? why.text, check: UNCHECKED };
+}
+
+/** The differences of the families named that favour the player's tile, in
+ * words to follow a colon or a semicolon. */
+const favouring = (diffs, families) => diffs.filter(d => d.favours === 'you' && families.includes(d.family)).map(d => lower(sentence(d.text)));
+
+/** What the Why line says before any check: its fact, and the weight Trained
+ * AI puts on the tiles that share it; or, where no fact favours its tile,
+ * what the counts say. All of it is said where the check cannot be run. */
+function factSaid({ fact, mass, diffs, P }) {
+  if (fact) return `${sentence(fact.text)}.${mass ? ` Trained AI puts ${percent(mass.mass)} on ${mass.what}.` : ''}`;
+  const yours = favouring(diffs, ['distance', 'speed', 'safety']), neutral = diffs.find(d => d.favours === 'neither');
+  return yours.length ? `The counts favour ${your(P)}.` : neutral ? `${sentence(neutral.text)}.` : 'The counts do not separate the two tiles.';
 }
 
 /** The Why line in version 1's words, which leave out what the table above it
  * already shows, and the check's workings, for a tooltip on Partly and Not
  * explained. */
 function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, unseen }) {
-  const massSaid = mass ? `Trained AI puts ${percent(mass.mass)} on ${mass.what}.` : '';
-  const facts = family => diffs.filter(d => d.favours === 'you' && family.includes(d.family)).map(d => lower(sentence(d.text)));
-  if (verdict === 'explained') {
-    return { label: 'Why', check: '', text: `${sentence(fact.text)}. ${massSaid}${probe ? ` If ${probe.words}: ${weightsAfter(probe, A, P)}.` : ''}` };
-  }
+  const text = factSaid({ fact, mass, diffs, P });
+  if (verdict === 'explained') return { label: 'Why', check: '', text: `${text}${probe ? ` If ${probe.words}: ${weightsAfter(probe, A, P)}.` : ''}` };
   if (verdict === 'partly explained') {
-    const yours = facts(['safety']);
-    let text = `${sentence(fact.text)}.${massSaid ? ` ${massSaid}` : ''}`;
-    if (probe && !probe.halved) text += ` If ${probe.words}, it still does not choose yours: ${weightsAfter(probe, A, P)}.`;
-    if (yours.length) text += ` On your side: ${yours.join('; ')}.`;
+    const yours = favouring(diffs, ['safety']);
+    let said = text;
+    if (probe && !probe.halved) said += ` If ${probe.words}, it still does not choose yours: ${weightsAfter(probe, A, P)}.`;
+    if (yours.length) said += ` On your side: ${yours.join('; ')}.`;
     const check = [];
     if (!probe && voided) {
-      const others = deltaWords(voided.delta, A, P, unseen).filter(said => !/^your hand |improve/.test(said));
+      const others = deltaWords(voided.delta, A, P, unseen).filter(words => !/^your hand |improve/.test(words));
       check.push(`The check that takes it away (${voided.words}) also ${others.length ? `leaves ${list(others)}` : 'changes another fact of the two tiles'}, so it cannot say which counts.`);
     }
     if (probe && !probe.halved) check.push('Taking it away did not halve Trained AI\'s lead.');
     if ((mass?.mass ?? 0) < MASS) check.push(`Explained needs ${Math.round(MASS * 100)}% or more of its weight on ${mass ? 'those tiles' : 'tiles that share the fact'}.`);
-    return { label: 'Partly', text, check: check.join(' ') };
+    return { label: 'Partly', text: said, check: check.join(' ') };
   }
-  const yours = facts(['distance', 'speed', 'safety']), neutral = diffs.find(d => d.favours === 'neither');
-  const text = yours.length ? `The counts favour ${your(P)}.` : neutral ? `${sentence(neutral.text)}.` : 'The counts do not separate the two tiles.';
-  return { label: 'Not explained', text,
-    check: `No fact the engine counts favours ${the(A)}${yours.length ? `; for yours, ${yours.join('; ')}` : ''}.` };
+  const yours = favouring(diffs, ['distance', 'speed', 'safety']);
+  return { label: 'Not explained', text, check: `No fact the engine counts favours ${the(A)}${yours.length ? `; for yours, ${yours.join('; ')}` : ''}.` };
 }

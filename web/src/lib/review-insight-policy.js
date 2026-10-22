@@ -41,7 +41,7 @@
  * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
-import { PASS, explainWhy, movesOf, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
+import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
@@ -257,8 +257,9 @@ const failureOf = error => error?.message ?? String(error);
  * next deal, whose Trained opponents ask the same worker, and on leaving
  * Play. Whatever is stopped is forgotten, to be asked afresh if the decision
  * is shown again, so a result is only ever one asked for its own decision. A
- * question that failed is said as failed, and asked again on the next
- * explain or search. `onChange` hears every change. */
+ * question that failed is said as failed, a Why line with its fact where it
+ * has one, and asked again on the next explain or search. `onChange` hears
+ * every change. */
 export class MatchInsight {
   constructor(Game, review, reasoning, { onChange = () => {} } = {}) {
     this.Game = Game;
@@ -307,27 +308,31 @@ export class MatchInsight {
   }
 
   /** What there is to show at a decision, or null where nothing is said of
-   * it (question): its Why line, `{ state, result }`, under way ('asking'),
-   * had ('done', with explainWhy's answer) or failed; its search, under way
-   * ('searching', with how many tables are asked of how many planned), had
-   * ('done', with whatWouldChangeItsMind's `status` and `said`) or failed
-   * (with its `failure`); how many tables the search asks first and at most
-   * (`tables` and `most`, counted), none below the margin floor; and whether
-   * the search is `offered`, as it is wherever it asks something, unless the
-   * Why line has found that Trained AI does not answer the decision's table
-   * as the review recorded, where no change could be compared. */
+   * it (question): its Why line, `{ state, result, failure }`, under way
+   * ('asking'), had ('done', with explainWhy's answer) or failed, with its
+   * `failure` and, where its fact was had before Trained AI could not be
+   * asked, explainWhy's answer too; its search, under way ('searching', with
+   * how many tables are asked of how many planned), had ('done', with
+   * whatWouldChangeItsMind's `status` and `said`) or failed (with its
+   * `failure`); how many tables the search asks first and at most (`tables`
+   * and `most`, counted), none below the margin floor; and whether the search
+   * is `offered`, as it is wherever it asks something, unless the Why line
+   * has found that Trained AI does not answer the decision's table as the
+   * review recorded, where no change could be compared. */
   at(key) {
     const question = this.question(key);
     if (!question) return null;
     const why = this.whys.get(key) ?? null, search = this.searches.get(key) ?? null, { tables, most } = this.counted(key, question);
     return {
-      why: why && { state: why.state, result: why.result ?? null },
+      why: why && { state: why.state, result: why.result ?? null, failure: why.failure ?? null },
       search: search && { state: search.state, asked: search.asked, planned: search.planned, status: search.status, said: search.said, failure: search.failure },
       tables, most, offered: tables > 0 && why?.result?.verdict !== 'unlike the review',
     };
   }
 
-  /** Works out a decision's Why line, unless it is had or under way. */
+  /** Works out a decision's Why line, unless it is had or under way. A line
+   * whose check could not ask Trained AI is had with its fact, and failed,
+   * so that it asks again when the decision is next shown. */
   explain(key) {
     if (['asking', 'done'].includes(this.whys.get(key)?.state)) return;
     const question = this.question(key);
@@ -336,7 +341,7 @@ export class MatchInsight {
     this.whys.set(key, entry);
     this.reasoning.why(question, { signal: entry.stop.signal }).then(result => {
       if (this.whys.get(key) !== entry) return;
-      this.whys.set(key, { state: 'done', result });
+      this.whys.set(key, result?.failure ? { state: 'failed', result, failure: result.failure } : { state: 'done', result });
       this.notify();
     }, error => {
       if (this.whys.get(key) !== entry) return;
@@ -349,7 +354,10 @@ export class MatchInsight {
 
   /** Searches for what would change Trained AI's mind at a decision, unless
    * a search is under way there. One had already is asked afresh only by a
-   * page that asks again; the panel offers it no button. */
+   * page that asks again; the panel offers it no button. Where it finds that
+   * Trained AI does not answer the decision's table as the review recorded,
+   * the decision's Why line, which may have asked nothing, is not checked
+   * either (notChecked). */
   search(key) {
     if (this.searches.get(key)?.state === 'searching') return;
     const question = this.question(key);
@@ -364,6 +372,8 @@ export class MatchInsight {
     this.reasoning.search(question, { signal: entry.stop.signal, onProgress }).then(found => {
       if (this.searches.get(key) !== entry) return;
       this.searches.set(key, { state: 'done', status: found.status, said: found.said });
+      const why = this.whys.get(key);
+      if (found.status === 'unlike the review' && why?.result) this.whys.set(key, { state: 'done', result: notChecked(why.result) });
       this.notify();
     }, error => {
       if (this.searches.get(key) !== entry) return;

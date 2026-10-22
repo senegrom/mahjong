@@ -17,9 +17,11 @@
    * engine and at most one forward pass, and drawn once it is had, with the
    * button under it, so that the button never moves under a pointer about to
    * press it. It names the engine's fact that leads, with its verdict: Why,
-   * Partly or Not explained. Where a check failed, the verdict is a button
-   * whose title is the check's workings, a tooltip, and which shows them
-   * under the line when pressed, for a keyboard, a finger or a screen reader.
+   * Partly, Not explained, or Not checked where its check could not be run.
+   * Where a check failed or was not run, the verdict is a button whose title
+   * is the check's workings, a tooltip, and which shows them under the line
+   * when pressed, for a keyboard, a finger or a screen reader. A line that
+   * could not be worked out at all says why, as Not checked.
    *
    * "What would change its mind?" asks Trained AI about the table changed in
    * one thing the player could see, a few seconds' work: it says about how
@@ -65,10 +67,14 @@
     return () => untrack(() => owner.leave(at));
   });
   let shown = $derived.by(() => { void version; return subject && insight ? insight.at(subject) : null; });
-  let why = $derived(shown?.why?.state === 'done' ? shown.why.result : null);
-  // Whether the Why line is had, or failed, which shows the button without
-  // it: until then neither is drawn.
+  // Whether the Why line is had, or failed: until then neither it nor the
+  // button is drawn.
   let settled = $derived(['done', 'failed'].includes(shown?.why?.state));
+  // The Why line: what the reasoning had, which a line that failed has too
+  // where it got as far as its fact, or else the failure, said as not
+  // checked.
+  let why = $derived(shown?.why?.result ?? (shown?.why?.state === 'failed'
+    ? { verdict: 'failed', label: 'Not checked', text: String(shown.why.failure).replace(/\.?$/, '.'), check: '' } : null));
   let search = $derived(shown?.search ?? null);
   let offered = $derived(Boolean(shown?.offered) && trainedAvailable);
 

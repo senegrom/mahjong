@@ -2031,7 +2031,7 @@ try {
         .catch(async () => assert.fail(`focus on what the search found as Cancel goes, not on ${await focusedName(page)}`));
       const found = await insightAt(page);
       assert.deepEqual([found.button, found.searching, found.said], [null, null, '']);
-      assert.match(found.lead, /^(One change and it throws your .+:|No single change does it\. Two together: if .+\.|Nothing asked makes it throw your .+\.( Nearest: if .+\.)?|This table does not replay as the review asked it, so no change was tried\.)$/,
+      assert.match(found.lead, /^(One change and it throws your .+:|No single change does it\. Two together: if .+\.|Nothing asked makes it throw your .+\.( Nearest: if .+\.)?|Asked again, Trained AI answered this table differently, so no change was tried\.)$/,
         found.lead);
       if (!found.lead.startsWith('One change')) continue;
       // A line for each kind of change that flips it, in the order the kinds
@@ -2183,7 +2183,7 @@ try {
       said: [...document.querySelectorAll('[data-game-review] [role="status"]')].map(line => line.textContent).join(' '),
     }));
     assert.equal(hidden.drawn, false, 'no Why line and no button');
-    assert.doesNotMatch(hidden.text, /What would change its mind|Trained AI puts|throws your|Not explained|Partly:/);
+    assert.doesNotMatch(hidden.text, /What would change its mind|Trained AI puts|throws your|Not explained|Not checked|Partly:/);
     assert.ok(!hidden.said.includes(target.advised.label), `no status line names Trained AI's move: ${hidden.said}`);
     assert.equal(await page.evaluate(() => window.reviewBatches.length), asked, 'nothing is asked for it while the answer is kept back');
     // Shown, Trained AI's view comes, its Why line worked out with it.
