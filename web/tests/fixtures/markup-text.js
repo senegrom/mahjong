@@ -1,9 +1,12 @@
 /** The text of a piece of markup the renderer wrote: what lies between its
  * tags, a space where each tag was, as the page lays its elements apart, and
- * nothing where the renderer left one of its comment markers. It is read by
- * walking the markup rather than by deleting tags with a pattern, which is
- * no sanitizer and need not pretend to be one. */
-export function text(markup) {
+ * nothing where the renderer left one of its comment markers. With `joined`,
+ * nothing where a tag was either: the words as an element's textContent has
+ * them, which a browser check reads, and which a space the renderer took away
+ * at the start of an element leaves run together. It is read by walking the
+ * markup rather than by deleting tags with a pattern, which is no sanitizer
+ * and need not pretend to be one. */
+export function text(markup, { joined = false } = {}) {
   let out = '', at = 0;
   while (at < markup.length) {
     if (markup.startsWith('<!--', at)) {
@@ -12,7 +15,7 @@ export function text(markup) {
     } else if (markup[at] === '<') {
       const end = markup.indexOf('>', at + 1);
       at = end < 0 ? markup.length : end + 1;
-      out += ' ';
+      if (!joined) out += ' ';
     } else {
       out += markup[at++];
     }

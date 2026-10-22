@@ -169,10 +169,13 @@
           <button type="button" class="app-control" data-insight-cancel onclick={event => { if (!again(event)) insight.cancel(subject); }}>Cancel</button>
         </div>
       {:else if offered}
+        <!-- The space before the estimate is an expression: Svelte takes away
+             the whitespace that begins an element, which would leave the
+             estimate's dot against the question mark. -->
         <button type="button" class="app-control ask" data-insight-search
           aria-label={estimate ? `What would change its mind? About ${estimate.said}` : undefined}
           onclick={event => { if (!again(event)) insight.search(subject); }}
-          >What would change its mind?{#if estimate}<span class="estimate"> · about {estimate.short}</span>{/if}</button>
+          >What would change its mind?{#if estimate}<span class="estimate">{' '}· about {estimate.short}</span>{/if}</button>
         {#if search?.state === 'failed'}<p class="failed" data-insight-failure>Search stopped: {search.failure}</p>{/if}
       {/if}
     {/if}

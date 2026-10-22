@@ -82,11 +82,13 @@ test("a decision where Trained AI threw another tile ends with its Why line and,
   assert.equal(saidLines(why)[0], 'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.');
   // The button follows the Why line, and says about how long at the review's
   // 157 ms a position, from the 36 tables the search asks first to the 64 it
-  // asks at most, a screen reader hearing it in words.
+  // asks at most, a screen reader hearing it in words. Its words are read as
+  // the page joins them, nothing put where a tag stood, so that a space the
+  // renderer took away would show.
   const [, rest, inner] = button(html);
   assert.deepEqual([had.tables, had.most], [36, 64]);
   assert.ok(html.indexOf('data-why=') < html.indexOf('data-insight-search'));
-  assert.equal(text(inner), 'What would change its mind? · about 6–10 s');
+  assert.equal(text(inner, { joined: true }), 'What would change its mind? · about 6–10 s');
   assert.equal(attribute(rest, 'aria-label'), 'What would change its mind? About 6 to 10 seconds');
   // Nothing found yet, nothing under way, and the status line in the page,
   // empty, for its words to come.
@@ -150,15 +152,15 @@ test("no button is offered below the margin floor, where Trained AI does not ans
     assert.ok(whyLine(html), `the Why line stays ${what}`);
   }
   const untimed = button(panel(had, { positionMs: null }));
-  assert.equal(text(untimed[2]), 'What would change its mind?');
+  assert.equal(text(untimed[2], { joined: true }), 'What would change its mind?');
   assert.equal(attribute(untimed[1], 'aria-label'), null);
   // A slow device, half a second a position, and a long search: in minutes.
   const slow = button(panel({ ...had, tables: 400, most: 428 }, { positionMs: 500 }));
-  assert.equal(text(slow[2]), 'What would change its mind? · about 3–4 min');
+  assert.equal(text(slow[2], { joined: true }), 'What would change its mind? · about 3–4 min');
   assert.equal(attribute(slow[1], 'aria-label'), 'What would change its mind? About 3 to 4 minutes');
   // A fast one: one figure, a second said as one.
   const fast = button(panel(had, { positionMs: 20 }));
-  assert.equal(text(fast[2]), 'What would change its mind? · about 1 s');
+  assert.equal(text(fast[2], { joined: true }), 'What would change its mind? · about 1 s');
   assert.equal(attribute(fast[1], 'aria-label'), 'What would change its mind? About 1 second');
 });
 
