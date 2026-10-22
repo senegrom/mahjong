@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
-import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { tileFile, tileWords } from '../src/lib/tiles.js';
 import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
@@ -62,12 +61,13 @@ try {
     await boxes[0].click();
     await page.waitForFunction(() => !document.querySelector('.mine .hint'));
     assert.equal((await state(page)).hints, false);
+    assert.deepEqual(await page.$$eval('select[aria-label="Tile face"] option', options => options.map(option => option.value)), ['classic', 'matisse', 'van-gogh']);
     await page.select('select[aria-label="Tile face"]', 'matisse');
     await page.waitForSelector('.hand .tile.matisse');
     assert.equal((await state(page)).tileFace, 'matisse');
     // A set still being painted shows each tile it has a picture for, and
     // writes out in the tile's own words each one it has not.
-    for (const [face, approved] of [['van-gogh', VAN_GOGH_APPROVED], ['dali', DALI_APPROVED]]) {
+    for (const [face, approved] of [['van-gogh', VAN_GOGH_APPROVED]]) {
       await page.select('select[aria-label="Tile face"]', face);
       await page.waitForSelector(`.hand .tile.${face}`);
       const tiles = await page.$$eval('.hand .tile', all => all.map(tile => ({

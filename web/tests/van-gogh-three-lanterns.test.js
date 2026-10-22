@@ -90,13 +90,12 @@ test('lantern preloading is unique and hidden tiles never reveal their identity'
   const url = 'tiles/van-gogh/approved/Pin3.svg';
   assert.equal(tileImage('3p', 'van-gogh'), url);
   assert.equal(TILE_IMAGE_URLS.filter(item => item === url).length, 1);
-  for (const face of ['classic', 'van-gogh', 'matisse', 'dali']) {
+  for (const face of ['classic', 'van-gogh', 'matisse']) {
     assert.equal(tileImage('3p', face, true), 'tiles/Back.svg');
     assert.equal(tileImage(null, face), 'tiles/Back.svg');
   }
   assert.equal(tileImage('3p', 'classic'), 'tiles/Pin3.svg');
   assert.equal(tileImage('3p', 'matisse'), 'tiles/matisse/approved/Pin3.svg');
-  assert.equal(tileImage('3p', 'dali'), 'tiles/dali/approved/Pin3.svg');
 });
 
 test('the selective exporter and preview include the lanterns without losing nine bamboo', () => {
