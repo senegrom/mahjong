@@ -17,9 +17,16 @@
    * concealed tiles face up: `hand` is them, `{ hand, drawn }` with the tile
    * just drawn held apart; in play it is null, and they stay face down.
    * There `position` names where the opponent sat, such as "Right", and
-   * `note` says what the seat was doing, such as "Discarded".
+   * `note` says what the seat was doing, such as "Discarded". `offered`
+   * says that the last tile in the seat's discards is the one another player
+   * is answering at that decision, which the row outlines (Discards).
+   * `concealed` turns a review's tiles face down in the same rack, at the
+   * same size and with the drawn tile's gap, so that they can be turned over
+   * again without anything moving; their names, their hover text and the
+   * page itself then hold nothing of what they are.
    */
-  let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '' } = $props();
+  let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '', offered = false,
+    concealed = false } = $props();
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
@@ -62,9 +69,10 @@
   let spoken = $derived(seatAnnouncement(NAMES[seat.seat], seat.riichi, called));
   const shortScore = score => `${(score / 1000).toFixed(1)}k`;
   // Face-up tiles are a list named for the seat and the player in it, as a
-  // screen reader moves from hand to hand: "South's tiles, Right (Club)".
+  // screen reader moves from hand to hand: "South's tiles, Right (Club)", and
+  // ", face down" after it while they are turned over.
   let heldName = $derived(`${NAMES[seat.seat]}'s tiles${position ? `, ${position}` : ''}`
-    + `${OPPONENT_LABELS[seat.controller] ? ` (${OPPONENT_LABELS[seat.controller]})` : ''}`);
+    + `${OPPONENT_LABELS[seat.controller] ? ` (${OPPONENT_LABELS[seat.controller]})` : ''}${concealed ? ', face down' : ''}`);
 </script>
 
 <section class="seat" class:turn={seat.turn} class:thinking aria-label="{NAMES[seat.seat]} seat">
@@ -96,9 +104,13 @@
          says it is one in so many words: Safari does not tell VoiceOver that
          a list without them is a list. -->
     <div class="rack">
+      <!-- Turned over, a tile is drawn with no tile at all, rather than with
+           its own face hidden: so no attribute, name or title of it can say
+           what it is. -->
       <ul class="revealed" role="list" aria-label={heldName} data-seat-hand={seat.seat}>
-        {#each hand.hand as tile, index (index)}<li><Tile {tile} size="tiny" dora={dora.includes(tile)} /></li>{/each}
-        {#if hand.drawn}<li class="drawn"><Tile tile={hand.drawn} size="tiny" drawn dora={dora.includes(hand.drawn)} /></li>{/if}
+        {#each hand.hand as tile, index (index)}<li><Tile tile={concealed ? null : tile} facedown={concealed} size="tiny" dora={!concealed && dora.includes(tile)} /></li>{/each}
+        {#if hand.drawn}<li class="drawn"><Tile tile={concealed ? null : hand.drawn} facedown={concealed} size="tiny" drawn={!concealed}
+          dora={!concealed && dora.includes(hand.drawn)} /></li>{/if}
       </ul>
     </div>
   {:else}
@@ -113,7 +125,7 @@
     <Melds melds={seat.melds} size="tiny" {dora} />
   {/if}
 
-  <Discards discards={seat.discards} compact {dora} />
+  <Discards discards={seat.discards} compact {dora} marked={offered ? seat.discards.length - 1 : null} />
 </section>
 
 <style>

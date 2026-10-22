@@ -10,12 +10,13 @@
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
   // A review shows this hand as one of the table's four, so it can name the
-  // tiles for the seat (`handLabel`), make them a list (`listed`) and say what
-  // the player was doing (`note`).
+  // tiles for the seat (`handLabel`), make them a list (`listed`), say what
+  // the player was doing (`note`) and put words over the tiles its moves
+  // concern (`tags`, by each tile's place in the hand).
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
     canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
-    handLabel = 'your tiles', listed = false, note = '',
+    handLabel = 'your tiles', listed = false, note = '', tags = null,
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
   let handTiles = $derived(me ? [...me.hand, ...(me.drawn ? [me.drawn] : [])] : []);
@@ -71,7 +72,7 @@
        and the arrow keys' marker is not announced as pressed. -->
   <div class="hand" class:has-draw={Boolean(me.drawn)} role={listed ? 'list' : 'group'} aria-label={handLabel} aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
     {#each handTiles as tile, index (index)}
-      <HandTile {tile} {listed} handIndex={index} onclick={() => selectTile(tile, index)} toggle={confirmDiscards}
+      <HandTile {tile} {listed} tag={tags ? (tags[index] ?? []) : null} handIndex={index} onclick={(_: string, event: MouseEvent) => selectTile(tile, index, event)} toggle={confirmDiscards}
         disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
         drawn={Boolean(me.drawn) && index === me.hand.length}
         discardShanten={discardHints.get(tile)?.shanten ?? null}
@@ -168,9 +169,11 @@
 
   .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
 
+  /* A review may draw the hand smaller where it has less room than play's
+     table (--mine-tile); play sets none. */
   @media (min-width: 761px) and (min-height: 501px) {
     .mine {
-      --tile-width: 52px;
+      --tile-width: var(--mine-tile, 52px);
       padding: 14px 16px;
       border-radius: 16px;
       background: rgba(4, 30, 20, .43);

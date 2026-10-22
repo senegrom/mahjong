@@ -98,10 +98,54 @@ test('restoration rejects invalid versions, illegal commands and changed state',
 });
 
 test('preferences tolerate inaccessible or malformed storage', () => {
-  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'neural',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'strong'});
+  assert.deepEqual(readSettings({getItem(){throw new Error('denied');}},true), {difficulty:'neural',hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'strong',reviewHideMove:false,reviewHideTiles:false,reviewFilter:'flagged'});
   assert.equal(readSettings({getItem(){return '{broken';}}).hints, true);
   const value = {version:2,difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false};
-  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'strong'});
+  assert.deepEqual(readSettings({getItem(){return JSON.stringify(value);}}), {difficulty:'club',hints:false,confirmDiscards:false,shortcuts:false,tileFace:'classic',reviewAdviser:'strong',reviewHideMove:false,reviewHideTiles:false,reviewFilter:'flagged'});
+});
+
+test("the review's two hiding settings start off, and a record keeps them as it holds them", () => {
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  // A first visit, and a record from before the settings were offered, hide
+  // nothing: every review shows Trained AI's move and every hand.
+  for (const settings of [readSettings(null), read({ version: 3, difficulty: 'club' }), read({ version: 2, hints: false })]) {
+    assert.deepEqual([settings.reviewHideMove, settings.reviewHideTiles], [false, false]);
+  }
+  // Each is kept as the record holds it, the one apart from the other.
+  for (const [reviewHideMove, reviewHideTiles] of [[true, false], [false, true], [true, true]]) {
+    const settings = read({ version: 3, reviewHideMove, reviewHideTiles });
+    assert.deepEqual([settings.reviewHideMove, settings.reviewHideTiles], [reviewHideMove, reviewHideTiles]);
+  }
+  // Anything but true or false is no choice: the review hides nothing.
+  for (const held of ['true', 1, null, {}, ['yes']]) {
+    const settings = read({ version: 3, reviewHideMove: held, reviewHideTiles: held });
+    assert.deepEqual([settings.reviewHideMove, settings.reviewHideTiles], [false, false], JSON.stringify(held));
+  }
+  // Written with the other preferences, and read back the same.
+  const writes = new Map();
+  writeSettings({ setItem: (key, value) => writes.set(key, value) }, { hints: true, reviewHideMove: true, reviewHideTiles: false });
+  const reread = readSettings({ getItem: key => writes.get(key) ?? null });
+  assert.deepEqual([reread.reviewHideMove, reread.reviewHideTiles, reread.hints], [true, false, true]);
+});
+
+test("the review's filter starts on the flagged decisions, is kept as the player leaves it, and falls back from one it does not offer", () => {
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  // A first visit, and a record from before the filter was kept.
+  for (const settings of [readSettings(null), read({ version: 3, difficulty: 'club' }), read({ version: 2, hints: false })]) {
+    assert.equal(settings.reviewFilter, 'flagged');
+  }
+  for (const reviewFilter of ['flagged', 'differed', 'every']) assert.equal(read({ version: 3, reviewFilter }).reviewFilter, reviewFilter);
+  // A filter the review does not offer is no choice: it steps through the
+  // flagged decisions, and the rest of the record stands.
+  for (const reviewFilter of ['all', 'Flagged', '', null, 2, ['every'], { filter: 'every' }]) {
+    const settings = read({ version: 3, reviewFilter, hints: false });
+    assert.equal(settings.reviewFilter, 'flagged', JSON.stringify(reviewFilter));
+    assert.equal(settings.hints, false);
+  }
+  // Written with the other preferences, and read back the same.
+  const writes = new Map();
+  writeSettings({ setItem: (key, value) => writes.set(key, value) }, { hints: true, reviewFilter: 'differed' });
+  assert.equal(readSettings({ getItem: key => writes.get(key) ?? null }).reviewFilter, 'differed');
 });
 
 test('the review adviser is remembered, and a retired network preference is ignored', () => {
@@ -201,7 +245,8 @@ test('a picked trained network is kept by version, and without a listed pick the
   const writes = new Map();
   const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
   const preferences = { difficulty: 'neural', opponents: ['neural', 'neural', 'neural'], hints: true, confirmDiscards: false,
-    shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong' };
+    shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false,
+    reviewFilter: 'flagged' };
   writeSettings(storage, { ...preferences, trainedNetwork: '0.1.410' });
   assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 4, ...preferences, trainedNetwork: '0.1.410' });
   assert.deepEqual(readSettings(storage), { ...preferences, trainedNetwork: '0.1.410' });
@@ -214,7 +259,7 @@ test('a picked trained network is kept by version, and without a listed pick the
 test('a record from before 1110 or 1410 plays the default once, whatever it picked, and keeps every other choice', () => {
   // Every other choice a record holds, none of them a default.
   const chosen = { difficulty: 'custom', opponents: ['beginner', 'club', 'neural'], hints: false, confirmDiscards: true,
-    shortcuts: false, tileFace: 'van-gogh', reviewAdviser: 'club' };
+    shortcuts: false, tileFace: 'van-gogh', reviewAdviser: 'club', reviewHideMove: true, reviewHideTiles: true, reviewFilter: 'every' };
   // What builds before 1110 wrote: 810 was the default then and was never
   // written as a pick, but a record that holds it gives it up all the same.
   // Builds before 1410 wrote version 3, with 1110 the default, and a record
@@ -243,9 +288,11 @@ test('a record from before 1110 or 1410 plays the default once, whatever it pick
     }
   }
   // A record from before 810 is read as it always was: its hints, keys and
-  // tile face stand, and Trained plays and reviews.
+  // tile face stand, and Trained plays and reviews. Its review's settings are
+  // read as its hints are, though no build of then wrote any.
   assert.deepEqual(readSettings({ getItem: () => JSON.stringify({ version: 1, ...chosen, trainedNetwork: OLDER[0] }) }),
-    { difficulty: 'neural', hints: false, confirmDiscards: true, shortcuts: false, tileFace: 'van-gogh', reviewAdviser: 'strong' });
+    { difficulty: 'neural', hints: false, confirmDiscards: true, shortcuts: false, tileFace: 'van-gogh', reviewAdviser: 'strong',
+      reviewHideMove: true, reviewHideTiles: true, reviewFilter: 'every' });
 });
 
 test('a match saved with Trained opponents before the settings reset resumes, and asks the page for the next move', async () => {

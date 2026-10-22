@@ -48,6 +48,9 @@ export interface OfflineStatusProps {
 export interface SettingsProps extends OfflineStatusProps {
   mode?: GameMode; settingsOpen?: boolean;
   hints?: boolean; confirmDiscards?: boolean; shortcuts?: boolean;
+  /** Whether reviews keep Trained AI's move back, and the other players'
+   * tiles, until the player asks to see them at each decision. */
+  reviewHideMove?: boolean; reviewHideTiles?: boolean;
   tileFace: TileFace; pendingTileFace?: TileFace | null;
   /** Asked to play another listed network by version: true once App takes
    * the pick (it reloads the page), false to keep the one playing. */
@@ -79,6 +82,9 @@ export interface MatchTableProps {
   /** A table drawn for a review names each opponent by where they sat, and on a
    * phone held upright stacks them, so their face-up hands have room. */
   review?: boolean;
+  /** A review's `hands` of the three opponents turned face down in their racks,
+   * until the player asks to see them. */
+  concealed?: boolean;
 }
 export interface PlayerHandProps {
   view: GameView; engine?: DiscardAnalyser | null; closed: boolean;
@@ -86,7 +92,10 @@ export interface PlayerHandProps {
   /** A press selects a tile for confirmation, rather than discarding it. */
   confirmDiscards: boolean;
   picked: number | null; selected: number | null;
-  canDiscard: (tile: Tile) => boolean; selectTile: (tile: Tile, index: number) => void;
+  canDiscard: (tile: Tile) => boolean;
+  /** A tile pressed, with the click that pressed it, by which a review tells
+   * a keyboard's press from a pointer's. */
+  selectTile: (tile: Tile, index: number, event?: MouseEvent) => void;
   syncHandFocus: (event: FocusEvent) => void; handElement?: HTMLDivElement | null;
   /** What a screen reader calls the tiles; a review names them for the seat. */
   handLabel?: string;
@@ -94,6 +103,9 @@ export interface PlayerHandProps {
   listed?: boolean;
   /** What the player was doing at a review's decision, such as "To play". */
   note?: string;
+  /** A review's words over each tile, by its place in the hand, such as
+   * ['You', 'AI'], a line kept for them on every tile; null, as in play, for none. */
+  tags?: string[][] | null;
 }
 export interface TurnChoicesProps {
   view: GameView; shownDora: Tile[]; busy: boolean; thinking: boolean;

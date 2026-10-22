@@ -67,8 +67,10 @@ const finished = (() => {
 // What a build from when Club was the default wrote on a first visit.
 const previousDefaults = { version: 1, difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true,
   confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'club' };
-// The same choice made in this build, which stands.
-const chosenClub = { ...previousDefaults, version: 4 };
+// The same choice made in this build, which stands, and writes the review's
+// settings with it as a first visit has them: both hiding settings off, and
+// the filter on the flagged decisions.
+const chosenClub = { ...previousDefaults, version: 4, reviewHideMove: false, reviewHideTiles: false, reviewFilter: 'flagged' };
 
 const cases = browserChecks();
 let browser;
@@ -134,7 +136,8 @@ try {
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.opponents?.length === 3, {}, SAVE_KEY);
     assert.deepEqual((await match(page)).opponents, ['neural', 'neural', 'neural']);
     assert.deepEqual(await settings(page), { version: 4, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
-      hints: true, confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong' });
+      hints: true, confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false,
+      reviewFilter: 'flagged' });
     // East discards first; then, or at once, a Trained opponent waits. On a
     // first visit the network's download waits for the service worker to
     // save the game and every tile graphic, about 100 MB with no progress of
@@ -177,7 +180,8 @@ try {
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'neural');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.version === 4, {}, SETTINGS_KEY);
     assert.deepEqual(await settings(page), { version: 4, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
-      hints: false, confirmDiscards: false, shortcuts: true, tileFace: 'van-gogh', reviewAdviser: 'strong' });
+      hints: false, confirmDiscards: false, shortcuts: true, tileFace: 'van-gogh', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false,
+      reviewFilter: 'flagged' });
     assert.deepEqual(page.problems, []);
   });
 

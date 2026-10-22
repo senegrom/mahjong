@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, LEADING, MatchReview, SLOW_MS, agreement,
-  decisionInBrief, differed, filterCounts, filterDecisions, filterSaid, handName, judgement, movedNote, ordinal, rankDecisions,
-  scanMatch, seatNotes, tableSaid, weightsSaid } from '../src/lib/game-review.js';
+import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement,
+  decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
+  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -203,35 +203,22 @@ test('a decision is flagged only where the player had under 5% and the network a
   assert.equal(withheld.flagged, false);
 });
 
-test("a judged decision's weights are said alike in the list and in a replay's offer, and the Flagged filter's title states the rule in the same words", () => {
-  assert.equal(weightsSaid({ stage: 'move', played: 0.02, preferred: 0.81 }), "Your move 2.0%, Trained AI's choice 81.0%.");
-  assert.equal(weightsSaid({ stage: 'move', played: 0.0004, preferred: 1 }, 'Flagged: '), "Flagged: your move <0.1%, Trained AI's choice 100.0%.");
-  // Where both declared riichi, the tiles are judged given the declaration.
-  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }), "Given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
-  assert.equal(weightsSaid({ stage: 'tile', played: 0.01, preferred: 0.9 }, 'Flagged: '), "Flagged: given riichi, your tile 1.0%, Trained AI's choice 90.0%.");
-  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more" });
+test("the filters' buttons say in a word what each keeps, and the Flagged and Differed buttons' titles what keeps them", () => {
+  assert.deepEqual(FILTERS, ['flagged', 'differed', 'every']);
+  assert.deepEqual(FILTER_LABELS, { flagged: 'Flagged', differed: 'Differed', every: 'All' });
+  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more", differed: 'Trained AI chose another move' });
 });
 
-test('flagged decisions rank by the gap, ties in the order played, and agreement leaves forced moves out', () => {
+test('the flagged decisions are counted, however wide the gap of one that is not, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
-  const ranked = rankDecisions([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]);
-  assert.deepEqual(ranked.map(entry => entry.name), ['b', 'a', 'd']);
-  assert.equal(LEADING, 5);
+  assert.equal(flaggedCount([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]), 3);
+  assert.equal(flaggedCount([]), 0);
   assert.deepEqual(agreement([{ agreed: true }, { agreed: false }, { agreed: true, forced: true }, { agreed: true }]),
     { matched: 2, decisions: 3, share: 2 / 3 });
   assert.deepEqual(agreement([]), { matched: 0, decisions: 0, share: null });
 });
 
-test('a decision ranked lower by the hands reviewed since is told where it went, in places as they are said', () => {
-  assert.deepEqual([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 23, 101, 111, 112].map(ordinal),
-    ['1st', '2nd', '3rd', '4th', '10th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st', '111th', '112th']);
-  // The place only, and first: how many are flagged grows with every hand
-  // reviewed, and a count said once would go stale while the place still held.
-  assert.equal(movedNote(6, true), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(2, false), 'Now 3rd: decisions reviewed since departed further.');
-});
-
-test('a filter lists the flagged decisions, those where Trained AI chose differently, or every one, and counts each', () => {
+test('a filter counts the flagged decisions, those where Trained AI chose differently, and every one', () => {
   const decision = (name, values = {}) => ({ name, agreed: false, forced: false, judgement: null, ...values });
   const decisions = [
     decision('agreed', { agreed: true }),
@@ -244,40 +231,28 @@ test('a filter lists the flagged decisions, those where Trained AI chose differe
     decision('flag2', { judgement: { gap: 0.7, flagged: true } }),
     decision('unscored2'),
   ];
-  assert.deepEqual(filterDecisions(decisions, 'flagged').map(entry => entry.name), ['flag', 'flag2']);
-  // By the gap, flagged or not, then the moves that could not be compared,
-  // in the order played. A forced move never differs.
-  assert.deepEqual(filterDecisions(decisions, 'differed').map(entry => entry.name), ['wide', 'flag', 'flag2', 'near', 'unscored', 'unscored2']);
-  assert.deepEqual(filterDecisions(decisions, 'every').map(entry => entry.name), decisions.map(entry => entry.name));
+  // A forced move never differs, and a move that could not be compared does.
   assert.deepEqual(filterCounts(decisions), { flagged: 2, differed: 6, every: 9 });
   assert.deepEqual(filterCounts([]), { flagged: 0, differed: 0, every: 0 });
   assert.equal(differed(decisions[6]), false);
+  assert.equal(differed(decisions[4]), true);
 });
 
-test('a list says what its filter shows as it is chosen, and where it puts a decision the review has moved', () => {
+test('the review says what its filter keeps as it is chosen, in no order but the order played', () => {
   const counts = { flagged: 7, differed: 64, every: 182 };
-  assert.equal(filterSaid('flagged', counts, { leading: LEADING }), '7 flagged decisions, widest departure first. First 5 listed.');
-  assert.equal(filterSaid('differed', counts, { leading: LEADING }),
-    '64 decisions where Trained AI differed, 7 of them flagged, widest departure first. First 5 listed.');
-  assert.equal(filterSaid('every', counts, { leading: LEADING }), 'All 182 decisions, in the order played. First 5 listed.');
-  const hand = { flagged: 1, differed: 3, every: 9 }, inHand = { scope: ' in this hand', ranked: false };
-  assert.equal(filterSaid('flagged', hand, inHand), '1 flagged decision in this hand.');
-  assert.equal(filterSaid('differed', hand, inHand), '3 decisions in this hand where Trained AI differed, 1 of them flagged, in the order played.');
-  assert.equal(filterSaid('differed', { ...hand, flagged: 0 }, inHand), '3 decisions in this hand where Trained AI differed, in the order played.');
-  assert.equal(filterSaid('every', hand, inHand), 'All 9 decisions in this hand, in the order played.');
-  assert.equal(filterSaid('every', { ...hand, every: 1 }, inHand), 'The one decision in this hand.');
-  assert.equal(filterSaid('flagged', { flagged: 0, differed: 0, every: 4 }, inHand), 'None flagged in this hand.');
+  assert.equal(filterSaid('flagged', counts), '7 flagged decisions.');
+  assert.equal(filterSaid('differed', counts), '64 decisions where Trained AI differed, 7 of them flagged.');
+  assert.equal(filterSaid('every', counts), 'All 182 decisions.');
+  assert.equal(filterSaid('flagged', { flagged: 1, differed: 3, every: 9 }), '1 flagged decision.');
+  assert.equal(filterSaid('differed', { flagged: 0, differed: 1, every: 9 }), '1 decision where Trained AI differed.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 1 }), 'The one decision.');
+  // Where the filter keeps nothing.
+  assert.equal(filterSaid('flagged', { flagged: 0, differed: 3, every: 4 }), 'None flagged.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
-  // A ranked list says a decision went lower because later ones departed
-  // further, and the list of every decision because earlier ones arrived;
-  // any list that grew to keep it says so in the same words.
-  assert.equal(movedNote(6, true, 'flagged'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(6, true, 'differed'), 'Now 7th: decisions reviewed since departed further, so the whole list is shown.');
-  assert.equal(movedNote(29, false, 'every'), 'Now 30th: decisions reviewed since came before it.');
-  assert.equal(movedNote(29, true, 'every'), 'Now 30th: decisions reviewed since came before it, so the whole list is shown.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'No decisions.');
 });
 
-test('the table at a step is said in a sentence, each seat says what it was doing, and a hand list names each move', () => {
+test("the table at a step is said in a sentence, each seat says what it was doing, and a hand's line gives both moves", () => {
   const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
   const turn = { phase: 'act', wall: 45, pending_discard: null, pending_from: null, dora_types: [],
     seats: [seat('east', { turn: true, drawn: '3m' }), seat('south', { riichi: true }), seat('west'), seat('north', { riichi: true })] };
@@ -287,31 +262,235 @@ test('the table at a step is said in a sentence, each seat says what it was doin
     seats: [seat('east', { riichi: true }), seat('south'), seat('west', { turn: true }), seat('north')] };
   assert.equal(tableSaid(answer), 'West discarded the 5 bamboo, 1 tile left. You declared riichi.');
   assert.deepEqual(seatNotes(answer), ['To answer', '', 'Discarded', '']);
-  const frame = (played, view = turn) => ({ played, view });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), { agreed: true, forced: false, judgement: null }),
-    { move: 'Discard', tile: '7m', verdict: 'Trained AI agreed' });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'tsumo', tile: null }), { agreed: false, forced: false, judgement: { flagged: true } }),
-    { move: 'Tsumo', tile: '3m', verdict: 'Flagged' });
-  assert.deepEqual(decisionInBrief(frame({ kind: 'pass', tile: null }, answer), { agreed: false, forced: false, judgement: null }),
-    { move: 'Pass', tile: '5s', verdict: 'Trained AI differed' });
-  assert.equal(decisionInBrief(frame({ kind: 'discard', tile: '1p' }), { agreed: true, forced: true }).verdict, 'Only move');
+  // A line of the hand's decisions: both moves as tiles and words, and its
+  // name in the engine's words. The choices name the moves as the engine does.
+  const choices = [{ kind: 'discard', tile: '7m', label: 'discards the 7 characters' }, { kind: 'discard', tile: '8s', label: 'discards the 8 bamboo' },
+    { kind: 'riichi', tile: '3s', label: 'declares riichi on the 3 bamboo' }, { kind: 'tsumo', tile: null, label: 'wins by self-draw' },
+    { kind: 'pass', tile: null, label: 'passes' }, { kind: 'chii', tile: '4s', label: 'calls a sequence from the 4 bamboo' }];
+  const frame = (played, view = turn) => ({ played, view, choices });
+  const decision = (advised, values = {}) => ({ agreed: false, forced: false, judgement: null, advised_kind: advised.kind,
+    advised_tile: advised.tile, advised: advised.label, ...values });
+  assert.deepEqual(decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[1], { judgement: { flagged: true } })),
+    { you: { word: '', tiles: ['7m'] }, ai: { word: '', tiles: ['8s'] }, offered: null, flagged: true, agreed: false,
+      forced: false, reviewed: true, hidden: false, said: 'You: discards the 7 characters. Trained AI: discards the 8 bamboo. Flagged.' });
+  const riichi = decisionInBrief(frame({ kind: 'riichi', tile: '3s' }), decision(choices[3]));
+  assert.deepEqual([riichi.you, riichi.ai, riichi.flagged, riichi.agreed], [{ word: 'Riichi', tiles: ['3s'] }, { word: 'Tsumo', tiles: [] }, false, false]);
+  assert.equal(riichi.said, 'You: declares riichi on the 3 bamboo. Trained AI: wins by self-draw.');
+  // Agreed, there is no other move to give, and an only move was no choice.
+  const agreed = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true }));
+  assert.deepEqual([agreed.ai, agreed.agreed, agreed.said], [null, true, 'You: discards the 7 characters. Trained AI agreed.']);
+  const forced = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), decision(choices[0], { agreed: true, forced: true }));
+  assert.deepEqual([forced.ai, forced.forced, forced.said], [null, true, 'You: discards the 7 characters. Only move.']);
+  // An answer to another's discard is on that tile.
+  const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[5]));
+  assert.deepEqual([pass.offered, pass.you, pass.ai], ['5s', { word: 'Pass', tiles: [] }, { word: 'Chii', tiles: ['4s', '5s', '6s'] }]);
+  assert.equal(pass.said, 'On the 5 bamboo. You: passes. Trained AI: calls a sequence from the 4 bamboo.');
+  // Before the hand is reviewed only the player's move is known.
+  const waiting = decisionInBrief(frame({ kind: 'discard', tile: '7m' }), null);
+  assert.deepEqual([waiting.reviewed, waiting.ai, waiting.flagged, waiting.said], [false, null, false, 'You: discards the 7 characters. Not reviewed yet.']);
 });
 
-test("a real review's lists hold what their filters say: the flagged among the different moves, and every decision", async () => {
+test("with Trained AI's move hidden, a hand's line gives the player's move and the flag, and keeps back Trained AI's move and that it agreed, heard too", () => {
+  const seat = wind => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null });
+  const turn = { phase: 'act', wall: 45, pending_discard: null, pending_from: null, seats: ['east', 'south', 'west', 'north'].map(seat) };
+  const answer = { ...turn, phase: 'call', pending_discard: '5s', pending_from: 'west' };
+  const choices = [{ kind: 'discard', tile: '7m', label: 'discards the 7 characters' }, { kind: 'discard', tile: '8s', label: 'discards the 8 bamboo' },
+    { kind: 'pass', tile: null, label: 'passes' }, { kind: 'pon', tile: null, label: 'calls a triplet' }];
+  const frame = (played, view = turn) => ({ played, view, choices });
+  const decision = (advised, values = {}) => ({ agreed: false, forced: false, judgement: null, advised_kind: advised.kind,
+    advised_tile: advised.tile, advised: advised.label, ...values });
+  const hidden = { hidden: true }, thrown = { kind: 'discard', tile: '7m' };
+  // Flagged: the flag stays and Trained AI's move goes, from the line and
+  // from its name alike.
+  assert.deepEqual(decisionInBrief(frame(thrown), decision(choices[1], { judgement: { flagged: true } }), hidden),
+    { you: { word: '', tiles: ['7m'] }, ai: null, offered: null, flagged: true, agreed: false, forced: false,
+      reviewed: true, hidden: true, said: "You: discards the 7 characters. Trained AI's move hidden. Flagged." });
+  // Agreed: no tick and no word of it, which would give the answer away.
+  const agreed = decisionInBrief(frame(thrown), decision(choices[0], { agreed: true }), hidden);
+  assert.deepEqual([agreed.ai, agreed.agreed, agreed.hidden, agreed.said],
+    [null, false, true, "You: discards the 7 characters. Trained AI's move hidden."]);
+  // An answer to another's discard still names the tile on offer, which the
+  // table shows.
+  const pass = decisionInBrief(frame({ kind: 'pass', tile: null }, answer), decision(choices[3]), hidden);
+  assert.deepEqual([pass.offered, pass.you, pass.ai], ['5s', { word: 'Pass', tiles: [] }, null]);
+  assert.equal(pass.said, "On the 5 bamboo. You: passes. Trained AI's move hidden.");
+  // An only move and a hand not yet reviewed have nothing to hide.
+  const forced = decision(choices[0], { agreed: true, forced: true });
+  assert.deepEqual(decisionInBrief(frame(thrown), forced, hidden), decisionInBrief(frame(thrown), forced));
+  assert.deepEqual(decisionInBrief(frame(thrown), null, hidden), decisionInBrief(frame(thrown), null));
+  assert.equal(decisionInBrief(frame(thrown), forced, hidden).hidden, false);
+});
+
+test("a decision keeps Trained AI's move back where Trained AI answered a real choice, and the other players' tiles anywhere, until the player reveals it", () => {
+  const answered = { agreed: false, forced: false }, forced = { agreed: true, forced: true };
+  const both = { hideMove: true, hideTiles: true };
+  // Nothing is kept back unless a setting asks for it.
+  assert.deepEqual(hiddenAt(answered, null), { move: false, tiles: false });
+  assert.deepEqual(hiddenAt(answered, null, both), { move: true, tiles: true });
+  assert.deepEqual(hiddenAt(answered, null, { hideMove: true }), { move: true, tiles: false });
+  assert.deepEqual(hiddenAt(answered, null, { hideTiles: true }), { move: false, tiles: true });
+  // An only move, and a hand not reviewed yet, have no answer to keep back;
+  // their tiles are kept back all the same.
+  assert.deepEqual(hiddenAt(forced, null, both), { move: false, tiles: true });
+  assert.deepEqual(hiddenAt(null, null, both), { move: false, tiles: true });
+  // Show answer, or a move picked, reveals the decision whole, and the pick
+  // is kept with it; whatever the settings are later, it stays revealed.
+  assert.deepEqual(revealing(answered), { pick: null, answer: true });
+  const pick = { kind: 'discard', tile: '8s' };
+  assert.deepEqual(revealing(answered, pick), { pick, answer: true });
+  for (const reveal of [revealing(answered), revealing(answered, pick)]) {
+    assert.deepEqual(hiddenAt(answered, reveal, both), { move: false, tiles: false });
+  }
+  // Show tiles where Trained AI has answered reveals the decision whole too,
+  // its answer having been on show; in a hand not reviewed yet it turns the
+  // tiles over and leaves the move to be answered once Trained AI has.
+  assert.deepEqual(hiddenAt(answered, revealing(answered), both), { move: false, tiles: false });
+  const early = revealing(null);
+  assert.deepEqual(early, { pick: null, answer: false });
+  assert.deepEqual(hiddenAt(null, early, both), { move: false, tiles: false });
+  assert.deepEqual(hiddenAt(answered, early, both), { move: true, tiles: false }, 'answered since, the move is put to the player');
+});
+
+test('a filter holds the decisions it names, and its list runs through the hands in the order played, a hand not yet reviewed held only by the list of every decision', () => {
+  assert.equal(decisionKey(3, 12), '3:12');
+  const decision = (values = {}) => ({ agreed: false, forced: false, judgement: null, ...values });
+  const flagged = decision({ judgement: { gap: 0.9, flagged: true } }), near = decision({ judgement: { gap: 0.4, flagged: false } });
+  const agreed = decision({ agreed: true }), forced = decision({ agreed: true, forced: true });
+  for (const [filter, held] of [['flagged', [true, false, false, false, false]], ['differed', [true, true, false, false, false]],
+    ['every', [true, true, true, true, true]]]) {
+    assert.deepEqual([flagged, near, agreed, forced, null].map(entry => listedIn(entry, filter)), held, filter);
+  }
+  const hand = (index, decisions, frames = decisions?.length ?? 2) => ({ index, frames: Array(frames).fill({}), decisions });
+  // A hand reviewed, one not yet reviewed, one won before the player's first
+  // turn, and another reviewed.
+  const hands = [hand(0, [near, flagged, agreed]), hand(1, null, 2), hand(2, [], 0), hand(3, [flagged, forced])];
+  assert.deepEqual(playlist(hands, 'flagged'), [{ hand: 0, step: 1 }, { hand: 3, step: 0 }]);
+  assert.deepEqual(playlist(hands, 'differed'), [{ hand: 0, step: 0 }, { hand: 0, step: 1 }, { hand: 3, step: 0 }]);
+  assert.deepEqual(playlist(hands, 'every'), [{ hand: 0, step: 0 }, { hand: 0, step: 1 }, { hand: 0, step: 2 },
+    { hand: 1, step: 0 }, { hand: 1, step: 1 }, { hand: 3, step: 0 }, { hand: 3, step: 1 }]);
+});
+
+test('Previous and Next go to the place the list holds before or after the one shown, across hands, from a place it does not hold too, and stop at the ends', () => {
+  const list = [{ hand: 0, step: 1 }, { hand: 2, step: 0 }, { hand: 2, step: 4 }];
+  assert.deepEqual(neighbour(list, { hand: 0, step: 1 }, 1), { hand: 2, step: 0 }, 'on into a later hand');
+  assert.deepEqual(neighbour(list, { hand: 2, step: 0 }, -1), { hand: 0, step: 1 }, 'back into an earlier hand');
+  assert.deepEqual(neighbour(list, { hand: 2, step: 0 }, 1), { hand: 2, step: 4 });
+  // A place the list does not hold: in a hand it holds nothing of, and
+  // between two decisions of a hand it holds.
+  assert.deepEqual(neighbour(list, { hand: 1, step: 3 }, 1), { hand: 2, step: 0 });
+  assert.deepEqual(neighbour(list, { hand: 1, step: 3 }, -1), { hand: 0, step: 1 });
+  assert.deepEqual(neighbour(list, { hand: 2, step: 2 }, -1), { hand: 2, step: 0 });
+  assert.deepEqual(neighbour(list, { hand: 2, step: 2 }, 1), { hand: 2, step: 4 });
+  // The ends, from a place the list holds or one beyond it.
+  assert.equal(neighbour(list, { hand: 0, step: 1 }, -1), null);
+  assert.equal(neighbour(list, { hand: 0, step: 0 }, -1), null);
+  assert.equal(neighbour(list, { hand: 2, step: 4 }, 1), null);
+  assert.equal(neighbour(list, { hand: 3, step: 0 }, 1), null);
+  assert.equal(neighbour([], { hand: 0, step: 0 }, 1), null);
+});
+
+test("a hand opens at its first decision the filter holds, or at its first, and a review at the newest hand's", () => {
+  const decision = (values = {}) => ({ agreed: false, forced: false, judgement: { gap: 0.5, flagged: false }, ...values });
+  const hand = (index, decisions, frames = decisions?.length ?? 3) => ({ index, frames: Array(frames).fill({}), decisions });
+  const agreed = decision({ agreed: true, judgement: null });
+  const reviewed = hand(0, [agreed, decision(), decision({ judgement: { gap: 0.9, flagged: true } })]), waiting = hand(1, null);
+  assert.deepEqual(handEntry([reviewed], 'flagged', 0), { hand: 0, step: 2 });
+  assert.deepEqual(handEntry([reviewed], 'differed', 0), { hand: 0, step: 1 });
+  assert.deepEqual(handEntry([reviewed], 'every', 0), { hand: 0, step: 0 });
+  // A hand the filter holds nothing of, or one not yet reviewed, opens at its
+  // first decision; one in which the player made none has nowhere to open.
+  assert.deepEqual(handEntry([hand(0, [agreed], 1)], 'flagged', 0), { hand: 0, step: 0 });
+  assert.deepEqual(handEntry([reviewed, waiting], 'flagged', 1), { hand: 1, step: 0 });
+  assert.equal(handEntry([hand(0, [], 0)], 'every', 0), null);
+  // The review opens on the newest hand with a decision of the player's,
+  // reviewed or not, passing over a last hand won before their first turn.
+  assert.deepEqual(landing([reviewed, waiting], 'flagged'), { hand: 1, step: 0 });
+  assert.deepEqual(landing([hand(0, null), hand(1, reviewed.decisions)], 'flagged'), { hand: 1, step: 2 });
+  assert.deepEqual(landing([reviewed, hand(1, [], 0)], 'differed'), { hand: 0, step: 1 });
+  assert.equal(landing([hand(0, [], 0)], 'every'), null);
+  assert.equal(landing([], 'every'), null);
+});
+
+test('each move is a word and the tiles it names, and a discard its tile alone', () => {
+  assert.deepEqual(moveToken('discard', '5z'), { word: '', tiles: ['5z'] });
+  assert.deepEqual(moveToken('riichi', '3s'), { word: 'Riichi', tiles: ['3s'] });
+  assert.deepEqual(moveToken('chii', '3m'), { word: 'Chii', tiles: ['3m', '4m', '5m'] });
+  assert.deepEqual(moveToken('concealed-kan', '7z'), { word: 'Kan', tiles: ['7z'] });
+  assert.deepEqual(moveToken('extended-kan', '2p'), { word: 'Kan', tiles: ['2p'] });
+  for (const [kind, word] of [['pon', 'Pon'], ['kan', 'Kan'], ['ron', 'Ron'], ['tsumo', 'Tsumo'], ['pass', 'Pass']]) {
+    assert.deepEqual(moveToken(kind, null), { word, tiles: [] }, kind);
+  }
+});
+
+test('a step says in one line where it is, the table, both moves with their weights, a pick, and whether it was flagged', () => {
+  const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
+  const turn = { phase: 'act', wall: 36, pending_discard: null, pending_from: null,
+    seats: [seat('north', { turn: true, drawn: '7z' }), seat('east'), seat('south'), seat('west')] };
+  const offer = { ...turn, phase: 'call', wall: 64, pending_discard: '7p', pending_from: 'south',
+    seats: [seat('north'), seat('east'), seat('south', { turn: true }), seat('west')] };
+  const choice = (kind, tile, label, weight, conditionalWeight = null) => ({ kind, tile, label, weight, conditionalWeight });
+  const discards = [choice('discard', '7z', 'discards the red dragon', 0.02), choice('discard', '8s', 'discards the 8 bamboo', 0.955),
+    choice('discard', '1z', 'discards the east wind', 0.012)];
+  const reaches = [choice('riichi', '3s', 'declares riichi on the 3 bamboo', 0.9, 0.02), choice('riichi', '6m', 'declares riichi on the 6 characters', 0.9, 0.9),
+    choice('discard', '3s', 'discards the 3 bamboo', 0.1)];
+  const calls = [choice('pon', null, 'calls a triplet', 0.99), choice('pass', null, 'passes', 0.003)];
+  const frame = (view, choices, kind, tile = null) => ({ view, choices, played: { kind, tile }, lines: [] });
+  const hand = { name: 'East 4', frames: [frame(offer, calls, 'pass'), frame(turn, discards, 'discard', '7z'),
+    frame(turn, reaches, 'riichi', '3s'), frame(turn, discards, 'discard', '8s')] };
+  const decision = (step, advised, values = {}) => ({ played_kind: hand.frames[step].played.kind, played_tile: hand.frames[step].played.tile,
+    advised_kind: advised.kind, advised_tile: advised.tile, advised: advised.label, agreed: false, forced: false,
+    judgement: { flagged: false }, weighted: hand.frames[step].choices, ...values });
+  const said = (step, decision, options = {}) => stepSaid({ hand, step, decision, ...options });
+  const flagged = decision(1, discards[1], { judgement: { flagged: true } });
+
+  assert.equal(said(1, flagged), 'East 4, decision 2 of 4. Your turn, 36 tiles left. You: discards the red dragon, 2.0%. '
+    + 'Trained AI: discards the 8 bamboo, 95.5%. Flagged.');
+  // A move the player picked there, with its weight, once the answer is shown.
+  assert.equal(said(1, flagged, { pick: { kind: 'discard', tile: '1z' } }), 'East 4, decision 2 of 4. Your turn, 36 tiles left. '
+    + 'You: discards the red dragon, 2.0%. Trained AI: discards the 8 bamboo, 95.5%. Now: discards the east wind, 1.2%. Flagged.');
+  // Hidden, the player's weight goes with Trained AI's move, and the flag stays.
+  assert.equal(said(1, flagged, { hidden: true }), 'East 4, decision 2 of 4. Your turn, 36 tiles left. You: discards the red dragon. '
+    + "Trained AI's move hidden. Flagged.");
+  // Not reviewed yet, the move is known from the table; Trained AI's is not.
+  assert.equal(said(1, null), 'East 4, decision 2 of 4. Your turn, 36 tiles left. You: discards the red dragon. Trained AI: not reviewed yet.');
+  assert.equal(said(3, decision(3, discards[1], { agreed: true, judgement: null })),
+    'East 4, decision 4 of 4. Your turn, 36 tiles left. You: discards the 8 bamboo, 95.5%. Trained AI agreed.');
+  assert.equal(said(3, decision(3, discards[1], { agreed: true, forced: true, judgement: null })),
+    'East 4, decision 4 of 4. Your turn, 36 tiles left. You: discards the 8 bamboo. Only move.');
+  // An answer to another's discard: the table says whose tile it was.
+  assert.equal(said(0, decision(0, calls[0])), 'East 4, decision 1 of 4. South discarded the 7 circles, 64 tiles left. '
+    + 'You: passes, 0.3%. Trained AI: calls a triplet, 99.0%.');
+  // Both declared riichi: the tiles are weighed given the declaration.
+  const riichi = decision(2, reaches[1], { judgement: { flagged: true } });
+  assert.equal(said(2, riichi), 'East 4, decision 3 of 4. Your turn, 36 tiles left. You: declares riichi on the 3 bamboo, 2.0% given riichi. '
+    + 'Trained AI: declares riichi on the 6 characters, 90.0% given riichi. Flagged.');
+  assert.deepEqual(moveWeight(riichi, { kind: 'riichi', tile: '3s' }), { weight: 0.02, given: true });
+  assert.deepEqual(moveWeight(riichi, { kind: 'discard', tile: '3s' }), { weight: 0.1, given: false });
+  // Trained AI alone declared: the declaration itself is weighed, as judged.
+  const declared = { ...riichi, played_kind: 'discard', played_tile: '3s' };
+  assert.deepEqual(moveWeight(declared, { kind: 'riichi', tile: '6m' }), { weight: 0.9, given: false });
+  assert.deepEqual(moveWeight({ ...flagged, weighted: [{ ...discards[0], weight: null }] }, discards[0]), { weight: null, given: false },
+    'a move Trained AI gave no weight');
+});
+
+test("a real review's lists hold what their filters count, in the order played: the flagged among the different moves, and every decision", async () => {
   const review = new MatchReview(Game, game, { analyzeBatch: network() });
   try {
     review.review();
     await settled(review);
     const decisions = review.decisions, counts = filterCounts(decisions);
-    const flagged = filterDecisions(decisions, 'flagged'), other = filterDecisions(decisions, 'differed');
+    const at = place => review.hands[place.hand].decisions[place.step];
+    const flagged = playlist(review.hands, 'flagged').map(at), other = playlist(review.hands, 'differed').map(at);
     assert.equal(counts.every, decisions.length);
     assert.equal(counts.flagged, flagged.length);
-    assert.equal(counts.differed, decisions.filter(decision => !decision.agreed && !decision.forced).length);
+    assert.equal(counts.differed, other.length);
     assert.ok(counts.flagged > 0 && counts.differed >= counts.flagged && counts.every > counts.differed, JSON.stringify(counts));
-    assert.ok(flagged.every(decision => other.includes(decision)), 'every flagged decision differs');
-    const gaps = other.filter(decision => decision.judgement).map(decision => decision.judgement.gap);
-    assert.deepEqual(gaps, [...gaps].sort((a, b) => b - a), 'those that differ, the widest gap first');
-    assert.deepEqual(filterDecisions(decisions, 'every'), decisions, 'every decision in the order played');
+    assert.ok(flagged.every(decision => decision.judgement.flagged && other.includes(decision)), 'every flagged decision differs');
+    assert.ok(other.every(decision => !decision.agreed && !decision.forced));
+    // Hand by hand, each hand's decisions in the order they were made.
+    const order = decision => decisions.indexOf(decision);
+    for (const list of [flagged, other]) assert.deepEqual(list.map(order), [...list.map(order)].sort((a, b) => a - b));
+    assert.deepEqual(playlist(review.hands, 'every').map(at), decisions, 'every decision in the order played');
   } finally { review.dispose(); }
 });
 
@@ -345,9 +524,10 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
         });
       } finally { match.dispose(); }
     }
-    const flagged = rankDecisions(decisions);
-    assert.ok(flagged.length > LEADING, 'a network sure of other moves flags many');
-    assert.ok(flagged.every(decision => decision.judgement.flagged && !decision.agreed));
+    const flagged = decisions.filter(decision => decision.judgement?.flagged);
+    assert.ok(flagged.length > 5, 'a network sure of other moves flags many');
+    assert.ok(flagged.every(decision => !decision.agreed && !decision.forced));
+    assert.equal(flaggedCount(decisions), flagged.length);
   } finally { review.dispose(); }
 });
 
@@ -512,8 +692,8 @@ test('a slow device holds after each hand until the player asks for the next one
 });
 
 test('stopping puts the hand being reviewed back, and a failure says what failed and can be retried', async () => {
-  // The first hand is answered; the second hand's first batch waits until
-  // the review is stopped.
+  // The final hand, asked about first, and the first hand are answered; the
+  // second hand's first batch waits until the review is stopped.
   let review = null;
   const waiting = async (positions, signal) => {
     if (review.current === 1) {
@@ -755,11 +935,11 @@ test('a finished review is reported once, with what the trend keeps of it', asyn
     await settled(review);
     const { matched, decisions } = agreement(review.decisions);
     assert.deepEqual(reported, [{ id: `${game.seed}:${game.commands.length}`, matched, decisions,
-      flagged: rankDecisions(review.decisions).length }]);
+      flagged: review.decisions.filter(decision => decision.judgement?.flagged).length }]);
   } finally { review.dispose(); }
 });
 
-test('a review of the game so far asks about the hand just played first, and keeps the game out of the trend', async () => {
+test('a review asks about the newest hand first, the hand just played or the final one, and keeps the game so far out of the trend', async () => {
   const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
   const order = [], reported = [];
   const review = notingReview(saved, order, { onComplete: done => reported.push(done.summary) });
@@ -773,13 +953,15 @@ test('a review of the game so far asks about the hand just played first, and kee
     assert.equal(review.complete, true);
     assert.deepEqual(reported, [], 'the game so far is not a game for the trend');
   } finally { review.dispose(); }
-  // A finished game is asked from its first deal.
+  // A finished game is asked about its final hand first, the hand its review
+  // opens on, then from the first deal.
   const asked = [], finished = notingReview(game, asked);
   try {
     assert.equal(finished.over, true);
     finished.review();
     await settled(finished);
-    assert.deepEqual(asked, finished.hands.map(hand => hand.index));
+    const indices = finished.hands.map(hand => hand.index);
+    assert.deepEqual(asked, [indices.at(-1), ...indices.slice(0, -1)]);
   } finally { finished.dispose(); }
 });
 
@@ -849,7 +1031,7 @@ test('a review taken on while it reviews a hand plays on along the longer match'
     await settled(review);
     assert.equal(review.failure, '');
     assert.deepEqual(review.hands.slice(0, 2).map(hand => hand.status), ['done', 'done']);
-    // The later hands play on from the first hand's end, along the whole game.
+    // The later hands, the final one first, play on along the whole game.
     review.review();
     await settled(review);
     assert.equal(review.failure, '');

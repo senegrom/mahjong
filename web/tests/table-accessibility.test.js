@@ -6,6 +6,7 @@ import { render } from 'svelte/server';
 import { meldWords } from '../src/lib/ui.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 import { componentLoader } from './fixtures/load-component.js';
+import { text } from './fixtures/markup-text.js';
 
 // Server-render the production components and the components they nest.
 const component = componentLoader();
@@ -158,13 +159,124 @@ test('the table, the inspection of all discards and your own row all carry both 
   assert.deepEqual(discards.map(tile => [tile.label, marks(tile)]), [['north wind, claimed, discarded from the draw', ['from-draw', 'claimed']]]);
 });
 
-test('the tile guide explains both discard marks, each with its swatch', async () => {
+test("a review's answer to a discard outlines the tile on offer in the discarder's row, and names it so", async () => {
+  const thrown = (tile, extra = {}) => ({ tile, drawn: false, riichi: false, claimed: false, ...extra });
+  // The tiles a row outlines, by name, past the markers a server render
+  // leaves around a snippet and a tile.
+  const outlined = markup => [...markup.matchAll(/<span class="offered[^"]*">(?:<!--[^>]*-->)*<span class="tile [^"]*"[^>]*aria-label="([^"]*)"/g)]
+    .map(match => match[1]);
+  // The row outlines the tile it is given, and its name and hover text say why.
+  const row = await html('Discards.svelte', { marked: 1, dora: ['7p'], discards: [thrown('3p'), thrown('7p', { drawn: true })] });
+  assert.deepEqual(outlined(row), ['7 circles, discarded from the draw, dora, the tile on offer']);
+  assert.deepEqual(shownTiles(row).map(tile => tile.title), ['3 circles', '7 circles, discarded from the draw, dora, the tile on offer']);
+  assert.deepEqual(outlined(await html('Discards.svelte', { discards: [thrown('3p'), thrown('7p')] })), []);
+
+  // South let the 7 circles go and the player answers it. West threw one
+  // earlier, which is not on offer.
+  const view = seats => ({ phase: 'call', round: 'east', kyoku: 1, wall: 50, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'],
+    dora_types: [], dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: '7p', pending_from: 'south',
+    outcome: null, seats });
+  const offered = view([seat('east', 0, { hand: ['1m'], drawn: null }), seat('south', 1, { discards: [thrown('3p'), thrown('7p')] }),
+    seat('west', 2, { discards: [thrown('7p')] }), seat('north', 3)]);
+  const table = props => html('app/MatchTable.svelte', { hints: true, thinking: false, pendingOpponent: null, ...props });
+  // A review's table outlines it in South's row alone, not in the inspection
+  // of all discards, which lists every row as it lies.
+  assert.deepEqual(outlined(await table({ view: offered, review: true })), ['7 circles, the tile on offer']);
+  // Play's table names the tile on offer in the call itself, and outlines nothing.
+  assert.deepEqual(outlined(await table({ view: offered })), []);
+  // A quad offered to be robbed holds every copy of its tile, so no row ends
+  // with it, and nothing is outlined.
+  const quad = { kind: 'extended-kan', tiles: ['7p', '7p', '7p', '7p'], from: 'left', claimed_tile: '7p' };
+  const robbing = view([seat('east', 0, { hand: ['5p', '6p'], drawn: null }), seat('south', 1, { melds: [quad], discards: [thrown('3p')] }),
+    seat('west', 2), seat('north', 3)]);
+  assert.deepEqual(outlined(await table({ view: robbing, review: true })), []);
+});
+
+test("a review's opponents' tiles turned over keep their rack, their number and the drawn tile's place, and say nothing of what they are", async () => {
+  const held = { seat: 'south', player: 1, hand: ['1m', '5p', '5z'], drawn: '7z' };
+  const rack = props => html('Seat.svelte', { seat: seat('south', 1, { hand_size: 4 }), position: 'Right', hand: held, dora: ['5p'], ...props });
+  const list = markup => /<ul class="revealed[^"]*" role="list" aria-label="([^"]*)" data-seat-hand="south">([^]*?)<\/ul>/.exec(markup);
+  const open = list(await rack({})), turned = list(await rack({ concealed: true }));
+  assert.equal(open[1], "South's tiles, Right (Club)");
+  assert.equal(turned[1], "South's tiles, Right (Club), face down");
+  // As many tiles in the same rack, the tile just drawn in its place apart.
+  const slots = inner => [...inner.matchAll(/<li\b([^>]*)>/g)].map(match => /class="[^"]*\bdrawn\b/.test(match[1]));
+  assert.deepEqual(slots(turned[2]), slots(open[2]));
+  assert.deepEqual(slots(turned[2]), [false, false, false, true]);
+  assert.deepEqual(shownTiles(turned[2]).map(tile => [tile.label, tile.title]), Array(4).fill(['face-down tile', 'face-down tile']));
+  // No name, attribute or ring gives a tile away, dora included.
+  assert.doesNotMatch(turned[2], /data-tile|characters|circles|dragon|dora|ringed/);
+  assert.match(open[2], /data-tile="5p"[^>]*aria-label="5 circles, dora"/);
+
+  // A review's table turns the three opponents' tiles over together.
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    outcome: null, seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const hands = view.seats.map(({ seat: wind, player }) => ({ seat: wind, player, hand: ['2s', '3s'], drawn: null }));
+  const names = markup => [...markup.matchAll(/<ul class="revealed[^"]*" role="list" aria-label="([^"]*)"/g)].map(match => match[1]);
+  const table = props => html('app/MatchTable.svelte', { view, hints: true, thinking: false, pendingOpponent: null, hands, review: true, ...props });
+  assert.deepEqual(names(await table({ concealed: true })), ["West's tiles, Opposite (Club), face down", "North's tiles, Left (Club), face down",
+    "South's tiles, Right (Club), face down"]);
+  assert.deepEqual(names(await table({})), ["West's tiles, Opposite (Club)", "North's tiles, Left (Club)", "South's tiles, Right (Club)"]);
+});
+
+test("a review's words over a tile are said after its name, and a line is kept for them on every tile of the hand, but not in play", async () => {
+  const tag = markup => /<span class="tag[^"]*" aria-hidden="true">([^]*?)<\/span>/.exec(markup);
+  const both = await html('HandTile.svelte', { tile: '8s', onclick() {}, disabled: true, selected: true, tag: ['You', 'AI'] });
+  assert.equal(text(tag(both)[1]), 'You · AI');
+  // Trained AI's word is in its colour; the player's in the tiles'.
+  assert.match(tag(both)[1], /<b class="[^"]*\bai\b[^"]*">AI<\/b>/);
+  assert.doesNotMatch(tag(both)[1], /<b class="[^"]*\bai\b[^"]*">You<\/b>/);
+  assert.match(both, /title="8 bamboo, selected, your move, Trained AI's choice" aria-label="8 bamboo, selected, your move, Trained AI's choice"/);
+  assert.match(await html('HandTile.svelte', { tile: '3p', tag: ['Now'] }), /aria-label="3 circles, your pick"/);
+  // An untagged tile of the hand keeps the line, empty; play's tiles have none.
+  assert.equal(text(tag(await html('HandTile.svelte', { tile: '3p', tag: [] }))?.[1] ?? 'none'), '');
+  const play = await html('HandTile.svelte', { tile: '3p' });
+  assert.equal(tag(play), null);
+  assert.match(play, /aria-label="3 circles"/);
+  // A note follows a title the caller gives the tile, too.
+  assert.match(await html('Tile.svelte', { tile: '1m', title: 'One', note: 'your pick' }), /title="One, your pick"/);
+});
+
+// The tile guide in the settings, as the page draws it.
+async function tileGuide() {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
     ready: true, busy: false, saveConflict: '', trainedAvailable: false,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
-  const guide = settings.slice(settings.indexOf('class="guide'));
+  return settings.slice(settings.indexOf('class="guide'));
+}
+
+test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning", async () => {
+  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
+});
+
+test("the tile guide says the blue ring is Trained AI's choice in a review, as it is the agent's in Agent watch and Guided play, and gives the review's keys and where each kind works", async () => {
+  const guide = await tileGuide();
+  /** What the guide says of a term, its swatch passed over. */
+  const entry = term => text(new RegExp(`<dt[^>]*>(?:<span class="swatch[^"]*"[^>]*></span>)?\\s*${term}</dt>\\s*<dd[^>]*>([^]*?)</dd>`).exec(guide)?.[1] ?? '');
+  assert.equal(entry('a blue ring'), "The tile under the keyboard marker. In Agent watch and Guided play, the agent's choice; in a review, Trained AI's.");
+  // Play's keys work in the hand alone, and the review's from any control
+  // but a field (reviewKey), so each says where it works; the setting turns
+  // both off.
+  assert.match(entry('Keys'), /^Focus your hand first\. .+ and t to win on your own draw\. These never run while you are using another control\. In a review, ← and → step, Shift\+← and Shift\+→ change hand, s shows the answer, 1 to 9 and 0 pick a tile while it is hidden, and Esc goes back, from any control but a form field\. Shortcuts can be turned off in Options\.$/);
+});
+
+test("the settings offer the review's two hiding settings after the other checkboxes, so that those keep their places", async () => {
+  const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
+    ready: true, busy: false, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
+    offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {} });
+  const options = settings.slice(settings.indexOf('class="options'), settings.indexOf('class="network-choice'));
+  const boxes = [...options.matchAll(/<label[^>]*>(<input type="checkbox"[^>]*>)([^]*?)<\/label>/g)]
+    .map(([, input, said]) => [text(said), /\bchecked\b/.test(input)]);
+  assert.deepEqual(boxes, [['Hints and markings', true], ['Select before discarding', false], ['Keyboard shortcuts in your hand', true],
+    ["Hide Trained AI's move in reviews", true], ["Hide other players' tiles in reviews", false]]);
+});
+
+test('the tile guide explains both discard marks, each with its swatch', async () => {
+  const guide = await tileGuide();
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
     ['claimed', /dark green border[\s\S]*claimed the tile for a call/]]) {
     assert.match(guide, new RegExp(`<dt[^>]*><span class="swatch ${swatch}[ "][^>]*></span>`), swatch);

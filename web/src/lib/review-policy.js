@@ -108,9 +108,10 @@ function reviewedNote(engine, index, note, choices, mask, first, second) {
     advised_kind: preferred.kind,
     preferred_conditional_weight: preferred.conditionalWeight ?? null,
     played_conditional_weight: played.conditionalWeight ?? null,
-    // Every move that was open and its weight, for a review that shows them
-    // all once the player has chosen again; and whether there was a choice
-    // at all, which a forced move, such as a discard after riichi, is not.
+    // Every move that was open and its weight, which Trained AI's view lists
+    // at every reviewed decision of a replay, and by which the step bar
+    // weighs both moves (moveWeight); and whether there was a choice at
+    // all, which a forced move, such as a discard after riichi, is not.
     weighted,
     forced: Array.from(mask).filter(Boolean).length === 1,
   };

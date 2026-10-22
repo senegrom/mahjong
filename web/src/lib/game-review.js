@@ -1,5 +1,5 @@
 /** The game's review: every decision the player made in a match, put to the
- * trained network and ranked by how far the player's move departed from its
+ * trained network and flagged where the player's move departed far from its
  * choice. From any hand's result it reviews the game so far, and once the
  * match is over the whole game; it is taken on to each later result as the
  * match goes on, so that a hand reviewed once is never asked about again.
@@ -14,15 +14,13 @@
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
-import { percent, quadOnOffer } from './ui.js';
+import { callTiles, percent, quadOnOffer } from './ui.js';
 
 /** A decision is flagged when the player's move had under this weight... */
 export const FLAG_PLAYED_BELOW = 0.05;
 /** ...while the network's own choice had at least this. A network that is
  * not decisive is not asked to overrule anyone: near-ties never flag. */
 export const FLAG_PREFERRED_FROM = 0.6;
-/** How many of the flagged decisions the review leads with. */
-export const LEADING = 5;
 /** Positions asked in one forward pass. Natively eight cost about half as
  * much a position as one at a time (35 ms against 66); in the browser's
  * single-threaded runtime they cost about the same (157 ms against 163, in
@@ -139,107 +137,118 @@ export function judgement(row) {
     flagged: played < FLAG_PLAYED_BELOW && preferred >= FLAG_PREFERRED_FROM };
 }
 
-/** A judged decision's two weights as the review gives them, the same in the
- * whole game's list and in a replay's offer to choose again, which leads
- * with "Flagged: " (`lead`): the player's move and Trained AI's choice, or
- * where both declared riichi the player's tile given riichi. What Trained
- * AI chose is not said, since a flagged decision keeps it for the retry. */
-export function weightsSaid({ stage, played, preferred }, lead = '') {
-  const said = `${stage === 'tile' ? 'given riichi, your tile' : 'your move'} ${percent(played)}, Trained AI's choice ${percent(preferred)}.`;
-  return lead ? `${lead}${said}` : `${said[0].toUpperCase()}${said.slice(1)}`;
-}
+/** How many of the reviewed decisions are flagged: the count on the Flagged
+ * button, and in what the trend keeps of a game. */
+export const flaggedCount = decisions => decisions.filter(decision => decision.judgement?.flagged).length;
 
-/** The flagged decisions of the reviewed hands, the widest gap first; equal
- * gaps keep the order they were played in. */
-export function rankDecisions(decisions) {
-  return decisions.map((decision, order) => ({ decision, order, gap: decision.judgement?.flagged ? decision.judgement.gap : null }))
-    .filter(entry => entry.gap !== null)
-    .sort((a, b) => b.gap - a.gap || a.order - b.order)
-    .map(entry => entry.decision);
-}
-
-/** The lists of the player's decisions a review can show, by the names its
- * filter gives them: the flagged decisions, every decision where Trained AI
- * chose differently (the flagged ones among them), and every decision. */
+/** The decisions a review steps through, by the names its filter gives them:
+ * the flagged decisions, every decision where Trained AI chose differently
+ * (the flagged ones among them), and every decision. session.js keeps the
+ * same list for the filter the player last chose. */
 export const FILTERS = Object.freeze(['flagged', 'differed', 'every']);
-/** What each filter's button says, before how many decisions it holds: the
- * verdicts a replayed hand's list gives each decision (decisionInBrief). */
-export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Trained AI differed', every: 'Every decision' });
-/** A filter button's title, where it has one. The Flagged button's is the
- * rule a decision is flagged by, kept at hand but out of the way: a pointer
- * shows it as a tooltip, and a screen reader reads it as the button's
- * description, after its name. It is put in the words each decision's
- * weights are given in (weightsSaid), so it reads like the figures it applies
- * to. Like the app's other button titles, it is not a sentence. */
+/** What each filter's button says, before how many decisions it holds. */
+export const FILTER_LABELS = Object.freeze({ flagged: 'Flagged', differed: 'Differed', every: 'All' });
+/** A filter button's title, where it has one, kept at hand but out of the
+ * way: a pointer shows it as a tooltip, and a screen reader reads it as the
+ * button's description, after its name. The Flagged button's is the rule a
+ * decision is flagged by, in the words of the step bar's weights, "You" and
+ * "Trained AI"; the Differed button's says what its one word stands for.
+ * Like the app's other button titles, neither is a sentence. */
 export const FILTER_TITLES = Object.freeze({
   flagged: `Your move under ${Math.round(FLAG_PLAYED_BELOW * 100)}%, Trained AI's choice ${Math.round(FLAG_PREFERRED_FROM * 100)}% or more`,
+  differed: 'Trained AI chose another move',
 });
 
 /** Whether Trained AI chose differently: a real choice, made otherwise. A
  * forced move was no choice, so it never differs. */
 export const differed = decision => !decision.agreed && !decision.forced;
 
-/** The decisions a filter holds, in the order the whole-game review lists
- * them: the flagged ones, and those where Trained AI chose differently, the
- * widest gap first as `rankDecisions` ranks them, a different move whose
- * weights could not be compared after the rest; every decision in the order
- * it was made. Equal gaps keep the order they were played in. */
-export function filterDecisions(decisions, filter) {
-  if (filter === 'flagged') return rankDecisions(decisions);
-  if (filter === 'every') return [...decisions];
-  const gap = decision => decision.judgement?.gap ?? -Infinity;
-  return decisions.map((decision, order) => ({ decision, order }))
-    .filter(entry => differed(entry.decision))
-    // Two moves that could not be compared give NaN, and keep their order.
-    .sort((a, b) => (gap(b.decision) - gap(a.decision)) || a.order - b.order)
-    .map(entry => entry.decision);
-}
-
 /** How many decisions each filter holds. */
 export function filterCounts(decisions) {
-  return { flagged: rankDecisions(decisions).length, differed: decisions.filter(differed).length, every: decisions.length };
+  return { flagged: flaggedCount(decisions), differed: decisions.filter(differed).length, every: decisions.length };
 }
 
-/** What a list says as the player chooses its filter: how many decisions it
- * shows now, of which kind, `scope` such as " in this hand" saying where, and
- * in what order; and, where the list leads with a few and keeps the rest
- * behind a button, that it does. The flagged decisions among those where
- * Trained AI differed are counted too. It is said as a button is pressed,
- * so it names the list without saying that it is shown. */
-export function filterSaid(filter, counts, { scope = '', ranked = filter !== 'every', leading = Infinity } = {}) {
+/** What a decision is known by across the game: its hand and its number in
+ * the hand, from 0, as "3:12". */
+export const decisionKey = (hand, index) => `${hand}:${index}`;
+
+/** Whether a filter holds a decision. A decision not yet reviewed (null) is
+ * known only to have been made, so only the list of every decision holds it. */
+export function listedIn(decision, filter) {
+  if (filter === 'every') return true;
+  if (!decision) return false;
+  return filter === 'flagged' ? Boolean(decision.judgement?.flagged) : differed(decision);
+}
+
+/** The places a filter holds, `{ hand, step }`, through the hands in the
+ * order they were played and each hand's decisions in the order they were
+ * made: what Previous and Next step through. */
+export function playlist(hands, filter) {
+  return hands.flatMap(hand => hand.frames.flatMap((_, step) =>
+    (listedIn(hand.decisions?.[step] ?? null, filter) ? [{ hand: hand.index, step }] : [])));
+}
+
+/** The place in `list` before `place` (direction -1) or after it (1), in the
+ * order played, or null at either end. The place need not be in the list
+ * itself, as a decision the filter does not hold may be shown all the same. */
+export function neighbour(list, place, direction) {
+  const after = entry => entry.hand - place.hand || entry.step - place.step;
+  if (direction > 0) return list.find(entry => after(entry) > 0) ?? null;
+  for (let at = list.length - 1; at >= 0; at--) if (after(list[at]) < 0) return list[at];
+  return null;
+}
+
+/** Where a hand is opened at: its first decision the filter holds, or its
+ * first decision if the filter holds none there, as before the hand is
+ * reviewed; null for a hand in which the player made no decision. */
+export function handEntry(hands, filter, handIndex) {
+  const hand = hands[handIndex];
+  if (!hand?.frames.length) return null;
+  const step = hand.frames.findIndex((_, index) => listedIn(hand.decisions?.[index] ?? null, filter));
+  return { hand: hand.index, step: Math.max(0, step) };
+}
+
+/** Where a review opens: the newest hand in which the player made a decision,
+ * which is the hand just played, or at the end the final hand, at its entry
+ * (handEntry); null before any decision. */
+export function landing(hands, filter) {
+  for (let at = hands.length - 1; at >= 0; at--) if (hands[at].frames.length) return handEntry(hands, filter, at);
+  return null;
+}
+
+/** What a decision keeps back from the player under the review's two
+ * settings, `hideMove` and `hideTiles`, given what they have revealed there
+ * (`reveal`, as revealing makes it, or null): `move`, Trained AI's move, at a
+ * decision Trained AI answered and that was not the only move, until the
+ * player shows the answer or picks a move there; and `tiles`, the other
+ * players' tiles, at any decision, until the player reveals anything there.
+ * An only move and a hand not yet reviewed have no answer to keep back. A
+ * setting is read afresh at every decision, so turning one on hides only
+ * what the player has not revealed, and turning it off shows everything. */
+export function hiddenAt(decision, reveal, { hideMove = false, hideTiles = false } = {}) {
+  return { move: hideMove && Boolean(decision) && !decision.forced && !reveal?.answer, tiles: hideTiles && !reveal };
+}
+
+/** What is kept of a decision the player reveals, by Show answer, by Show
+ * tiles or by a move picked there, `pick`: the pick, if any, and whether the
+ * answer, Trained AI's move, is revealed with it, as it is wherever Trained
+ * AI has answered the decision. Show tiles in a hand not yet reviewed turns
+ * the tiles over and leaves the move to be answered once Trained AI has. */
+export const revealing = (decision, pick = null) => ({ pick, answer: Boolean(decision) });
+
+/** What the review says as the player chooses its filter: how many decisions
+ * Previous and Next now step through, and of which kind, the flagged ones
+ * among those where Trained AI differed counted too. Every list is in the
+ * order played, so it says no order. It is said as a button is pressed, so
+ * it names the decisions without saying that they are shown. */
+export function filterSaid(filter, counts) {
   const count = counts[filter], s = count === 1 ? '' : 's';
-  if (!count) {
-    return { flagged: `None flagged${scope}.`, differed: `Trained AI agreed at every decision${scope}.`,
-      every: `No decisions${scope}.` }[filter];
-  }
-  const shown = {
-    flagged: `${count} flagged decision${s}${scope}`,
-    differed: `${count} decision${s}${scope} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}`,
-    every: count === 1 ? `The one decision${scope}` : `All ${count} decisions${scope}`,
+  if (!count) return { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.', every: 'No decisions.' }[filter];
+  return {
+    flagged: `${count} flagged decision${s}.`,
+    differed: `${count} decision${s} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}.`,
+    every: count === 1 ? 'The one decision.' : `All ${count} decisions.`,
   }[filter];
-  const order = count === 1 ? '' : ranked ? ', widest departure first' : ', in the order played';
-  return `${shown}${order}.${count > leading ? ` First ${leading} listed.` : ''}`;
-}
-
-/** A place in the ranking as it is said: "1st", "2nd", "3rd", "11th", "22nd". */
-export function ordinal(number) {
-  const suffix = number % 100 >= 11 && number % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][number % 10] ?? 'th';
-  return `${number}${suffix}`;
-}
-
-/** What the whole-game list says when the decision a player is on, or came
- * back to, has been put lower by the hands reviewed since: where it is now,
- * and whether every decision the filter holds had to be shown to keep it. A
- * ranked list moves a decision down when later ones departed further; the
- * list of every decision, when the decisions of an earlier hand arrive after
- * it. Not how many the list holds: that grows with every hand reviewed while
- * the place stays, so a count said once goes stale, and a status that kept it
- * current would be read out again at every hand. It leads with the place, the
- * one thing it must say; focus is on the decision, so it need not say which,
- * and a list that grew to keep it shows all it holds, whichever list it is. */
-export function movedNote(rank, everyShown, filter = 'flagged') {
-  const why = filter === 'every' ? 'decisions reviewed since came before it' : 'decisions reviewed since departed further';
-  return `Now ${ordinal(rank + 1)}: ${why}${everyShown ? ', so the whole list is shown' : ''}.`;
 }
 
 /** How many of the player's real choices were the network's own. A forced
@@ -339,13 +348,15 @@ export class MatchReview {
     const last = this.hands.at(-1);
     return Boolean(last) && last.end < this.snapshot.commands.length;
   }
-  /** The order the hands are asked about when none are named. A finished
-   * match is asked from its first deal. A match under way is asked first
-   * about the hand just played, whose result the player came from, then
-   * about the rest from the first deal. */
+  /** The order the hands are asked about when none are named: the newest
+   * first, then the rest from the first deal. While the match is under way
+   * that is the hand just played, whose result the player came from, and
+   * once it is over the final hand. Either way it is the hand the review
+   * opens on (landing), so the first hand the player looks at is the first
+   * one answered. */
   get order() {
     const indices = this.hands.map(hand => hand.index);
-    return this.over ? indices : [...indices.slice(-1), ...indices.slice(0, -1)];
+    return [...indices.slice(-1), ...indices.slice(0, -1)];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
@@ -358,7 +369,7 @@ export class MatchReview {
   /** What the trend keeps of a finished review. */
   get summary() {
     const { matched, decisions } = agreement(this.decisions);
-    return { id: this.id, matched, decisions, flagged: rankDecisions(this.decisions).length };
+    return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions) };
   }
 
   notify() { if (!this.closed) this.onChange(this); }
@@ -494,7 +505,7 @@ export class MatchReview {
       decision.judgement = judgement(decision);
       // The review's numbers for the moves a player compares: what they
       // played, what the network chose and, where it is flagged, every turn
-      // move they could choose again. A response to a discard has none.
+      // move they could have made instead. A response to a discard has none.
       if (!decision.agreed && !decision.forced && !decision.call_tile) {
         const measure = choice => engine.review_measure(index, choice.kind, choice.tile ?? undefined);
         const moves = decision.judgement?.flagged ? decision.weighted
@@ -590,18 +601,89 @@ export function tableSaid(view) {
   return `${move}, ${left}.${declared}`;
 }
 
-/** Each move as a hand's list of decisions names it, in a word. */
+/** Each move as the review's short lines name it, in a word. */
 const MOVE_NAMES = Object.freeze({ discard: 'Discard', riichi: 'Riichi', tsumo: 'Tsumo', ron: 'Ron', pon: 'Pon', chii: 'Chii',
   kan: 'Kan', 'concealed-kan': 'Kan', 'extended-kan': 'Kan', pass: 'Pass' });
 
-/** A decision as a hand's list of decisions gives it: the move in a word,
- * the tile it concerns (the tile thrown or declared, the tile a self-drawn
- * win was made on, or the discard an answer was to), and whether Trained AI
- * agreed, a flagged decision saying that it was flagged. */
-export function decisionInBrief(frame, decision) {
+/** A move at a decision in the engine's words, "discards the red dragon", as
+ * the decision's own choices name it. */
+const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move.kind, move.tile))?.label
+  ?? MOVE_NAMES[move.kind] ?? move.kind;
+
+/** A decision as a line of the review gives it: the player's move, `you`,
+ * and Trained AI's where it chose another, `ai`, each a word and its tiles
+ * (moveToken); the tile on offer where the player answered another's
+ * discard, `offered`; and as flags whether the decision is `flagged`,
+ * whether Trained AI `agreed`, whether the move was `forced`, the only one,
+ * whether it is `reviewed` yet, and whether Trained AI's move is `hidden`.
+ * `said` is the line as a screen reader hears it, the moves in the engine's
+ * words: "You: discards the red dragon. Trained AI: discards the 8 bamboo.
+ * Flagged."
+ *
+ * With `hidden`, a reviewed decision keeps Trained AI's move back, as the
+ * step bar's line does (stepSaid): no move, and no word or tick that it
+ * agreed, which would give the answer away, but "Trained AI's move hidden."
+ * in its place, in what a screen reader hears as well as in what is shown.
+ * The player's move and the flag stay: how far the player went wrong is not
+ * what was better. An only move and a hand not yet reviewed have nothing to
+ * hide. */
+export function decisionInBrief(frame, decision, { hidden = false } = {}) {
   const { kind, tile } = frame.played, view = frame.view;
-  const verdict = !decision ? '' : decision.judgement?.flagged ? 'Flagged' : decision.forced ? 'Only move'
-    : decision.agreed ? 'Trained AI agreed' : 'Trained AI differed';
-  const concerned = view.phase === 'call' ? view.pending_discard : tile ?? (kind === 'tsumo' ? view.seats[0]?.drawn ?? null : null);
-  return { move: MOVE_NAMES[kind] ?? kind, tile: concerned ?? null, verdict };
+  const flagged = Boolean(decision?.judgement?.flagged), forced = Boolean(decision?.forced);
+  const hide = hidden && Boolean(decision) && !forced, agreed = !hide && Boolean(decision?.agreed);
+  const ai = decision && !forced && !agreed && !hide ? moveToken(decision.advised_kind, decision.advised_tile ?? null) : null;
+  const offered = view.phase === 'call' ? view.pending_discard ?? null : null;
+  const answer = !decision ? 'Not reviewed yet.' : forced ? 'Only move.' : hide ? "Trained AI's move hidden."
+    : agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}.`;
+  const said = `${offered ? `On the ${tileWords(offered)}. ` : ''}You: ${moveWords(frame, frame.played)}. ${answer}${flagged ? ' Flagged.' : ''}`;
+  return { you: moveToken(kind, tile), ai, offered, flagged, agreed, forced, reviewed: Boolean(decision), hidden: hide, said };
+}
+
+/** A move as the review's short lines give it: a word, and the tiles it
+ * names. A discard is its tile alone; a riichi and a quad declared from the
+ * hand, concealed or extended, are the word and their tile; a chii is the
+ * word and its run; any other move, a pass, a pon, a quad called, a win, is
+ * its word. */
+export function moveToken(kind, tile) {
+  if (kind === 'discard') return { word: '', tiles: tile ? [tile] : [] };
+  const word = MOVE_NAMES[kind] ?? kind;
+  if (kind === 'chii') return { word, tiles: tile ? callTiles({ kind, tile }) : [] };
+  return { word, tiles: tile && ['riichi', 'concealed-kan', 'extended-kan'].includes(kind) ? [tile] : [] };
+}
+
+/** A move's weight as the review states it beside Trained AI's choice, and
+ * whether it is `given` riichi. Where the player and Trained AI both declared
+ * riichi, a decision is judged on the tile (`judgement`), so a riichi there
+ * is weighed by its tile given the declaration; otherwise every move by its
+ * own weight, a riichi by the declaration's. The weight is null where
+ * Trained AI gave the move none. */
+export function moveWeight(decision, move) {
+  const given = move.kind === 'riichi' && decision.played_kind === 'riichi' && decision.advised_kind === 'riichi';
+  const choice = decision.weighted?.find(entry => sameMove(entry, move.kind, move.tile));
+  const weight = given ? choice?.conditionalWeight : choice?.weight;
+  return { weight: Number.isFinite(weight) ? weight : null, given };
+}
+
+/** What a step of the review says as it is reached, in the one line a screen
+ * reader hears: where it is, the table (tableSaid), the player's move and
+ * Trained AI's, each with its weight, a move the player picked there, and
+ * whether the decision is flagged. In place of Trained AI's half it says
+ * that Trained AI agreed, that the move was the only one, that its move is
+ * `hidden`, or that the hand is not reviewed yet. A hidden move hides the
+ * player's weight too, which would give the answer away, but not the flag:
+ * how far the player went wrong is not what was better. */
+export function stepSaid({ hand, step, decision = null, hidden = false, pick = null }) {
+  const frame = hand.frames[step], played = frame.played;
+  const weighed = move => {
+    if (!decision || decision.forced || hidden) return '';
+    const { weight, given } = moveWeight(decision, move);
+    return weight === null ? '' : `, ${percent(weight)}${given ? ' given riichi' : ''}`;
+  };
+  const you = `You: ${moveWords(frame, played)}${weighed(played)}.`;
+  const advised = decision && { kind: decision.advised_kind, tile: decision.advised_tile ?? null };
+  const ai = !decision ? 'Trained AI: not reviewed yet.' : decision.forced ? 'Only move.' : hidden ? "Trained AI's move hidden."
+    : decision.agreed ? 'Trained AI agreed.' : `Trained AI: ${decision.advised}${weighed(advised)}.`;
+  const now = pick && decision && !decision.forced && !hidden ? ` Now: ${moveWords(frame, pick)}${weighed(pick)}.` : '';
+  return `${hand.name}, decision ${step + 1} of ${hand.frames.length}. ${tableSaid(frame.view)} ${you} ${ai}${now}`
+    + `${decision?.judgement?.flagged ? ' Flagged.' : ''}`;
 }

@@ -56,6 +56,15 @@
   let faceWarning = $state('');
   let faceLoad = null;
   let reviewAdviser = $state(preferences.reviewAdviser);
+  // Whether Trained AI's reviews keep its move back until the player asks to
+  // see it, and the other players' tiles too. Both are stored with the other
+  // preferences, so a quiz the player set up is still one after a reload.
+  let reviewHideMove = $state(preferences.reviewHideMove);
+  let reviewHideTiles = $state(preferences.reviewHideTiles);
+  // Which decisions the review of the game steps through, stored with the
+  // other preferences, so that it is as the player left it in the next game
+  // and after a reload.
+  let reviewFilter = $state(preferences.reviewFilter);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
   let startupNote = $state('Loading the game and selected tile graphics…');
@@ -104,6 +113,18 @@
   // while the hand's own notes ask Trained AI (notesAsking).
   let matchReview = $state.raw(null);
   let reviewingGame = $state(false);
+  // Where the player is in that review, `{ hand, step }`, kept for the match
+  // so that closing the review and opening it again comes back to the same
+  // decision. It is let go when the review is taken on to hands played since,
+  // so that the review opens on the newest of them, and with the review.
+  let reviewPlace = $state(null);
+  // What the player has revealed in that review, decision by decision
+  // ("hand:step"), where the settings keep Trained AI's move or the other
+  // players' tiles back, with any move they picked there: kept for the match
+  // beside the place, so that no decision asks again, through steps, closing
+  // and opening and the hands added later. Nothing of it is saved: a new
+  // review of another match, a new game or a reload asks afresh.
+  let reviewRevealed = $state({});
   // The hand's own notes, opened by View table / my hand or Review final
   // hand, ask Trained AI a decision at a time (Review), of the page's one
   // worker, which answers its requests in turn. The review asks the same
@@ -139,7 +160,8 @@
   // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
   const currentSettings = () =>
-    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, trainedNetwork });
+    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, reviewFilter,
+      trainedNetwork });
   $effect(() => {
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
@@ -491,7 +513,7 @@
     // as it ends, rather than whenever its review is next opened, which may
     // be never. Should the review not be taken on to the finished match, the
     // standings' Review whole game tries again, and says why.
-    try { matchReview?.extend(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
+    try { takeReviewOn(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
     standingsFocused = byKeyboard;
     await tick();
     land(standingsHeading, byKeyboard);
@@ -580,6 +602,15 @@
   // Why the match could not be replayed for review, the last time it could
   // not, for the same press to take back once a review opens.
   let replayFailure = '';
+  // Takes the review on to the match as it now stands (MatchReview.extend).
+  // Where that adds hands, the player's place is let go, so that the review
+  // opens next on the newest of them, the hand just played or the final one,
+  // as it did when first opened. Throws as extend does, changing nothing.
+  function takeReviewOn(snapshot) {
+    const known = matchReview?.hands.length ?? 0;
+    matchReview?.extend(snapshot);
+    if ((matchReview?.hands.length ?? 0) > known) reviewPlace = null;
+  }
   // The match is replayed from its saved commands on an engine of the
   // review's own, so the match and its save are left as they are. The first
   // press builds the review; each press after takes it on to the match as it
@@ -588,12 +619,14 @@
   // judges it, and the trend keeps which version that was.
   function openGameReview() {
     try {
-      if (matchReview) matchReview.extend(session.snapshot());
+      if (matchReview) takeReviewOn(session.snapshot());
       else {
         matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch, gate: () => notesAsking.gate(),
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
+        reviewPlace = null;
+        reviewRevealed = {};
       }
     } catch (error) {
       replayFailure = `${NOT_REPLAYED} ${error?.message ?? error}. Your saved match is unchanged.`;
@@ -636,6 +669,8 @@
     matchReview?.dispose();
     matchReview = null;
     reviewingGame = false;
+    reviewPlace = null;
+    reviewRevealed = {};
   }
 
   // Watch, Guided and Physical play ask the same network, and go first.
@@ -646,7 +681,8 @@
 <svelte:window onkeydown={onKey} />
 
 <main>
-  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace} {pendingTileFace} onfacechange={changeTileFace}
+  <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
+    {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     network={network.version} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
@@ -697,7 +733,9 @@
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} />
+      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
+        bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
+        bind:hideTiles={reviewHideTiles} />
     {/if}
     <!-- Hidden rather than closed while the review is open, so the result
          and the standings come back as they were left. -->
@@ -720,7 +758,7 @@
               onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
-              onask={() => notesAsking.begin()} />{/if}
+              onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}

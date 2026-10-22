@@ -10,8 +10,10 @@
   // A review draws the table as it stood at a past decision: `hands` puts
   // each seat's concealed tiles face up, in the order of view.seats, `notes`
   // says what each seat was doing, and `review` names each opponent by where
-  // they sat and lays the table out for four hands in view.
-  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false }: MatchTableProps = $props();
+  // they sat and lays the table out for four hands in view. `concealed` turns
+  // the three opponents' tiles face down again where they lie, until the
+  // player asks to see them.
+  let { view, hints, thinking, pendingOpponent, hands = null, notes = null, review = false, concealed = false }: MatchTableProps = $props();
   // A review replays a hand on a second table while the match's own stays
   // on the page, so the dialog's title is named for its own table.
   const uid = $props.id();
@@ -21,14 +23,25 @@
   let across = $derived(view?.seats[2]);
   let left = $derived(view?.seats[3]);
   let uraIndicators = $derived(view?.outcome?.wins?.find(win => win.ura_indicators?.length)?.ura_indicators ?? []);
+  // At a review's decision that answers another player's discard, the seat
+  // that let it go, whose row outlines it: the engine puts the tile on offer
+  // at the end of that seat's discards, as it is thrown. A quad offered to be
+  // robbed holds all four of its tile, so none ends a row, and nothing is
+  // outlined. Play's table names the tile on offer in the call itself
+  // (TurnChoices), and outlines nothing.
+  let offeredBy = $derived.by(() => {
+    if (!review || view?.phase !== 'call' || !view.pending_discard) return null;
+    const discards = view.seats.find(seat => seat.seat === view.pending_from)?.discards ?? [];
+    return discards[discards.length - 1]?.tile === view.pending_discard ? view.pending_from : null;
+  });
   function inspectTable() { tableDialog?.showModal(); }
 </script>
 
 <div class="board" class:review>
   <div class="place across"><Seat seat={across} dealer={across.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === across.player}
-    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} /></div>
+    hand={hands?.[2] ?? null} position={review ? OPPONENT_POSITIONS[1] : ''} note={notes?.[2] ?? ''} offered={across.seat === offeredBy} {concealed} /></div>
   <div class="place left"><Seat seat={left} dealer={left.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === left.player}
-    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} /></div>
+    hand={hands?.[3] ?? null} position={review ? OPPONENT_POSITIONS[2] : ''} note={notes?.[3] ?? ''} offered={left.seat === offeredBy} {concealed} /></div>
   <div class="centre" role="group" aria-label="the table">
     <div class="round-details">
       <div class="round"><strong>{NAMES[view.round]} {view.kyoku}</strong><span>Round</span></div>
@@ -56,7 +69,7 @@
     </button>
   </div>
   <div class="place right"><Seat seat={right} dealer={right.seat === 'east'} dora={shownDora} thinking={thinking && pendingOpponent?.player === right.player}
-    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} /></div>
+    hand={hands?.[1] ?? null} position={review ? OPPONENT_POSITIONS[0] : ''} note={notes?.[1] ?? ''} offered={right.seat === offeredBy} {concealed} /></div>
 </div>
 
 <dialog class="table-dialog" bind:this={tableDialog} aria-labelledby="{uid}-title">
@@ -187,17 +200,32 @@
   }
 
   /* A review shows every hand face up (Seat), each concealed tile up to half
-     of `--hand-tile` wide where its seat has room. Wherever the table is
-     smaller than on a wide screen that is 24 pixels, larger than the
-     discards there, so that only a narrow seat would draw a row of fourteen
-     under 18 pixels, and there they take two rows instead (Seat). On a phone
-     held upright three columns would leave each hand a few tiles to a row,
-     so there each opponent takes the width of the screen instead, in the
-     order they play after the player, their discards a size larger than in
-     play; held sideways the columns stay, their discards a little larger
-     too. */
-  @media (max-width: 967px), (max-height: 500px) {
-    .board.review .place { --hand-tile: 48px; }
+     of `--hand-tile` wide where its seat has room: 24 pixels, so that only a
+     narrow seat would draw a row of fourteen under 18 pixels, and there they
+     take two rows instead (Seat). On a phone held upright three columns would
+     leave each hand a few tiles to a row, so there each opponent takes the
+     width of the screen instead, in the order they play after the player,
+     their discards a size larger than in play; held sideways the columns
+     stay, their discards a little larger too. */
+  .board.review .place { --hand-tile: 48px; }
+  /* From 761 pixels wide, at every height over 500, a review's table is the
+     dense one the tablet's widths have, at every width: the centre as a bar
+     across the top, and the three opponents in one row under it, Left,
+     Opposite and Right, each seat as tall as what it holds rather than a
+     height kept for it, so that the table and the player's seat fit the
+     screen together. A wide screen's table, the opponents around the centre,
+     left most of it empty felt. The discards are 22 pixels wide, a size
+     between a tablet's and a wide screen's in play. Play's table keeps its
+     own layouts. */
+  @media (min-width: 761px) and (min-height: 501px) {
+    .board.review { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; gap: 8px; padding: 12px; }
+    .board.review .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 12px;
+      align-self: start; justify-self: stretch; }
+    .board.review .place { --tile-width: 44px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; }
+    .board.review .left { grid-area: 2 / 1; }
+    .board.review .across { grid-area: 2 / 2; }
+    .board.review .right { grid-area: 2 / 3; }
+    .board.review :global(.seat) { min-height: 0; }
   }
   @media (max-width: 760px) and (orientation: portrait) {
     .board.review { grid-template-columns: minmax(0, 1fr); }

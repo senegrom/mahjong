@@ -12,11 +12,15 @@
    * compared and shown; the rest wait for that version to be picked again.
    * `complete` is whether this game is whole and every hand of it reviewed,
    * and `over` whether the match is over at all: a game reviewed so far, as
-   * it is played, joins the trend only once it is over. `open` is whether
-   * the table of the games is open, which the review's screen keeps while a
-   * replay takes its place.
+   * it is played, joins the trend only once it is over.
+   *
+   * It is folded to one line, the figure, as the review's list of hands
+   * opens with it, above the decisions it is a figure of; the rest is inside,
+   * for the player to open. `expanded` is whether it is open, and `open`
+   * whether the table of the games inside it is, both of which the review's
+   * screen keeps as the player leaves them.
    */
-  let { figure, complete = false, over = true, games = [], current = '', open = $bindable(false) } = $props();
+  let { figure, complete = false, over = true, games = [], current = '', open = $bindable(false), expanded = $bindable(false) } = $props();
   const SHOWN = 12;
   // The line's box: a 4px end-dot and its 2px ring fit inside the margin.
   const WIDTH = 240, HEIGHT = 56, MARGIN = 7;
@@ -43,54 +47,56 @@
     : '');
 </script>
 
-<!-- The lines under the figure are short, as the label above names the
-     version that judged: the count gives the decisions the figure takes,
-     those with a choice (a move with only one is left out), and the notes
-     what it is compared with and which games are not counted. -->
-<div class="trend" data-trend>
-  <p class="label">Matched {trainedName('Trained AI')}</p>
-  <p class="value">{figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' '}<span class="so-far">so far</span>{/if}</p>
-  <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'} with a choice</p>
-  {#if change !== null}
-    <p class="change">{change === 0 ? 'Same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
-  {:else if !complete && earlier.length}
-    <p class="change">Joins your trend once {over ? '' : 'the game is over and '}fully reviewed.</p>
-  {/if}
-  {#if elsewhere}
-    <p class="change">Not counted: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version.</p>
-  {/if}
-  {#if points.length >= 2}
-    <svg class="line" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label={summary}>
-      <line class="base" x1={MARGIN} x2={WIDTH - MARGIN} y1={HEIGHT - MARGIN} y2={HEIGHT - MARGIN} />
-      <polyline points={points.map(point => `${point.x},${point.y}`).join(' ')} />
-      {#each points as point (point.game.id)}
-        {#if point.game.id === current}<circle class="now" cx={point.x} cy={point.y} r="4" />{/if}
-        <circle class="hit" cx={point.x} cy={point.y} r="12"><title>{when(point.game.at)}: {percent(point.game.matched / point.game.decisions)}</title></circle>
-      {/each}
-    </svg>
-  {/if}
-  {#if shown.length}
-    <details class="games" bind:open>
-      <summary>Your reviewed games ({shown.length})</summary>
-      <table>
-        <thead><tr><th scope="col">Reviewed</th><th scope="col">Matched</th><th scope="col">Decisions</th></tr></thead>
-        <tbody>
-          {#each [...shown].reverse() as game (game.id)}
-            <tr class:now={game.id === current}><td>{when(game.at)}{game.id === current ? ' (this game)' : ''}</td>
-              <td>{percent(game.matched / game.decisions)}</td><td>{game.decisions}</td></tr>
-          {/each}
-        </tbody>
-      </table>
-    </details>
-  {/if}
-</div>
+<!-- The summary's one line names the version that judged and gives the
+     figure, so the lines inside are short: the count gives the decisions the
+     figure takes, those with a choice (a move with only one is left out), and
+     the notes what it is compared with and which games are not counted. -->
+<details class="trend" data-trend bind:open={expanded}>
+  <summary>Matched {trainedName('Trained AI')}: {figure.share == null ? '—' : percent(figure.share)}{#if !complete && figure.share != null}{' so far'}{/if}</summary>
+  <div class="inside">
+    <p class="count">{figure.matched} of {figure.decisions} decision{figure.decisions === 1 ? '' : 's'} with a choice</p>
+    {#if change !== null}
+      <p class="change">{change === 0 ? 'Same as' : `${change > 0 ? '+' : '−'}${Math.abs(change)} points against`} your {earlier.length === 1 ? 'previous game' : `previous ${earlier.length} games`} ({percent(earlierShare)})</p>
+    {:else if !complete && earlier.length}
+      <p class="change">Joins your trend once {over ? '' : 'the game is over and '}fully reviewed.</p>
+    {/if}
+    {#if elsewhere}
+      <p class="change">Not counted: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version.</p>
+    {/if}
+    {#if points.length >= 2}
+      <svg class="line" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label={summary}>
+        <line class="base" x1={MARGIN} x2={WIDTH - MARGIN} y1={HEIGHT - MARGIN} y2={HEIGHT - MARGIN} />
+        <polyline points={points.map(point => `${point.x},${point.y}`).join(' ')} />
+        {#each points as point (point.game.id)}
+          {#if point.game.id === current}<circle class="now" cx={point.x} cy={point.y} r="4" />{/if}
+          <circle class="hit" cx={point.x} cy={point.y} r="12"><title>{when(point.game.at)}: {percent(point.game.matched / point.game.decisions)}</title></circle>
+        {/each}
+      </svg>
+    {/if}
+    {#if shown.length}
+      <details class="games" bind:open>
+        <summary>Your reviewed games ({shown.length})</summary>
+        <table>
+          <thead><tr><th scope="col">Reviewed</th><th scope="col">Matched</th><th scope="col">Decisions</th></tr></thead>
+          <tbody>
+            {#each [...shown].reverse() as game (game.id)}
+              <tr class:now={game.id === current}><td>{when(game.at)}{game.id === current ? ' (this game)' : ''}</td>
+                <td>{percent(game.matched / game.decisions)}</td><td>{game.decisions}</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </details>
+    {/if}
+  </div>
+</details>
 
 <style>
-  .trend { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: #0003; border: 1px solid #ffffff1f; min-width: 0; }
+  /* Folded, a line as tall as the review's other summaries, with the rest
+     under it as it is opened. */
+  .trend { min-width: 0; padding: 0 10px; border-radius: 10px; background: #0003; border: 1px solid #ffffff1f; }
+  .trend summary { cursor: pointer; min-height: 36px; padding: 6px 0; font-size: .86rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .inside { display: grid; gap: 4px; padding-bottom: 8px; }
   p { margin: 0; }
-  .label { font-size: .8rem; opacity: .8; }
-  .value { font-size: 2rem; font-weight: 600; line-height: 1.1; }
-  .so-far { font-size: .9rem; font-weight: 400; opacity: .8; }
   .count, .change { font-size: .8rem; opacity: .85; }
   .line { width: 100%; max-width: 240px; height: auto; margin-top: 4px; overflow: visible; }
   .base { stroke: #ffffff26; stroke-width: 1; }
