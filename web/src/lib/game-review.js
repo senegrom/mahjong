@@ -493,10 +493,7 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: BATCH, analyze: async (positions, signal) => {
-        await this.passGate(signal);
-        return this.timed(positions, signal);
-      } },
+      batch: { size: BATCH, analyze: (positions, signal) => this.passGate(positions, signal) },
       onProgress: done => { hand.done = done; this.notify(); },
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
@@ -518,17 +515,23 @@ export class MatchReview {
     hand.status = 'done';
   }
 
-  /** Waits, before a forward pass, while the gate is shut: while the hand's
-   * own notes ask Trained AI. Nothing is given up meanwhile. The review goes
-   * on exactly where it was, at the next batch of the same hand, with the
-   * same hands queued and the same word from the player: that they asked for
-   * it, and whether a slow device should go on to the end or hold after the
-   * hand for them. Each time the gate opens it is asked again, since the
-   * notes may have begun to ask again by the time the review goes on. A
-   * review stopped or closed while it waits stops waiting at once, as it
-   * stops waiting for an answer, and a gate that fails stops the review as a
-   * failed answer would, saying why, rather than leaving it waiting. */
-  async passGate(signal) {
+  /** Asks a batch (`timed`) once the gate is open, waiting while it is shut:
+   * while the hand's own notes, or the review's reasoning about a decision,
+   * ask Trained AI. Nothing is given up meanwhile. The review goes on exactly
+   * where it was, at the next batch of the same hand, with the same hands
+   * queued and the same word from the player: that they asked for it, and
+   * whether a slow device should go on to the end or hold after the hand for
+   * them. Each time the gate opens it is asked again, since the notes may
+   * have begun to ask again by the time the review goes on; and the batch is
+   * sent in the same turn as the gate is found open, before anything else can
+   * look. The page draws a moment after the review says it has changed, and a
+   * decision drawn then can begin to ask: a batch sent after that, the gate
+   * not looked at again, would wait behind what it asked in the worker's
+   * queue, its deadline running. A review stopped or closed while it waits
+   * stops waiting at once, as it stops waiting for an answer, and a gate that
+   * fails stops the review as a failed answer would, saying why, rather than
+   * leaving it waiting. */
+  async passGate(positions, signal) {
     for (let shut = this.gate(); shut; shut = this.gate()) {
       await new Promise((resolve, reject) => {
         const stop = () => reject(new DOMException('Review changed', 'AbortError'));
@@ -537,6 +540,7 @@ export class MatchReview {
         shut.then(resolve, reject).finally(() => signal?.removeEventListener('abort', stop));
       });
     }
+    return this.timed(positions, signal);
   }
 
   /** Asks one batch and keeps the time it took a position. The first batch

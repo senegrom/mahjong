@@ -6,6 +6,7 @@ import { parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { readBeliefs } from '../src/lib/beliefs.js';
 import { Asking } from '../src/lib/game-review.js';
+import { anyGate, countedBatches } from '../src/lib/review-insight-policy.js';
 import { reviewFallbackNote } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
@@ -255,26 +256,47 @@ test("the hand's notes shut the review's gate before their first question, and o
   }
 });
 
-test("the page gives the review of the game so far the gate that the hand's notes shut", () => {
+test("the page gives the review of the game so far the gate that the hand's notes and the review's reasoning shut, and counts its batches with the reasoning's passes", async () => {
   // The page's own wiring, from its source: what it tells the notes to call
-  // as they begin to ask, and the gate it gives the review, each run on one
-  // count of spells, as the page has it.
+  // as they begin to ask, the gate it gives the review and what the review's
+  // batches go through, each run on the spells the page counts; and the
+  // spells it gives the reasoning, the same ones.
   const appSource = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8');
-  const app = parse(appSource, { modern: true });
-  const counted = find(app.instance.content, node => node.type === 'VariableDeclarator' && node.id.name === 'notesAsking');
-  assert.equal(counted?.init.callee.name, 'Asking', "the page counts the notes' spells of asking");
+  const app = parse(appSource, { modern: true }), script = app.instance.content;
+  const declared = name => find(script, node => node.type === 'VariableDeclarator' && node.id.name === name)?.init;
+  for (const name of ['notesAsking', 'insightAsking', 'workerBatches']) assert.equal(declared(name)?.callee.name, 'Asking', `the page counts ${name}`);
   const onask = find(app.fragment, node => node.type === 'Component' && node.name === 'Review')
     ?.attributes.find(attribute => attribute.name === 'onask')?.value?.expression;
-  const gate = find(app.instance.content, node => node.type === 'NewExpression' && node.callee.name === 'MatchReview')
-    ?.arguments[2]?.properties.find(property => property.key?.name === 'gate')?.value;
-  assert.ok(onask && gate, 'the notes are told what to call as they ask, and the review is given a gate');
-  const notesAsking = new Asking(), context = vm.createContext({ notesAsking });
-  const [ask, shut] = [onask, gate].map(node => vm.runInContext(`(${appSource.slice(node.start, node.end)})`, context));
-  assert.equal(shut(), null, 'open while the notes ask nothing');
+  const options = find(script, node => node.type === 'NewExpression' && node.callee.name === 'MatchReview')?.arguments[2]?.properties;
+  const option = name => options?.find(property => property.key?.name === name)?.value;
+  const [gate, batch] = [option('gate'), option('analyzeBatch')];
+  assert.ok(onask && gate && batch, 'the notes are told what to call as they ask, and the review is given a gate and a way to ask');
+  const given = find(script, node => node.type === 'CallExpression' && node.callee.name === 'reviewInsight')?.arguments[0]?.properties;
+  assert.deepEqual(['asking', 'notes', 'batches'].map(name => given?.find(property => property.key?.name === name)?.value?.name),
+    ['insightAsking', 'notesAsking', 'workerBatches'], "the reasoning asks in spells of its own, waiting for the notes and for the worker's batches");
+  const notesAsking = new Asking(), insightAsking = new Asking(), workerBatches = new Asking();
+  let answer = null;
+  const analyzeBatch = () => new Promise(resolve => { answer = resolve; });
+  const context = vm.createContext({ notesAsking, insightAsking, workerBatches, anyGate, countedBatches, analyzeBatch });
+  const run = node => vm.runInContext(`(${appSource.slice(node.start, node.end)})`, context);
+  const [ask, shut] = [onask, gate].map(run);
+  assert.equal(shut(), null, 'open while nothing asks');
   const stop = ask();
-  assert.ok(shut() instanceof Promise, 'shut while they ask');
+  assert.ok(shut() instanceof Promise, 'shut while the notes ask');
   stop();
   assert.equal(shut(), null, 'open once they stop');
+  const end = insightAsking.begin();
+  assert.ok(shut() instanceof Promise, 'shut while the reasoning asks');
+  end();
+  assert.equal(shut(), null, 'open once it stops');
+  // The review's batches go through the page's counted way of asking, so
+  // that the reasoning's passes wait while one is with the worker.
+  const reviewBatch = run(batch.type === 'Identifier' ? declared(batch.name) : batch);
+  const asked = reviewBatch([]);
+  assert.ok(workerBatches.gate() instanceof Promise, "the review's batch is counted while it is with the worker");
+  answer([]);
+  assert.deepEqual(await asked, []);
+  assert.equal(workerBatches.gate(), null, 'and no longer once answered');
 });
 
 test("with Trained AI's move hidden, the hand's notes edge every decision alike, agreed or not, until the answers are shown", () => {

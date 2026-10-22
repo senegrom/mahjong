@@ -74,6 +74,25 @@
  * result's own button does, with the result's chip bringing it back, focus and
  * all.
  *
+ * At a discard where Trained AI threw another tile, its view ends with the
+ * review's reasoning: a Why line, and above the margin floor "What would
+ * change its mind?" saying about how long it takes at the review's own speed.
+ * Pressed by keyboard, Enter held down, it gives way to its progress and
+ * Cancel, focus going to Cancel and the repeats pressing nothing, and then to
+ * what it found, focus going to its first line: on one of
+ * the game's discards, the changes that make Trained AI throw the player's
+ * tile, a line for each kind of change, in the order the kinds are named,
+ * kept for that decision alone, asked once and fitting a phone. The second
+ * press of a double click on Cancel is let go; Cancel pressed, while
+ * the review of the rest of the game waits for the search at its gate, brings
+ * the button back with focus, and the search asks nothing more as the review
+ * goes on to its end; a step to another decision stops a search too, nothing
+ * of it showing there or when the player comes back. With Trained AI's move
+ * kept back, nothing of the reasoning is drawn, said or asked until the
+ * answer is shown. The reasoning asks the same worker in passes of its own,
+ * between the review's batches, and the batches are walked with its passes
+ * set apart, none of them a batch of the review's.
+ *
  * Before the end, any hand's result opens the review of the game so far,
  * restored from a save waiting at that result. It must open on the hand just
  * played, at its first decision, and ask Trained AI about it first, then about
@@ -100,6 +119,7 @@ import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { BATCH, FILTER_LABELS, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, filterSaid, moveToken, scanMatch, tableSaid } from '../src/lib/game-review.js';
+import { MARGIN_FLOOR } from '../src/lib/review-insight.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
 import { callLabel, quadOnOffer } from '../src/lib/ui.js';
@@ -171,31 +191,58 @@ const facts = hands.map(hand => {
   } finally { match.dispose(); }
 });
 
+/** The first questions of every hand's decisions as the review groups them,
+ * eight decisions a group, forced moves unasked, each by the masks it asks
+ * one after another: what no pass of the review's reasoning may be, since a
+ * group asked twice or out of turn would otherwise pass for one. */
+const groupKeys = new Set(facts.flatMap(decisions => decisions.flatMap((_, start) => {
+  if (start % BATCH) return [];
+  const group = decisions.slice(start, start + BATCH).filter(decision => !decision.forced);
+  return group.length ? [group.flatMap(decision => decision.mask).join('')] : [];
+})));
+
 /** Walks the batches the review sent, asking about the hands of `order` in
  * that order: a hand at a time, eight decisions a group, forced moves
  * unasked, then each group's declarations. Every batch must be the group it
- * stands for, asked from the decisions' own positions, and answered. Says the
- * network's answers to each decision, and how many batches were walked, so
- * that a caller can tell whether any was missing or extra. */
+ * stands for, asked from the decisions' own positions, and answered. The
+ * review's reasoning (review-insight.js), a decision's Why line or what would
+ * change Trained AI's mind, asks the same worker between the review's
+ * batches, never beside one: any other batch is one of its passes, which
+ * must be answered too, and none may be a group of the review's. Says the
+ * network's answers to each decision, the places of the reasoning's passes
+ * among the batches (`passes`), and how many batches were walked, the
+ * reasoning's among them, so that a caller can tell whether any was missing
+ * or extra. */
 function walkBatches(batches, order) {
-  const first = new Map(), second = new Map();
+  const first = new Map(), second = new Map(), passes = [];
   let cursor = 0;
+  // The next batch that asks the positions of `masks`, in order: any batch
+  // before it is a pass of the reasoning.
+  const take = masks => {
+    for (; cursor < batches.length; cursor++) {
+      const batch = batches[cursor];
+      if (batch.count === masks.length && masks.every((mask, slot) => mask.every((open, at) => batch.mask[slot * 46 + at] === open))) {
+        return batches[cursor++];
+      }
+      assert.ok(batch.answers, 'every pass of the reasoning was answered');
+      assert.ok(!groupKeys.has(batch.mask.join('')), `no group of the review is asked twice or out of turn, as batch ${cursor} is`);
+      passes.push(cursor);
+    }
+    return undefined;
+  };
   for (const hand of order) {
     const decisions = facts[hand];
     for (let start = 0; start < decisions.length; start += BATCH) {
       const group = decisions.map((_, index) => index).slice(start, start + BATCH).filter(index => !decisions[index].forced);
       if (!group.length) continue;
-      const batch = batches[cursor++];
-      assert.equal(batch?.count, group.length, `hand ${hand}, group from ${start}`);
+      const batch = take(group.map(index => decisions[index].mask));
+      assert.ok(batch, `hand ${hand}, group from ${start}, asked from its decisions' own positions`);
       assert.ok(batch.answers, 'every batch was answered');
-      group.forEach((index, slot) => {
-        assert.deepEqual(batch.mask.slice(slot * 46, (slot + 1) * 46), decisions[index].mask, 'the decision was asked from its own position');
-        first.set(`${hand}:${index}`, batch.answers[slot]);
-      });
+      group.forEach((index, slot) => first.set(`${hand}:${index}`, batch.answers[slot]));
       const reaching = group.filter((_, slot) => batch.answers[slot].action === MORTAL_REACH);
       const asked = reaching.filter(index => legalCount(decisions[index].reachMask) > 1);
       if (asked.length) {
-        const named = batches[cursor++];
+        const named = take(asked.map(index => decisions[index].reachMask));
         assert.equal(named?.count, asked.length);
         asked.forEach((index, slot) => second.set(`${hand}:${index}`, named.answers[slot]));
       }
@@ -205,7 +252,9 @@ function walkBatches(batches, order) {
       }
     }
   }
-  return { first, second, walked: cursor };
+  // Whatever the reasoning asked after the review's last batch.
+  take([]);
+  return { first, second, passes, walked: cursor };
 }
 
 /** Each decision judged from the network's answers alone, as the review is
@@ -750,6 +799,84 @@ async function reviewed(page) {
   }
   throw new Error('The whole-game review did not finish in five minutes');
 }
+
+/** The order a whole game's review asks about the tile-throwing game's
+ * hands: its final hand first, then the rest from the first deal. */
+const wholeOrder = [hands.at(-1).index, ...hands.slice(0, -1).map(hand => hand.index)];
+/** The batches a review sent once reviewWholeGame had set it going again,
+ * where its first hand, the first of `order`, is asked from its first group
+ * a second time. Its Stop lets go of the batch under way, but the worker
+ * answers it all the same, since the review sends its batches without their
+ * signal (countedBatches), so that batch, and any before it, come first in
+ * `all`. Says where the walk begins in `all` (`from`), and the batches from
+ * there on. */
+function sinceContinue(all, order) {
+  const decisions = facts[order[0]];
+  let group = [];
+  for (let start = 0; !group.length && start < decisions.length; start += BATCH) {
+    group = decisions.slice(start, start + BATCH).filter(decision => !decision.forced).map(decision => decision.mask);
+  }
+  const asks = batch => batch.count === group.length && group.every((mask, slot) => mask.every((open, at) => batch.mask[slot * 46 + at] === open));
+  const from = Math.max(0, all.findIndex((batch, at) => at > 0 && asks(batch)));
+  return { from, batches: all.slice(from) };
+}
+/** Every decision of the hands a review asked about, in the order `order`
+ * (a whole game's by default), judged from the worker's answers to the
+ * batches it sent (walkBatches), in the order played. */
+function verdictsOf(batches, order = wholeOrder) {
+  const { first, second } = walkBatches(batches, order);
+  return [...order].sort((a, b) => a - b).flatMap(hand => facts[hand].map((fact, index) => {
+    const key = `${hand}:${index}`;
+    return fact.forced ? { key, hand, index, forced: true } : { key, hand, index, ...judged(fact, first.get(key), second.get(key)) };
+  }));
+}
+/** Whether a decision so judged is one the review reasons about: the player
+ * threw a tile and Trained AI chose to throw another. */
+const reasonedAbout = verdict => !verdict.forced && !verdict.agreed && verdict.played.kind === 'discard' && verdict.advised.kind === 'discard';
+/** How surely Trained AI chose its tile there: the log of the player's
+ * weight over its own, below which nothing is searched (MARGIN_FLOOR). */
+const marginOf = verdict => Math.log(Math.max(verdict.playedWeight, 1e-9)) - Math.log(Math.max(verdict.preferred, 1e-9));
+
+/** The reasoning at the decision on show, as its panel in Trained AI's view
+ * draws it, or null where there is none: whether its Why line is had or
+ * failed (`settled`), the Why line and its verdict, the button's words, how
+ * far a search under way has got, what a search found, a failure, and the
+ * status line. */
+const insightAt = page => page.evaluate(() => {
+  const panel = document.querySelector('[data-decision] [data-insight]');
+  if (!panel) return null;
+  const words = selector => panel.querySelector(selector)?.textContent.replace(/\s+/g, ' ').trim() ?? null;
+  const progress = panel.querySelector('[data-insight-progress]');
+  return {
+    settled: panel.hasAttribute('data-settled'), why: words('[data-why]'), verdict: panel.querySelector('[data-why]')?.dataset.why ?? null,
+    button: words('[data-insight-search]'), searching: progress ? { asked: progress.value, planned: progress.max } : null,
+    lead: words('[data-insight-lead]'), items: [...panel.querySelectorAll('[data-insight-result] li')].map(item => item.textContent.trim()),
+    failure: words('[data-insight-failure]'), said: panel.querySelector('[data-insight-said]')?.textContent ?? null,
+  };
+});
+/** Waits for the decision on show's Why line to be had, or to have failed. */
+const insightSettled = page => page.waitForSelector('[data-decision] [data-insight][data-settled]', { timeout: 120000 });
+/** Waits until the worker has answered every batch sent to it and nothing
+ * more has been sent for three seconds. */
+async function workerQuiet(page) {
+  let sent = -1, since = Date.now();
+  const deadline = Date.now() + 180000;
+  while (Date.now() < deadline) {
+    const now = await page.evaluate(() => ({ sent: window.reviewBatches.length, open: window.reviewBatches.some(batch => !batch.answers) }));
+    if (now.sent !== sent || now.open) {
+      sent = now.sent;
+      since = Date.now();
+    } else if (Date.now() - since >= 3000) return;
+    await new Promise(done => setTimeout(done, 250));
+  }
+  throw new Error('The worker did not go quiet');
+}
+/** The lines of what a search found that name the kinds of change: each
+ * kind's line, "A faster hand (7 of 7 tried): if …", with how many of its
+ * changes flip the choice of how many asked, and the table's, "The table: …". */
+const KINDS = ['A faster hand', 'A hand worth more', 'What is safe', 'The shape of the hand', 'The table'];
+const kindOf = item => /^(A faster hand|A hand worth more|What is safe|The shape of the hand) \((\d+) of (\d+) tried\): if .+: .+\.$/.exec(item)
+  ?? /^(The table): .+\.$/.exec(item);
 
 /** The tile-throwing game's decisions, by the saved command that made each. */
 const decisionAt = new Map(hands.flatMap(hand => hand.frames.map(frame => [frame.command, frame])));
@@ -1876,6 +2003,230 @@ try {
       'the racks face down in a new game');
     await page.waitForSelector('[data-review-index] [data-hand="0"][data-status="done"]', { timeout: 300000 });
     await keptBack(page, byButton);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("at a discard where Trained AI threw another tile, its view says why and offers what would change its mind, about how long it takes, only above the margin floor; pressed by keyboard it shows its progress and Cancel, then the changes that make Trained AI throw the player's tile, grouped by what they changed, kept for that decision alone and fitting a phone", async () => {
+    const page = await openPage(1100, 900);
+    await reviewWholeGame(page);
+    await reviewed(page);
+    const verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder).batches);
+    await choose(page, 'differed');
+    // The discards where Trained AI threw another tile: the prototype's East
+    // 3 #5 first, which single changes of three kinds flipped there, then the
+    // rest in the order played, until a search finds single changes. Below
+    // the margin floor there is a Why line and no button.
+    const differing = verdicts.filter(reasonedAbout).sort((a, b) => Number(b.key === '3:4') - Number(a.key === '3:4'));
+    assert.ok(differing.length >= 4, "Trained AI throws another tile at many of a tile-throwing game's discards");
+    let grouped = null, searched = 0;
+    for (const verdict of differing) {
+      if (searched >= 4) break;
+      await stepTo(page, verdict.key);
+      await insightSettled(page);
+      const shown = await insightAt(page);
+      // What the panel shows, beside the check's own reading of Trained AI's
+      // answer, said by an assertion that fails here.
+      const seen = `${verdict.key}, margin ${marginOf(verdict).toFixed(2)}: ${JSON.stringify(shown)}`;
+      if (shown.why !== null) assert.match(shown.why, /^(Why|Partly|Not explained|Not checked): \S/, seen);
+      if (marginOf(verdict) < MARGIN_FLOOR || shown.verdict === 'unlike the review') {
+        assert.equal(shown.button, null, `no button where nothing small would move Trained AI or nothing could be compared, at ${seen}`);
+        continue;
+      }
+      // The review has timed its positions, so the button says about how
+      // long: from the tables the search asks first to the most it may ask,
+      // at the review's own speed.
+      assert.match(shown.button ?? '', /^What would change its mind\? · about \d+(–\d+)? (s|min)$/, `the button at ${seen}`);
+      searched++;
+      await page.focus('[data-decision] [data-insight-search]');
+      await page.keyboard.down('Enter');
+      // Its progress and Cancel in its place, focus going on to Cancel as the
+      // button goes, and the status line saying the search began. Enter is
+      // held down: its repeats, which reach Cancel once it has focus, press
+      // nothing, so the search goes on.
+      await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-cancel]'), { timeout: 5000 })
+        .catch(async () => assert.fail(`focus on Cancel as the search begins, not on ${await focusedName(page)}`));
+      await page.keyboard.down('Enter');
+      await page.keyboard.down('Enter');
+      await page.keyboard.up('Enter');
+      const under = await insightAt(page);
+      assert.ok(under.searching?.planned > 0 && under.button === null, `a held Enter does not cancel the search: ${JSON.stringify(under)}`);
+      assert.ok(await focusOn(page, '[data-decision] [data-insight-cancel]'), `focus stays on Cancel, not on ${await focusedName(page)}`);
+      assert.equal(under.said, 'Trying changes…');
+      // What it found, under the Why line, and focus on its first line as
+      // Cancel goes, which says it, so the status line says nothing more.
+      await page.waitForSelector('[data-decision] [data-insight-result]', { timeout: 300000 });
+      await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-lead]'), { timeout: 5000 })
+        .catch(async () => assert.fail(`focus on what the search found as Cancel goes, not on ${await focusedName(page)}`));
+      const found = await insightAt(page);
+      assert.deepEqual([found.button, found.searching, found.said], [null, null, '']);
+      assert.match(found.lead, /^(One change and it throws your .+:|No single change does it\. Two together: if .+\.|Nothing asked makes it throw your .+\.( Nearest: if .+\.)?|Asked again, Trained AI answered this table differently, so no change was tried\.)$/,
+        found.lead);
+      if (!found.lead.startsWith('One change')) continue;
+      // A line for each kind of change that flips it, in the order the kinds
+      // are named, each saying how many of its changes did of how many asked.
+      const kinds = found.items.map(kindOf);
+      assert.ok(found.items.length && kinds.every(Boolean), found.items.join('\n'));
+      assert.deepEqual(kinds.map(kind => kind[1]), KINDS.filter(name => kinds.some(kind => kind[1] === name)), 'each kind once, in order');
+      for (const kind of kinds.filter(match => match[2])) assert.ok(Number(kind[2]) >= 1 && Number(kind[2]) <= Number(kind[3]), kind[0]);
+      grouped = { verdict, found };
+      break;
+    }
+    assert.ok(grouped, `single changes, grouped by kind, found by one of the first ${searched} searches`);
+    await shot(page, 'game-review-insight');
+
+    // Kept for its decision alone: the decision beside it shows nothing it
+    // did not ask for, and back at the one searched, what was found is there
+    // again, asked nothing more; only the other's Why line may have asked.
+    const { verdict, found } = grouped, asked = await page.evaluate(() => window.reviewBatches.length);
+    const [away, back] = await page.$('[data-game-review] [data-next]:not(:disabled)') ? ['next', 'previous'] : ['previous', 'next'];
+    await press(page, `[data-game-review] [data-${away}]`);
+    await page.waitForFunction(text => document.querySelector('[data-game-review] [data-step]')?.textContent !== text, { timeout: 5000 },
+      placeOf(hands[verdict.hand], verdict.index));
+    assert.equal(await page.$('[data-decision] :is([data-insight-result], [data-insight-searching])'), null, 'nothing found shows at another decision');
+    await press(page, `[data-game-review] [data-${back}]`);
+    await onPlace(page, hands[verdict.hand], verdict.index);
+    const again = await insightAt(page);
+    assert.deepEqual([again.lead, again.items], [found.lead, found.items], 'what was found is kept for its decision');
+    assert.ok(await page.evaluate(() => window.reviewBatches.length) - asked <= 1, 'nothing more asked than the other Why line');
+    // On a phone it wraps to the screen.
+    await page.setViewport({ width: 390, height: 844 });
+    await settle(page);
+    assert.ok(await overflow(page), 'what was found fits a phone');
+    await shot(page, 'game-review-insight-phone');
+    await page.setViewport({ width: 1100, height: 900 });
+    // The review asked every group once; the reasoning asked in passes of
+    // its own between them.
+    const { batches } = sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder);
+    assert.ok(walkBatches(batches, wholeOrder).passes.length >= 5, 'the search asked in passes');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("Cancel stops a search under way: the button comes back with focus, nothing found is shown, the search asks nothing more, and the review of the rest of the game, which waits for the search at its gate, goes on to its end", async () => {
+    // Each batch reaches the worker 300 milliseconds a position late, so that
+    // the review is still under way well after its final hand, asked about
+    // first, is reviewed, and a pass of the search takes seconds.
+    const page = await openPage(1100, 900, { positionDelay: 300 });
+    await reviewWholeGame(page);
+    const final = hands.findLast(hand => hand.frames.length);
+    await page.waitForSelector(`[data-review-index] [data-hand="${final.index}"][data-status="done"]`, { timeout: 300000 });
+    await choose(page, 'every');
+    // A discard of the final hand where Trained AI threw another tile, by its
+    // line in the list, which names both moves, that offers the search.
+    const lines = await page.$$eval(`[data-review-index] [data-step-to^="${final.index}:"]`,
+      items => items.map(item => ({ key: item.dataset.stepTo, label: item.getAttribute('aria-label') })));
+    let key = null;
+    for (const item of lines.filter(entry => /You: discards the [^.]+\. Trained AI: discards the [^.]+\./.test(entry.label))) {
+      await stepTo(page, item.key);
+      await insightSettled(page);
+      if (await page.$('[data-decision] [data-insight-search]')) {
+        key = item.key;
+        break;
+      }
+    }
+    assert.ok(key, 'a discard of the final hand offers the search');
+    assert.ok(await page.$('[data-game-review] [data-stop-review]'), 'the review of the rest of the game is under way');
+    await page.focus('[data-decision] [data-insight-search]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-cancel]'), { timeout: 5000 });
+    // A pass of the search answered, the next under way or waiting its turn.
+    // The second press of a double click, which lands on Cancel where the
+    // first one's button gave way and was meant for that one, is let go.
+    await page.waitForFunction(() => Number(document.querySelector('[data-decision] [data-insight-progress]')?.value) > 0, { timeout: 120000 });
+    await page.$eval('[data-decision] [data-insight-cancel]', cancel => cancel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 })));
+    await settle(page);
+    assert.ok((await insightAt(page)).searching, "a double click's second press does not cancel the search");
+    assert.ok(await focusOn(page, '[data-decision] [data-insight-cancel]'), `focus stays on Cancel, not on ${await focusedName(page)}`);
+    // Cancel, by keyboard.
+    await page.keyboard.press('Enter');
+    const cancelled = await page.evaluate(() => window.reviewBatches.length);
+    await page.waitForFunction(() => document.activeElement?.matches('[data-decision] [data-insight-search]'), { timeout: 5000 })
+      .catch(async () => assert.fail(`focus back on the button as Cancel goes, not on ${await focusedName(page)}`));
+    const stopped = await insightAt(page);
+    assert.deepEqual([stopped.searching, stopped.lead, stopped.failure, stopped.said], [null, null, null, '']);
+    // The review goes on to its end, and the search asks nothing more: no pass
+    // of the reasoning is sent after Cancel.
+    await reviewed(page);
+    const { from, batches } = sinceContinue(await page.evaluate(() => window.reviewBatches), wholeOrder);
+    const passes = walkBatches(batches, wholeOrder).passes.map(at => from + at);
+    assert.ok(passes.length && passes.every(at => at < cancelled), `the reasoning's passes, ${passes.join(', ')}, all sent before Cancel, ${cancelled}`);
+    const after = await insightAt(page);
+    assert.ok(after.button && after.lead === null, 'the button is offered again, and nothing was found');
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("a step to another decision stops a search under way: the decision stepped to shows nothing it did not ask for, nothing more is asked for the search, and back at the decision searched the button is offered again", async () => {
+    // The game so far at its third hand's result. Each batch reaches the
+    // worker 120 milliseconds a position late, so a pass of the search takes
+    // about a second, however fast the machine.
+    const page = await openPage(1100, 900, { saved: midway, ready: '.screen [data-review-game]', positionDelay: 120 });
+    await reviewWholeGame(page, '.screen [data-review-game]');
+    await reviewed(page);
+    const order = [2, 0, 1], verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), order).batches, order);
+    await choose(page, 'differed');
+    // A discard offering the search, with a decision where Trained AI
+    // differed after it, which Next goes to.
+    const differed = verdicts.filter(entry => !entry.forced && !entry.agreed);
+    let from = null;
+    for (const [at, verdict] of differed.entries()) {
+      if (!reasonedAbout(verdict) || marginOf(verdict) < MARGIN_FLOOR || !differed[at + 1]) continue;
+      await stepTo(page, verdict.key);
+      await insightSettled(page);
+      if (await page.$('[data-decision] [data-insight-search]')) {
+        from = verdict;
+        break;
+      }
+    }
+    assert.ok(from, 'a discard offering the search, with another decision where Trained AI differed after it');
+    const to = differed[differed.indexOf(from) + 1];
+    await press(page, '[data-decision] [data-insight-search]');
+    await page.waitForFunction(() => Number(document.querySelector('[data-decision] [data-insight-progress]')?.value) > 0, { timeout: 120000 });
+    await press(page, '[data-game-review] [data-next]');
+    await onPlace(page, hands[to.hand], to.index);
+    const stepped = await page.evaluate(() => window.reviewBatches.length);
+    if (await page.$('[data-decision] [data-insight]')) await insightSettled(page);
+    await workerQuiet(page);
+    assert.equal(await page.$('[data-decision] :is([data-insight-result], [data-insight-searching])'), null, 'nothing of the search where it was not asked for');
+    // The pass the worker had ran to its end; since the step, only the Why
+    // line of the decision stepped to may have asked.
+    const since = sinceContinue(await page.evaluate(() => window.reviewBatches), order);
+    const passes = walkBatches(since.batches, order).passes.map(at => since.from + at);
+    assert.ok(passes.filter(at => at >= stepped).length <= 1, `nothing asked for the search after the step: ${passes.join(', ')}, step at ${stepped}`);
+    // Back at the decision searched, its search forgotten: the button again.
+    await press(page, '[data-game-review] [data-previous]');
+    await onPlace(page, hands[from.hand], from.index);
+    await insightSettled(page);
+    const back = await insightAt(page);
+    assert.deepEqual([back.lead, back.searching], [null, null]);
+    assert.match(back.button ?? '', /^What would change its mind\?/);
+    assert.deepEqual(page.errors, []);
+  });
+
+  await cases.check("with Trained AI's move kept back, nothing of the reasoning is drawn, said or asked at a decision until its answer is shown, and Show answer brings the Why line", async () => {
+    const page = await openPage(1100, 900, { saved: midway, ready: '.screen [data-review-game]',
+      settings: { version: 3, difficulty: 'beginner', hints: true, reviewHideMove: true } });
+    await reviewWholeGame(page, '.screen [data-review-game]');
+    await reviewed(page);
+    const verdicts = verdictsOf(sinceContinue(await page.evaluate(() => window.reviewBatches), [2, 0, 1]).batches, [2, 0, 1]);
+    await choose(page, 'differed');
+    const target = verdicts.find(verdict => reasonedAbout(verdict) && marginOf(verdict) >= MARGIN_FLOOR) ?? verdicts.find(reasonedAbout);
+    assert.ok(target, 'a discard where Trained AI threw another tile');
+    await stepTo(page, target.key);
+    await keptBack(page, { hand: target.hand, step: target.index }, { tiles: false });
+    const asked = await page.evaluate(() => window.reviewBatches.length);
+    await new Promise(done => setTimeout(done, 1500));
+    const hidden = await page.evaluate(() => ({
+      drawn: Boolean(document.querySelector('[data-game-review] :is([data-insight], [data-why], [data-insight-search])')),
+      text: document.querySelector('[data-game-review]').textContent,
+      said: [...document.querySelectorAll('[data-game-review] [role="status"]')].map(line => line.textContent).join(' '),
+    }));
+    assert.equal(hidden.drawn, false, 'no Why line and no button');
+    assert.doesNotMatch(hidden.text, /What would change its mind|Trained AI puts|throws your|Not explained|Not checked|Partly:/);
+    assert.ok(!hidden.said.includes(target.advised.label), `no status line names Trained AI's move: ${hidden.said}`);
+    assert.equal(await page.evaluate(() => window.reviewBatches.length), asked, 'nothing is asked for it while the answer is kept back');
+    // Shown, Trained AI's view comes, its Why line worked out with it.
+    await press(page, '[data-game-review] [data-reveal]');
+    await page.waitForSelector('[data-decision] [data-view] [data-insight][data-settled]', { timeout: 120000 });
+    assert.match((await insightAt(page)).why ?? '', /^(Why|Partly|Not explained|Not checked): \S/);
     assert.deepEqual(page.errors, []);
   });
 

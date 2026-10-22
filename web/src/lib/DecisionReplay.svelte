@@ -1,6 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte';
   import Tile from './Tile.svelte';
+  import ReviewInsight from './ReviewInsight.svelte';
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
   import { groupPolicyChoices } from './action-weights.js';
@@ -33,8 +34,16 @@
    * move they picked (`pick`) is tagged "Now" wherever the moves are tagged.
    * With the other players' tiles kept back (`tilesHidden`) the opponents'
    * hands lie face down in their racks.
+   *
+   * Where the player threw one tile and Trained AI another, the view ends
+   * with why Trained AI chose its own and what would have changed its mind
+   * (ReviewInsight), from the match's reasoning (`insight`), its search timed
+   * by the review's own time a position (`positionMs`) and offered while
+   * Trained AI can be reached (`trainedAvailable`). Being part of the view,
+   * it waits with it while Trained AI's move is kept back.
    */
-  let { hand, step, hints = true, moveHidden = false, tilesHidden = false, pick = null, onpick = () => {} } = $props();
+  let { hand, step, hints = true, moveHidden = false, tilesHidden = false, pick = null, onpick = () => {}, insight = null, positionMs = null,
+    trainedAvailable = true } = $props();
 
   // The events since the previous decision and the table of what each move
   // leaves start folded, read less than the table and the weights, and stay
@@ -239,6 +248,7 @@
           </table>
         </details>
       {/if}
+      {#if insight}<ReviewInsight {insight} {hand} {step} {positionMs} {trainedAvailable} />{/if}
     </section>
   {/if}
 </div>

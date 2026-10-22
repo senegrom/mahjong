@@ -6,7 +6,7 @@
   import PlayerHand from './lib/app/PlayerHand.svelte';
   import TurnChoices from './lib/app/TurnChoices.svelte';
   import { onMount, setContext, tick, untrack } from 'svelte';
-  import init, { Game } from './wasm/riichi.js';
+  import init, { Game, PhysicalAnalysis, review_facts } from './wasm/riichi.js';
   import { preloadTiles } from './lib/tile-preload.js';
   import { INITIAL_OFFLINE, startOffline, watchOffline, prepareOfflineAi, refreshOffline } from './lib/offline.js';
   import ScoreScreen from './lib/ScoreScreen.svelte';
@@ -14,6 +14,7 @@
   import Review from './lib/Review.svelte';
   import GameReview from './lib/GameReview.svelte';
   import { Asking, MatchReview } from './lib/game-review.js';
+  import { MatchInsight, anyGate, countedBatches, reviewInsight } from './lib/review-insight-policy.js';
   import { readTrend, recordTrend } from './lib/review-trend.js';
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
@@ -110,9 +111,15 @@
   // so far from any hand's result, taken on to each later one, and of the
   // whole game once it is over. And whether its screen is open. It reviews
   // on while the screen is shut, until the next deal (nextHand), and waits
-  // while the hand's own notes ask Trained AI (notesAsking).
+  // while the hand's own notes ask Trained AI (notesAsking), and while its
+  // reasoning about a decision does (insightAsking).
   let matchReview = $state.raw(null);
   let reviewingGame = $state(false);
+  // The review's reasoning about the match's decisions (MatchInsight): each
+  // decision's Why line and what would change Trained AI's mind, kept beside
+  // the review for the match, and stopped wherever the review stops for the
+  // next deal.
+  let matchInsight = $state.raw(null);
   // Where the player is in that review, `{ hand, step }`, kept for the match
   // so that closing the review and opening it again comes back to the same
   // decision. It is let go when the review is taken on to hands played since,
@@ -145,6 +152,21 @@
   // out of time, which ends the worker and fails the notes, and stops the
   // review too if its batch is still running.
   const notesAsking = new Asking();
+  // The review's reasoning asks the same worker, in passes no longer than the
+  // review's batch (review-insight-policy.js), each sent only while the notes
+  // ask nothing and no batch is with the worker: the review's, counted as it
+  // is sent (workerBatches), or another pass. Its spells (insightAsking)
+  // shut the review's gate as the notes' do, so the review waits there for
+  // the whole of a Why line or a search, until the worker has answered its
+  // last pass, and sends no batch to wait behind one. Neither ever waits in
+  // the worker's queue for the other, where a deadline would run, only at
+  // its gate in the page. The notes' first question waits behind whichever
+  // of the two is with the worker, one at most, as it waited behind a batch
+  // before.
+  const insightAsking = new Asking(), workerBatches = new Asking();
+  const reviewBatch = countedBatches(analyzeBatch, workerBatches);
+  const reasoning = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking: insightAsking, notes: notesAsking,
+    batches: workerBatches, positionMs: () => matchReview?.positionMs ?? null });
   // The reviewed games this browser keeps, which a finished review joins.
   let reviewTrend = $state.raw(readTrend(storage));
 
@@ -284,7 +306,7 @@
     // Completed actions are already saved inside their writer transaction.
     // Never write an old snapshot during pagehide. A cached page must restore
     // the current record rather than resume a stale engine on Back navigation.
-    const leave = () => { startup.abort(); faceLoad?.abort(); matchReview?.dispose(); session?.dispose(); resetPolicy(); matchStore.close(); };
+    const leave = () => { startup.abort(); faceLoad?.abort(); matchInsight?.stop(); matchReview?.dispose(); session?.dispose(); resetPolicy(); matchStore.close(); };
     const returnToPage = (event) => { if (event.persisted) location.reload(); };
     const storageChanged = (event) => { if (playStarted) matchStore.changed(event); };
     window.addEventListener('pagehide', leave);
@@ -300,6 +322,7 @@
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
       matchStore.close();
+      matchInsight?.stop();
       matchReview?.dispose();
       session?.dispose();
       reportProgress(null);
@@ -504,8 +527,10 @@
     // The next deal's trained opponents ask the same network as the review
     // of the game so far, which answers one question at a time, and they go
     // first: the review stops, keeping every hand it has reviewed, and goes
-    // on when it is next opened.
+    // on when it is next opened. Its reasoning stops too, keeping whatever
+    // it had.
     matchReview?.stop();
+    matchInsight?.stop();
     const advanced = await owner.nextHand();
     if (session !== owner || !advanced) return;
     if (!owner.over) { notes = null; failures.result = ''; return; }
@@ -616,15 +641,18 @@
   // press builds the review; each press after takes it on to the match as it
   // now stands, so a hand reviewed at an earlier result is not asked about
   // again. Says whether the review is open. The network this page plays
-  // judges it, and the trend keeps which version that was.
+  // judges it, and the trend keeps which version that was. Its batches are
+  // counted as they go to the worker, and it waits at the gate of the notes'
+  // spells and of its reasoning's, which is built with it for the match.
   function openGameReview() {
     try {
       if (matchReview) takeReviewOn(session.snapshot());
       else {
-        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch, gate: () => notesAsking.gate(),
+        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch: reviewBatch, gate: anyGate(notesAsking, insightAsking),
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
+        matchInsight = new MatchInsight(Game, matchReview, reasoning);
         reviewPlace = null;
         reviewRevealed = {};
       }
@@ -666,6 +694,8 @@
   }
 
   function dropGameReview() {
+    matchInsight?.stop();
+    matchInsight = null;
     matchReview?.dispose();
     matchReview = null;
     reviewingGame = false;
@@ -674,7 +704,9 @@
   }
 
   // Watch, Guided and Physical play ask the same network, and go first.
-  $effect(() => { if (mode !== 'play') untrack(() => matchReview?.stop()); });
+  $effect(() => {
+    if (mode !== 'play') untrack(() => { matchReview?.stop(); matchInsight?.stop(); });
+  });
 
 </script>
 
@@ -733,7 +765,7 @@
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
+      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
         bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
         bind:hideTiles={reviewHideTiles} />
     {/if}

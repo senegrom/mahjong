@@ -1,0 +1,6 @@
+{"source": "Club seed 16, South 3 #26, as clubAdvisedGame plays it: East and West in riichi, the player throwing the 5 circles and Trained AI the 7 characters. unedited is Trained AI 0.1.1110's answer over Mortal's forty-six moves to the table as Game.review_position writes it, and probe its answer to that table with both riichi taken back, asked in the page's runtime on 21 October 2026; digest is each table's planes and mask (planesDigest).",
+"seed": 16,
+"hand": "South 3",
+"decision": 26,
+"unedited": {"digest":"6ddca2ce0c2c9759","weights":[0,0,0,0,1.4996565774392436e-8,6.773342713764125e-9,0.7930156764720929,0,7.105012387799134e-9,0,0,0,0,1.1808160937730616e-7,0,0,0,0,0,0,2.5365868073866436e-8,1.3032970366406748e-8,0,0,9.845869035031798e-10,3.1047450378792933e-8,0,0,0,0,0.20698410614050103,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},
+"probe": {"digest":"e28538a71a3166fc","weights":[0,0,0,0,0.000001007569033587864,2.9326516910573505e-7,0.005396854119150467,0,1.6267248925409052e-7,0,0,0,0,0.926967184146471,0,0,0,0,0,0,0.000018295447893647796,7.487160274208222e-7,0,0,2.6124471001503157e-7,0.06395557777987633,0,0,0,0,0.0036596150391791493,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}

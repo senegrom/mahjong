@@ -5,7 +5,7 @@
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, playlist, revealing } from './game-review.js';
-  import { REVIEW_WIDE, heldOnSteps, moveHandFocus, reviewKey, waitingNote } from './ui.js';
+  import { REVIEW_WIDE, heldEnter, moveHandFocus, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -45,8 +45,14 @@
    * `revealed` is what the player has revealed, by decision ("hand:step",
    * revealing), which App keeps for the match, so that no decision asks
    * again, whatever is closed, opened or stepped through meanwhile.
+   *
+   * `insight` is the match's reasoning (MatchInsight), which App keeps
+   * beside the review: Trained AI's view gives the decision on show its Why
+   * line and "What would change its mind?" (ReviewInsight), timed by the
+   * review's own time a position. Whatever it asks, the review waits for at
+   * its gate, as it waits for the hand's notes (App).
    */
-  let { review, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, shortcuts = true, touch = false,
+  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, shortcuts = true, touch = false,
     filter = $bindable('flagged'), place = $bindable(null), revealed = $bindable({}), hideMove = $bindable(false),
     hideTiles = $bindable(false) } = $props();
 
@@ -246,12 +252,14 @@
   // goes back. They work where the player keeps keyboard shortcuts on, as
   // play's do, and not on a touch screen; never while a dialog is open over
   // the page, such as the settings' or the table's discards, nor in a field.
-  // Whatever the shortcuts, a held Enter presses the step bar's buttons only
-  // once (heldOnSteps): held on Show answer or a tile of the live hand, it
-  // would press Next as the reveal handed focus there, and step past the
-  // answer it had just shown.
+  // Whatever the shortcuts, a held Enter presses the step bar's buttons and
+  // the reasoning's only once (heldEnter): held on Show answer or a tile of
+  // the live hand, it would press Next as the reveal handed focus there, and
+  // step past the answer it had just shown; held on "What would change its
+  // mind?", it would press Cancel as the search handed focus there, and the
+  // button again as Cancel handed it back.
   function press(event) {
-    if (heldOnSteps(event)) {
+    if (heldEnter(event)) {
       event.preventDefault();
       return;
     }
@@ -392,7 +400,8 @@
         </details>
       {/if}
       {#if at}
-        <DecisionReplay hand={shown} step={at.step} {hints} moveHidden={hidden.move} tilesHidden={hidden.tiles} {pick} onpick={revealHere} />
+        <DecisionReplay hand={shown} step={at.step} {hints} moveHidden={hidden.move} tilesHidden={hidden.tiles} {pick} onpick={revealHere}
+          {insight} positionMs={status.positionMs} {trainedAvailable} />
       {:else}
         <p class="empty">{status.over ? 'You made no decisions.' : 'No decisions yet.'}</p>
       {/if}
