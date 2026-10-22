@@ -3,30 +3,54 @@ on:
   push:
     branches: [maintenance/remove-dali-prepare-20261023]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: prepare-remove-dali-20261023
+  cancel-in-progress: false
 jobs:
-  inspect:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Inspect shared references and instructions
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Remove only Dalí and verify preserved files
+        run: python3 .remove-dali/prepare.py
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+      - name: Tile, artist, settings and offline tests
+        working-directory: web
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re, subprocess
-          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
-          for name in paths:
-              if not name or name == '.github/workflows/prepare-remove-dali.yml': continue
-              p = Path(name)
-              if p.name == 'AGENTS.md':
-                  print('INSTRUCTIONS', name, p.read_text())
-              if name.startswith(('docs/design/dali/', 'web/public/tiles/dali/', 'web/tests/dali-')) or name in ('web/scripts/export-dali-tiles.mjs','web/src/lib/dali-faces.js'): continue
-              try: lines = p.read_text().splitlines()
-              except (UnicodeDecodeError, OSError): continue
-              for n, line in enumerate(lines):
-                  if re.search(r'\bdal[ií]\b|DALI_', line, re.I):
-                      print(f'{name}:{n+1}: {line[:1000]}')
-          print('PACKAGE', Path('web/package.json').read_text())
-          print('CI', Path('.github/workflows/ci.yml').read_text())
+          import subprocess
+          tests = sorted(str(p) for p in Path('tests').glob('*.test.js') if any(k in p.name for k in ('tile', 'van-gogh', 'matisse', 'offline', 'session', 'settings')))
+          subprocess.run(['node', '--test', *tests], check=True)
           PY
+      - name: Browser tile effects and missing-art fixture
+        working-directory: web
+        run: node scripts/tile-effects-check.mjs
+      - name: Browser component and settings integration
+        working-directory: web
+        run: node scripts/component-check.mjs
+      - name: Recheck all unrelated files after tests
+        run: python3 .remove-dali/prepare.py --verify
+      - name: Commit changes to preparation branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git add web/tests/retired-tile-face.test.js
+          git rm -r .remove-dali .github/workflows/prepare-remove-dali.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'Remove Dalí tile set, assets, design studies and integration; preserve other sets'
+          git push origin HEAD:maintenance/remove-dali-prepare-20261023
