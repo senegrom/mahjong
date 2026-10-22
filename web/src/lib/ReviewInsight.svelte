@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import { decisionKey } from './game-review.js';
-  import { reasonedAbout } from './review-insight-policy.js';
+  import { keptTime, reasonedAbout, searchTime } from './review-insight-policy.js';
 
   /**
    * Why Trained AI threw its tile and not the player's, and what would have
@@ -23,16 +23,17 @@
    *
    * "What would change its mind?" asks Trained AI about the table changed in
    * one thing the player could see, a few seconds' work: it says about how
-   * long from the review's own time a position (`positionMs`), and is offered
-   * wherever the reasoning searches (MatchInsight.at) and Trained AI can be
-   * reached (`trainedAvailable`). Pressed, it gives way to the search's
-   * progress and Cancel, and those to what was found: the changes that make
-   * Trained AI throw the player's tile, a line for each kind of change, or the
-   * pair that does where no single change does, or that nothing asked did. A
-   * step to another decision stops a search under way (MatchInsight.leave),
-   * and the panel draws only the decision on show's own, so a result never
-   * shows on a decision it was not asked for. A search had is kept, and shown
-   * again whenever its decision is.
+   * long from the review's own time a position (`positionMs`), as it stood
+   * when the decision came on show, and is offered wherever the reasoning
+   * searches (MatchInsight.at) and Trained AI can be reached
+   * (`trainedAvailable`). Pressed, it gives way to the search's progress and
+   * Cancel, and those to what was found: the changes that make Trained AI
+   * throw the player's tile, a line for each kind of change, or the pair that
+   * does where no single change does, or that nothing asked did. A step to
+   * another decision stops a search under way (MatchInsight.leave), and the
+   * panel draws only the decision on show's own, so a result never shows on a
+   * decision it was not asked for. A search had is kept, and shown again
+   * whenever its decision is.
    *
    * Focus goes where the control that had it went: from the button to
    * Cancel, from Cancel back to the button, and once the search ends to the
@@ -71,11 +72,16 @@
   let search = $derived(shown?.search ?? null);
   let offered = $derived(Boolean(shown?.offered) && trainedAvailable);
 
-  // About how long the search takes at the review's own time a position, in
-  // a few characters beside the button and in words for a screen reader.
-  let seconds = $derived(positionMs > 0 && shown?.tables ? shown.tables * positionMs / 1000 : null);
-  let estimate = $derived(seconds == null ? null : seconds < 60 ? { short: `${Math.max(1, Math.round(seconds))} s`, said: `${Math.max(1, Math.round(seconds))} seconds` }
-    : { short: `${Math.round(seconds / 60)} min`, said: `${Math.round(seconds / 60)} minute${Math.round(seconds / 60) === 1 ? '' : 's'}` });
+  // About how long the search takes, beside the button in a few characters
+  // and in its name in words (searchTime), at the review's time a position as
+  // it stood when the decision came on show, kept while it is on show
+  // (keptTime), so that neither follows the review's later batches.
+  let timed = null;
+  let speed = $derived.by(() => {
+    timed = keptTime(timed, subject, positionMs);
+    return timed.ms;
+  });
+  let estimate = $derived(shown ? searchTime(shown, speed) : null);
 
   // Whether the check's workings are shown under the Why line, which stays as
   // the player leaves it across steps, as the view's other folded parts do.

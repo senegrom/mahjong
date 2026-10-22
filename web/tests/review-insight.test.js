@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, scoreEdit, searchOffered, singleEdits,
-  tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
+  tablesAtMost, tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
@@ -149,13 +149,37 @@ test('the search asks only tables the recorded run asked, the unedited one first
   // pairs.
   assert.deepEqual(passes, { 'e3-5': [8, 8, 8, 8, 4], 's3-4': [8, 8, 8, 7, 8, 8, 8, 4], 'e1-20': [8, 8, 7], 's1-9': [8, 8, 8, 5],
     's4-18': [8, 8, 8, 4], 'why7-1m': [8, 8, 8, 7, 1, 1, 1] });
-  // What the button's estimate counts, given no engine to ask, against the
-  // tables the search plans before any score step or pair: the unedited table
-  // and the single changes, the hand swaps counted as many as it picks at
-  // most, nine, where it picked as few as five.
-  assert.deepEqual(planned, { 'e3-5': 36, 's3-4': 31, 'e1-20': 23, 's1-9': 29, 's4-18': 28, 'why7-1m': 31 });
+  // What the button's range counts, given no engine to ask, against what the
+  // search plans: first the unedited table and the single changes, the hand
+  // swaps counted as many as it picks at most, nine, where it picked as few
+  // as five; and room from the start for the 28 pairs it may try after them,
+  // which the range counts at most.
+  assert.deepEqual(planned, { 'e3-5': 36 + 28, 's3-4': 31 + 28, 'e1-20': 23 + 28, 's1-9': 29 + 28, 's4-18': 28 + 28, 'why7-1m': 31 + 28 });
   const first = { 'e3-5': 36, 's3-4': 33, 'e1-20': 27, 's1-9': 31, 's4-18': 30, 'why7-1m': 31, 'e2b-14': 0, 'why7-2s': 0 };
-  for (const entry of questions) assert.equal(tablesFirstAsked(entry), first[entry.id], entry.title);
+  for (const entry of questions) {
+    assert.equal(tablesFirstAsked(entry), first[entry.id], entry.title);
+    assert.equal(tablesAtMost(entry), first[entry.id] && first[entry.id] + 28, entry.title);
+  }
+});
+
+test("a search's progress never runs back: its plan holds from the start room for what it may ask after the single changes, gives back what it did not ask, and never asks more than the button's range", async () => {
+  const steps = {};
+  for (const entry of searched) {
+    const heard = [];
+    const search = await whatWouldChangeItsMind({ ...entry, facts, ask: recordedAsk(entry).ask, onProgress: step => heard.push(step) });
+    const shares = heard.map(({ asked, planned }) => asked / planned);
+    steps[entry.id] = heard.map(({ asked, planned }) => `${asked}/${planned}`).join(' ');
+    assert.ok(shares.every((share, at) => !at || share >= shares[at - 1]), `${entry.title}: ${steps[entry.id]}`);
+    assert.deepEqual(heard.at(-1), { asked: search.asked, planned: search.asked }, `${entry.title}: every table planned asked at the end`);
+    assert.ok(search.asked <= tablesAtMost(entry), `${entry.title}: ${search.asked} of at most ${tablesAtMost(entry)}`);
+  }
+  // East 3 #5, where single changes flip the choice, fills its bar early;
+  // South 3 #4, whose pairs ask 59 tables, nearly twice what the button's
+  // old estimate counted, fills it as it goes; and why-7's 1 characters
+  // takes three score steps from the room.
+  assert.equal(steps['e3-5'], '0/64 8/64 16/64 24/64 32/64 36/64 36/36');
+  assert.equal(steps['s3-4'], '0/59 8/59 16/59 24/59 31/59 39/59 47/59 55/59 59/59');
+  assert.equal(steps['why7-1m'], '0/59 8/59 16/59 24/59 31/59 32/59 33/59 34/59 34/34');
 });
 
 test('each change is grouped by what it did to the engine\'s facts, as the prototype grouped it', async () => {

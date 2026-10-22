@@ -44,6 +44,11 @@ export const PASS = 8;
 const SAME_WEIGHT = 1e-4;
 /** The single changes nearest to flipping it that are paired, two at a time. */
 const PAIRED = 8;
+/** The most tables a search asks after its single changes: every pair of the
+ * changes it pairs, where no single change flips the choice. Where one does,
+ * it asks no pair, and at most three score steps either way, halving between
+ * those asked, which is fewer. */
+const LATER = PAIRED * (PAIRED - 1) / 2;
 /** Trained AI's weight a fact must carry for the fact to be the reason. */
 const MASS = 0.95;
 
@@ -487,12 +492,30 @@ function unlikeReview(answer, weights) {
 
 /** Asks Trained AI about tables in passes of `size`, minding `signal`, and
  * tells `onProgress` how many tables have been asked of how many are planned.
- * `onPass(answers)` hears the answers so far after each pass, and stops the
- * asking by answering false. */
+ * The plan holds the tables to be asked and room for those that may be asked
+ * after them (`plan(count, more)`), which the asking takes as it needs it
+ * (`take`) and gives back once it asks no more (`done`): the share asked only
+ * ever grows, so a bar drawn from it never runs back, and fills early where
+ * the room is not needed. `onPass(answers)` hears the answers so far after
+ * each pass, and stops the asking by answering false. */
 function asker({ ask, signal, size, onProgress }) {
-  let asked = 0, planned = 0;
+  let asked = 0, planned = 0, room = 0;
+  const told = () => onProgress({ asked, planned });
   return {
-    plan: count => { planned += count; onProgress({ asked, planned }); },
+    plan: (count, more = 0) => { planned += count + more; room += more; told(); },
+    // More than the room left is planned too, which would run the bar back,
+    // and is why the room is the most that can be asked.
+    take: count => {
+      const over = Math.max(0, count - room);
+      room -= count - over;
+      if (over) { planned += over; told(); }
+    },
+    done: () => {
+      if (!room) return;
+      planned -= room;
+      room = 0;
+      told();
+    },
     get asked() { return asked; },
     async all(positions, onPass = () => {}) {
       const answers = [];
@@ -504,7 +527,7 @@ function asker({ ask, signal, size, onProgress }) {
         if (!Array.isArray(replies) || replies.length !== pass.length) throw new Error('Trained AI returned the wrong number of answers');
         answers.push(...replies);
         asked += pass.length;
-        onProgress({ asked, planned });
+        told();
         if (onPass(answers) === false) return null;
       }
       return answers;
@@ -571,6 +594,16 @@ export function tablesFirstAsked(question) {
   return 1 + singles.filter(edit => edit.family !== 'hand').length + swaps;
 }
 
+/** How many tables a search of the question asks at most: those it asks first
+ * (tablesFirstAsked), and every pair it may try after them where no single
+ * change flips the choice, which a third of the searches of the check's game
+ * needed. With the first count, it gives the range of time the page says
+ * beside the button. None where nothing is searched. */
+export function tablesAtMost(question) {
+  const first = tablesFirstAsked(question);
+  return first && first + LATER;
+}
+
 /** What would change Trained AI's mind: the single changes, of the budget the
  * prototype measured, that make it throw the player's tile, grouped by what
  * they changed in the engine's facts; the smallest score step that does it;
@@ -578,7 +611,9 @@ export function tablesFirstAsked(question) {
  * came nearest. The first table asked is the unedited one, and a search whose
  * unedited table Trained AI does not answer as the review recorded stops
  * there, since nothing it found could be compared. `onProgress({ asked,
- * planned })` hears every pass.
+ * planned })` hears every pass, the plan counting from the start the most
+ * that may be asked after the single changes (LATER), and giving back what
+ * was not, so that the share asked never falls.
  *
  * Answers `{ status: 'searched', said, singles, pairs, thresholds, asked }`,
  * `said` being the findings in words, `{ lead, detail, items, still }`: the
@@ -595,7 +630,7 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
   const budget = budgetOf(position, { played, preferred }, F0, facts);
   const net = asker({ ask, signal, size, onProgress });
   const context = { base: position, played, preferred, F0, facts };
-  net.plan(budget.length + 1);
+  net.plan(budget.length + 1, LATER);
   let unlike = null;
   const answers = await net.all([position, ...budget.map(edit => applyEdits(position, edit))], replies => {
     unlike ??= unlikeReview(replies[0], weights);
@@ -618,7 +653,7 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
       // which is why it is checked.
       const middle = Math.round((low + high) / 2000) * 1000, edit = scoreEdit(position, middle);
       if (middle === low || middle === high || !firstHandGives(applyEdits(position, edit))) break;
-      net.plan(1);
+      net.take(1);
       const [step] = judged([edit], await net.all([applyEdits(position, edit)]), { ...context, withFacts: false });
       tried++;
       if (step.flips) [high, atHigh] = [middle, step]; else low = middle;
@@ -641,9 +676,10 @@ export async function whatWouldChangeItsMind({ position, played, preferred, weig
     const pairEdits = chosen.flatMap((a, i) => chosen.slice(i + 1).map(b => ({ family: `${a.family}+${b.family}`, touches: [...a.touches, ...b.touches],
       cost: a.cost + b.cost, words: `${a.words}, and ${b.words}`, parts: [a.edit, b.edit], apply: table => { a.edit.apply(table); b.edit.apply(table); } })))
       .filter(edit => firstHandGives(applyEdits(position, ...edit.parts)));
-    net.plan(pairEdits.length);
+    net.take(pairEdits.length);
     pairs = judged(pairEdits, await net.all(pairEdits.map(edit => applyEdits(position, ...edit.parts))), context);
   }
+  net.done();
   const said = searchSaid({ changes, pairs, thresholds, A, P, F0, unseen });
   return { status: 'searched', asked: net.asked, singles: changes, pairs, thresholds, said };
 }

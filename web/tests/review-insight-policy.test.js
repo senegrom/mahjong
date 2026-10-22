@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, scanMatch } from '../src/lib/game-review.js';
-import { PASS, movesOf, sameMove, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { MatchInsight, anyGate, countedBatches, handTables, passFor, questionOf, reasonedAbout, reviewInsight, trainedAsk }
-  from '../src/lib/review-insight-policy.js';
+import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
+import { MatchInsight, anyGate, countedBatches, handTables, keptTime, passFor, questionOf, reasonedAbout, reviewInsight, searchTime,
+  trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
@@ -363,9 +363,10 @@ test("a match's reasoning writes a hand's tables once, says nothing of a decisio
   hand.decisions[step - 1] = { ...hand.decisions[step], advised_tile: hand.decisions[step].played_tile };
   assert.deepEqual([insight.at(`${hand.index}:${step - 1}`), insight.at(`${hand.index}:${step + 1}`), held.read], [null, null, 0]);
   // The search asks first the tables the estimate counts, on the table the
-  // engine writes for the decision; nothing is had yet.
+  // engine writes for the decision, and at most those and its pairs; nothing
+  // is had yet.
   const question = questionOf(hand.decisions[step], entry.position);
-  assert.deepEqual(insight.at(keyOf(entry)), { why: null, search: null, tables: tablesFirstAsked(question), offered: true });
+  assert.deepEqual(insight.at(keyOf(entry)), { why: null, search: null, tables: tablesFirstAsked(question), most: tablesAtMost(question), offered: true });
   assert.ok(insight.at(keyOf(entry)).tables >= 36, 'at least the unedited table and the 35 changes the search asks');
   // Shown, its Why line is worked out, asking Trained AI once, and kept: shown
   // again and stepped away from, it asks nothing more.
@@ -384,11 +385,12 @@ test('a search shows how far it has got, a step away or Cancel stops it and forg
   const worker = workerOfPasses(), { insight: reasoning, notes, asking } = insightOf(worker), review = anyGate(notes, asking);
   const insight = new MatchInsight(Game, reviewOf().review, reasoning), key = keyOf(entry);
   const searching = () => insight.at(key).search;
-  // Pressed, it is under way at once, the unedited table and its 35 changes
-  // planned, and its first pass with the worker.
+  // Pressed, it is under way at once, the unedited table, its 35 changes and
+  // room for 28 pairs planned, and its first pass with the worker.
   insight.search(key);
-  assert.deepEqual(searching(), { state: 'searching', asked: 0, planned: 36, status: undefined, said: undefined, failure: undefined });
+  assert.deepEqual(searching(), { state: 'searching', asked: 0, planned: 64, status: undefined, said: undefined, failure: undefined });
   await until(() => worker.sent === 1, 'the first pass is with the worker');
+  assert.equal(searching().planned, 64);
   worker.answer();
   await until(() => searching().asked === PASS, 'the first pass is answered');
   await until(() => worker.sent === 2, 'the second pass is with the worker');
@@ -442,11 +444,36 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   broken.explain(key);
   broken.search(key);
   await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search.state === 'failed', 'both fail');
-  assert.deepEqual(broken.at(key), { why: { state: 'failed', result: null }, tables: broken.at(key).tables, offered: true,
+  assert.deepEqual(broken.at(key), { why: { state: 'failed', result: null }, tables: broken.at(key).tables, most: broken.at(key).most, offered: true,
     search: { state: 'failed', asked: undefined, planned: undefined, status: undefined, said: undefined, failure: 'The trained opponent did not answer in time' } });
   broken.explain(key);
   assert.equal(broken.at(key).why.state, 'asking', 'a failed Why line is asked again as it is shown again');
   await until(() => broken.at(key).why.state === 'failed', 'and fails again');
+});
+
+test('the button says about how long a search takes, from the tables it asks first to the most it asks, in seconds or in minutes, in words for a screen reader', () => {
+  const counts = { tables: 36, most: 64 };
+  assert.deepEqual(searchTime(counts, 157), { short: '6–10 s', said: '6 to 10 seconds' });
+  assert.deepEqual(searchTime(counts, 500), { short: '18–32 s', said: '18 to 32 seconds' });
+  // One figure where both round alike, a second said as one.
+  assert.deepEqual(searchTime(counts, 20), { short: '1 s', said: '1 second' });
+  // Minutes once the longer rounds to a minute, 59.5 seconds among them.
+  assert.deepEqual(searchTime({ tables: 100, most: 119 }, 500), { short: '1 min', said: '1 minute' });
+  assert.deepEqual(searchTime({ tables: 400, most: 428 }, 500), { short: '3–4 min', said: '3 to 4 minutes' });
+  // Nothing timed yet, or nothing searched.
+  assert.deepEqual([searchTime(counts, null), searchTime(counts, 0), searchTime({ tables: 0, most: 0 }, 157)], [null, null, null]);
+});
+
+test("the button's time is the review's speed as it stood when the decision came on show, kept while it stays on show", () => {
+  let kept = keptTime(null, '3:4', 157);
+  assert.deepEqual(kept, { at: '3:4', ms: 157 });
+  kept = keptTime(kept, '3:4', 170);
+  assert.deepEqual(kept, { at: '3:4', ms: 157 }, 'the review timing its later batches changes nothing');
+  assert.deepEqual(keptTime(kept, '3:5', 170), { at: '3:5', ms: 170 }, 'another decision takes the speed as it stands');
+  // Nothing timed as the decision came on show: the first time measured.
+  kept = keptTime(null, '3:4', null);
+  assert.deepEqual(kept, { at: '3:4', ms: null });
+  assert.deepEqual(keptTime(kept, '3:4', 160), { at: '3:4', ms: 160 });
 });
 
 test("the search is not offered below the margin floor, nor where the Why line finds that Trained AI does not answer the decision's table as the review recorded", async () => {

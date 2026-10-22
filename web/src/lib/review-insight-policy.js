@@ -41,7 +41,7 @@
  * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
-import { PASS, explainWhy, movesOf, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
+import { PASS, explainWhy, movesOf, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
@@ -205,6 +205,31 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
   };
 }
 
+/** About how long a search takes on this device, as the button says it: the
+ * tables it asks first and at most (`tables` and `most`, MatchInsight.at) at
+ * the review's own time a position, in a few characters ("6–10 s") and in
+ * words for a screen reader ("6 to 10 seconds"). In seconds, or in minutes
+ * once the longer rounds to a minute; one figure where the two round alike.
+ * None where the review has timed nothing yet, or nothing is searched. */
+export function searchTime({ tables, most }, positionMs) {
+  if (!(positionMs > 0) || !tables) return null;
+  const minutes = Math.round(most * positionMs / 1000) >= 60, unit = minutes ? 60000 : 1000;
+  const low = Math.max(1, Math.round(tables * positionMs / unit)), high = Math.max(low, Math.round(most * positionMs / unit));
+  const [short, word] = minutes ? ['min', 'minute'] : ['s', 'second'];
+  if (low === high) return { short: `${low} ${short}`, said: `${low} ${word}${low === 1 ? '' : 's'}` };
+  return { short: `${low}–${high} ${short}`, said: `${low} to ${high} ${word}s` };
+}
+
+/** The review's time a position that the button times the search of the
+ * decision on show by (`at`, its key), `{ at, ms }`: as it stood when the
+ * decision came on show, or as first measured after, and kept while the
+ * decision stays on show, whatever the review measures meanwhile. Otherwise
+ * the button's words, and the name a screen reader says again as it changes,
+ * would follow every batch the review times. `kept` is what was kept before. */
+export function keptTime(kept, at, positionMs) {
+  return kept?.at === at && kept.ms != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
+}
+
 /** Whether version 1 of the reasoning speaks of a reviewed decision: one
  * where the player threw a tile and Trained AI chose to throw another. A
  * call, a riichi declared or not, a win, an only move and a decision Trained
@@ -241,8 +266,9 @@ export class MatchInsight {
     this.reasoning = reasoning;
     this.onChange = onChange;
     // Each hand's tables by its index, null where they could not be
-    // written; how many tables each decision's search asks first; and each
-    // decision's Why line and search, under way or had, by its key.
+    // written; how many tables each decision's search asks first and at
+    // most; and each decision's Why line and search, under way or had, by
+    // its key.
     this.tables = new Map();
     this.counts = new Map();
     this.whys = new Map();
@@ -266,32 +292,38 @@ export class MatchInsight {
     return position ? questionOf(decision, position) : null;
   }
 
+  /** How many tables a decision's search asks first and at most,
+   * `{ tables, most }` (tablesFirstAsked, tablesAtMost), counted once. The
+   * page reads this as it draws the review, which a throw would take down
+   * with it: a table whose changes cannot be counted is one the search is
+   * not offered at. */
+  counted(key, question) {
+    if (!this.counts.has(key)) {
+      let count = { tables: 0, most: 0 };
+      try { count = { tables: tablesFirstAsked(question), most: tablesAtMost(question) }; } catch { /* Not offered. */ }
+      this.counts.set(key, count);
+    }
+    return this.counts.get(key);
+  }
+
   /** What there is to show at a decision, or null where nothing is said of
    * it (question): its Why line, `{ state, result }`, under way ('asking'),
    * had ('done', with explainWhy's answer) or failed; its search, under way
    * ('searching', with how many tables are asked of how many planned), had
    * ('done', with whatWouldChangeItsMind's `status` and `said`) or failed
-   * (with its `failure`); how many tables the search asks first (`tables`,
-   * tablesFirstAsked), none below the margin floor; and whether the search is
-   * `offered`, as it is wherever it asks something, unless the Why line has
-   * found that Trained AI does not answer the decision's table as the review
-   * recorded, where no change could be compared. */
+   * (with its `failure`); how many tables the search asks first and at most
+   * (`tables` and `most`, counted), none below the margin floor; and whether
+   * the search is `offered`, as it is wherever it asks something, unless the
+   * Why line has found that Trained AI does not answer the decision's table
+   * as the review recorded, where no change could be compared. */
   at(key) {
     const question = this.question(key);
     if (!question) return null;
-    if (!this.counts.has(key)) {
-      // The page reads this as it draws the review, which a throw would
-      // take down with it: a table whose changes cannot be counted is one
-      // the search is not offered at.
-      let tables = 0;
-      try { tables = tablesFirstAsked(question); } catch { /* Not offered. */ }
-      this.counts.set(key, tables);
-    }
-    const why = this.whys.get(key) ?? null, search = this.searches.get(key) ?? null, tables = this.counts.get(key);
+    const why = this.whys.get(key) ?? null, search = this.searches.get(key) ?? null, { tables, most } = this.counted(key, question);
     return {
       why: why && { state: why.state, result: why.result ?? null },
       search: search && { state: search.state, asked: search.asked, planned: search.planned, status: search.status, said: search.said, failure: search.failure },
-      tables, offered: tables > 0 && why?.result?.verdict !== 'unlike the review',
+      tables, most, offered: tables > 0 && why?.result?.verdict !== 'unlike the review',
     };
   }
 

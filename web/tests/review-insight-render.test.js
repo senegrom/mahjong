@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { render } from 'svelte/server';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { scanMatch } from '../src/lib/game-review.js';
-import { explainWhy, sameMove, tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
+import { explainWhy, sameMove, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { text } from './fixtures/markup-text.js';
@@ -46,9 +46,9 @@ const hand = handWith(decisionOf(entry));
 const why = await explainWhy({ ...entry, facts: review_facts, ask: recordedAsk(entry).ask });
 const plainWhy = await explainWhy({ ...sure, facts: review_facts, ask: recordedAsk(sure).ask });
 const found = await whatWouldChangeItsMind({ ...entry, facts: review_facts, ask: recordedAsk(entry).ask });
-const tables = tablesFirstAsked(entry);
-/** East 3 #5 with its Why line had and nothing searched. */
-const had = { why: { state: 'done', result: why }, search: null, tables, offered: true };
+/** East 3 #5 with its Why line had and nothing searched: its search asks 36
+ * tables first and 64 at most. */
+const had = { why: { state: 'done', result: why }, search: null, tables: tablesFirstAsked(entry), most: tablesAtMost(entry), offered: true };
 
 /** The match's reasoning stood in for: `at` answers the same at every
  * decision, and every decision it is asked about is noted. A server render
@@ -81,11 +81,13 @@ test("a decision where Trained AI threw another tile ends with its Why line and,
   assert.equal(words(whyLine(html)[1]), saidLines(why)[0], 'the verdict and the fact, in the reasoning\'s words');
   assert.equal(saidLines(why)[0], 'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.');
   // The button follows the Why line, and says about how long at the review's
-  // 157 ms a position, a screen reader hearing it in words.
-  const [, rest, inner] = button(html), seconds = Math.round(tables * 0.157);
+  // 157 ms a position, from the 36 tables the search asks first to the 64 it
+  // asks at most, a screen reader hearing it in words.
+  const [, rest, inner] = button(html);
+  assert.deepEqual([had.tables, had.most], [36, 64]);
   assert.ok(html.indexOf('data-why=') < html.indexOf('data-insight-search'));
-  assert.equal(text(inner), `What would change its mind? · about ${seconds} s`);
-  assert.equal(attribute(rest, 'aria-label'), `What would change its mind? About ${seconds} seconds`);
+  assert.equal(text(inner), 'What would change its mind? · about 6–10 s');
+  assert.equal(attribute(rest, 'aria-label'), 'What would change its mind? About 6 to 10 seconds');
   // Nothing found yet, nothing under way, and the status line in the page,
   // empty, for its words to come.
   assert.doesNotMatch(html, /data-insight-result|data-insight-searching|data-insight-cancel|data-why-workings/);
@@ -132,9 +134,13 @@ test("no button is offered below the margin floor, where Trained AI does not ans
   assert.equal(text(untimed[2]), 'What would change its mind?');
   assert.equal(attribute(untimed[1], 'aria-label'), null);
   // A slow device, half a second a position, and a long search: in minutes.
-  const slow = button(panel({ ...had, tables: 400 }, { positionMs: 500 }));
-  assert.equal(text(slow[2]), 'What would change its mind? · about 3 min');
-  assert.equal(attribute(slow[1], 'aria-label'), 'What would change its mind? About 3 minutes');
+  const slow = button(panel({ ...had, tables: 400, most: 428 }, { positionMs: 500 }));
+  assert.equal(text(slow[2]), 'What would change its mind? · about 3–4 min');
+  assert.equal(attribute(slow[1], 'aria-label'), 'What would change its mind? About 3 to 4 minutes');
+  // A fast one: one figure, a second said as one.
+  const fast = button(panel(had, { positionMs: 20 }));
+  assert.equal(text(fast[2]), 'What would change its mind? · about 1 s');
+  assert.equal(attribute(fast[1], 'aria-label'), 'What would change its mind? About 1 second');
 });
 
 test('a search under way shows how far it has got, and Cancel, in place of the button', () => {

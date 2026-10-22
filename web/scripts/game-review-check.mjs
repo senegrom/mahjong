@@ -2011,8 +2011,9 @@ try {
         continue;
       }
       // The review has timed its positions, so the button says about how
-      // long: the tables the search asks first at the review's own speed.
-      assert.match(shown.button ?? '', /^What would change its mind\? · about \d+ (s|min)$/, `the button at ${verdict.key}`);
+      // long: from the tables the search asks first to the most it may ask,
+      // at the review's own speed.
+      assert.match(shown.button ?? '', /^What would change its mind\? · about \d+(–\d+)? (s|min)$/, `the button at ${verdict.key}`);
       searched++;
       await page.focus('[data-decision] [data-insight-search]');
       await page.keyboard.press('Enter');
