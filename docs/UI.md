@@ -653,6 +653,58 @@ whether the tile could deal into a declared riichi, and its worth as dora (the
 engine's `review_measure`). It stays open or folded as the player leaves it.
 Nothing is played on from any decision, and the saved match is never touched.
 
+**Why, and what would change its mind.** Where the player threw one tile and
+Trained AI chose to throw another, its view ends with the review's reasoning
+about the two (`review-insight.js`), which App keeps for the match beside the
+review (`MatchInsight`). First the Why line: the engine's fact that separates
+the two tiles, with its verdict. **Why** where Trained AI puts 95% or more on
+the tiles that share the fact and, where the fact has a clean change, taking
+it away halves its lead; **Partly** where a check fails; **Not explained**
+where no fact favours its tile ("Partly: You had already thrown a 7
+characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles
+you had already thrown."). Partly and Not explained are buttons whose title,
+a tooltip, is the check's workings, and which show them under the line when
+pressed, for a keyboard, a finger or a screen reader. The line is worked out
+as the decision is shown, in the page's engine and at most one forward pass,
+and drawn with what follows it once it is had, so nothing moves under a
+pointer. Then **What would change its mind?**, with about how long the search
+takes at the review's own time a position ("What would change its mind? ·
+about 6 s"). It asks Trained AI about the table changed in one thing the
+player could see, a tile of the hand, a discard, the dora indicator, a riichi,
+the score or the round, only as a game can reach it, and never the wall, the
+dealer or a call taken back; pairs of changes only where no single change
+flips the choice. Pressed, it gives way to its progress ("Trying changes · 8
+of 36") and **Cancel**, focus going to Cancel, and then to what it found,
+focus going to its first line: "One change and it throws your west wind:",
+then a line for each kind of change that does, a faster hand, a hand worth
+more, what is safe, the shape of the hand and the table, each with how many of
+its changes did of how many were tried ("A faster hand (7 of 7 tried): if
+your white dragon had been a 2 circles (your hand a step closer to waiting
+and one safe tile fewer): your west wind 99.6%, the 7 characters 0.2%."), and
+what moved nothing ("Not moved by the score (±16,000) or the round."); or the
+pair that does ("No single change does it. Two together: …"); or "Nothing
+asked makes it throw your west wind." with the nearest change. A status line
+says the search began and, unless focus went to it, what it found. The button
+is offered at every such discard, on a phone too, but not where Trained AI
+chose its tile by more than e^7 to one (a margin below −7, where nothing
+small moved it in the prototype), not at a call or a decision to declare
+riichi or not, not while Trained AI cannot be reached, and not where the Why
+line found that Trained AI does not answer the decision's table as the review
+recorded, which a search finding first says ("This table does not replay as
+the review asked it, so no change was tried."). A search asks 27 to 61
+tables: 4 to 10 seconds at desktop Chromium's 157 ms a position, a quarter to
+half a minute at half a second. A step to another decision, **Cancel**,
+closing the review, the next deal and leaving Play stop a search under way,
+which is forgotten; what was found stays with its decision alone, shown
+whenever it is again and never asked again. While the reasoning asks, the review of the rest of the game
+waits at its gate, as it waits for the hand's notes, and each of its passes,
+no longer than the review's batch, waits for any batch with the worker, so
+neither waits behind more than one of the other. Being part of Trained AI's
+view, all of it waits with the view while the settings keep Trained AI's move
+back: nothing of it is drawn, said or asked until the answer is shown. It
+explains Trained AI's choice, not good play, and changes only what the player
+could see, never a hidden hand.
+
 **Hidden answers.** Two settings make the review a quiz, both off unless the
 player turns them on: **Hide Trained AI's move in reviews** and **Hide other
 players' tiles in reviews**, after the other checkboxes in Options, and from
@@ -783,8 +835,9 @@ batch nearly halves the cost. A game of 150 to 200 decisions takes about half a
 minute there; phones were not measured. The review runs in the background with
 its progress and an estimate of the time left ("3 of 6 decisions · about 2
 minutes left"), goes on while its screen is closed, waits before each batch
-while a hand's own notes ask Trained AI, which counts neither in the estimate
-nor against the device, and stops at **Stop** or when the player leaves Play. A
+while a hand's own notes or its own reasoning about a decision ask Trained AI,
+which counts neither in the estimate nor against the device, and stops at
+**Stop** or when the player leaves Play. A
 device that takes over half a second a position holds after each hand
 ("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
 offers **Review next hand** or **Review the rest**; any hand can also be
@@ -849,12 +902,19 @@ low screen, a held Enter pressing once, a tile of the live hand keeping focus
 as the phone turns upright, the live hand tabbed through clear of the bars on a
 phone, and each reveal kept through steps and opening again and gone after a
 reload and in a new game, and its way in and out on a phone, by touch and by
-keyboard; and the review of the game so far from a hand's result, opened on the
-hand just played and asking about it first, kept out of the trend, back to the
-result's button at desktop and phone sizes and open again where it was left,
-stopped by Next hand and asking nothing again at the next hand's result or at
-the standings), the review, of the game so far or of the whole game, waiting
-while a hand's own notes ask Trained AI and going on where it was, history and
-export, and settlements that balance event by event. Its browser checks run in
+keyboard; its reasoning at a discard where Trained AI threw another tile, the
+Why line and, above the margin floor, the button saying about how long, the
+search pressed by keyboard with its progress, Cancel and focus handed on,
+what it found grouped by the kind of change, kept for its decision alone and
+fitting a phone, Cancel and a step away stopping it as the review goes on,
+and nothing of it drawn, said or asked while Trained AI's move is kept back,
+its passes told apart from the review's batches; and the review of the game
+so far from a hand's result, opened on the hand just played and asking about
+it first, kept out of the trend, back to the result's button at desktop and
+phone sizes and open again where it was left, stopped by Next hand and asking
+nothing again at the next hand's result or at the standings), the review, of
+the game so far or of the whole game, waiting while a hand's own notes or its
+reasoning ask Trained AI and going on where it was, history and export, and
+settlements that balance event by event. Its browser checks run in
 Chromium, including narrow portrait and landscape sizes; they are not
 physical-iPhone or Safari testing.
