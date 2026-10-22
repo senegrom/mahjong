@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, scanMatch } from '../src/lib/game-review.js';
-import { PASS, movesOf, sameMove } from '../src/lib/review-insight.js';
-import { anyGate, countedBatches, handTables, passFor, questionOf, reviewInsight, trainedAsk } from '../src/lib/review-insight-policy.js';
+import { PASS, movesOf, sameMove, tablesFirstAsked } from '../src/lib/review-insight.js';
+import { MatchInsight, anyGate, countedBatches, handTables, passFor, questionOf, reasonedAbout, reviewInsight, trainedAsk }
+  from '../src/lib/review-insight-policy.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
@@ -16,6 +17,16 @@ const questions = recordedQuestions(Game, PhysicalAnalysis), entry = questions.f
 /** East 3 #5's search: the unedited table and its 35 changes, in passes of
  * the review's batch. */
 const SEARCH = [PASS, PASS, PASS, PASS, 4];
+/** East 3 #5's Why line, and what its search finds, as the panel reads them
+ * (saidLines), on the recorded run's answers. */
+const WHY_SAID = 'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.';
+const SEARCH_SAID = [
+  'One change and it throws your west wind:',
+  '- A faster hand (7 of 7 tried): if your white dragon had been a 2 circles (your hand a step closer to waiting and one safe tile fewer): your west wind 99.6%, the 7 characters 0.2%.',
+  '- A hand worth more (4 of 14 tried): if the dora indicator had been the 8 bamboo, not the 9 bamboo, making the 9 bamboo dora (2 more dora in your hand): your west wind 94.3%, the 7 characters 2.0%.',
+  '- What is safe (2 of 8 tried): if South had declared riichi with their last discard, the west wind (a second riichi and the 7 characters no longer safe): your west wind 70.8%, the 7 characters <0.1%.',
+  'Not moved by the score (±16,000) or the round.',
+];
 const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
@@ -104,14 +115,7 @@ test('Trained AI is asked through analyzeBatch in passes of the review\'s batch,
   assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away');
   const search = await insight.search(question);
   assert.deepEqual(network.sizes, [2, ...SEARCH]);
-  assert.deepEqual([...saidLines(why), ...saidLines(search.said)], [
-    'Partly: You had already thrown a 7 characters, so a wait on it would be furiten. Trained AI puts 93.0% on tiles you had already thrown.',
-    'One change and it throws your west wind:',
-    '- A faster hand (7 of 7 tried): if your white dragon had been a 2 circles (your hand a step closer to waiting and one safe tile fewer): your west wind 99.6%, the 7 characters 0.2%.',
-    '- A hand worth more (4 of 14 tried): if the dora indicator had been the 8 bamboo, not the 9 bamboo, making the 9 bamboo dora (2 more dora in your hand): your west wind 94.3%, the 7 characters 2.0%.',
-    '- What is safe (2 of 8 tried): if South had declared riichi with their last discard, the west wind (a second riichi and the 7 characters no longer safe): your west wind 70.8%, the 7 characters <0.1%.',
-    'Not moved by the score (±16,000) or the round.',
-  ]);
+  assert.deepEqual([...saidLines(why), ...saidLines(search.said)], [WHY_SAID, ...SEARCH_SAID]);
 });
 
 test('a search shuts the review\'s gate while it asks, and opens it however it ends', async () => {
@@ -327,4 +331,154 @@ test('a table where the seat may both add to its pon and declare a quad is read 
   assert.deepEqual(answer.moves, review);
   assert.deepEqual(review.filter(move => /kan$/.test(move.kind)).map(move => [move.kind, move.tile, move.weight > 0.99]),
     [['concealed-kan', '1s', true], ['extended-kan', '9m', false]]);
+});
+
+/** The review check's game as its review holds it once Trained AI has
+ * answered the recorded decisions named (reviewedDecision), every other
+ * decision of the game not reviewed yet. `read` counts how often its saved
+ * commands are read, which a hand's tables are replayed from. */
+function reviewOf(asked = [entry]) {
+  const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot).map(hand => ({ ...hand, decisions: hand.frames.map(() => null) }));
+  for (const question of asked) hands[question.record.hand].decisions[question.record.decision] = reviewedDecision(question);
+  let read = 0;
+  return { review: { hands, snapshot: { ...snapshot, get commands() { read++; return snapshot.commands; } } }, get read() { return read; } };
+}
+/** A recorded decision's key in the review, "hand:step". */
+const keyOf = question => `${question.record.hand}:${question.record.decision}`;
+
+test('the reasoning speaks only of a discard where Trained AI threw another tile', () => {
+  const own = reviewedDecision();
+  assert.equal(reasonedAbout(own), true);
+  for (const [what, decision] of [['not reviewed yet', null], ['agreed', { ...own, advised_tile: own.played_tile }], ['an only move', { ...own, forced: true }],
+    ['a call', { ...own, played_kind: 'pon', played_tile: null }], ['a riichi declared', { ...own, played_kind: 'riichi' }],
+    ['a riichi advised', { ...own, advised_kind: 'riichi', advised_tile: null }]]) assert.equal(reasonedAbout(decision), false, what);
+});
+
+test("a match's reasoning writes a hand's tables once, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
+  const network = recordedNetwork(), { insight: reasoning } = insightOf(network), held = reviewOf(), heard = [];
+  const insight = new MatchInsight(Game, held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
+  // The decision before it in its hand, agreed with, and the one after it,
+  // not reviewed: nothing to say, and no hand replayed to say it.
+  const hand = held.review.hands[entry.record.hand], step = entry.record.decision;
+  hand.decisions[step - 1] = { ...hand.decisions[step], advised_tile: hand.decisions[step].played_tile };
+  assert.deepEqual([insight.at(`${hand.index}:${step - 1}`), insight.at(`${hand.index}:${step + 1}`), held.read], [null, null, 0]);
+  // The search asks first the tables the estimate counts, on the table the
+  // engine writes for the decision; nothing is had yet.
+  const question = questionOf(hand.decisions[step], entry.position);
+  assert.deepEqual(insight.at(keyOf(entry)), { why: null, search: null, tables: tablesFirstAsked(question), offered: true });
+  assert.ok(insight.at(keyOf(entry)).tables >= 36, 'at least the unedited table and the 35 changes the search asks');
+  // Shown, its Why line is worked out, asking Trained AI once, and kept: shown
+  // again and stepped away from, it asks nothing more.
+  insight.explain(keyOf(entry));
+  assert.equal(insight.at(keyOf(entry)).why.state, 'asking');
+  await until(() => insight.at(keyOf(entry)).why.state === 'done', 'the Why line is had');
+  insight.explain(keyOf(entry));
+  insight.leave(keyOf(entry));
+  assert.deepEqual(saidLines(insight.at(keyOf(entry)).why.result), [WHY_SAID]);
+  assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away, asked once');
+  assert.equal(held.read, 1, "the hand's tables are written once");
+  assert.deepEqual(heard, ['asking', 'done'], 'every change is heard');
+});
+
+test('a search shows how far it has got, a step away or Cancel stops it and forgets it, the review waiting only for the pass the worker has, and one had is kept', async () => {
+  const worker = workerOfPasses(), { insight: reasoning, notes, asking } = insightOf(worker), review = anyGate(notes, asking);
+  const insight = new MatchInsight(Game, reviewOf().review, reasoning), key = keyOf(entry);
+  const searching = () => insight.at(key).search;
+  // Pressed, it is under way at once, the unedited table and its 35 changes
+  // planned, and its first pass with the worker.
+  insight.search(key);
+  assert.deepEqual(searching(), { state: 'searching', asked: 0, planned: 36, status: undefined, said: undefined, failure: undefined });
+  await until(() => worker.sent === 1, 'the first pass is with the worker');
+  worker.answer();
+  await until(() => searching().asked === PASS, 'the first pass is answered');
+  await until(() => worker.sent === 2, 'the second pass is with the worker');
+  // A step away forgets it at once. The review waits for the pass the worker
+  // runs to its end anyway, and then goes on; nothing more is asked.
+  insight.leave(key);
+  assert.equal(searching(), null);
+  assert.ok(review() instanceof Promise, 'the review waits for the pass with the worker');
+  worker.answer();
+  await until(() => review() === null, 'the review goes on once that pass is answered');
+  for (let count = 0; count < 20; count++) await turn();
+  assert.equal(worker.sent, 2, 'nothing more is asked');
+  // Cancel does as much.
+  insight.search(key);
+  await until(() => worker.sent === 3, 'the first pass of the search asked again is with the worker');
+  insight.cancel(key);
+  assert.equal(searching(), null);
+  worker.answer();
+  await until(() => review() === null, 'the review goes on');
+  // Asked again and answered to its end, what it found is kept, through a
+  // step away, and Cancel has nothing to stop.
+  insight.search(key);
+  for (const [pass] of SEARCH.entries()) {
+    await until(() => worker.sent === 4 + pass, `pass ${pass + 1} is with the worker`);
+    worker.answer();
+  }
+  await until(() => searching().state === 'done', 'the search is had');
+  insight.leave(key);
+  insight.cancel(key);
+  assert.equal(searching().status, 'searched');
+  assert.deepEqual(saidLines(searching().said), SEARCH_SAID);
+  assert.deepEqual([worker.sent, review()], [3 + SEARCH.length, null]);
+});
+
+test('stopping the reasoning stops every Why line and search under way, and one that failed is said so and asked again', async () => {
+  const later = questions.find(question => question.id === 's3-4');
+  const worker = workerOfPasses({ asked: [entry, later] }), { insight: reasoning, notes, asking } = insightOf(worker);
+  const insight = new MatchInsight(Game, reviewOf([entry, later]).review, reasoning), review = anyGate(notes, asking);
+  insight.explain(keyOf(entry));
+  insight.search(keyOf(later));
+  await until(() => worker.sent === 1, "the Why line's pass is with the worker");
+  insight.stop();
+  assert.deepEqual([insight.at(keyOf(entry)).why, insight.at(keyOf(later)).search], [null, null], 'both forgotten');
+  worker.answer();
+  await until(() => review() === null, 'the review goes on once the pass is answered');
+  assert.equal(worker.sent, 1, 'the search never asked');
+
+  // A worker that fails every request, as one reset fails them.
+  const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
+  const broken = new MatchInsight(Game, reviewOf().review, failing.insight), key = keyOf(entry);
+  broken.explain(key);
+  broken.search(key);
+  await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search.state === 'failed', 'both fail');
+  assert.deepEqual(broken.at(key), { why: { state: 'failed', result: null }, tables: broken.at(key).tables, offered: true,
+    search: { state: 'failed', asked: undefined, planned: undefined, status: undefined, said: undefined, failure: 'The trained opponent did not answer in time' } });
+  broken.explain(key);
+  assert.equal(broken.at(key).why.state, 'asking', 'a failed Why line is asked again as it is shown again');
+  await until(() => broken.at(key).why.state === 'failed', 'and fails again');
+});
+
+test("the search is not offered below the margin floor, nor where the Why line finds that Trained AI does not answer the decision's table as the review recorded", async () => {
+  // East 2 · 2 honba #14 is chosen by a margin of -9.2.
+  const sure = questions.find(question => question.id === 'e2b-14');
+  const network = recordedNetwork({ asked: [entry, sure] }), { insight: reasoning } = insightOf(network), held = reviewOf([entry, sure]);
+  const insight = new MatchInsight(Game, held.review, reasoning);
+  assert.deepEqual([insight.at(keyOf(sure)).tables, insight.at(keyOf(sure)).offered], [0, false]);
+  insight.explain(keyOf(sure));
+  await until(() => insight.at(keyOf(sure)).why.state === 'done', 'its Why line is had all the same');
+  assert.equal(insight.at(keyOf(sure)).why.result.label, 'Why');
+  // East 3 #5 with a weight the review recorded off by a hundredth: the Why
+  // line's probe asks the unedited table first, and Trained AI answers it
+  // otherwise, so no change could be compared.
+  const decision = held.review.hands[entry.record.hand].decisions[entry.record.decision];
+  decision.weighted = decision.weighted.map(choice => (choice.kind === 'discard' && choice.tile === entry.played.tile
+    ? { ...choice, weight: choice.weight + 0.01 } : choice));
+  assert.equal(insight.at(keyOf(entry)).offered, true);
+  insight.explain(keyOf(entry));
+  await until(() => insight.at(keyOf(entry)).why.state === 'done', 'the Why line is had');
+  assert.equal(insight.at(keyOf(entry)).why.result.verdict, 'unlike the review');
+  assert.equal(insight.at(keyOf(entry)).offered, false);
+});
+
+test('a hand that cannot be replayed to write its tables says nothing of its decisions, and asks nothing', () => {
+  const held = reviewOf(), sizes = [];
+  // A saved first move that no table could hold.
+  const { commands } = held.review.snapshot;
+  held.review.snapshot = { ...held.review.snapshot, commands: [{ type: 'choose', kind: 'discard', tile: '9z' }, ...commands.slice(1)] };
+  const insight = new MatchInsight(Game, held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
+  assert.equal(insight.at(keyOf(entry)), null);
+  insight.explain(keyOf(entry));
+  insight.search(keyOf(entry));
+  assert.deepEqual([insight.at(keyOf(entry)), sizes], [null, []]);
 });

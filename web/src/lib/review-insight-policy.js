@@ -37,10 +37,11 @@
  * spell a stopped batch keeps until the worker has answered it, and stops the
  * questions (their `signal`) wherever it stops the review for the next deal:
  * at the next hand, whose Trained opponents ask the same worker, and on
- * leaving Play.
+ * leaving Play. What the review shows of a match's decisions is kept by
+ * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
-import { PASS, explainWhy, movesOf, whatWouldChangeItsMind } from './review-insight.js';
+import { PASS, explainWhy, movesOf, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
@@ -202,4 +203,170 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
     search: (question, { signal, onProgress } = {}) => spelled((spellAsk, size) => whatWouldChangeItsMind({ ...question, facts: review_facts,
       ask: spellAsk, signal, onProgress, size })),
   };
+}
+
+/** Whether version 1 of the reasoning speaks of a reviewed decision: one
+ * where the player threw a tile and Trained AI chose to throw another. A
+ * call, a riichi declared or not, a win, an only move and a decision Trained
+ * AI agreed with have no Why line and no search; nor has a decision not yet
+ * reviewed (null). */
+export function reasonedAbout(decision) {
+  return Boolean(decision) && !decision.forced && decision.played_kind === 'discard' && decision.advised_kind === 'discard'
+    && (decision.played_tile ?? null) !== (decision.advised_tile ?? null);
+}
+
+const failureOf = error => error?.message ?? String(error);
+
+/** The reasoning about one match's reviewed decisions, `reasoning` being
+ * reviewInsight's, kept for the match as its review (MatchReview) is, and
+ * asked a decision at a time, by its key ("hand:step"), as the review shows
+ * it. The page keeps one for the match beside the review (App).
+ *
+ * A hand's tables are written once, from a replay of their own (handTables),
+ * the first time one of its decisions is shown. A decision's Why line is
+ * worked out as the decision is shown (`explain`), and what would change
+ * Trained AI's mind only on the player's word (`search`); each is kept once
+ * it is had, so a decision shown again asks nothing again. Only the decision
+ * on show asks: a step away stops whatever was under way there (`leave`),
+ * Cancel stops a search (`cancel`), and `stop()` stops everything, at the
+ * next deal, whose Trained opponents ask the same worker, and on leaving
+ * Play. Whatever is stopped is forgotten, to be asked afresh if the decision
+ * is shown again, so a result is only ever one asked for its own decision. A
+ * question that failed is said as failed, and asked again on the next
+ * explain or search. `onChange` hears every change. */
+export class MatchInsight {
+  constructor(Game, review, reasoning, { onChange = () => {} } = {}) {
+    this.Game = Game;
+    this.review = review;
+    this.reasoning = reasoning;
+    this.onChange = onChange;
+    // Each hand's tables by its index, null where they could not be
+    // written; how many tables each decision's search asks first; and each
+    // decision's Why line and search, under way or had, by its key.
+    this.tables = new Map();
+    this.counts = new Map();
+    this.whys = new Map();
+    this.searches = new Map();
+  }
+
+  notify() { this.onChange(this); }
+
+  /** A reviewed decision's question (questionOf), or null where version 1
+   * says nothing of it (reasonedAbout) or its hand cannot be replayed to
+   * write its tables, which then says nothing of any of its decisions. */
+  question(key) {
+    const [index, step] = key.split(':').map(Number), hand = this.review.hands[index], decision = hand?.decisions?.[step];
+    if (!reasonedAbout(decision)) return null;
+    if (!this.tables.has(index)) {
+      let tables = null;
+      try { tables = handTables(this.Game, this.review.snapshot, hand); } catch { /* Nothing is said of a hand that cannot be replayed. */ }
+      this.tables.set(index, tables);
+    }
+    const position = this.tables.get(index)?.[step];
+    return position ? questionOf(decision, position) : null;
+  }
+
+  /** What there is to show at a decision, or null where nothing is said of
+   * it (question): its Why line, `{ state, result }`, under way ('asking'),
+   * had ('done', with explainWhy's answer) or failed; its search, under way
+   * ('searching', with how many tables are asked of how many planned), had
+   * ('done', with whatWouldChangeItsMind's `status` and `said`) or failed
+   * (with its `failure`); how many tables the search asks first (`tables`,
+   * tablesFirstAsked), none below the margin floor; and whether the search is
+   * `offered`, as it is wherever it asks something, unless the Why line has
+   * found that Trained AI does not answer the decision's table as the review
+   * recorded, where no change could be compared. */
+  at(key) {
+    const question = this.question(key);
+    if (!question) return null;
+    if (!this.counts.has(key)) {
+      // The page reads this as it draws the review, which a throw would
+      // take down with it: a table whose changes cannot be counted is one
+      // the search is not offered at.
+      let tables = 0;
+      try { tables = tablesFirstAsked(question); } catch { /* Not offered. */ }
+      this.counts.set(key, tables);
+    }
+    const why = this.whys.get(key) ?? null, search = this.searches.get(key) ?? null, tables = this.counts.get(key);
+    return {
+      why: why && { state: why.state, result: why.result ?? null },
+      search: search && { state: search.state, asked: search.asked, planned: search.planned, status: search.status, said: search.said, failure: search.failure },
+      tables, offered: tables > 0 && why?.result?.verdict !== 'unlike the review',
+    };
+  }
+
+  /** Works out a decision's Why line, unless it is had or under way. */
+  explain(key) {
+    if (['asking', 'done'].includes(this.whys.get(key)?.state)) return;
+    const question = this.question(key);
+    if (!question) return;
+    const entry = { state: 'asking', stop: new AbortController() };
+    this.whys.set(key, entry);
+    this.reasoning.why(question, { signal: entry.stop.signal }).then(result => {
+      if (this.whys.get(key) !== entry) return;
+      this.whys.set(key, { state: 'done', result });
+      this.notify();
+    }, error => {
+      if (this.whys.get(key) !== entry) return;
+      if (error?.name === 'AbortError') this.whys.delete(key);
+      else this.whys.set(key, { state: 'failed', failure: failureOf(error) });
+      this.notify();
+    });
+    this.notify();
+  }
+
+  /** Searches for what would change Trained AI's mind at a decision, unless
+   * a search is under way there. One had already is asked afresh only by a
+   * page that asks again; the panel offers it no button. */
+  search(key) {
+    if (this.searches.get(key)?.state === 'searching') return;
+    const question = this.question(key);
+    if (!question) return;
+    const entry = { state: 'searching', asked: 0, planned: 0, stop: new AbortController() };
+    this.searches.set(key, entry);
+    const onProgress = ({ asked, planned }) => {
+      if (this.searches.get(key) !== entry) return;
+      Object.assign(entry, { asked, planned });
+      this.notify();
+    };
+    this.reasoning.search(question, { signal: entry.stop.signal, onProgress }).then(found => {
+      if (this.searches.get(key) !== entry) return;
+      this.searches.set(key, { state: 'done', status: found.status, said: found.said });
+      this.notify();
+    }, error => {
+      if (this.searches.get(key) !== entry) return;
+      if (error?.name === 'AbortError') this.searches.delete(key);
+      else this.searches.set(key, { state: 'failed', failure: failureOf(error) });
+      this.notify();
+    });
+    this.notify();
+  }
+
+  /** Stops the search under way at a decision, as Cancel does: it is
+   * forgotten, and the review goes on once the worker has answered any pass
+   * it sent (reviewInsight). */
+  cancel(key) {
+    const entry = this.searches.get(key);
+    if (entry?.state !== 'searching') return;
+    this.searches.delete(key);
+    entry.stop.abort();
+    this.notify();
+  }
+
+  /** Stops whatever is under way at a decision no longer on show: its search
+   * and its Why line, both forgotten. What was had there is kept. */
+  leave(key) {
+    const why = this.whys.get(key);
+    if (why?.state === 'asking') {
+      this.whys.delete(key);
+      why.stop.abort();
+      this.notify();
+    }
+    this.cancel(key);
+  }
+
+  /** Stops whatever is under way at every decision. */
+  stop() {
+    for (const key of new Set([...this.whys.keys(), ...this.searches.keys()])) this.leave(key);
+  }
 }
