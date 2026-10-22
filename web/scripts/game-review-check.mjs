@@ -2024,15 +2024,18 @@ try {
       await stepTo(page, verdict.key);
       await insightSettled(page);
       const shown = await insightAt(page);
-      if (shown.why !== null) assert.match(shown.why, /^(Why|Partly|Not explained|Not checked): \S/, shown.why);
+      // What the panel shows, beside the check's own reading of Trained AI's
+      // answer, said by an assertion that fails here.
+      const seen = `${verdict.key}, margin ${marginOf(verdict).toFixed(2)}: ${JSON.stringify(shown)}`;
+      if (shown.why !== null) assert.match(shown.why, /^(Why|Partly|Not explained|Not checked): \S/, seen);
       if (marginOf(verdict) < MARGIN_FLOOR || shown.verdict === 'unlike the review') {
-        assert.equal(shown.button, null, `no button at ${verdict.key}, where nothing small would move Trained AI or nothing could be compared`);
+        assert.equal(shown.button, null, `no button where nothing small would move Trained AI or nothing could be compared, at ${seen}`);
         continue;
       }
       // The review has timed its positions, so the button says about how
       // long: from the tables the search asks first to the most it may ask,
       // at the review's own speed.
-      assert.match(shown.button ?? '', /^What would change its mind\? · about \d+(–\d+)? (s|min)$/, `the button at ${verdict.key}`);
+      assert.match(shown.button ?? '', /^What would change its mind\? · about \d+(–\d+)? (s|min)$/, `the button at ${seen}`);
       searched++;
       await page.focus('[data-decision] [data-insight-search]');
       await page.keyboard.down('Enter');
