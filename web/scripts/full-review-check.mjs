@@ -874,11 +874,20 @@ try{
    await p.waitForSelector('.review .summary');
   };
   // Every decision of the hand, pressed by pointer, and each row as it is
-  // edged: whether it is marked agreed, and the colour of its edge.
+  // edged: whether it is marked agreed, and the colour of its edge. The edges
+  // are read two frames after the rows change. Under reduced motion every
+  // change of colour is a transition of a hundredth of a millisecond
+  // (app.css), and a style read in the frame of the change still has the
+  // colour from before it: the edge a row the list kept had for the decision
+  // it held before, or the edge the answers kept back.
+  const edgesOf=async p=>{
+   await settle(p);
+   return p.$$eval('.review li',els=>els.map(el=>({agreed:el.classList.contains('agreed'),edge:getComputedStyle(el).borderLeftColor})));
+  };
   const every=async(p,count)=>{
    await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).click());
    await p.waitForFunction(count=>document.querySelectorAll('.review li').length===count,{},count);
-   return p.$$eval('.review li',els=>els.map(el=>({agreed:el.classList.contains('agreed'),edge:getComputedStyle(el).borderLeftColor})));
+   return edgesOf(p);
   };
   // The same hand's notes without the setting: what Show answers must bring.
   let p=await open(wins[0],{reduced:true});await notesOpened(p);
@@ -920,8 +929,7 @@ try{
   assert.ok((await rows(p)).every(text=>!text.includes('instead of')),'no advised move under Every decision');
   await p.$eval('.review [data-show-answers]',button=>button.click());
   await p.waitForFunction(()=>document.querySelector('.review [data-show-answers]')?.textContent.trim()==='Hide answers');
-  assert.deepEqual(await p.$$eval('.review li',els=>els.map(el=>({agreed:el.classList.contains('agreed'),edge:getComputedStyle(el).borderLeftColor}))),edges,
-   'shown, each decision is edged as without the setting');
+  assert.deepEqual(await edgesOf(p),edges,'shown, each decision is edged as without the setting');
   noErrors(p);
  });
  // The warning that this browser cannot safely keep the match arrives as the
