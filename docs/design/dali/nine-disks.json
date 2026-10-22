@@ -1,0 +1,70 @@
+{
+  "tile": "9p",
+  "name": "Pin9",
+  "status": "approved",
+  "direction": "The Peacock of Small Universes — C",
+  "selectedOption": "C (right), the peacock with nine circular tail windows",
+  "source": "docs/design/dali/studies/nine-disks-c-peacock-approved.svg",
+  "runtime": "web/public/tiles/dali/approved/Pin9.svg",
+  "originalFilename": "nine_disks_a_surreal_concept_board.png",
+  "originalSha256": "77544c267c50835624b6393bba298734a1f2b78043292839051eba0f49562406",
+  "originalBytes": 2713571,
+  "originalDimensions": [
+    1448,
+    1086
+  ],
+  "originalCrop": {
+    "x": 973,
+    "y": 116,
+    "width": 462,
+    "height": 847
+  },
+  "cropFilename": "peacock-C-full-panel.png",
+  "cropSha256": "dcdde04eefbea72173ac4a00ba7ccd0bfe8fdfcabfe3a19ade93337162baa45b",
+  "originalStoredInRepository": false,
+  "originalLocation": "Untouched board and lossless C panel preserved in dali-nine-disks-C-originals.zip supplied in chat. Repository retains the full-dimension compressed panel, including the reflection.",
+  "rasterSource": "docs/design/dali/studies/nine-disks-c-peacock-hires.avif",
+  "rasterDimensions": [
+    462,
+    847
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 40634,
+  "rasterSha256": "4e0cc2a4398d4132936dd9d8371c4114403a8c2ee7ae343e1f7fbcd5479aec33",
+  "encoding": {
+    "encoder": "Pillow 12.3.0 AVIF",
+    "quality": 50,
+    "speed": 6,
+    "lossless": false
+  },
+  "fit": {
+    "painting": [
+      462,
+      847
+    ],
+    "stretch": 0,
+    "anchor": 0.09090909090909091,
+    "bleedPixels": 0
+  },
+  "visiblePanelRegion": {
+    "x": 0,
+    "y": 21,
+    "width": 462,
+    "height": 616
+  },
+  "processing": "Extract the complete artwork-only right panel at (973,116), 462 x 847, removing board labels, gutter and frame. Encode AVIF at those original crop dimensions without resizing, repainting or recolouring. The existing face-fit helper shows a 3:4 window with zero stretch and zero bleed, retaining all nine tail disks and the bird; most of the reflected bird is outside the playable crop but preserved in the source. Image placement rounds to hundredths of a layout unit.",
+  "approval": "Carl selected the peacock after reviewing three Dali nine-disks concepts and explicitly requested GitHub deployment. The carpet and orchard alternatives are not selected.",
+  "countedObjects": {
+    "count": 9,
+    "arrangement": [
+      1,
+      2,
+      2,
+      2,
+      2
+    ],
+    "subject": "circular landscape windows in the peacock tail"
+  },
+  "sourceSha256": "540a965b379aca2f7d3c2f423fac12bc0ae211f8b547629565f1422f19a47b4f",
+  "svgSha256": "2914a76cc773285991932322efb90ef0003a2d4617d91e72fe436a63558a002d"
+}

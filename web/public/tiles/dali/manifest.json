@@ -151,6 +151,38 @@
       }
     },
     {
+      "name": "Pin9",
+      "tile": "9p",
+      "label": "9 disks",
+      "direction": "The Peacock of Small Universes — C",
+      "status": "approved",
+      "svg": "approved/Pin9.svg",
+      "source": "docs/design/dali/studies/nine-disks-c-peacock-approved.svg",
+      "sourceSha256": "540a965b379aca2f7d3c2f423fac12bc0ae211f8b547629565f1422f19a47b4f",
+      "svgSha256": "2914a76cc773285991932322efb90ef0003a2d4617d91e72fe436a63558a002d",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 462,
+        "height": 847
+      },
+      "fit": {
+        "painting": {
+          "width": 462,
+          "height": 847
+        },
+        "stretch": 0,
+        "anchor": 0.09090909090909091,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -13.64,
+          "width": 300,
+          "height": 550
+        }
+      }
+    },
+    {
       "name": "Sou1",
       "tile": "1s",
       "label": "1 bamboo",
@@ -321,6 +353,38 @@
       }
     },
     {
+      "name": "Man1",
+      "tile": "1m",
+      "label": "1 character",
+      "direction": "The Aqueduct That Flows Upward — A",
+      "status": "approved",
+      "svg": "approved/Man1.svg",
+      "source": "docs/design/dali/studies/one-character-a-aqueduct-approved.svg",
+      "sourceSha256": "a33eb1b7f79fe603f59d363b93650428f1b10b0ff159bbbabdf89367261c03a3",
+      "svgSha256": "be55c915b9e280937e947967f3047ea3acca5de76a2832c48044a6a1a47c0f34",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 454,
+        "height": 804
+      },
+      "fit": {
+        "painting": {
+          "width": 454,
+          "height": 804
+        },
+        "stretch": 0.02,
+        "anchor": 0.6666666666666666,
+        "bleedPixels": 0,
+        "image": {
+          "x": 0,
+          "y": -80.57,
+          "width": 300,
+          "height": 520.86
+        }
+      }
+    },
+    {
       "name": "Man5",
       "tile": "5m",
       "label": "5 characters",
@@ -462,6 +526,23 @@
       }
     },
     {
+      "name": "Hatsu",
+      "tile": "6z",
+      "label": "Green dragon",
+      "direction": "The River That Escaped — Green B",
+      "status": "approved",
+      "svg": "approved/Hatsu.svg",
+      "source": "docs/design/dali/studies/green-dragon-b-river-approved.svg",
+      "sourceSha256": "d25dd23f919dff9f8fc700c4c45527f31d944a858c8c2479bebd9a7684500205",
+      "svgSha256": "d25dd23f919dff9f8fc700c4c45527f31d944a858c8c2479bebd9a7684500205",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 606,
+        "height": 808
+      }
+    },
+    {
       "name": "Chun",
       "tile": "7z",
       "label": "Red dragon",
@@ -496,9 +577,6 @@
   ],
   "placeholders": [
     {
-      "tile": "1m"
-    },
-    {
       "tile": "2m"
     },
     {
@@ -508,16 +586,10 @@
       "tile": "4m"
     },
     {
-      "tile": "9p"
-    },
-    {
       "tile": "2z"
     },
     {
       "tile": "3z"
-    },
-    {
-      "tile": "6z"
     }
   ]
 }

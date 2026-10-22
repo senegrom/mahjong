@@ -6,7 +6,7 @@ import { trainedName } from './trained-network.js';
 export const AGENTS = Object.freeze({ beginner: 'Beginner', club: 'Club', full: 'Trained' });
 export const isTrained = agent => agent === 'full';
 /** An agent as a mode names it where it is picked, followed or advises:
- * "Club", or "Trained 0.1.1110" with the version of the network this page plays. */
+ * "Club", or "Trained 0.1.1410" with the version of the network this page plays. */
 export const agentName = agent => isTrained(agent) ? trainedName() : AGENTS[agent];
 
 export async function evaluateAgent(engine, agent, signal) {

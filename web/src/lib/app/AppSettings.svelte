@@ -10,10 +10,13 @@
   // App owns persistence and match lifecycle; only panel/focus state is local.
   // network is the version of the trained network the page plays; App reloads
   // the page to play another (onnetworkchange), or answers false to keep it.
+  // reviewHideMove and reviewHideTiles are the review's two settings, which
+  // the review of the game offers in its header too (GameReview).
   let {
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
-    shortcuts = $bindable(true), tileFace, pendingTileFace = null,
+    shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
+    tileFace, pendingTileFace = null,
     network = playedNetwork().version, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
@@ -130,6 +133,10 @@
     <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>
+    <!-- After the others, so that the checks that find a checkbox by its
+         place find the same ones. -->
+    <label><input type="checkbox" bind:checked={reviewHideMove} data-hide-move /> Hide Trained AI's move in reviews</label>
+    <label><input type="checkbox" bind:checked={reviewHideTiles} data-hide-tiles /> Hide other players' tiles in reviews</label>
     <p>With confirmation on, tap a tile to select it, then tap it again or press Discard. Your match and preferences are saved on this device.</p>
   </div>
 </details>
@@ -206,8 +213,8 @@
 
       <dt><span class="swatch marker"></span> a blue ring</dt>
       <dd>
-        The tile under the keyboard marker. It appears when you press an
-        arrow key and goes when you throw.
+        The tile under the keyboard marker. In Agent watch and Guided play,
+        the agent's choice; in a review, Trained AI's.
       </dd>
 
       <dt><span class="swatch striped"></span> stripes</dt>
@@ -230,12 +237,17 @@
         You may not win on a discard: a wait is in your own discards, or you have passed a winning discard. You may still win on your own draw.
       </dd>
 
+      <dt>Trained AI's percentages</dt>
+      <dd>How strongly it prefers each move, not a chance of winning.</dd>
+
       <dt>Keys</dt>
       <dd>
         Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows
         move it along your hand, and Enter throws the marked tile. The
         numbers 1 to 9 throw a tile directly and 0 throws the one you just
-        drew. Press r to focus the riichi choices and t to win on your own draw. Shortcuts never run while you are using another control and can be turned off in Options.
+        drew. Press r to focus the riichi choices and t to win on your own draw. These never run while you are using another control.
+        In a review, ← and → step, Shift+← and Shift+→ change hand, s shows the answer, 1 to 9 and 0 pick a tile while it is hidden,
+        and Esc goes back, from any control but a form field. Shortcuts can be turned off in Options.
       </dd>
 
       <dt>Rules</dt>
@@ -328,7 +340,7 @@
     }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
-    /* Wide enough to show the Trained network with its version, "Trained 0.1.1110", whole: a select cuts its
+    /* Wide enough to show the Trained network with its version, "Trained 0.1.1410", whole: a select cuts its
        text off where its right padding, which holds the chevron, begins. Those sixteen characters take about
        13.5 digit widths (ch) in the fonts phones and desktops draw them in; 44px is the padding and border. */
     .opponents select { min-height: 44px; width: calc(14ch + 44px); max-width: calc(14ch + 44px); padding: 5px 30px 5px 12px; font-size: .82rem; }

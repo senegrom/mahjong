@@ -51,13 +51,16 @@ identity only inside its first real save, so missing storage, Web Locks or
 not cloud sync or an offline-installation feature. Clearing website data removes
 the saved match. A future change to engine rules may require a save migration.
 
-Preferences (opponent strength, hints, discard confirmation and shortcuts) are
-stored separately. A first visit starts with Trained opponents and the Trained
-AI review adviser. Saved preferences are read as they stand, so a player whose
-record holds Club keeps Club; only a preference the record lacks takes the
-default. Cancelling an opponent change leaves both the displayed
-selection and active game unchanged. New game requests confirmation whenever
-an unfinished match has progress, including between hands.
+Preferences (opponent strength, hints, discard confirmation, shortcuts, and the
+game review's filter and its two hiding settings) are stored separately. A
+first visit starts with Trained opponents and the Trained AI review adviser,
+the review's flagged decisions and nothing hidden. Saved preferences are read
+as they stand, so a player whose record holds Club keeps Club; only a
+preference the record lacks takes the default. What the player revealed in a
+review is kept for the match only, never saved. Cancelling an opponent change
+leaves both the displayed selection and active game unchanged. New game
+requests confirmation whenever an unfinished match has progress, including
+between hands.
 
 ## Input and presentation
 
@@ -75,13 +78,33 @@ an unfinished match has progress, including between hands.
 - The safe count counts held copies and is explicitly qualified as safety
   against declared riichi, not a guarantee against undeclared hands. Tile names
   expose selected, drawn, safe and dora states to assistive technology.
-- A list the player opens or folds stays that way. The whole-game review's
-  lists keep whether they are open in their own component (`bind:open`),
-  never in an `open` set from other state: Svelte sets such an attribute
-  again whenever anything drawn beside it changes, which folded a replayed
-  hand's list of decisions under the player's press, at every step and as
-  later hands were reviewed, and dropped keyboard focus on a step's button
-  in it to the page.
+- A list the player opens or folds stays that way. The game's review keeps
+  whether its lists are open in its own components (`bind:open`), never in an
+  `open` set from other state: Svelte sets such an attribute again whenever
+  anything drawn beside it changes, which folded a replayed hand's list of
+  decisions under the player's press, at every step and as later hands were
+  reviewed, and dropped keyboard focus on a step's button in it to the page.
+  So the list of hands and decisions, folded above the decision on a narrow
+  screen, the trend at its top and the trend's table of games, a decision's
+  events since the previous decision and its table of what each move leaves,
+  which start folded and are taken from the page by a step that has none, all
+  stay as the player leaves them across steps, hands and the hands reviewed
+  meanwhile.
+- The review's list keeps the line of the decision on show in view by setting
+  the scroll of its own box, the column it is on a wide screen or its box of
+  hands where it is folded, never by `scrollIntoView`, which would move the
+  page under the player too. A step and the list opening bring the line into
+  the part of the box the player can see, below the bars stuck over a folded
+  list, which the line's `scroll-margin-top` measures; the toggle that opens a
+  folded list arrives after the browser has opened it, so the list goes by
+  whether it was on the screen before rather than by its box. Where hands
+  reviewed meanwhile or another filter draw the list again, the list keeps
+  still what the player is looking at, as scroll anchoring would: the control
+  in the box that has focus, else the line on show, else the first line in
+  view. Keeping the line on show still whatever the player looked at moved
+  everything they read above it by the lines arriving in between. Safari has
+  no scroll anchoring, so the boxes turn Chromium's off
+  (`overflow-anchor: none`) and behave alike in every browser.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:
@@ -110,11 +133,10 @@ an unfinished match has progress, including between hands.
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more;
-  - the lines that say what a filter of the player's decisions shows, under
-    the whole-game review's list and in a replayed hand's list of decisions,
-    which come into the page with their buttons, speak only when one is
-    pressed, and go quiet again when focus leaves the buttons or the counts
-    they gave change.
+  - the line that says which decisions the game's review now steps through,
+    under the filter at the top of its list, which comes into the page with
+    the filter's buttons, speaks only when one is pressed, and goes quiet
+    again when focus leaves the buttons or the counts it gave change.
 
   Two lines still do not speak where the player pressed. The trained network
   picker's refusal, on the notice line, lies behind the settings' dialog on a
@@ -125,11 +147,12 @@ an unfinished match has progress, including between hands.
 
   Other status lines still come into the page with their words: the line that
   says the game is loading, the settings' line that new tile graphics are
-  loading, a yaku's explanation on a hand's result, the whole-game review's
-  headline (with the review, and again on Back to the list), the decision
-  replay's "Decision N of M" and its line that says the table at each
-  step, and the status lines of Agent watch (its file note among them), the
-  guided physical game and physical agent play.
+  loading, a yaku's explanation on a hand's result, the game review's
+  headline and its step bar's line, which says the step, the table and both
+  moves in one line as the step changes, or that Trained AI's move is hidden,
+  and again as the player reveals it, both with the review, and the status
+  lines of Agent watch (its file note among them), the guided physical game
+  and physical agent play.
 
 ## Verification
 

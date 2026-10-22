@@ -40,7 +40,7 @@ export const playedNetwork = () => playing;
  * build's page will, so a waiting update saves the network its page plays. */
 export const pickedVersion = () => picked;
 
-/** How the page names the network it plays: "Trained 0.1.1110". */
+/** How the page names the network it plays: "Trained 0.1.1410". */
 export const trainedName = (name = 'Trained') => `${name} ${playing.version}`;
 
 // The placement bonus, best place to worst: the winner bonus of the rules,
@@ -64,13 +64,15 @@ export function valueWords(network = playing) {
   if (kind === 'placement') {
     // The scoreboard's promise is the bonus its trainer expected from the
     // scores, the hand of the game, the dealer, the counters, the sticks on
-    // the table and who holds each seat (neural/place_model.py). With alpha
-    // above nought the hand's points count beside it.
-    const points = alpha > 0 ? `, plus ${alpha} × its hand's point change ÷ 4,000` : '';
+    // the table and who holds each seat (neural/place_model.py), and after
+    // the game's last hand the bonus itself. With alpha above nought the
+    // hand's points are paid beside it at that weight: at 0.05 a place is
+    // worth 80,000 of them.
+    const points = alpha > 0 ? ` plus ${alpha} × point change ÷ 4,000` : '';
     return {
       label: 'Estimated placement reward',
-      title: 'Estimated placement bonus, not a win probability',
-      help: `${name} was last trained on ${points ? 'placement and points' : 'placement alone'}: each decision earns the placement bonus (${BONUS}) the scoreboard promises when its hand ends, or after the game's last hand the bonus itself${points}.${points ? '' : ' Points count only through the places they win.'} This is the network's estimate, not a win probability.`,
+      title: `Estimated placement bonus${points}, not a win probability`,
+      help: `${name} was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, ${points ? `plus ${alpha} × the hand's point change ÷ 4,000` : 'points counting only through the places they win'}. An estimate, not a win probability.`,
     };
   }
   return {
