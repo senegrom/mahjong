@@ -1,0 +1,32 @@
+name: Prepare Dalí removal PR
+on:
+  push:
+    branches: [maintenance/remove-dali-prepare-20261023]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Inspect shared references and instructions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          for name in paths:
+              if not name or name == '.github/workflows/prepare-remove-dali.yml': continue
+              p = Path(name)
+              if p.name == 'AGENTS.md':
+                  print('INSTRUCTIONS', name, p.read_text())
+              if name.startswith(('docs/design/dali/', 'web/public/tiles/dali/', 'web/tests/dali-')) or name in ('web/scripts/export-dali-tiles.mjs','web/src/lib/dali-faces.js'): continue
+              try: lines = p.read_text().splitlines()
+              except (UnicodeDecodeError, OSError): continue
+              for n, line in enumerate(lines):
+                  if re.search(r'\bdal[ií]\b|DALI_', line, re.I):
+                      print(f'{name}:{n+1}: {line[:1000]}')
+          print('PACKAGE', Path('web/package.json').read_text())
+          print('CI', Path('.github/workflows/ci.yml').read_text())
+          PY
