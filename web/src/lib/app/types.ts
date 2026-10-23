@@ -1,6 +1,6 @@
 /** Presentation contracts. App owns mutation, persistence and engine lifetime. */
 export type GameMode = 'play' | 'watch' | 'physical' | 'guided';
-export type TileFace = 'classic' | 'matisse' | 'dali' | 'van-gogh';
+export type TileFace = 'classic' | 'matisse' | 'van-gogh';
 export type Opponent = 'beginner' | 'club' | 'neural';
 export type Difficulty = Opponent | 'custom';
 export type SeatName = 'east' | 'south' | 'west' | 'north';

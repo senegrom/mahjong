@@ -10,7 +10,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 
@@ -21,7 +20,19 @@ const evidence = resolve(web, 'test-results');
 const { check, report } = browserChecks();
 // Every tile an artist's set writes out, and every size the app draws a
 // row, an indicator or a hand at, as a tile width and a size.
-const writtenTiles = [DALI_APPROVED, VAN_GOGH_APPROVED].flatMap(painted => TILE_TYPES.filter(tile => !painted.includes(tile)));
+// Supply missing-art cases only in this fixture, now that shipped sets are complete.
+const FIXTURE_APPROVED = VAN_GOGH_APPROVED.filter(tile => !['2m', '2z', '5z'].includes(tile));
+const writtenTiles = TILE_TYPES.filter(tile => !FIXTURE_APPROVED.includes(tile));
+const unpaintedFixture = {
+  name: 'unpainted-tile-fixture',
+  enforce: 'pre',
+  transform(code, id) {
+    if (id === resolve(web, 'src/lib/van-gogh-faces.js')) {
+      assert.match(code, /export const VAN_GOGH_APPROVED/);
+      return { code: 'export const VAN_GOGH_APPROVED = Object.freeze(' + JSON.stringify(FIXTURE_APPROVED) + ');', map: null };
+    }
+  },
+};
 const writtenSizes = [23, 28, 36, 42, 46, 52, 54, 60].flatMap(width => [[width, 'tiny'], [width, 'small']]).concat([42, 46, 52, 54, 60].map(width => [width, 'normal']));
 let browser, server;
 try {
@@ -36,17 +47,16 @@ import Painted from './Painted.svelte';
 import Tile from '../src/lib/Tile.svelte';
 import { setContext } from 'svelte';
 import { TILE_FACE_CONTEXT } from '../src/lib/tile-faces.js';
-import { DALI_APPROVED } from '../src/lib/dali-faces.js';
 import { MATISSE_APPROVED } from '../src/lib/matisse-faces.js';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { TILE_TYPES } from '../src/lib/tiles.js';
 let face = $state('classic');
 setContext(TILE_FACE_CONTEXT, () => face);
-// Tiles Dalí has not painted yet, whichever they are when this runs, at the
+// Artificially unpainted faces in this temporary fixture, shown at the
 // sizes that show both words, a number over its suit's letter, and an
 // honour's letters, upright and turned; an honour at the inspection's 37px
 // too, which once showed only its first word, small.
-const unpainted = TILE_TYPES.filter(tile => !DALI_APPROVED.includes(tile));
+const unpainted = TILE_TYPES.filter(tile => !VAN_GOGH_APPROVED.includes(tile));
 const suited = unpainted.find(tile => tile[1] !== 'z'), honour = unpainted.find(tile => tile[1] === 'z');
 const named = [
   ['named', {tile:suited}], ['named-turned', {tile:honour,rotated:true,dora:true,size:'small'}],
@@ -75,8 +85,8 @@ const turned = nudged.filter(({rotated}) => rotated);
 // The greenest paintings of each artist's set, whose own edges are nearly the
 // border's green, claimed at the sizes of the table's rows and a phone's,
 // upright and turned for riichi.
-const approved = {matisse:MATISSE_APPROVED, dali:DALI_APPROVED, 'van-gogh':VAN_GOGH_APPROVED};
-const greens = [['matisse',['4s','6s','8s']],['dali',['2s','4s','8s']],['van-gogh',['2s','3s','4s','5s','6s']]]
+const approved = {matisse:MATISSE_APPROVED, 'van-gogh':VAN_GOGH_APPROVED};
+const greens = [['matisse',['4s','6s','8s']],['van-gogh',['2s','3s','4s','5s','6s']]]
   .flatMap(([set,tiles]) => tiles.filter(tile => approved[set].includes(tile)).map(tile => ({set,tile})));
 const greenSizes = [[54,'tiny'],[46,'small'],[28,'tiny'],[23,'tiny']];
 // Shown only for their own check, so their pictures add nothing to the
@@ -84,7 +94,7 @@ const greenSizes = [[54,'tiny'],[46,'small'],[28,'tiny'],[23,'tiny']];
 let greensShown = $state(false);
 // Every tile an artist's set writes out, claimed and not, upright and turned,
 // at every size the app draws a row, an indicator or a hand at.
-const written = ['dali','van-gogh'].flatMap(set => TILE_TYPES.filter(tile => !approved[set].includes(tile)).map(tile => ({set,tile})));
+const written = ['van-gogh'].flatMap(set => TILE_TYPES.filter(tile => !approved[set].includes(tile)).map(tile => ({set,tile})));
 const writtenSizes = ${JSON.stringify(writtenSizes)};
 let writtenShown = $state(false);
 </script>
@@ -96,15 +106,15 @@ let writtenShown = $state(false);
 <button id="identity" onclick={()=>tile=tile==='5z'?'1m':'5z'}>Change tile</button>
 <button id="mark" onclick={()=>marked=!marked}>Toggle dora / hints</button><output>{clicks}</output>
 <button id="faces" onclick={()=>face=face==='classic'?'matisse':'classic'}>Change tile face</button>
-<button id="unpainted" onclick={()=>face='dali'}>Show a set still being painted</button>
+<button id="unpainted" onclick={()=>face='van-gogh'}>Show a set still being painted</button>
 <div class="samples">{#each named as [id, props]}<section id={id}><p>{id}</p><Tile {...props}/></section>{/each}{#each phones as [id, tile]}<section id={id} style="--tile-width:28px"><p>{id}</p><Tile {tile} size="tiny" claimed/></section>{/each}</div>
-<div class="samples" id="lit">{#each [['lit-turned','matisse','2p',true],['turned-unlit','matisse','2p',false],['lit-turned-named','dali',suited,true],['turned-unlit-named','dali',suited,false]].filter(([, , tile]) => tile) as [id,set,tile,inShape]}<section id={id}><p>{id}</p><Painted face={set}><Tile {tile} rotated {inShape}/></Painted></section>{/each}</div>
+<div class="samples" id="lit">{#each [['lit-turned','matisse','2p',true],['turned-unlit','matisse','2p',false],['lit-turned-named','van-gogh',suited,true],['turned-unlit-named','van-gogh',suited,false]].filter(([, , tile]) => tile) as [id,set,tile,inShape]}<section id={id}><p>{id}</p><Painted face={set}><Tile {tile} rotated {inShape}/></Painted></section>{/each}</div>
 <button id="greens-shown" onclick={()=>greensShown=!greensShown}>Show the green paintings, claimed</button>
 {#if greensShown}<div class="samples" id="greens">{#each greens as {set,tile}}<Painted face={set}>{#each greenSizes as [width,size]}{#each [false,true] as rotated}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} claimed/></span>{/each}{/each}</Painted>{/each}</div>{/if}
 <button id="written-shown" onclick={()=>writtenShown=!writtenShown}>Show every written tile, claimed and not</button>
 {#if writtenShown}<div class="samples" id="written">{#each written as {set,tile}}<Painted face={set}>{#each writtenSizes as [width,size]}{#each [false,true] as rotated}{#each [true,false] as claimed}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} {claimed}/></span>{/each}{/each}{/each}</Painted>{/each}</div>{/if}
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} #written{gap:4px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
-  await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
+  await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[unpaintedFixture,svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
   server = createServer(createFixtureHandler({root:out,publicRoot:resolve(web,'public')}));
   await new Promise(done=>server.listen(0,'127.0.0.1',done));
   browser = await launchChrome();
@@ -376,7 +386,7 @@ let writtenShown = $state(false);
         picture:picture&&box(picture),turn:picture&&getComputedStyle(picture).transform,name:name&&box(name)};
     });
     const same=(actual,expected,label)=>actual.forEach((value,n)=>assert.ok(Math.abs(value-expected[n])<0.01,`${label}: ${actual} against ${expected}`));
-    const pairs=[['lit-turned','turned-unlit'],['lit-turned-named','turned-unlit-named']].filter(([id])=>id==='lit-turned'||DALI_APPROVED.length<TILE_TYPES.length);
+    const pairs=[['lit-turned','turned-unlit'],['lit-turned-named','turned-unlit-named']].filter(([id])=>id==='lit-turned'||FIXTURE_APPROVED.length<TILE_TYPES.length);
     for(const [litId,unlitId] of pairs) {
       const [lit,unlit]=[await shape(litId),await shape(unlitId)];
       assert.ok(lit.classes.includes('in-shape')&&lit.classes.includes('rotated'),`${litId}: ${lit.classes}`);
@@ -488,8 +498,8 @@ let writtenShown = $state(false);
       const [lead,rest]=tileWords(tile).split(' '), short=tileShorthand(tile);
       return width>40?[lead,rest]:tile[1]!=='z'?[lead,short.slice(lead.length)]:[short];
     };
-    const unpainted=(await page.$$eval('.samples section .tile[data-tile]',tiles=>tiles.map(tile=>tile.dataset.tile))).filter(tile=>!DALI_APPROVED.includes(tile));
-    assert.ok(unpainted.length,'the fixture shows tiles Dalí has not painted');
+    const unpainted=(await page.$$eval('.samples section .tile[data-tile]',tiles=>tiles.map(tile=>tile.dataset.tile))).filter(tile=>!FIXTURE_APPROVED.includes(tile));
+    assert.ok(unpainted.length,'the fixture shows deliberately unpainted tiles');
     const tiers=new Set();
     for(const id of ['named','named-turned','named-row','named-small','named-suited-turned','named-honour-small','named-honour-turned','named-phone','named-suited-phone']) {
       if(!await page.$(`#${id}`)) continue;
@@ -506,7 +516,7 @@ let writtenShown = $state(false);
       });
       assert.equal(shape.images,0,`${id}: nothing is loaded for a tile without a picture`);
       assert.ok(shape.label.startsWith(tileWords(shape.tile)),`${id}: ${shape.label}`);
-      assert.ok(shape.classes.includes('dali'),`${id}: the set's rounded corners`);
+      assert.ok(shape.classes.includes('van-gogh'),`${id}: the set's rounded corners`);
       const lines=expected(shape.tile,shape.width);
       assert.deepEqual(shape.lines.map(line=>line.text),lines,`${id} at ${shape.width}px`);
       tiers.add(lines.length===2&&lines[1].length===1?'number and letter':lines.length===2?'words':'letters');
@@ -529,7 +539,7 @@ let writtenShown = $state(false);
         else assert.ok(ly>ny&&Math.abs(lx+lw/2-(nx+nw/2))<1,`${id}: the letter stands under its number`);
       }
     }
-    const left=TILE_TYPES.filter(tile=>!DALI_APPROVED.includes(tile));
+    const left=TILE_TYPES.filter(tile=>!FIXTURE_APPROVED.includes(tile));
     const possible=new Set([...(left.some(tile=>tile[1]!=='z')?['number and letter','words']:[]),...(left.some(tile=>tile[1]==='z')?['letters','words']:[])]);
     assert.deepEqual([...tiers].sort(),[...possible].sort(),'the fixture shows every way a tile is written');
     // A turned honour's words still read across.
@@ -546,7 +556,7 @@ let writtenShown = $state(false);
       const still=await page.$eval('#named-turned .foil',foil=>{const style=getComputedStyle(foil);return [style.animationName,style.backgroundPosition];});
       assert.deepEqual(still,['none','100% 0px']);
     }
-    if(!DALI_APPROVED.includes('5z')) {
+    if(!FIXTURE_APPROVED.includes('5z')) {
       // A white dragon written out, not painted, has the shine alone.
       await page.waitForSelector('#dora .face.unpainted');
       for(const id of ['dora','small','tiny','rotated','muted']) {

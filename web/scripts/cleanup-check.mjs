@@ -175,7 +175,10 @@ try {
     await page.select('select[aria-label="opponent strength"]', 'custom');
     await page.waitForSelector('.custom-dialog[open]');
     await page.select('.opponent-fields label:first-child select', 'beginner');
-    await page.click('.custom-actions button:first-child');
+    // The note that Trained is unavailable leaves this dialog when the model
+    // probe answers, which can be mid-click, and moves the buttons up: a
+    // pointer click then lands where Cancel was. A DOM click cannot miss.
+    await page.$eval('.custom-actions button:first-child', button => button.click());
     await page.waitForFunction(() => !document.querySelector('.custom-dialog[open]'));
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', select => select.value), 'club');
     assert.equal(await savedMatch(page), saved);
@@ -185,7 +188,7 @@ try {
     await page.select('.opponent-fields label:first-child select', 'beginner');
     await page.select('.opponent-fields label:last-child select', 'beginner');
     page.on('dialog', dialog => void dialog.accept());
-    await page.click('.custom-actions button:last-child');
+    await page.$eval('.custom-actions button:last-child', button => button.click());
     await page.waitForFunction(() => !document.querySelector('.custom-dialog[open]')
       && document.querySelector('select[aria-label="opponent strength"]').value === 'custom');
     await page.waitForFunction(key => {

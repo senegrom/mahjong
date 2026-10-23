@@ -10,8 +10,9 @@ The 7-by-2 phone hand layout is intentional: it preserves large, reliable touch 
 
 ## Tile faces
 
-Classic and Matisse have a picture for every tile. Dalí and Van Gogh are still
-being painted: a tile the chosen set has no approved artwork for shows its name
+Classic, Matisse and Van Gogh have a picture for every tile. Unavailable saved
+tile-face choices fall back to Classic without resetting other preferences.
+The shared renderer also supports future incomplete sets: a tile without approved artwork shows its name
 in text on the ivory face instead, so it plainly waits for its picture and never
 borrows another set's. In the hand the number stands over its suit, or an
 honour's first word over its second, in the words the tile is announced with.
