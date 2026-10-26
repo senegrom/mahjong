@@ -62,8 +62,10 @@ function stillLoading(current) {
   }, LOADING_SILENCE_MS);
 }
 
-/** The network is in the worker: decisions waiting for it are queued there
- * from now, each timed by its backstop until the worker begins it. */
+/** The worker holds the network and begins its next request now: once it has
+ * loaded the network, and again as it answers each request. Decisions still
+ * waiting are queued there from now, each timed by its backstop until the
+ * worker begins it. */
 function networkLoaded() {
   loaded = true;
   clearTimeout(loading);
@@ -73,11 +75,13 @@ function networkLoaded() {
 /** How long the decision `id` may wait in a worker holding the network and
  * then run, should the worker never say that it has begun it: its own
  * deadline and those of the requests ahead of it, every one still waiting
- * that was sent before it. The worker runs those in turn, and each ends the
- * worker if it runs past its own deadline, so a worker that keeps to them
- * begins this one in time. One that falls silent, as a worker that dies
- * without an error does, is ended here, and every request still waiting
- * fails with it, as when a request runs out of time. */
+ * that was sent before it, counted from when it was sent or the network
+ * loaded, and again from each answer. The worker runs those in turn, and
+ * each ends the worker if it runs past its own deadline, so a worker that
+ * keeps to them begins this one in time. One that falls silent, as a worker
+ * that dies without an error does, is ended here, a deadline after its last
+ * answer, and every request still waiting fails with it, as when a request
+ * runs out of time. */
 function backstop(id) {
   let total = 0;
   for (const [other, request] of waiting) {
@@ -150,9 +154,12 @@ function ensureWorker() {
       return;
     }
     // An answer, from any request, means the network ran: it is loaded
-    // whether or not the worker said so first.
-    if (!loaded) networkLoaded();
+    // whether or not the worker said so first. It also means the worker goes
+    // on to its next request now, so the requests still waiting, none of them
+    // begun yet, are timed from here. This one is settled first, so that it
+    // counts in none of their backstops.
     pending?.resolve(analyses ?? analysis ?? action);
+    networkLoaded();
   };
   current.onerror = (event) => {
     if (worker === current) resetPolicy(new Error(event.message || 'The opponent worker failed'));

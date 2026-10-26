@@ -531,11 +531,13 @@ test('a question that began behind a batch has twenty seconds from when it began
   assert.equal(workers[0].terminated, true, 'its own position ran past its deadline');
 });
 
-test('a request the worker never begins is ended by its backstop, its own deadline and those of the requests ahead of it', async t => {
+test('a request the worker never begins is ended by its backstop, its own deadline from the worker\'s last answer', async t => {
   // The worker answers the batch and dies without a word, as a worker can
   // without an error event: the note behind it is never begun, so nothing
-  // starts its own deadline. It waits the batch's forty seconds and its own
-  // twenty from when it was sent, and no longer.
+  // starts its own deadline. Its backstop, the batch's forty seconds and its
+  // own twenty from when it was sent, is counted again from the batch's
+  // answer, when only its own twenty are left: it fails 39.2 seconds after
+  // it was sent, not sixty.
   const { workers, tick, flush, move, note, batch } = slowClient(t, { begins: 2 });
   const warm = move();
   await flush();
@@ -545,16 +547,53 @@ test('a request the worker never begins is ended by its backstop, its own deadli
   await flush();
   await tick(19200);
   assert.equal((await reviewed).length, 8);
-  await tick(60000 - 19200 - 1);
-  assert.equal(workers[0].terminated, false, 'the requests ahead of it might still have run');
+  await tick(19999);
+  assert.equal(workers[0].terminated, false, 'the worker might still begin it');
   await tick(1);
-  await missed;
   assert.equal(workers[0].terminated, true, 'ended, as a request out of time ends it');
+  await missed;
   const retry = note();
   await flush();
   assert.equal(workers.length, 2, 'the retry loads a fresh worker');
   await tick(2400);
   assert.equal(await retry, 0);
+});
+
+test('the next deal\'s first move, sent while a batch runs, fails its own deadline after the batch\'s answer if the worker then falls silent', async t => {
+  // At 4.8 seconds a position the batch is answered after 38.4 seconds, the
+  // move sent at ten having waited 28.4 of them, and the worker then dies
+  // without a word. The move fails twenty seconds after that answer, not
+  // sixty after it was sent.
+  const { workers, tick, flush, move, batch } = slowClient(t, { positionMs: 4800, begins: 1 });
+  const reviewed = batch();
+  await flush();
+  await tick(10000);
+  const moved = move(), missed = assert.rejects(moved, /did not answer in time/);
+  await flush();
+  await tick(28400);
+  assert.equal((await reviewed).length, 8);
+  await tick(19999);
+  assert.equal(workers[0].terminated, false);
+  await tick(1);
+  assert.equal(workers[0].terminated, true);
+  await missed;
+});
+
+test('a working worker is not cut off while it runs the requests ahead, their deadlines counted again at each answer', async t => {
+  // Two batches that each run all but a millisecond of their forty seconds,
+  // and the hand's note behind both, all sent at once. At the first batch's
+  // answer the note's backstop is the second batch's forty seconds and its
+  // own twenty, counted from there, so the second batch runs to its end.
+  const { workers, tick, flush, note, batch } = slowClient(t, { runMs: request => (request.count ? 39999 : 2400) });
+  const first = batch(), second = batch(), noted = note();
+  await flush();
+  await tick(39999);
+  assert.equal((await first).length, 8);
+  await tick(39999);
+  assert.equal((await second).length, 8);
+  await tick(2400);
+  assert.equal(await noted, 0);
+  assert.deepEqual([workers.length, workers[0].terminated], [1, false]);
 });
 
 test('requests a memory failure sends again are timed afresh in the larger worker, each from when it begins there', async t => {
