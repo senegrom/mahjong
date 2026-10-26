@@ -5,8 +5,8 @@
  * passes on its second try is named as FLAKY. What a failed script wrote to
  * test-results on its first try is kept in test-results/first-try.
  * BROWSER_SHARD=i/n runs only the i-th of n shards (CI runs three side by
- * side), script names narrow that to those scripts, and --list prints what
- * would run without running it:
+ * side), script names run only those scripts, whatever the shard, and --list
+ * prints what would run without running it:
  *   BROWSER_SHARD=2/3 node scripts/browser-suite.mjs [--list] [script.mjs ...] */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -25,6 +25,9 @@ const scripts = [
   ['mixed-opponents-check.mjs', 27], ['ui-polish-check.mjs', 9], ['trained-model-check.mjs', 12],
   ['toolchain-check.mjs', 26], ['offline-check.mjs', 59],
 ];
+// A number missing or not a number can leave scripts out of every shard.
+const untimed = scripts.filter(([, seconds]) => !Number.isFinite(seconds) || seconds < 0).map(([script]) => script);
+if (untimed.length) throw new Error(`Seconds must be a finite number, 0 or more, for ${untimed.join(', ')}`);
 
 const shard = process.env.BROWSER_SHARD || '1/1';
 const [index, count] = shard.split('/').map(Number);
@@ -43,8 +46,10 @@ for (const [script, seconds] of scripts.toSorted((a, b) => b[1] - a[1])) {
   load[least] += seconds;
   shardOf.set(script, least + 1);
 }
+// Named scripts run whatever the shard: a name the shard left out would
+// otherwise run nothing, and pass.
 const chosen = scripts.map(([script]) => script)
-  .filter(script => shardOf.get(script) === index && (!named.length || named.includes(script)));
+  .filter(script => named.length ? named.includes(script) : shardOf.get(script) === index);
 
 if (process.argv.includes('--list')) {
   for (const script of chosen) console.log(script);

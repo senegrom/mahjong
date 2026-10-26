@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 
 const suite = fileURLToPath(new URL('../scripts/browser-suite.mjs', import.meta.url));
 const source = readFileSync(suite, 'utf8');
+// The suite's table as its source has it: each script with its seconds.
+const table = [...source.match(/const scripts = \[([\s\S]*?)\];/)[1].matchAll(/\['([^']+)', ([^\]]*)\]/g)]
+  .map(([, script, seconds]) => [script, Number(seconds)]);
 
 /** Runs the suite (or a copy of it) with BROWSER_SHARD as given, or unset. */
 function run(args, shard, script = suite) {
@@ -24,13 +27,13 @@ function list(shard, names = []) {
   assert.equal(listed.status, 0, listed.stderr);
   return listed.stdout.split('\n').filter(Boolean);
 }
-/** A copy of the suite in a folder of its own. */
-async function copyOfSuite(t) {
+/** A copy of the suite, its source as given, in a folder of its own. */
+async function copyOfSuite(t, text = source) {
   const folder = await mkdtemp(join(tmpdir(), 'mahjong-suite-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
   await mkdir(join(folder, 'scripts'));
   const copy = join(folder, 'scripts', 'browser-suite.mjs');
-  await writeFile(copy, source);
+  await writeFile(copy, text);
   return { folder, copy };
 }
 /** A copy of the suite with stand-ins under its scripts' names: each exits
@@ -51,9 +54,10 @@ process.exitCode = ${JSON.stringify(codes)}[tries - 1];
   return { folder, copy, evidence: join(folder, 'test-results') };
 }
 
-test('every script lands in exactly one shard, and without a shard all run in order', () => {
+test('every script in the table lands in exactly one shard, and without a shard all run in order', () => {
   const all = list();
-  assert.ok(all.length >= 20);
+  assert.equal(all.length, table.length, 'a line for each entry in the table');
+  assert.deepEqual(all, table.map(([script]) => script));
   assert.equal(new Set(all).size, all.length);
   for (const name of all) assert.ok(existsSync(new URL(`../scripts/${name}`, import.meta.url)), name);
   assert.deepEqual(list('1/1'), all);
@@ -65,7 +69,29 @@ test('every script lands in exactly one shard, and without a shard all run in or
   }
 });
 
-test('a shard is i/n with 1 <= i <= n, and named scripts must be in the suite', () => {
+test('no shard of three takes longer than the longest script', () => {
+  const seconds = new Map(table), longest = Math.max(...seconds.values());
+  const loads = ['1/3', '2/3', '3/3'].map(shard => list(shard).reduce((sum, name) => sum + seconds.get(name), 0));
+  // Shortest first, the same table would put 923 s in one shard.
+  assert.ok(Math.max(...loads) <= longest, `${loads.join(', ')} s in the shards, the longest script ${longest} s`);
+});
+
+test('every entry in the table has a finite number of seconds, 0 or more', async t => {
+  const { copy } = await copyOfSuite(t);
+  for (const entry of ["['component-check.mjs']", "['component-check.mjs', -1]", "['component-check.mjs', NaN]",
+    "['component-check.mjs', Infinity]", "['component-check.mjs', '43']", "['component-check.mjs', null]"]) {
+    const text = source.replace("['component-check.mjs', 43]", entry);
+    assert.notEqual(text, source);
+    await writeFile(copy, text);
+    const listed = run(['--list'], undefined, copy);
+    assert.notEqual(listed.status, 0, entry);
+    assert.match(listed.stderr, /Seconds must be a finite number, 0 or more, for component-check\.mjs/, entry);
+  }
+  await writeFile(copy, source.replace("['component-check.mjs', 43]", "['component-check.mjs', 0]"));
+  assert.equal(run(['--list'], undefined, copy).status, 0);
+});
+
+test('a shard is i/n with 1 <= i <= n, and a named script must be in the suite, and runs whatever the shard', () => {
   for (const shard of ['0/3', '4/3', '3', '1/0', '1.5/3', 'a/b']) {
     const listed = run(['--list'], shard);
     assert.notEqual(listed.status, 0, shard);
@@ -75,6 +101,9 @@ test('a shard is i/n with 1 <= i <= n, and named scripts must be in the suite', 
   assert.notEqual(unknown.status, 0);
   assert.match(unknown.stderr, /Not in the browser suite: no-such-check\.mjs/);
   assert.deepEqual(list(undefined, ['offline-check.mjs', 'component-check.mjs']), ['component-check.mjs', 'offline-check.mjs']);
+  // Named, a script runs in a shard that would leave it out.
+  const elsewhere = ['1/3', '2/3', '3/3'].find(shard => !list(shard).includes('game-review-check.mjs'));
+  assert.deepEqual(list(elsewhere, ['game-review-check.mjs']), ['game-review-check.mjs']);
 });
 
 test('a failed script runs once more at the end, and fails the suite only if it fails again', async t => {
@@ -87,7 +116,8 @@ test('a failed script runs once more at the end, and fails the suite only if it 
   await writeFile(join(evidence, 'first-try', 'earlier.png'), 'an earlier run');
   await writeFile(join(evidence, 'component-check.mjs.png'), 'an earlier run');
   await utimes(join(evidence, 'component-check.mjs.png'), new Date(2026, 0, 1), new Date(2026, 0, 1));
-  const suiteRun = run(Object.keys(exits), undefined, copy);
+  // 1/3 holds none of them, and named they run all the same.
+  const suiteRun = run(Object.keys(exits), '1/3', copy);
   assert.equal(suiteRun.status, 1);
   assert.deepEqual(suiteRun.stdout.match(/^ran .*/gm), ['ran component-check.mjs, try 1', 'ran agent-defaults-check.mjs, try 1',
     'ran cleanup-check.mjs, try 1', 'ran component-check.mjs, try 2', 'ran cleanup-check.mjs, try 2']);

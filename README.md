@@ -43,7 +43,7 @@ again fails the suite. One that passes is flaky: the suite passes and prints
 screenshots and report are kept in `test-results/first-try/`.
 `BROWSER_SHARD=2/3 npm run test:browser` runs one shard, and
 `node scripts/browser-suite.mjs --list` prints what it would run. Script names
-after `browser-suite.mjs` run only those scripts.
+after `browser-suite.mjs` run only those scripts, whatever the shard.
 
 From the repository root, `./check.sh` runs engine formatting, lint, tests,
 the Python binding smoke test, arena games, and randomized legal play.
