@@ -20,11 +20,21 @@ export function chromePath() {
   return found;
 }
 
-/** Headless Chrome with the flags a CI container needs; options add to them. */
+/** Headless Chrome with the flags a CI container needs; options add to them.
+ * Chrome has 60 s to start, not puppeteer's 30, and one that fails to start is
+ * tried once more: in CI a Chrome once did not answer within 30 s, and the
+ * check failed before any case ran. */
 export async function launchChrome({ args = [], ...options } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
-  return puppeteer.launch({ executablePath: chromePath(), headless: true, ...options,
+  const executablePath = chromePath();
+  const launch = () => puppeteer.launch({ executablePath, headless: true, timeout: 60000, ...options,
     args: ['--no-sandbox', '--disable-dev-shm-usage', ...args] });
+  try {
+    return await launch();
+  } catch (error) {
+    console.error(`Chrome did not start, trying once more: ${error.message}`);
+    return launch();
+  }
 }
 
 /** Opens a <details> by pressing its summary, then waits for its toggle
