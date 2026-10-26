@@ -128,27 +128,30 @@ jobs:
         id: site
         working-directory: web
         run: npm run build
+      # Each quick check runs once the site is built, whatever the others said,
+      # so that one failure does not hide the rest. The Pages steps below run
+      # only when every step before them passed.
       - name: Lint
-        if: matrix.checks
+        if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: npm run lint
       - name: Svelte diagnostics
-        if: matrix.checks
+        if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: npm run check
       # Only the memory regression, a unit test, reads it.
       - name: Prepare verified network for the memory regression
-        if: matrix.checks
+        if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: node scripts/prepare-test-network.mjs "$RUNNER_TEMP/mahjong-memory-model.onnx"
       - name: Unit tests
-        if: matrix.checks
+        if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         env:
           MAHJONG_NETWORK: ${{ runner.temp }}/mahjong-memory-model.onnx
         run: npm run test:unit
       - name: Icons
-        if: matrix.checks
+        if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: npm run check:icons
       # Runs once the site is built, whatever the quick checks above said.
