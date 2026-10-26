@@ -81,7 +81,8 @@ could not save the network (no service worker, an installation still running, a
 hard reload, a storage failure), the worker downloads it itself, showing its
 progress. That phase has no fixed deadline: it ends when the worker has reported
 nothing for two minutes. The 20-second deadline for a move starts only once the
-network is loaded. A Retry after a failed start tries offline saving again.
+network is loaded and the worker begins that move. A Retry after a failed start
+tries offline saving again.
 
 The service worker saves the runtime (a few megabytes); the page saves the
 network itself (over 100 MB), because a browser cuts a service worker's work

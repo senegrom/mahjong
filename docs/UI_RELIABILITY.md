@@ -9,29 +9,42 @@ continues the same position with Club opponents, or starts a new match.
 The page has one trained worker, which answers its requests in turn. At a
 hand's result two things ask it: the hand's own notes (**View table / my
 hand**, or **Review final hand** at the last hand), a decision at a time, and
-Trained AI's review of the game, so far or whole, eight decisions a request,
-which goes on in the background. While the notes ask, the review waits before
-each batch it would send, then goes on exactly where it was, the hands waiting
-and the player's word as they were, so nothing the player chose is lost and
-nothing need start the review again. Without that wait every note would queue
-behind a batch: a hand's notes would take twenty seconds rather than two or
-three, and on a slow device any note could pass its deadline. With it, only
-the first note can queue behind a batch, the one already sent, whichever was
-opened first, and the notes after it behind none. The wait spares those later
-notes, not the first. A request's deadline is its own: twenty seconds for a
-note and forty for a batch of eight, from when it is sent, or once the network
-is loaded if it is not yet, so its time in the queue counts against it. The
-first note still passes its deadline where what is left of the batch ahead of
-it and its own position take over twenty seconds together, as they can from
-about 2.2 seconds a position, and that ends the worker and fails every request
-still waiting on it. The notes then say that the trained opponent did not
-answer in time. If the review's batch is still running, as it can be from 2.5
-seconds a position, the review stops too, saying the same; if not, it had its
-answer, and only the notes fail. The notes say they have stopped however they
-stop: answered, failed, out of time, closed, left for another mode, or turned
-to Club; and a review stopped or closed while it waits stops waiting at once.
-The next deal's Trained opponents go first another way: **Next hand** stops
-the review.
+Trained AI's review of the game, so far or whole, up to eight decisions a
+request, which goes on in the background. While the notes ask, the review
+waits before each batch it would send, then goes on exactly where it was, the
+hands waiting and the player's word as they were, so nothing the player chose
+is lost and nothing need start the review again. Without that wait every note
+would queue behind a batch, and a hand's notes would take twenty seconds
+rather than two or three. With it, only the first note can queue behind a
+batch, the one already sent, whichever was opened first, and the notes after
+it behind none. The next deal's Trained opponents go first another way:
+**Next hand** stops the review, so only their first move can queue behind the
+batch already sent. The notes say they have stopped however they stop:
+answered, failed, out of time, closed, left for another mode, or turned to
+Club; and a review stopped or closed while it waits stops waiting at once.
+
+A request's deadline is its own, and runs from when the worker begins it,
+which the worker says as it does: twenty seconds for a single decision or a
+batch of up to four, forty for one of five to eight. The time a request waits
+behind the ones ahead of it does not count, so a note or a move queued behind
+a batch waits for the batch, however slow the device, and is timed only from
+when it begins. A request that runs past its deadline ends the worker and
+fails every request still waiting on it, those queued behind it too, and
+whoever asked says so: the notes that the trained opponent did not answer in
+time, the review the same as it stops, and a Trained opponent's table by
+offering its recovery. A request the worker never begins, as when the worker
+dies without an error, has a backstop instead: its own deadline and those of
+the requests ahead of it, counted from when it was sent, after which it fails
+the same way.
+
+The review sizes its batches to the device, by the time a decision it has
+measured: eight decisions up to 1.25 seconds a decision, and on a slower
+device as many as take about ten seconds, at least one. A batch then takes at
+most half its deadline, and whatever queues behind it waits about ten seconds
+at most. The first batch can include loading the network, so it is not timed,
+and the first two are eight whatever the device, which run out of time from
+five seconds a decision. The review's reasoning about a decision asks in
+passes of the same size.
 
 ## Saved matches
 
