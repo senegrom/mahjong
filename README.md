@@ -22,7 +22,7 @@ cd web
 npm ci
 npm run wasm
 npm run dev                 # VITE_LAN=1 exposes the dev server to your LAN
-npm run verify              # the complete web verification command used by CI
+npm run verify              # every web check CI runs, in one command
 ```
 
 `verify` audits dependencies, builds WebAssembly, runs JavaScript lint and
@@ -30,6 +30,15 @@ Svelte diagnostics, builds production assets, and runs unit, browser, offline,
 and icon checks. Set `CHROME_BIN` when Chrome is not at the test scripts'
 standard locations. No separate dev server is required. `test:unit` and
 `test:browser` are useful after a build.
+
+CI runs the same checks in parallel jobs: the npm audit on its own, so that an
+advisory or a registry outage cannot stop the tests reporting, and the rest in
+three shards that each build the app and run their share of the browser suite;
+the third also runs lint, Svelte diagnostics and the unit and icon checks. The
+suite runs every script even after one fails, then names the failures.
+`BROWSER_SHARD=2/3 npm run test:browser` runs one shard, and
+`node scripts/browser-suite.mjs --list` prints what it would run. Script names
+after `browser-suite.mjs` run only those scripts.
 
 From the repository root, `./check.sh` runs engine formatting, lint, tests,
 the Python binding smoke test, arena games, and randomized legal play.
