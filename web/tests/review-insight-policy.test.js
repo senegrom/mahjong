@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
-import { Asking, scanMatch } from '../src/lib/game-review.js';
+import { Asking, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { MatchInsight, anyGate, countedBatches, handTables, keptTime, passFor, questionOf, reasonedAbout, reviewInsight, searchTime,
+import { MatchInsight, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight, searchTime,
   trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
@@ -214,9 +214,9 @@ test('the reasoning\'s passes wait their turn in the page, one with the worker a
   // The three recorded decisions whose Why lines ask Trained AI, opened one
   // after another, each Why line stopped as the next decision opens, on a
   // device slow enough that the first pass is still with the worker. Passes
-  // sent as each Why line asked would wait in the worker's queue, where
-  // their deadlines run, and run however stopped, being sent without a
-  // signal: the stopped ones then kept the last one waiting.
+  // sent as each Why line asked would wait in the worker's queue, and run
+  // however stopped, being sent without a signal: the stopped ones then kept
+  // the last one waiting.
   const probing = ['e3-5', 's3-4', 'e2b-14'].map(id => questions.find(question => question.id === id));
   const worker = workerOfPasses({ asked: probing }), { insight } = insightOf(worker), stops = [], lines = [];
   for (const question of probing) {
@@ -285,7 +285,8 @@ test('a review batch stopped by its signal holds the passes back until the worke
 
 test('a search stopped while its pass is with the worker holds the review back until the worker has answered that pass', async () => {
   // The worker runs the pass to its end whatever is cancelled, and a batch
-  // the review sent meanwhile would wait behind it, its deadline running.
+  // the review sent meanwhile would wait behind it, and the notes' next
+  // question behind both.
   const worker = workerOfPasses(), { insight, notes, asking } = insightOf(worker), review = anyGate(notes, asking), stop = new AbortController();
   const search = insight.search(questionOf(reviewedDecision(), entry.position), { signal: stop.signal });
   await until(() => worker.sent === 1, 'the first pass is with the worker');
@@ -307,14 +308,15 @@ test('a search stopped while its pass is with the worker holds the review back u
   await until(() => anyGate(second.notes, second.asking)() === null, 'the review goes on once the pass has failed');
 });
 
-test('a pass is the review\'s batch, or fewer where a question sent behind a whole batch would run out of its 20 seconds', async () => {
-  // At the review's measured time a position: none measured yet, desktop
-  // Chromium's 157 ms, the slow threshold, and slower still.
-  assert.deepEqual([null, 157, 500, 1875, 2000, 2500, 7500, 20000].map(passFor), [PASS, PASS, PASS, PASS, 7, 6, 2, 1]);
+test('a pass is the review\'s batch at the device\'s speed, so that what is sent behind one waits no longer than behind the review', async () => {
+  // Before anything is measured the review's batch, the most a pass asks;
+  // at 2.5 seconds a position the four the review asks there (batchFor), the
+  // search's 36 tables in nine passes of four.
+  assert.equal(batchFor(null), PASS);
   const network = recordedNetwork(), asking = new Asking(), notes = new Asking(), batches = new Asking();
   const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 2500 });
   const found = await insight.search(questionOf(reviewedDecision(), entry.position));
-  assert.deepEqual([found.status, network.sizes], ['searched', [6, 6, 6, 6, 6, 6]]);
+  assert.deepEqual([found.status, network.sizes], ['searched', [4, 4, 4, 4, 4, 4, 4, 4, 4]]);
 });
 
 test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {

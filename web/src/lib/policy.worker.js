@@ -76,8 +76,10 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
 async function infer({ id, url, runtimeBase, scope, planes, mask, count, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output, allowed;
   try {
-    // Each note is also a sign of life. The page times a decision only once
-    // the network is ready; while it loads, only the silence between notes.
+    // Each note is also a sign of life: while the network loads, the page
+    // times only the silence between notes. 'network ready' is said as each
+    // request begins to run, loaded just now or long before, and the page
+    // times the request's deadline from it, not from when it was sent.
     const note = progress => self.postMessage({ id, progress });
     note('loading the network');
     const model = await load({ url, runtimeBase, scope, memoryLimitMiB }, note);

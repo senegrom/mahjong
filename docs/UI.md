@@ -454,15 +454,13 @@ them before each batch it sends, and then goes on where it was: the hand under
 review, the hands waiting and the player's word stay as they were, so nothing
 need start it again, the review of the whole game included. The page's one
 worker answers its requests in turn, so notes asked between the review's
-batches of eight would wait behind one at every decision: a hand of fifteen
-decisions would take twenty seconds rather than two or three. Only the first
-note can wait behind a batch, the one already sent, whichever of the two was
-opened first, and on a slow device that note can still run out of time: its
-twenty seconds run from when it is sent, its wait included, so where what is
-left of the batch and the note take more than that together, they run out,
-which ends the worker and fails the notes, and the review stops too if its
-batch is still running. [UI reliability](UI_RELIABILITY.md) gives the speeds at
-which each can happen.
+batches would wait behind one at every decision: a hand of fifteen decisions
+would take twenty seconds rather than two or three. Only the first note can
+wait behind a batch, the one already sent, whichever of the two was opened
+first, and its twenty seconds run from when the worker begins it, so the wait
+slows it but cannot make it run out of time. [UI reliability](UI_RELIABILITY.md)
+says how requests are timed, and how the review sizes its batches to the
+device.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -473,10 +471,10 @@ saved match is unchanged."). A replay that ends where the match did, but in a
 hand still being played, is refused too ("A hand is still being played"),
 though a review opens only at a result. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
-a forward pass: Mortal's planes for each decision as it was made, then, where
-the network declares riichi, which tile it would discard. A move with one
-legal choice, such as the discard after riichi, is not asked and is left out
-of every figure.
+a forward pass, fewer on a slow device: Mortal's planes for each decision as it
+was made, then, where the network declares riichi, which tile it would
+discard. A move with one legal choice, such as the discard after riichi, is not
+asked and is left out of every figure.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
@@ -716,10 +714,10 @@ stays with its decision alone, shown whenever it is again and never asked
 again. While the reasoning asks, the
 review of the rest of the game waits at its gate, as it waits for the hand's
 notes, for the whole of a Why line or a search, until the worker has
-answered its last pass. Each of its passes, no longer than the review's
-batch, waits for any batch with the worker, and the review sends a batch in
-the turn it finds its gate open, so neither ever waits in the worker's queue
-for the other, where a deadline would run. Being part of Trained AI's
+answered its last pass. Each of its passes, the size of the review's batch,
+waits for any batch with the worker, and the review sends a batch in the turn
+it finds its gate open, so neither ever waits in the worker's queue for the
+other. Being part of Trained AI's
 view, all of it waits with the view while the settings keep Trained AI's move
 back: nothing of it is drawn, said or asked until the answer is shown. It
 explains Trained AI's choice, not good play, and changes only what the player
@@ -852,13 +850,17 @@ measured so.
 the page's own worker on one thread, a position took a median 163 ms one at a
 time and 157 ms in batches of eight, with identical weights; natively the same
 batch nearly halves the cost. A game of 150 to 200 decisions takes about half a
-minute there; phones were not measured. The review runs in the background with
-its progress and an estimate of the time left ("3 of 6 decisions · about 2
-minutes left"), goes on while its screen is closed, waits before each batch
-while a hand's own notes or its own reasoning about a decision ask Trained AI,
-which counts neither in the estimate nor against the device, and stops at
-**Stop** or when the player leaves Play. A
-device that takes over half a second a position holds after each hand
+minute there; phones were not measured. A device the review measures at over
+1.25 seconds a position is asked fewer at a time, as many as take about ten
+seconds and at least one, so that on a device that takes up to ten seconds a
+decision a batch ends well within its deadline and nothing waits long behind it
+([UI reliability](UI_RELIABILITY.md)). The review runs in the
+background with its progress and an estimate of the time left ("3 of 6
+decisions · about 2 minutes left"), goes on while its screen is closed, waits
+before each batch while a hand's own notes or its own reasoning about a
+decision ask Trained AI, which counts neither in the estimate nor against the
+device, and stops at **Stop** or when the player leaves Play. A device that
+takes over half a second a position holds after each hand
 ("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
 offers **Review next hand** or **Review the rest**; any hand can also be
 reviewed alone by **Review** in its header in the list, which opens by itself

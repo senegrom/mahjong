@@ -58,8 +58,12 @@ retries. Original observations and cancellation signals survive bounded retries.
 The worker serializes decisions and retains the network. A warm decision does
 not re-enter offline preparation. Reset/failure invalidates preparation, and
 late replies from an obsolete worker cannot complete a new request. All
-inference tensors are disposed after use. The whole-game review asks up to
-eight positions in one request, their planes and masks laid end to end with a
+inference tensors are disposed after use. A request's deadline starts when the
+worker begins it, which the worker says with a `ready` note, so its wait behind
+the requests ahead of it is not counted; one the worker never begins is ended
+after its own deadline and those of the requests still ahead of it, counted
+again from each answer. The whole-game review asks up to eight positions in one
+request, fewer on a slow device, their planes and masks laid end to end with a
 `count`; the worker runs them as one batch and answers each position's best
 legal move and weights, and the request's deadline grows with the batch.
 

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement,
+import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 
@@ -691,6 +691,38 @@ test('a slow device holds after each hand until the player asks for the next one
   } finally { review.dispose(); }
 });
 
+test('on a slow device the review asks fewer decisions a batch, as many as take about ten seconds at the speed it has measured', async () => {
+  // 2.5 seconds a position, some fifteen times desktop Chromium: eight would
+  // take twenty seconds, and keep whatever is sent behind them waiting as
+  // long. The first two batches go before anything is measured, the first
+  // because it can include loading the network, so they are as at full speed.
+  let clock = 0;
+  const sizes = [], answer = network(sizes), total = list => list.reduce((sum, size) => sum + size, 0);
+  const review = new MatchReview(Game, game, { now: () => clock, analyzeBatch: (positions, signal) => {
+    clock += positions.length * 2500;
+    return answer(positions, signal);
+  } });
+  try {
+    review.review(undefined, { patient: true });
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete);
+    assert.equal(review.positionMs, 2500);
+    const fast = await ungatedSizes(game);
+    assert.ok(fast.includes(BATCH), 'at full speed, batches of eight');
+    assert.deepEqual(sizes.slice(0, 2), fast.slice(0, 2), 'the first two as at full speed');
+    assert.ok(sizes.slice(2).every(size => size <= 4), `four decisions at most, ten seconds, once measured: ${sizes.join(' ')}`);
+    assert.equal(total(sizes), total(fast), 'every position asked, once');
+  } finally { review.dispose(); }
+});
+
+test('a batch is eight decisions, and on a device slower than 1.25 seconds a decision as many as take ten seconds, at least one', () => {
+  // None measured yet, desktop Chromium's 157 ms, the slow threshold, the
+  // last speed at eight, and slower: at 2.2 seconds eight took 17.6 seconds,
+  // and a question sent behind them waited as long.
+  assert.deepEqual([null, 0, 157, SLOW_MS, 1250, 1251, 2200, 2500, 5000, 10000, 20000].map(batchFor), [8, 8, 8, 8, 8, 7, 4, 4, 2, 1, 1]);
+});
+
 test('stopping puts the hand being reviewed back, and a failure says what failed and can be retried', async () => {
   // The final hand, asked about first, and the first hand are answered; the
   // second hand's first batch waits until the review is stopped.
@@ -803,8 +835,8 @@ test('a review sends a batch in the turn it finds its gate open, so that what be
   // on a microtask), and a decision drawn then can begin to ask: here, once
   // the hand just played is reviewed, as the review goes on to the first
   // hand. A batch sent after the gate was found open and not looked at
-  // again would go to the worker behind what was asked, its deadline
-  // running.
+  // again would go to the worker behind what was asked, and the notes' next
+  // question behind it.
   const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
   const asking = new Asking(), sizes = [], waits = [];
   let drawing = false, stopAsking = null, sentBefore = null;

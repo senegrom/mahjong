@@ -9,30 +9,30 @@
  * move.
  *
  * The worker answers its requests one at a time, in turn, and runs one it has
- * begun to its end, whatever is cancelled; a request's deadline runs from the
- * moment it is sent, its wait in the worker's queue included (policy.js): 20
- * seconds for a question of the hand's notes or a Trained opponent's move,
- * more for a batch. The review of the game so far and the hand's notes ask it
- * too, and the next deal's opponents once the player goes on, so the
- * reasoning keeps its passes out of the worker's queue:
- *  - A pass waits its turn in the page, where no deadline runs. It is sent
- *    only while no batch is with the worker, the review's or another pass,
- *    whichever question sent it (`batches`, countedBatches), and while the
- *    notes do not ask (`notes`); a question stopped while it waits sends
- *    nothing more.
+ * begun to its end, whatever is cancelled; a request's deadline runs from when
+ * the worker begins it (policy.js): 20 seconds for a question of the hand's
+ * notes or a Trained opponent's move, more for a batch. One sent while
+ * another runs waits for it, and the player waits with it. The review of the
+ * game so far and the hand's notes ask it too, and the next deal's opponents
+ * once the player goes on, so the reasoning keeps its passes out of the
+ * worker's queue:
+ *  - A pass waits its turn in the page. It is sent only while no batch is
+ *    with the worker, the review's or another pass, whichever question sent
+ *    it (`batches`, countedBatches), and while the notes do not ask
+ *    (`notes`); a question stopped while it waits sends nothing more.
  *  - So a pass goes to a worker with nothing to do, which begins it at once
  *    and would run it to its end whatever is cancelled: it is sent without
- *    the question's signal. It is no longer than the review's own batch,
- *    fewer on a device so slow that a question sent just behind it would run
- *    out of its time (passFor), and whatever is sent while it runs, the
- *    notes' first question or the next deal's first move, waits behind that
- *    one pass at most.
+ *    the question's signal. It is the review's own batch at this device's
+ *    speed (batchFor), about ten seconds at most once the review has measured
+ *    a device that takes up to ten seconds a decision, and whatever is sent
+ *    while it runs, the notes' first question or the next deal's first move,
+ *    waits behind that one pass at most.
  *  - It holds a spell of asking of its own (`asking`), and the review of the
  *    rest of the game, given the gate of both spells (`anyGate`), waits at it
  *    as it waits for the notes. A question stopped while one of its passes is
  *    still with the worker keeps the spell until the worker has answered that
  *    pass, so the review never sends a batch to wait behind a pass nobody
- *    wants, its own deadline running.
+ *    wants.
  * The page sends the review's batches through countedBatches too, whose
  * spell a stopped batch keeps until the worker has answered it, and stops the
  * questions (their `signal`) wherever it stops the review for the next deal:
@@ -41,23 +41,11 @@
  * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
+import { batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
-
-/** How long a question sent just behind a pass may wait for it, the notes'
- * first question or the next deal's first move: either has 20 seconds in all
- * (policy.js), and this leaves it time to be answered itself. */
-const WAIT_MS = 15000;
-
-/** The positions in each pass on a device that takes `positionMs` to answer a
- * position (the review's own measure, MatchReview.positionMs): the review's
- * batch, or fewer where a question sent behind a whole batch would wait more
- * than WAIT_MS; the batch where nothing has been measured yet. */
-export function passFor(positionMs) {
-  return positionMs > 0 ? Math.max(1, Math.min(PASS, Math.floor(WAIT_MS / positionMs))) : PASS;
-}
 
 /** A table as the worker is asked it: Mortal's planes and mask, and how to
  * read an answer into the engine's moves, as the review reads its own
@@ -180,7 +168,8 @@ export function questionOf(decision, position) {
  * nor `batches`, the spells of every batch with the worker (countedBatches),
  * is under way. The three must be spells apart: a search waiting for its own
  * spell to end would never ask. `positionMs()` is the review's time a
- * position, read as each begins, which sizes its passes (passFor). */
+ * position, read as each begins, which sizes its passes as the review's
+ * batches (batchFor). */
 export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null }) {
   if (asking === notes) throw new Error('A search needs a spell of asking apart from the notes\'');
   if (!batches || batches === asking || batches === notes) throw new Error('The worker\'s batches need spells of their own (countedBatches)');
@@ -189,7 +178,7 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
     let end = null, out = 0, over = false;
     const close = () => { if (over && !out) end?.(); };
     const settled = () => { out--; close(); };
-    const size = passFor(positionMs());
+    const size = batchFor(positionMs());
     const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: send, gate, size, sent: pass => { out++; pass.then(settled, settled); } });
     try {
       return await work((positions, signal) => { end ??= asking.begin(); return ask(positions, signal); }, size);
