@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Lemon Terrace', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Bamboo A (green)', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -57,7 +57,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
