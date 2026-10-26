@@ -69,11 +69,18 @@ test('every script in the table lands in exactly one shard, and without a shard 
   }
 });
 
-test('no shard of three takes longer than the longest script', () => {
-  const seconds = new Map(table), longest = Math.max(...seconds.values());
+// Longest first, no shard of three takes longer than the longest script, or
+// than an even third of the whole plus two thirds of the fourth longest: the
+// last script put on the heaviest shard went to the lightest shard of the
+// moment, and after the first three no script is longer than the fourth. The
+// bound holds however the table is timed again. Shortest first, today's table
+// would put 923 s in one shard, over the 735 s it allows.
+test('no shard of three takes longer than splitting longest first allows', () => {
+  const seconds = new Map(table), sorted = [...seconds.values()].toSorted((a, b) => b - a);
+  const total = sorted.reduce((sum, value) => sum + value, 0);
+  const bound = Math.max(sorted[0], total / 3 + (2 / 3) * (sorted[3] ?? 0));
   const loads = ['1/3', '2/3', '3/3'].map(shard => list(shard).reduce((sum, name) => sum + seconds.get(name), 0));
-  // Shortest first, the same table would put 923 s in one shard.
-  assert.ok(Math.max(...loads) <= longest, `${loads.join(', ')} s in the shards, the longest script ${longest} s`);
+  assert.ok(Math.max(...loads) <= bound, `${loads.join(', ')} s in the shards, at most ${Math.round(bound)} s allowed`);
 });
 
 test('every entry in the table has a finite number of seconds, 0 or more', async t => {
