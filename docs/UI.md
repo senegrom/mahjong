@@ -173,7 +173,7 @@ depends on where the press starts (see below).
 | 1100x900 | any | 53 | 53 |
 | 1366x768 | any | 53 | 53 |
 | 1280x600 | any | 56 | 53 |
-| 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 263 | 315 |
+| 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 315 | 315 |
 | 844x390, Trained AI still reviewing, from the foot | any | 139 | 140 |
 | 390x844 | keyboard | 2 | 343 |
 | 375x667 | keyboard | 183 | 516 |
@@ -200,7 +200,7 @@ bar, 72 pixels from the top of the screen. With Trained AI's review under way,
 a shorter review that says how far it has got, the page moves less, and the
 heading ends lower, 229 to 248 pixels from the top, in view below the bar.
 Where it starts matters too. Pressed where the button has only just come into
-view, **View table / my hand** moves the page 72 pixels and the heading lands
+view, **View table / my hand** moves the page 124 pixels and the heading lands
 358 pixels from the top. From there **Review final hand** moves it 358 pixels
 with Club, or 112 with Trained AI. With Trained AI the figures also vary by
 a few dozen pixels from press to press, as the review's progress line changes
