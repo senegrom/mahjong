@@ -242,7 +242,8 @@ replaces it.
 
 ## Developer checks
 
-`npm run verify` in `web/` is the canonical local and CI verification command.
+`npm run verify` in `web/` is the canonical local verification command; CI runs
+the same checks in parallel jobs (see the [README](../README.md#run-and-verify)).
 It includes real browser interactions and the saved-state, cancellation,
 claimed-tile, grouped-Undo, and offline regressions. Historical implementation
 reports are preserved in [the evidence index](HISTORY.md).

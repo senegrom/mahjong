@@ -164,10 +164,13 @@ application test hooks; deterministic saved positions and test-only worker
 responses exercise recovery, inputs, hints, and small-screen layouts.
 
 Set `CHROME_BIN` when Chrome/Chromium is not in a standard system location.
-Screenshots and the structured browser report are saved to `web/test-results/`.
-Pages publication needs three CI jobs to pass: the rules engine, the web app
-and the browser worker parity check. Browser viewport emulation is not a
-physical iPhone/Safari test.
+Screenshots and the structured browser report are saved to `web/test-results/`;
+CI keeps each shard's as an artifact of its own. Those of a failed script's
+first try move to `web/test-results/first-try/` before its second try (see the
+[README](../README.md#run-and-verify)). Pages publication needs every CI job
+to pass: the rules engine, the npm audit, the three web app shards and the
+browser worker parity check. Browser viewport emulation is not a physical
+iPhone/Safari test.
 
 ## Saves across windows, legacy records and calls
 

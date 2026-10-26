@@ -147,11 +147,12 @@ memory](ONNX_RUNTIME.md#verification-and-memory)).
 
 ## Verification
 
-Run `npm run verify` in `web` for the same checks as CI. The component tests mount
-real components under a reactive parent and exercise bindings, context, download
-callbacks, modal focus, breakpoint changes and unmount. Production checks cover
-saved preferences across reload, unchanged matches, unavailable unused artwork
-and failed face switches. Unit tests cover preload cancellation and retry.
+Run `npm run verify` in `web` for the checks of CI's npm audit and web app jobs.
+The component tests mount real components under a reactive parent and exercise
+bindings, context, download callbacks, modal focus, breakpoint changes and
+unmount. Production checks cover saved preferences across reload, unchanged
+matches, unavailable unused artwork and failed face switches. Unit tests cover
+preload cancellation and retry.
 
 `scripts/offline-check.mjs`, part of `npm run test:browser`, exercises the real
 production service worker and the default network, including a browser-process restart with HTTP cache cleared, disabled

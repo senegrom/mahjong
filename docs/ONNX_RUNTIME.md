@@ -114,10 +114,11 @@ scopes and unrelated caches are never pruned.
 
 ## Build and test
 
-Run `npm ci` and `npm run verify` in `web/`. This is also the CI command. It
-includes real inference, legacy preference migration, saved-state, memory,
-worker, offline, and browser layout checks. Optional external model/checkpoint
-fixtures remain explicitly identified by their individual tests.
+Run `npm ci` and `npm run verify` in `web/`; CI runs the same checks in
+parallel jobs. It includes real inference, legacy preference migration,
+saved-state, memory, worker, offline, and browser layout checks. Optional
+external model/checkpoint fixtures remain explicitly identified by their
+individual tests.
 
 The memory regression loads the default network through the reduced runtime
 three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
