@@ -21,12 +21,26 @@ export const FLAG_PLAYED_BELOW = 0.05;
 /** ...while the network's own choice had at least this. A network that is
  * not decisive is not asked to overrule anyone: near-ties never flag. */
 export const FLAG_PREFERRED_FROM = 0.6;
-/** Positions asked in one forward pass. Natively eight cost about half as
- * much a position as one at a time (35 ms against 66); in the browser's
- * single-threaded runtime they cost about the same (157 ms against 163, in
- * Chromium on 14 October 2026), with identical answers, so a batch saves
- * messages there and costs nothing. */
+/** Positions asked in one forward pass, at most. Natively eight cost about
+ * half as much a position as one at a time (35 ms against 66); in the
+ * browser's single-threaded runtime they cost about the same (157 ms against
+ * 163, in Chromium on 14 October 2026), with identical answers, so a batch
+ * saves messages there and costs nothing, and a smaller one costs nothing
+ * either. */
 export const BATCH = 8;
+/** How long a forward pass should take at most, at the review's measured
+ * time a position: half the twenty seconds the worker gives one decision
+ * (policy.js), so that a pass ends well within its own deadline, which is
+ * never shorter, and whatever is sent behind it, the hand's notes or the next
+ * deal's first move, waits about ten seconds at most. */
+export const BATCH_MS = 10000;
+/** The positions in each forward pass on a device that takes `positionMs` a
+ * position (MatchReview.positionMs): BATCH up to 1.25 seconds a position, and
+ * on a slower device as many as take BATCH_MS, at least one. BATCH before
+ * anything is measured. */
+export function batchFor(positionMs) {
+  return positionMs > 0 ? Math.max(1, Math.min(BATCH, Math.floor(BATCH_MS / positionMs))) : BATCH;
+}
 /** A device slower than this a position reviews a hand at a time unless the
  * player asks for the rest of the game: at half a second a position, a game
  * of 150 to 200 decisions takes 75 to 100 seconds. */
@@ -299,8 +313,9 @@ export class Asking {
 /** The review of one match: of the game so far while it is played, and of the
  * whole game once it is over. It is taken on to each later result (`extend`),
  * keeping every hand it has reviewed. It owns its replay and its requests,
- * and reviews the hands queued, in order, a forward pass at a time; a slow
- * device holds after each hand unless the player has asked for every hand.
+ * and reviews the hands queued, in order, a forward pass at a time, each
+ * sized to the device by the speed measured so far (batchFor); a slow device
+ * holds after each hand unless the player has asked for every hand.
  * `analyzeBatch(positions, signal)` asks the network; `onChange` hears every
  * change, and `onComplete` hears once that every hand of the finished match
  * is reviewed, whether or not anyone is looking. `gate()` answers null while
@@ -493,7 +508,7 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: BATCH, analyze: (positions, signal) => this.passGate(positions, signal) },
+      batch: { size: () => batchFor(this.positionMs), analyze: (positions, signal) => this.passGate(positions, signal) },
       onProgress: done => { hand.done = done; this.notify(); },
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
