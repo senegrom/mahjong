@@ -18,7 +18,10 @@ const runtimeBase = () => new URL(__RUNTIME_DIRECTORY__, document.baseURI).href;
 // Two phases, two deadlines. Loading the network into a fresh worker can mean
 // downloading 116 MB, which takes minutes on a slow link, so it is bounded by
 // silence: a worker that reports nothing for this long has stalled. Only a
-// worker holding the network is given a decision's deadline.
+// worker holding the network is given a decision's deadline, and only from
+// when it begins the decision. It answers its requests in turn, so a decision
+// sent behind another, such as a review's batch, waits its turn untimed: that
+// wait is the batch's, which the batch's own deadline bounds (backstop).
 const DECISION_MS = 20000;
 const LOADING_SILENCE_MS = 120000;
 let worker = null;
@@ -59,11 +62,29 @@ function stillLoading(current) {
   }, LOADING_SILENCE_MS);
 }
 
-/** The network is in the worker: decisions waiting for it are timed from now. */
+/** The network is in the worker: decisions waiting for it are queued there
+ * from now, each timed by its backstop until the worker begins it. */
 function networkLoaded() {
   loaded = true;
   clearTimeout(loading);
-  for (const request of waiting.values()) request.startDeadline();
+  for (const request of waiting.values()) request.queued();
+}
+
+/** How long the decision `id` may wait in a worker holding the network and
+ * then run, should the worker never say that it has begun it: its own
+ * deadline and those of the requests ahead of it, every one still waiting
+ * that was sent before it. The worker runs those in turn, and each ends the
+ * worker if it runs past its own deadline, so a worker that keeps to them
+ * begins this one in time. One that falls silent, as a worker that dies
+ * without an error does, is ended here, and every request still waiting
+ * fails with it, as when a request runs out of time. */
+function backstop(id) {
+  let total = 0;
+  for (const [other, request] of waiting) {
+    total += request.timeout;
+    if (other === id) break;
+  }
+  return total;
 }
 
 function preparePolicy() {
@@ -122,6 +143,10 @@ function ensureWorker() {
         if (ready) networkLoaded(); else stillLoading(current);
         onProgress?.(progress);
       }
+      // The worker says the network is ready as it begins each request, so
+      // that request's own deadline runs from now: until now it waited for
+      // the requests ahead of it.
+      if (ready) pending?.begun();
       return;
     }
     // An answer, from any request, means the network ran: it is loaded
@@ -154,7 +179,8 @@ export async function modelIsAvailable() {
 }
 
 /** The network's best legal move for this position; it is never sampled.
- * The timeout bounds the decision once the network is loaded, not the load. */
+ * The timeout bounds the decision from when the worker begins it, not the
+ * load, nor its wait behind the worker's other requests. */
 export function chooseAction(planes, mask, signal, timeout = DECISION_MS) {
   return requestPolicy(planes, mask, timeout, signal, false);
 }
@@ -213,12 +239,15 @@ async function requestPolicy(planes, mask, timeout, signal, details, count) {
       waiting.delete(id);
       callback(value);
     };
-    const startDeadline = () => {
+    // Either clock, run out, ends the worker and every request waiting on it.
+    const time = ms => {
       clearTimeout(timer);
-      timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), timeout);
+      timer = setTimeout(() => resetPolicy(new Error('The trained opponent did not answer in time')), ms);
     };
-    // A worker still loading the network starts this decision's deadline
-    // when it is ready; a replacement worker loads it again first.
+    // Queued in a worker holding the network, this decision is timed by its
+    // backstop, and once the worker begins it by its own deadline. A worker
+    // still loading the network queues it when it is ready; a replacement
+    // worker loads it again first.
     const dispatch = () => {
       clearTimeout(timer);
       const copy = planes.slice();
@@ -234,10 +263,10 @@ async function requestPolicy(planes, mask, timeout, signal, details, count) {
         unstored = null;
       }
       target.postMessage(message, transfer);
-      if (loaded) startDeadline();
+      if (loaded) time(backstop(id));
     };
     waiting.set(id, { resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error),
-      dispatch, startDeadline });
+      dispatch, timeout, queued: () => time(backstop(id)), begun: () => time(timeout) });
     signal?.addEventListener('abort', abort, { once: true });
     try {
       dispatch();

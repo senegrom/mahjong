@@ -9,17 +9,17 @@
  * move.
  *
  * The worker answers its requests one at a time, in turn, and runs one it has
- * begun to its end, whatever is cancelled; a request's deadline runs from the
- * moment it is sent, its wait in the worker's queue included (policy.js): 20
- * seconds for a question of the hand's notes or a Trained opponent's move,
- * more for a batch. The review of the game so far and the hand's notes ask it
- * too, and the next deal's opponents once the player goes on, so the
- * reasoning keeps its passes out of the worker's queue:
- *  - A pass waits its turn in the page, where no deadline runs. It is sent
- *    only while no batch is with the worker, the review's or another pass,
- *    whichever question sent it (`batches`, countedBatches), and while the
- *    notes do not ask (`notes`); a question stopped while it waits sends
- *    nothing more.
+ * begun to its end, whatever is cancelled; a request's deadline runs from when
+ * the worker begins it (policy.js): 20 seconds for a question of the hand's
+ * notes or a Trained opponent's move, more for a batch. One sent while
+ * another runs waits for it, and the player waits with it. The review of the
+ * game so far and the hand's notes ask it too, and the next deal's opponents
+ * once the player goes on, so the reasoning keeps its passes out of the
+ * worker's queue:
+ *  - A pass waits its turn in the page. It is sent only while no batch is
+ *    with the worker, the review's or another pass, whichever question sent
+ *    it (`batches`, countedBatches), and while the notes do not ask
+ *    (`notes`); a question stopped while it waits sends nothing more.
  *  - So a pass goes to a worker with nothing to do, which begins it at once
  *    and would run it to its end whatever is cancelled: it is sent without
  *    the question's signal. It is the review's own batch at this device's
@@ -31,7 +31,7 @@
  *    as it waits for the notes. A question stopped while one of its passes is
  *    still with the worker keeps the spell until the worker has answered that
  *    pass, so the review never sends a batch to wait behind a pass nobody
- *    wants, its own deadline running.
+ *    wants.
  * The page sends the review's batches through countedBatches too, whose
  * spell a stopped batch keeps until the worker has answered it, and stops the
  * questions (their `signal`) wherever it stops the review for the next deal:

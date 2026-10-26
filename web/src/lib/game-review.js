@@ -541,11 +541,11 @@ export class MatchReview {
    * sent in the same turn as the gate is found open, before anything else can
    * look. The page draws a moment after the review says it has changed, and a
    * decision drawn then can begin to ask: a batch sent after that, the gate
-   * not looked at again, would wait behind what it asked in the worker's
-   * queue, its deadline running. A review stopped or closed while it waits
-   * stops waiting at once, as it stops waiting for an answer, and a gate that
-   * fails stops the review as a failed answer would, saying why, rather than
-   * leaving it waiting. */
+   * not looked at again, would wait in the worker's queue behind what it
+   * asked, and the notes' next question behind it. A review stopped or
+   * closed while it waits stops waiting at once, as it stops waiting for an
+   * answer, and a gate that fails stops the review as a failed answer would,
+   * saying why, rather than leaving it waiting. */
   async passGate(positions, signal) {
     for (let shut = this.gate(); shut; shut = this.gate()) {
       await new Promise((resolve, reject) => {

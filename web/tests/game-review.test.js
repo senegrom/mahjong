@@ -835,8 +835,8 @@ test('a review sends a batch in the turn it finds its gate open, so that what be
   // on a microtask), and a decision drawn then can begin to ask: here, once
   // the hand just played is reviewed, as the review goes on to the first
   // hand. A batch sent after the gate was found open and not looked at
-  // again would go to the worker behind what was asked, its deadline
-  // running.
+  // again would go to the worker behind what was asked, and the notes' next
+  // question behind it.
   const hands = scanMatch(Game, game), saved = savedAfter(game, hands[2].end);
   const asking = new Asking(), sizes = [], waits = [];
   let drawing = false, stopAsking = null, sentBefore = null;

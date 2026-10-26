@@ -402,6 +402,178 @@ test('an answer proves the network is loaded, even from a worker that sends no n
   assert.equal(worker.terminated, true, 'the next decision is timed at once');
 });
 
+/** The coordinator with a worker as slow as a slow phone, on the test's own
+ * clock. The worker runs its requests as policy.worker.js does, one at a
+ * time, in the order sent, each to its end, and says that the network is
+ * ready as it begins each one; but each takes `runMs(request)`, by default
+ * `positionMs` a position. Its messages cross on a later turn, as they do
+ * between threads, and `tick(ms)` moves the clock and lets them through. A
+ * worker that has begun `begins` requests dies without a word, and `fail()`
+ * fails the request under way as a runtime out of memory does. */
+function slowClient(t, { positionMs = 2400, runMs = request => (request.count ?? 1) * positionMs, begins = Infinity } = {}) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const workers = [];
+  class Worker {
+    constructor() { this.messages = []; this.queued = []; this.current = null; this.begun = 0; this.terminated = false; workers.push(this); }
+    postMessage(message) {
+      this.messages.push(message);
+      if (message.cancel != null) this.queued = this.queued.filter(request => request.id !== message.cancel);
+      else this.queued.push(message);
+      this.next();
+    }
+    next() {
+      if (this.current || this.terminated || this.begun >= begins || !this.queued.length) return;
+      const request = this.current = this.queued.shift();
+      this.begun++;
+      this.say({ id: request.id, progress: 'network ready', ready: true });
+      setTimeout(() => {
+        if (this.current !== request) return;
+        this.current = null;
+        this.say(request.count ? { id: request.id, analyses: Array.from({ length: request.count }, () => ({ action: 0, weights: [1, 0] })) }
+          : { id: request.id, action: 0 });
+        this.next();
+      }, runMs(request));
+    }
+    /** As policy.worker.js fails: the request under way answered with the
+     * error, and nothing run again in this runtime. */
+    fail() {
+      const request = this.current;
+      this.current = null;
+      this.begun = Infinity;
+      this.say({ id: request.id, error: 'RangeError: Out of memory',
+        memory: { kind: 'limit', requestedBytes: (request.memoryLimitMiB + 16) * 1048576, limitMiB: request.memoryLimitMiB } });
+    }
+    say(data) { void setImmediate().then(() => { if (!this.terminated) this.onmessage?.({ data }); }); }
+    terminate() { this.terminated = true; }
+  }
+  const api = policy({ Worker, setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer) });
+  t.after(() => api.resetPolicy());
+  const flush = async () => { for (let turn = 0; turn < 10; turn++) await setImmediate(); };
+  const position = () => ({ planes: new Float32Array(34), mask: [1, 1] });
+  return {
+    workers, flush,
+    tick: async ms => { t.mock.timers.tick(ms); await flush(); },
+    // A Trained opponent's move, a question of the hand's notes, and a
+    // review's batch of eight.
+    move: () => api.chooseAction(new Float32Array(34), [1, 1]),
+    note: () => api.analyzePolicy(new Float32Array(34), [1, 1]),
+    batch: () => api.analyzeBatch(Array.from({ length: 8 }, position)),
+  };
+}
+
+test('a question sent behind a review batch on a slow device waits its turn untimed, and is timed from when the worker begins it', async t => {
+  // About 2.4 seconds a position, some fifteen times desktop Chromium: the
+  // batch takes 19.2 seconds, and the hand's note sent just behind it is
+  // answered 21.6 seconds after it was sent. Timed from then, it would run
+  // out of its twenty seconds while it waited, ending the worker and the
+  // review's batch with it.
+  const { workers, tick, flush, move, note, batch } = slowClient(t);
+  const warm = move();
+  await flush();
+  await tick(2400);
+  assert.equal(await warm, 0, 'the network is loaded');
+  const reviewed = batch(), noted = note();
+  await flush();
+  await tick(19200);
+  assert.equal((await reviewed).length, 8);
+  await tick(2400);
+  assert.equal(await noted, 0, 'answered once its own position has run');
+  assert.deepEqual([workers.length, workers[0].terminated], [1, false]);
+});
+
+test('the next deal\'s first move waits for a review batch the worker has begun, however long it is with the worker', async t => {
+  // Next hand stops the review, but the worker runs the batch it has begun
+  // to its end: 38.4 seconds at 4.8 seconds a position, within its forty.
+  const { workers, tick, flush, move, batch } = slowClient(t, { positionMs: 4800 });
+  const reviewed = batch();
+  await flush();
+  await tick(10000);
+  const moved = move();
+  await flush();
+  await tick(28400);
+  assert.equal((await reviewed).length, 8);
+  await tick(4800);
+  assert.equal(await moved, 0);
+  assert.equal(workers[0].terminated, false);
+});
+
+test('a request still runs out of time when its own run passes its deadline, and every request waiting fails with it', async t => {
+  // A batch whose eight positions take 48 seconds, past its forty, and the
+  // hand's note sent behind it: the worker is ended at the batch's deadline,
+  // counted from when it began, and the note fails with it, as before.
+  const { workers, tick, flush, note, batch } = slowClient(t, { positionMs: 6000 });
+  const reviewed = batch(), noted = note();
+  const late = Promise.all([assert.rejects(reviewed, /did not answer in time/), assert.rejects(noted, /did not answer in time/)]);
+  await flush();
+  await tick(39999);
+  assert.equal(workers[0].terminated, false, 'the batch has forty seconds from when it began');
+  await tick(1);
+  await late;
+  assert.equal(workers[0].terminated, true);
+  // Asked again, a fresh worker loads the network and answers.
+  const retry = note();
+  await flush();
+  assert.equal(workers.length, 2, 'the retry loads a fresh worker');
+  await tick(6000);
+  assert.equal(await retry, 0);
+});
+
+test('a question that began behind a batch has twenty seconds from when it began, not from when it was sent', async t => {
+  const { workers, tick, flush, note, batch } = slowClient(t, { runMs: request => (request.count ? 19200 : 25000) });
+  const reviewed = batch(), noted = note(), late = assert.rejects(noted, /did not answer in time/);
+  await flush();
+  await tick(19200);
+  assert.equal((await reviewed).length, 8);
+  await tick(19999);
+  assert.equal(workers[0].terminated, false, 'begun 19.2 seconds after it was sent');
+  await tick(1);
+  await late;
+  assert.equal(workers[0].terminated, true, 'its own position ran past its deadline');
+});
+
+test('a request the worker never begins is ended by its backstop, its own deadline and those of the requests ahead of it', async t => {
+  // The worker answers the batch and dies without a word, as a worker can
+  // without an error event: the note behind it is never begun, so nothing
+  // starts its own deadline. It waits the batch's forty seconds and its own
+  // twenty from when it was sent, and no longer.
+  const { workers, tick, flush, move, note, batch } = slowClient(t, { begins: 2 });
+  const warm = move();
+  await flush();
+  await tick(2400);
+  await warm;
+  const reviewed = batch(), noted = note(), missed = assert.rejects(noted, /did not answer in time/);
+  await flush();
+  await tick(19200);
+  assert.equal((await reviewed).length, 8);
+  await tick(60000 - 19200 - 1);
+  assert.equal(workers[0].terminated, false, 'the requests ahead of it might still have run');
+  await tick(1);
+  await missed;
+  assert.equal(workers[0].terminated, true, 'ended, as a request out of time ends it');
+  const retry = note();
+  await flush();
+  assert.equal(workers.length, 2, 'the retry loads a fresh worker');
+  await tick(2400);
+  assert.equal(await retry, 0);
+});
+
+test('requests a memory failure sends again are timed afresh in the larger worker, each from when it begins there', async t => {
+  const { workers, tick, flush, note, batch } = slowClient(t);
+  const reviewed = batch(), noted = note();
+  await flush();
+  await tick(10000);
+  workers[0].fail();
+  await flush();
+  assert.equal(workers.length, 2, 'a larger worker');
+  assert.deepEqual(workers[1].messages.map(message => [message.count ?? 1, message.memoryLimitMiB]), [[8, MEMORY_LIMITS_MIB[1]], [1, MEMORY_LIMITS_MIB[1]]],
+    'both sent again, in order');
+  await tick(19200);
+  assert.equal((await reviewed).length, 8);
+  await tick(2400);
+  assert.equal(await noted, 0);
+  assert.equal(workers[1].terminated, false);
+});
+
 test('a review batch is one request, its positions end to end, answered position by position', async t => {
   const workers = [];
   class Worker {

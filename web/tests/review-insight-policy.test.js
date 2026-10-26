@@ -214,9 +214,9 @@ test('the reasoning\'s passes wait their turn in the page, one with the worker a
   // The three recorded decisions whose Why lines ask Trained AI, opened one
   // after another, each Why line stopped as the next decision opens, on a
   // device slow enough that the first pass is still with the worker. Passes
-  // sent as each Why line asked would wait in the worker's queue, where
-  // their deadlines run, and run however stopped, being sent without a
-  // signal: the stopped ones then kept the last one waiting.
+  // sent as each Why line asked would wait in the worker's queue, and run
+  // however stopped, being sent without a signal: the stopped ones then kept
+  // the last one waiting.
   const probing = ['e3-5', 's3-4', 'e2b-14'].map(id => questions.find(question => question.id === id));
   const worker = workerOfPasses({ asked: probing }), { insight } = insightOf(worker), stops = [], lines = [];
   for (const question of probing) {
@@ -285,7 +285,8 @@ test('a review batch stopped by its signal holds the passes back until the worke
 
 test('a search stopped while its pass is with the worker holds the review back until the worker has answered that pass', async () => {
   // The worker runs the pass to its end whatever is cancelled, and a batch
-  // the review sent meanwhile would wait behind it, its deadline running.
+  // the review sent meanwhile would wait behind it, and the notes' next
+  // question behind both.
   const worker = workerOfPasses(), { insight, notes, asking } = insightOf(worker), review = anyGate(notes, asking), stop = new AbortController();
   const search = insight.search(questionOf(reviewedDecision(), entry.position), { signal: stop.signal });
   await until(() => worker.sent === 1, 'the first pass is with the worker');
