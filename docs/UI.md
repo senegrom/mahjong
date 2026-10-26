@@ -252,8 +252,11 @@ Nothing above the notes says what the weights are. The line that gives them
 says it in its title, shown as a tooltip: "How strongly Trained AI prefers each
 move, not a chance of winning", and, where the line has a riichi, that
 declaring riichi and the discard given riichi are weighed as separate
-decisions, not as one move. The tile guide's "Trained AI's percentages" says
-the first as well.
+decisions, not as one move. A tooltip shows only under a mouse, so the tile
+guide in the settings says both, for a keyboard or a finger too, under
+"Trained AI's percentages": "How strongly it prefers each move, not a chance
+of winning. Declaring riichi and the discard given riichi are weighed
+separately."
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
@@ -664,7 +667,8 @@ once that the tiles are compared given riichi. It leads with the five heaviest
 moves and those it tags; **Show 3 more moves** shows the rest and stays, as
 **Show fewer moves**, so focus stays on it. The tile guide in the settings says
 what the weights are, under "Trained AI's percentages": how strongly Trained AI
-prefers each move, not a chance of winning. For a turn, "What each move
+prefers each move, not a chance of winning, and that declaring riichi and the
+discard given riichi are weighed separately. For a turn, "What each move
 leaves", folded until it is opened, sets out what each of the two moves leaves,
 a column each ("You", "Trained AI") where the review measured it, counted as
 the hand review counts it: the hand left, the unseen tiles that improve it,

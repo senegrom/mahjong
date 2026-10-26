@@ -288,8 +288,10 @@ async function tileGuide() {
   return settings.slice(settings.indexOf('class="guide'));
 }
 
-test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning", async () => {
-  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
+test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning, and that riichi and its discard are weighed separately", async () => {
+  // The preference line's title says both as well, but a title shows only
+  // under a mouse: the guide is where a keyboard or a finger finds them.
+  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\. Declaring riichi and the discard given riichi are weighed separately\.<\/dd>/);
 });
 
 test("the tile guide says the blue ring is Trained AI's choice in a review, as it is the agent's in Agent watch and Guided play, and gives the review's keys and where each kind works", async () => {

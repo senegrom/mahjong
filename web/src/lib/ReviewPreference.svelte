@@ -4,7 +4,8 @@
   // reviewWithStrong's existing one- or two-stage policy evaluation. What the
   // percentages are is the line's title, there when it is asked for rather
   // than read above every hand's notes; a riichi on the line adds that its
-  // declaration and its discard are weighed apart.
+  // declaration and its discard are weighed apart. A title shows only under a
+  // mouse, so the tile guide (AppSettings) says both as well.
   let { note } = $props();
   const WEIGHTS = 'How strongly Trained AI prefers each move, not a chance of winning';
   let riichi = $derived(note.advised_kind === 'riichi' || (!note.agreed && note.played_kind === 'riichi'));
