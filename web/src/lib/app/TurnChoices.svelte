@@ -33,7 +33,10 @@
   {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
   {:else if myTurn}
     {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
-    {#if !touch && shortcuts}<span class="key-help">Focus your hand to use arrows and Enter.</span>{/if}
+    <!-- The hand takes focus as the turn comes (App) and the tile guide gives
+         the keys, so only a screen reader is told them here, in the prompt
+         that the hand names as its description. -->
+    {#if !touch && shortcuts}<span class="visually-hidden">Focus your hand to use arrows and Enter.</span>{/if}
   {:else if !callChoices.length}Waiting for the others…
   {:else}Choose a call, or pass.{/if}
 </p>
@@ -69,7 +72,6 @@
 
 <style>
   .prompt { margin: 0; font-size: .9rem; }
-  .key-help { display: block; font-size: .78rem; }
   .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
   .call-options button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
   .call-label { min-width: 0; overflow-wrap: anywhere; }

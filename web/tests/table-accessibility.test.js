@@ -104,6 +104,27 @@ test('riichi, calls, an offered discard and a selection are said by regions alre
   for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
 });
 
+test("the turn's prompt names no keys on screen, and a screen reader still hears them in the hand's description", async () => {
+  // The hand takes focus as the turn comes (App) and the tile guide gives the
+  // keys, so the prompt shows its sentence alone. The keys stay in it out of
+  // sight, since the hand names the prompt as its description.
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
+    seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const prompt = async props => /<p id="hand-help"[^>]*>([^]*?)<\/p>/.exec(await html('app/TurnChoices.svelte', { view, shownDora: [],
+    busy: false, thinking: false, failure: '', saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: false,
+    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props }))[1];
+  const keys = /<span class="visually-hidden[^"]*">Focus your hand to use arrows and Enter\.<\/span>/;
+  const keyed = await prompt({});
+  assert.match(keyed, keys);
+  assert.equal(text(keyed.replace(keys, '')), 'Your turn. Choose a tile to discard.');
+  const hand = await html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
+    discardChoices: [], confirmDiscards: false, picked: null, selected: null, canDiscard: () => true, selectTile() {}, syncHandFocus() {} });
+  assert.match(hand, /<div class="hand\b[^"]*"[^>]*aria-describedby="hand-help"/);
+  // On a touch screen, or with the shortcuts off, there are no keys to name.
+  for (const props of [{ touch: true }, { shortcuts: false }]) assert.doesNotMatch(await prompt(props), /arrows and Enter/, JSON.stringify(props));
+});
+
 test('the table inspection names each opponent once: position, wind, score', async () => {
   const view = { round: 'east', kyoku: 1, wall: 70, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [], outcome: null,
     seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };

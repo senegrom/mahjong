@@ -121,6 +121,14 @@ After a keyboard discard, the hand regains focus for the next decision unless
 the player has deliberately focused another control. Browser shortcuts and
 other focused controls remain unaffected.
 
+The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
+discard."), with no line about the keys: the hand takes focus as the turn
+comes, unless another control has it, and the tile guide gives the keys. A
+screen reader still hears "Focus your hand to use arrows and Enter.", kept out
+of sight in the prompt that the hand names as its description, wherever the
+keys work: with **Keyboard shortcuts in your hand** on, and not on a touch
+screen.
+
 ### The hand's review
 
 **View table / my hand** on a hand's result opens the hand's review, **Your
