@@ -103,6 +103,14 @@ Cancel leaves the running match unchanged. Starting a different table confirms
 abandonment when the existing match has progress. The quick all-opponents
 selector remains available; **Edit opponents** reopens a custom setup.
 
+The dialog says in one line that opponents keep their type as the seat winds
+change. How each type plays is its option's title, shown as a tooltip:
+Beginner plays simply, Club uses tile efficiency and defence, and Trained plays
+the network picked under **Trained network** in the settings, all Trained
+players sharing one loaded model. While the trained network cannot be had and
+no Trained player sits at the table, Trained cannot be picked, and the dialog
+says "The trained network is not available right now."
+
 Each opponent's panel displays its type. Assignments belong to fixed player
 identities, not East/South/West/North winds, and stay with those people through
 dealer changes, repeat hands, the final result and reload. New game reuses the

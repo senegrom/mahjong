@@ -125,6 +125,26 @@ test("the turn's prompt names no keys on screen, and a screen reader still hears
   for (const props of [{ touch: true }, { shortcuts: false }]) assert.doesNotMatch(await prompt(props), /arrows and Enter/, JSON.stringify(props));
 });
 
+test("the custom table says in one line that opponents keep their type, and what each type plays in its option's title", async () => {
+  const dialog = props => html('app/OpponentDialog.svelte', { customDialog: null, draftOpponents: ['club', 'beginner', 'club'],
+    opponents: ['club', 'club', 'club'], trainedAvailable: true, ready: true, saveConflict: '', startCustomTable() {}, ...props });
+  const lines = markup => [...markup.matchAll(/<p\b[^>]*>([^]*?)<\/p>/g)].map(([, said]) => text(said));
+  const line = 'Opponents keep their type as the seat winds change.';
+  const offered = await dialog({});
+  assert.deepEqual(lines(offered), [line]);
+  const plays = [['beginner', 'Plays simply'], ['club', 'Uses tile efficiency and defence'],
+    ['neural', 'Plays the network picked under Trained network in the settings; all Trained players share one loaded model']];
+  assert.deepEqual([...offered.matchAll(/<option value="(\w+)"[^>]*\btitle="([^"]*)"/g)].map(([, type, title]) => [type, title]),
+    [...plays, ...plays, ...plays], 'in each of the three selects');
+  // While the network cannot be had and no Trained player sits at the table,
+  // Trained cannot be picked, and a short line says why.
+  const unavailable = await dialog({ trainedAvailable: false });
+  assert.deepEqual(lines(unavailable), [line, 'The trained network is not available right now.']);
+  assert.equal((unavailable.match(/<option value="neural"[^>]*\bdisabled/g) ?? []).length, 3);
+  // A Trained player already at the table keeps Trained on offer, unremarked.
+  assert.deepEqual(lines(await dialog({ trainedAvailable: false, opponents: ['neural', 'club', 'club'] })), [line]);
+});
+
 test('the table inspection names each opponent once: position, wind, score', async () => {
   const view = { round: 'east', kyoku: 1, wall: 70, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [], outcome: null,
     seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };
