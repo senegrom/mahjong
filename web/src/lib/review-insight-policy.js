@@ -23,9 +23,10 @@
  *  - So a pass goes to a worker with nothing to do, which begins it at once
  *    and would run it to its end whatever is cancelled: it is sent without
  *    the question's signal. It is the review's own batch at this device's
- *    speed (batchFor), about ten seconds at most, and whatever is sent while
- *    it runs, the notes' first question or the next deal's first move, waits
- *    behind that one pass at most.
+ *    speed (batchFor), about ten seconds at most once the review has measured
+ *    a device that takes up to ten seconds a decision, and whatever is sent
+ *    while it runs, the notes' first question or the next deal's first move,
+ *    waits behind that one pass at most.
  *  - It holds a spell of asking of its own (`asking`), and the review of the
  *    rest of the game, given the gate of both spells (`anyGate`), waits at it
  *    as it waits for the notes. A question stopped while one of its passes is

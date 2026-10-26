@@ -32,7 +32,9 @@ export const BATCH = 8;
  * time a position: half the twenty seconds the worker gives one decision
  * (policy.js), so that a pass ends well within its own deadline, which is
  * never shorter, and whatever is sent behind it, the hand's notes or the next
- * deal's first move, waits about ten seconds at most. */
+ * deal's first move, waits about ten seconds at most. That holds on a device
+ * that takes up to ten seconds a decision; on a slower one a pass is a single
+ * position, which alone takes longer. */
 export const BATCH_MS = 10000;
 /** The positions in each forward pass on a device that takes `positionMs` a
  * position (MatchReview.positionMs): BATCH up to 1.25 seconds a position, and

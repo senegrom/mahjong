@@ -145,9 +145,9 @@
   // notes begin to ask, only their first question can still wait behind a
   // batch, the one already sent, whichever of the two was opened first, the
   // review's screen open or shut. Its deadline runs from when the worker
-  // begins it (requestPolicy), so that wait, about ten seconds at most once
-  // the review has timed the device (batchFor), slows it but cannot make it
-  // run out of time.
+  // begins it (requestPolicy), so that wait slows it but cannot make it run
+  // out of time. Once the review has timed the device (batchFor), the wait is
+  // about ten seconds at most on one that takes up to ten seconds a decision.
   const notesAsking = new Asking();
   // The review's reasoning asks the same worker, in passes no longer than the
   // review's batch (review-insight-policy.js), each sent only while the notes

@@ -852,8 +852,9 @@ time and 157 ms in batches of eight, with identical weights; natively the same
 batch nearly halves the cost. A game of 150 to 200 decisions takes about half a
 minute there; phones were not measured. A device the review measures at over
 1.25 seconds a position is asked fewer at a time, as many as take about ten
-seconds, so that a batch ends well within its deadline and nothing waits long
-behind it ([UI reliability](UI_RELIABILITY.md)). The review runs in the
+seconds and at least one, so that on a device that takes up to ten seconds a
+decision a batch ends well within its deadline and nothing waits long behind it
+([UI reliability](UI_RELIABILITY.md)). The review runs in the
 background with its progress and an estimate of the time left ("3 of 6
 decisions · about 2 minutes left"), goes on while its screen is closed, waits
 before each batch while a hand's own notes or its own reasoning about a
