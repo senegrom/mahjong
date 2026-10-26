@@ -22,13 +22,13 @@ extension, checks its observation and legality buffers, and exercises a batch
 of legal moves. The Python binding requires Rust 1.83 or newer; CI and the
 Modal training image use Rust 1.98.1.
 
-In `web/`, run `npm ci` and then `npm run verify`, which runs every check CI
-runs; the [README](../README.md#run-and-verify) lists its steps. Its npm audit
-runs at `--audit-level=low`, so any advisory rated low or above fails it. CI
-runs that audit as a job of its own, so an advisory or a registry outage fails
-the audit without stopping the tests. Generated WASM, third-party runtime
-files, build output and screenshots are not linted as handwritten application
-source.
+In `web/`, run `npm ci` and then `npm run verify`, which runs the checks of
+CI's npm audit and web app jobs; the [README](../README.md#run-and-verify)
+lists its steps. Its npm audit runs at `--audit-level=low`, so any advisory
+rated low or above fails it. CI runs that audit as a job of its own, so an
+advisory or a registry outage fails the audit without stopping the tests.
+Generated WASM, third-party runtime files, build output and screenshots are
+not linted as handwritten application source.
 
 ## Dependency and workflow policy
 

@@ -22,7 +22,7 @@ cd web
 npm ci
 npm run wasm
 npm run dev                 # VITE_LAN=1 exposes the dev server to your LAN
-npm run verify              # every web check CI runs, in one command
+npm run verify              # the checks of CI's npm audit and web app jobs, in one command
 ```
 
 `verify` audits dependencies, builds WebAssembly, runs JavaScript lint and
