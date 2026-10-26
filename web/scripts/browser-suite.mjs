@@ -1,11 +1,16 @@
 /** One browser-suite inventory for local verification and CI.
  * Each process retains its own browser/context lifecycle and failure evidence.
- * Every script runs, whichever failed before it, and the failures are named at
- * the end. BROWSER_SHARD=i/n runs only the i-th of n shards (CI runs three side
- * by side), script names narrow that to those scripts, and --list prints what
+ * Every script runs, whichever failed before it. At the end each failed script
+ * runs once more, and only one that fails again fails the suite; one that
+ * passes on its second try is named as FLAKY. What a failed script wrote to
+ * test-results on its first try is kept in test-results/first-try.
+ * BROWSER_SHARD=i/n runs only the i-th of n shards (CI runs three side by
+ * side), script names narrow that to those scripts, and --list prints what
  * would run without running it:
  *   BROWSER_SHARD=2/3 node scripts/browser-suite.mjs [--list] [script.mjs ...] */
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // In run order, each with the seconds it took in CI on 23 October 2026 (main,
@@ -44,16 +49,43 @@ const chosen = scripts.map(([script]) => script)
 if (process.argv.includes('--list')) {
   for (const script of chosen) console.log(script);
 } else {
-  const failed = [];
-  for (const script of chosen) {
-    console.log(`\n== Browser regression: ${script}`);
+  const web = fileURLToPath(new URL('../', import.meta.url)), evidence = join(web, 'test-results');
+  /** Runs one script, and says whether it passed. */
+  const passes = script => {
     const run = spawnSync(process.execPath, [fileURLToPath(new URL(script, import.meta.url))], {
-      cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit',
+      cwd: web, stdio: 'inherit',
     });
     if (run.error) console.error(run.error);
-    if (run.error || run.signal || run.status !== 0) failed.push(script);
+    return !run.error && !run.signal && run.status === 0;
+  };
+  /** When each file in test-results was last written, by its name. */
+  const written = () => new Map(existsSync(evidence) ? readdirSync(evidence, { withFileTypes: true })
+    .filter(entry => entry.isFile()).map(({ name }) => [name, statSync(join(evidence, name)).mtimeMs]) : []);
+  // Each script that failed, with the files its first try wrote.
+  const failed = new Map();
+  let before = written();
+  for (const script of chosen) {
+    console.log(`\n== Browser regression: ${script}`);
+    const passed = passes(script), after = written();
+    if (!passed) failed.set(script, [...after.keys()].filter(name => after.get(name) !== before.get(name)));
+    before = after;
   }
-  console.log(`\n${chosen.length - failed.length}/${chosen.length} browser scripts passed`);
-  for (const script of failed) console.error(`FAIL ${script}`);
-  if (failed.length) process.exitCode = 1;
+  // The first tries' pictures and reports show the failures, and the second
+  // tries would write over them, so they move to first-try, in place of an
+  // earlier run's.
+  if (failed.size) {
+    const firstTry = join(evidence, 'first-try');
+    rmSync(firstTry, { recursive: true, force: true });
+    mkdirSync(firstTry, { recursive: true });
+    for (const name of new Set([...failed.values()].flat())) renameSync(join(evidence, name), join(firstTry, name));
+  }
+  const flaky = [], broken = [];
+  for (const script of failed.keys()) {
+    console.log(`\n== Browser regression: ${script}, second try`);
+    (passes(script) ? flaky : broken).push(script);
+  }
+  console.log(`\n${chosen.length - broken.length}/${chosen.length} browser scripts passed`);
+  for (const script of flaky) console.log(`FLAKY ${script}: passed on its second try`);
+  for (const script of broken) console.error(`FAIL ${script}`);
+  if (broken.length) process.exitCode = 1;
 }

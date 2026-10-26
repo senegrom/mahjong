@@ -84,9 +84,10 @@ jobs:
     name: web app ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
     # The longest shard, the whole-game review's replay cases alone (each loads
-    # the published network in a page of its own), comes to about 13 minutes;
-    # the rest is room for a cold Rust cache and a slow runner.
-    timeout-minutes: 30
+    # the published network in a page of its own), comes to about 13 minutes,
+    # and to 26 when they fail once and run a second time; the rest is room for
+    # a cold Rust cache and a slow runner.
+    timeout-minutes: 45
     strategy:
       # A failing shard must not cancel the others before they report.
       fail-fast: false
