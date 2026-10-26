@@ -75,6 +75,9 @@ const tiedSave=completeSave(2);
 const finalSave=completeSave(14);
 const chii=make(1);for(const tile of ['9s','3m','8s','7p'])step(chii,{kind:'discard',tile});
 const chiiSave=chii.snapshot();chii.dispose();
+// The turn before that call: discarding the 7 circles there brings it.
+const beforeCall=make(1);for(const tile of ['9s','3m','8s'])step(beforeCall,{kind:'discard',tile});
+const beforeCallSave=beforeCall.snapshot();beforeCall.dispose();
 const sharedCall=make(287,'neural');sharedCall.apply({type:'opponent',action:1});sharedCall.advance(false);
 const sharedCallSave=sharedCall.snapshot();sharedCall.dispose();
 
@@ -110,7 +113,8 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
 }
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
 const ui=page=>page.evaluate(()=>({failure:document.querySelector('.failure')?.textContent ?? '',selected:document.querySelectorAll('.hand .selected').length,opponents:document.querySelector('select').value}));
-async function shot(page,name) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage:true}); }
+// The whole page, or with fullPage false the screen as the player sees it.
+async function shot(page,name,fullPage=true) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage}); }
 function noErrors(page) { assert.deepEqual(problems.get(page),[]); }
 function contrast(a,b) {
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
@@ -287,6 +291,40 @@ try {
       await page.click('.inspect');
       assert.equal(await page.$eval('.table-dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
       await page.keyboard.press('Escape'); assert.equal(await page.$eval('.table-dialog',n=>n.open),false); noErrors(page);
+    });
+  }
+  // Held sideways, a phone's screen is short, and the game's bar stays at its
+  // top over the page. When a call is offered, the player must see their whole
+  // hand and every call button at once, below the bar, without scrolling:
+  // where the page is as the call comes, after its own scroll to the call,
+  // whether it was opened at the call, or scrolled to its top or its foot
+  // before the discard that brought it.
+  for(const [width,height] of [[844,390],[932,430],[568,320],[667,375],[740,360]]) {
+    await check(`a call held sideways at ${width}x${height} shows the whole hand and every call button below the bar`,async()=>{
+      const wrong=[];
+      for(const from of ['opened','top','foot']) {
+        const page=await open(from==='opened'?callSave:beforeCallSave,{width,height});
+        if(from!=='opened') {
+          await page.evaluate(top=>scrollTo(0,top?0:document.documentElement.scrollHeight),from==='top');
+          // Pressed in the page, so that nothing scrolls it to the tile first.
+          await page.$eval('.hand button[data-tile="7p"]',n=>n.click());
+        }
+        await page.waitForFunction(()=>document.querySelector('.call-stage')&&document.querySelector('.call-options button:not(:disabled)'));
+        await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+        const seen=await page.evaluate(()=>{
+          const box=n=>n.getBoundingClientRect().toJSON();
+          return {bar:box(document.querySelector('.bar')),scrolled:scrollY,height:innerHeight,width:innerWidth,
+            tiles:[...document.querySelectorAll('.hand .hand-tile')].map(box),buttons:[...document.querySelectorAll('.call-options button')].map(box)};
+        });
+        if(from==='opened') await shot(page,`call-${width}x${height}`,false);
+        assert.equal(seen.tiles.length,13); assert.ok(seen.buttons.length>=2);
+        for(const [what,boxes] of [['hand tile',seen.tiles],['call button',seen.buttons]]) boxes.forEach((b,n)=>{
+          if(b.top<seen.bar.bottom-.5||b.bottom>seen.height+.5||b.left<-.5||b.right>seen.width+.5)
+            wrong.push(`${from}, scrolled ${Math.round(seen.scrolled)}: ${what} ${n+1} spans ${Math.round(b.top)} to ${Math.round(b.bottom)}, the bar ends at ${Math.round(seen.bar.bottom)}`);
+        });
+        noErrors(page);
+      }
+      assert.deepEqual(wrong,[]);
     });
   }
   await check('dark-mode result button contrast exceeds 4.5:1',async()=>{

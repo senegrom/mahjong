@@ -36,7 +36,7 @@
   let remainingByTile = $derived(hints && view ? unseenTileCounts(view) : new Map());
 </script>
 
-<section class="mine" class:turn={myTurn} aria-label="your seat">
+<section class="mine" class:turn={myTurn} class:listed class:over={view.phase === 'over'} aria-label="your seat">
   <header>
     <strong>You are {NAMES[me.seat]}</strong>
     <span class="score">{me.score.toLocaleString()}</span>
@@ -121,6 +121,18 @@
     .own-discards .caption { font-size: .62rem; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
     .hint { margin-left: 0; }
+  }
+  /* Held sideways, a phone's screen has room under the game's bar for the
+     hand and a call's buttons, which follow it (TurnChoices), only with
+     nothing between them, so while the hand is played what the table sees
+     of the player, their discards and called sets, goes above it rather
+     than below. The tiles stay 44 pixels wide on a phone under 640 pixels
+     wide too, rather than a seventh of its width, which made the hand
+     alone taller than the room. A finished hand, shown with its result,
+     and a review's, one of four, keep their order and size. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .mine:not(.listed):not(.over) .my-melds { order: 1; }
+    .mine:not(.listed):not(.over) .hand { order: 2; grid-template-columns: repeat(7,minmax(0,44px)); }
   }
 
   .my-dealer {

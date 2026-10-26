@@ -186,16 +186,44 @@
 
   // A call is offered under a table that fills the window, so the choices
   // can sit below the fold on an ordinary screen. Being asked a question
-  // whose answers are off screen is no question at all, so the section is
-  // brought into view when it appears, by the shortest scroll that does
-  // it and none at all when it is already there.
+  // whose answers are off screen is no question at all, so the buttons are
+  // brought into view when they appear, by the shortest scroll that does
+  // it and none at all when they are already there. They are measured
+  // themselves: held sideways they share their rows with the staged
+  // discard, and their own row has no box (TurnChoices). The hand the
+  // player answers from comes into view too, below the game's bar where
+  // that stays at the top of the screen (AppSettings): with the buttons in
+  // view and the hand's top above that, as on a phone held sideways at the
+  // foot of the page, the page scrolls back up to the hand, as far as keeps
+  // the buttons in view. All is measured once the play area has finished
+  // easing: with reduced motion every change of style eases over a
+  // hundredth of a millisecond (app.css), which takes a frame or two, and
+  // until then a hand that has just thrown its drawn tile keeps that tile's
+  // gap, its tiles a pixel narrower and the buttons that much higher.
   $effect(() => {
     if (mode !== 'play' || !callChoices.length || !callElement) return;
-    const buttons = callElement.querySelector('.call-options') ?? callElement;
-    const box = buttons.getBoundingClientRect();
-    if (box.bottom <= window.innerHeight && box.top >= 0) return;
-    const gentle = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    buttons.scrollIntoView({ block: 'end', behavior: gentle ? 'auto' : 'smooth' });
+    const section = callElement, hand = handElement;
+    let live = true;
+    const bringIntoView = () => {
+      if (!live) return;
+      const buttons = [...section.querySelectorAll('.call-options button')];
+      if (!buttons.length) return;
+      const boxes = buttons.map(button => button.getBoundingClientRect());
+      const top = Math.min(...boxes.map(box => box.top)), bottom = Math.max(...boxes.map(box => box.bottom));
+      const gentle = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const behavior = gentle ? 'auto' : 'smooth';
+      if (bottom > window.innerHeight || top < 0) {
+        buttons[boxes.findIndex(box => box.bottom === bottom)].scrollIntoView({ block: 'end', behavior });
+        return;
+      }
+      const bar = document.querySelector('.bar');
+      const roof = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+      const lift = Math.min(roof - (hand?.getBoundingClientRect().top ?? roof), window.innerHeight - bottom);
+      if (lift > 0) window.scrollBy({ top: -lift, behavior });
+    };
+    const easing = section.parentElement?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [];
+    void Promise.allSettled(easing.map(transition => transition.finished)).then(bringIntoView);
+    return () => { live = false; };
   });
 
   // When the turn comes to you and nothing else has focus, the hand takes
@@ -834,6 +862,17 @@
     .notice, .failure, .save-conflict, .loading, .history, main > :global(.game-review) { grid-column: 1 / -1; }
     .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
     .controls { font-size: .8rem; }
+  }
+  /* Held sideways, a phone's screen leaves the play area less room than it
+     takes under the game's bar, which stays at the top (AppSettings): the
+     hand's two rows alone are 157 pixels of the 264 to 374 left. Stuck to
+     the top of the screen, the play area hid its own foot, where a call's
+     buttons are, and the bar hid the hand, so while a hand is played it
+     scrolls with the page instead, and a call brings the hand and its
+     buttons into view together (above). A finished hand's area, with its
+     result, stays as it was. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .play-area:not(.ended) { position: static; }
   }
 
   @media (min-width: 761px) and (min-height: 501px) {
