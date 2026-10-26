@@ -133,7 +133,6 @@
         <option value="strong" disabled={!trainedPossible}>{trainedName('Trained AI')}</option>
       </select>
     </label>
-    {#if reviewer === 'strong'}<p class="policy-help">Percentages describe policy preferences, not win probabilities. Riichi's declaration weight and the discard weight given riichi are separate decisions, not a joint move probability.</p>{/if}
     <!-- This status line, and the one after the header, wait empty and out
          of sight for their words (linesKnown). -->
     <p class="policy-help" class:visually-hidden={!fallback} data-review-fallback role="status">{fallback}</p>

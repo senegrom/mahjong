@@ -9,6 +9,7 @@ import { Asking } from '../src/lib/game-review.js';
 import { anyGate, countedBatches } from '../src/lib/review-insight-policy.js';
 import { reviewFallbackNote } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
+import { text } from './fixtures/markup-text.js';
 
 // Render the production components, substituting only the browser-only
 // policy worker (SSR never executes the analysis effect).
@@ -82,6 +83,16 @@ test('Trained AI is the default adviser, and Club reviews in its place while the
   }
   assert.match(reviewFallbackNote(null), /can no longer be put to Trained AI, so Club reviews it/);
   assert.doesNotMatch(reviewFallbackNote(null), /not available right now/);
+});
+
+test("Trained AI's notes open with nothing in the flow about what its percentages are", () => {
+  // The network on offer and a hand to ask it about: Trained AI reviews, and
+  // a server render draws the notes as they open. What the percentages are is
+  // the title of each line that gives them (ReviewPreference), where it is
+  // asked for, not a paragraph above every hand's notes.
+  const html = render(Review, { props: { notes: differing, trainedAvailable: true, engine: {} } }).body;
+  assert.match(html, /<option value="strong"[^>]*selected/);
+  assert.doesNotMatch(text(html), /probabilit|chance of winning|preferences|separate decisions|declaration weight/);
 });
 
 test('a chosen Club review says nothing about the network', () => {
