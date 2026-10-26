@@ -184,6 +184,31 @@
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
 
+  // Held sideways, a phone's screen has room under the game's bar for the
+  // hand and the player's choices only with nothing between them, so while
+  // a hand is played the choices are drawn in the player's seat, right under
+  // the hand and over the called sets and discards (PlayerHand), rather
+  // than after the seat. They are drawn in one place or the other rather
+  // than moved by CSS, so that a screen reader and the keyboard go through
+  // them in the order they are seen. As the screen turns, a choice that had
+  // focus would go with the place it was in, dropping focus to the page, so
+  // the same choice where they are now drawn has it instead.
+  const SIDEWAYS = '(max-height: 500px) and (orientation: landscape)';
+  let sideways = $state(matchMedia(SIDEWAYS).matches);
+  let choicesInSeat = $derived(sideways && view?.phase !== 'over' && !standings);
+  onMount(() => {
+    const media = matchMedia(SIDEWAYS);
+    const turned = async () => {
+      const kept = [...(callElement?.querySelectorAll('button') ?? [])].indexOf(document.activeElement);
+      sideways = media.matches;
+      if (kept < 0) return;
+      await tick();
+      callElement?.querySelectorAll('button')[kept]?.focus();
+    };
+    media.addEventListener('change', turned);
+    return () => media.removeEventListener('change', turned);
+  });
+
   // A call is offered under a table that fills the window, so the choices
   // can sit below the fold on an ordinary screen. Being asked a question
   // whose answers are off screen is no question at all, so the buttons are
@@ -221,7 +246,7 @@
       const lift = Math.min(roof - (hand?.getBoundingClientRect().top ?? roof), window.innerHeight - bottom);
       if (lift > 0) window.scrollBy({ top: -lift, behavior });
     };
-    const easing = section.parentElement?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [];
+    const easing = section.closest('.play-area')?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [];
     void Promise.allSettled(easing.map(transition => transition.finished)).then(bringIntoView);
     return () => { live = false; };
   });
@@ -801,8 +826,15 @@
       <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
         <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
           {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
-          {canDiscard} {selectTile} {syncHandFocus} bind:handElement />
+          {canDiscard} {selectTile} {syncHandFocus} bind:handElement choices={choicesInSeat ? controls : null} />
 
+        {#if !choicesInSeat}{@render controls()}{/if}
+      </div>
+
+      <!-- The player's choices, or the hand's result and the standings once
+           it is over: after the player's seat, or in it, under the hand,
+           while a hand is played on a phone held sideways (choicesInSeat). -->
+      {#snippet controls()}
         <section class="controls" aria-label="your choices" bind:this={callElement}>
           {#if standings}
             <Standings {standings} onagain={() => start()} onsave={() => saveGame('standings')} onreview={() => reviewGame('standings')}
@@ -821,7 +853,7 @@
               {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
           {/if}
         </section>
-      </div>
+      {/snippet}
 
       <details class="history">
         <summary>Hand history · {log.length} event{log.length === 1 ? '' : 's'}</summary>
@@ -866,13 +898,14 @@
   /* Held sideways, a phone's screen leaves the play area less room than it
      takes under the game's bar, which stays at the top (AppSettings): the
      hand's two rows alone are 157 pixels of the 264 to 374 left. Stuck to
-     the top of the screen, the play area hid its own foot, where a call's
-     buttons are, and the bar hid the hand, so while a hand is played it
-     scrolls with the page instead, and a call brings the hand and its
-     buttons into view together (above). A finished hand's area, with its
-     result, stays as it was. */
+     the top of the screen, the play area hid its own foot, and the bar hid
+     the hand, so while a hand is played it scrolls with the page instead,
+     its choices drawn right under the hand, in the seat (choicesInSeat),
+     and a call brings the hand and its buttons into view together (above).
+     A finished hand's area, with its result, stays as it was. */
   @media (max-height: 500px) and (orientation: landscape) {
     .play-area:not(.ended) { position: static; }
+    .play-area:not(.ended) .controls { padding: 0; }
   }
 
   @media (min-width: 761px) and (min-height: 501px) {

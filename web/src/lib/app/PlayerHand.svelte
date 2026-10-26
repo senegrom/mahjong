@@ -9,13 +9,15 @@
 
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
-  // A review shows this hand as one of the table's four, so it can name the
-  // tiles for the seat (`handLabel`), make them a list (`listed`), say what
-  // the player was doing (`note`) and put words over the tiles its moves
-  // concern (`tags`, by each tile's place in the hand).
+  // On a phone held sideways App draws the player's choices here, right
+  // under the hand (`choices`). A review shows this hand as one of the
+  // table's four, so it can name the tiles for the seat (`handLabel`), make
+  // them a list (`listed`), say what the player was doing (`note`) and put
+  // words over the tiles its moves concern (`tags`, by each tile's place in
+  // the hand).
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
-    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
+    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null), choices = null,
     handLabel = 'your tiles', listed = false, note = '', tags = null,
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
@@ -80,6 +82,7 @@
         safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
     {/each}
   </div>
+  {@render choices?.()}
   {#if me.melds.length}<div class="my-melds"><Melds melds={me.melds} size="small" dora={shownDora} /></div>{/if}
   <div class="own-discards">
     <span class="caption">Your discards ({me.discards.length})</span>
@@ -123,16 +126,13 @@
     .hint { margin-left: 0; }
   }
   /* Held sideways, a phone's screen has room under the game's bar for the
-     hand and a call's buttons, which follow it (TurnChoices), only with
-     nothing between them, so while the hand is played what the table sees
-     of the player, their discards and called sets, goes above it rather
-     than below. The tiles stay 44 pixels wide on a phone under 640 pixels
-     wide too, rather than a seventh of its width, which made the hand
-     alone taller than the room. A finished hand, shown with its result,
-     and a review's, one of four, keep their order and size. */
+     hand and the choices drawn under it (App) only at the size the hand
+     has on a wider phone held sideways, so the tiles stay 44 pixels wide
+     under 640 pixels wide too, rather than a seventh of the width, which
+     made the hand alone taller than the room. A finished hand, shown with
+     its result, and a review's, one of four, keep their size. */
   @media (max-height: 500px) and (orientation: landscape) {
-    .mine:not(.listed):not(.over) .my-melds { order: 1; }
-    .mine:not(.listed):not(.over) .hand { order: 2; grid-template-columns: repeat(7,minmax(0,44px)); }
+    .mine:not(.listed):not(.over) .hand { grid-template-columns: repeat(7,minmax(0,44px)); }
   }
 
   .my-dealer {

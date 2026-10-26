@@ -61,6 +61,7 @@
         <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
           aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
           <span class="call-label">{callLabel(choice, robbing)}</span>
+          <span class="call-word">{callLabel(choice, robbing).split(' — ')[0]}</span>
           {#if callTiles(choice, view.pending_discard).length}
             <span class="call-preview" aria-hidden="true">
               {#each callTiles(choice, view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" />{/each}
@@ -80,6 +81,9 @@
   .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
   .call-options button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
   .call-label { min-width: 0; overflow-wrap: anywhere; }
+  /* The call's word alone, such as Chii, which its name begins with, shown
+     in place of the name where there is room for no more (below). */
+  .call-word { display: none; }
   .call-preview { display: inline-flex; align-items: center; gap: 4px; }
   .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .confirm-discard > span { font-size: .85rem; }
@@ -130,17 +134,19 @@
 
   /* Held sideways, a phone's screen leaves the hand and a call's buttons
      only the room under the game's bar, so the discard is staged in a card
-     no taller than the buttons, which follow it in the same rows, a little
-     narrower, as many to a row as fit: the tile, small, with the kicker
-     over who let it go. The rest of the card's words, which the tile and
-     the buttons' names say again, are still read out, as is the prompt,
-     whose line the call takes. */
+     no taller than the buttons, which follow it in the same rows, as many
+     to a row as fit: the tile, small, with the kicker over who let it go.
+     Each button shows its call's word beside the call's tiles. The rest of
+     the buttons' names and of the card's words, which the tiles say again,
+     are still read out, as is the prompt, whose line the call takes. */
   @media (max-height: 500px) and (orientation: landscape) {
     .calls { display: flex; flex-wrap: wrap; gap: 6px; }
     .call-options { display: contents; }
     .call-options button { gap: 6px; padding: 6px 8px; animation: choices-in .22s .06s ease-out both; }
+    .call-label { display: none; }
+    .call-word { display: inline; }
     .call-preview { --tile-width: 38px; gap: 3px; }
-    .call-stage { --tile-width: 28px; grid-template-columns: auto auto; gap: 0 8px; padding: 4px 10px; }
+    .call-stage { --tile-width: 26px; grid-template-columns: auto auto; gap: 0 8px; padding: 3px 10px; }
     .call-kicker { grid-area: 1 / 2; margin: 0; }
     .call-stage > :global(.tile) { grid-area: 1 / 1 / 3; }
     .call-message { grid-area: 2 / 2; }

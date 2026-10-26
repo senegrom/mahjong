@@ -63,6 +63,12 @@ const lateSave=findFixture(m=>m.view.wall<=15,chooseOpen);
 const markedSave=findFixture(m=>{const all=m.view.seats.flatMap(s=>s.discards);return all.some(d=>d.claimed)&&all.some(d=>d.drawn&&!d.claimed)&&all.some(d=>!d.drawn&&!d.claimed);},chooseOpen);
 const meldSave=findFixture(m=>m.view.seats.reduce((n,s)=>n+s.melds.length,0)>=3,chooseOpen);
 const manyCallsSave=findFixture(m=>m.choices.filter(c=>c.kind!=='discard').length>=4,chooseOpen);
+// A chii of two shapes, and Pass.
+const twoChiiSave=findFixture(m=>m.view.phase==='call'&&m.choices.length===3&&m.choices.filter(c=>c.kind==='chii').length===2,chooseOpen);
+// The player's own turn with nothing to call: late in a hand, and beside a called set.
+const ownTurn=m=>m.view.phase==='act'&&m.view.seats[0].turn&&m.choices.every(c=>c.kind==='discard');
+const lateTurnSave=findFixture(m=>ownTurn(m)&&m.view.seats[0].discards.length>=12);
+const meldTurnSave=findFixture(m=>ownTurn(m)&&m.view.seats[0].melds.length>0&&m.view.seats[0].discards.length>=8,chooseOpen);
 function completeSave(seed) {
   const m=make(seed,'beginner');
   for(let n=0;n<3500&&!m.over;n++) {
@@ -298,30 +304,59 @@ try {
   // hand and every call button at once, below the bar, without scrolling:
   // where the page is as the call comes, after its own scroll to the call,
   // whether it was opened at the call, or scrolled to its top or its foot
-  // before the discard that brought it.
+  // before the discard that brought it, and with two or three chii shapes on
+  // offer. On the player's own turn the whole hand is there at the top of the
+  // page, where a game opens, late in a hand and beside a called set: the
+  // discards and called sets lie under the hand and grow away from it. Under
+  // 640 pixels wide the table comes first, and the hand further down.
+  const seen=page=>page.evaluate(()=>{
+    const box=n=>n.getBoundingClientRect().toJSON();
+    return {bar:box(document.querySelector('.bar')),scrolled:scrollY,height:innerHeight,width:innerWidth,
+      tiles:[...document.querySelectorAll('.hand .hand-tile')].map(box),buttons:[...document.querySelectorAll('.call-options button')].map(box)};
+  });
+  // What of the hand and the buttons lies off the screen or under the bar, in words.
+  const hidden=(shown,where)=>[['hand tile',shown.tiles],['call button',shown.buttons]].flatMap(([what,boxes])=>boxes.flatMap((b,n)=>
+    b.top<shown.bar.bottom-.5||b.bottom>shown.height+.5||b.left<-.5||b.right>shown.width+.5
+      ?[`${where}, scrolled ${Math.round(shown.scrolled)}: ${what} ${n+1} spans ${Math.round(b.top)} to ${Math.round(b.bottom)}, the bar ends at ${Math.round(shown.bar.bottom)}`]:[]));
+  // Once every transition and every animation that ends has ended, the
+  // call's own scroll with them, and two frames have been drawn since.
+  const still=page=>page.evaluate(async()=>{
+    await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getComputedTiming().endTime!==Infinity).map(a=>a.finished));
+    await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));
+  });
+  const held=save=>{const me=JSON.parse(save.state)[0].seats[0];return me.hand.length+(me.drawn?1:0);};
   for(const [width,height] of [[844,390],[932,430],[568,320],[667,375],[740,360]]) {
     await check(`a call held sideways at ${width}x${height} shows the whole hand and every call button below the bar`,async()=>{
       const wrong=[];
-      for(const from of ['opened','top','foot']) {
-        const page=await open(from==='opened'?callSave:beforeCallSave,{width,height});
-        if(from!=='opened') {
+      for(const [from,save] of [['opened',callSave],['top',beforeCallSave],['foot',beforeCallSave],['two chii shapes',twoChiiSave],['three chii shapes',manyCallsSave]]) {
+        const page=await open(save,{width,height}), discarding=from==='top'||from==='foot';
+        if(discarding) {
           await page.evaluate(top=>scrollTo(0,top?0:document.documentElement.scrollHeight),from==='top');
           // Pressed in the page, so that nothing scrolls it to the tile first.
           await page.$eval('.hand button[data-tile="7p"]',n=>n.click());
         }
         await page.waitForFunction(()=>document.querySelector('.call-stage')&&document.querySelector('.call-options button:not(:disabled)'));
-        await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
-        const seen=await page.evaluate(()=>{
-          const box=n=>n.getBoundingClientRect().toJSON();
-          return {bar:box(document.querySelector('.bar')),scrolled:scrollY,height:innerHeight,width:innerWidth,
-            tiles:[...document.querySelectorAll('.hand .hand-tile')].map(box),buttons:[...document.querySelectorAll('.call-options button')].map(box)};
-        });
+        await still(page);
+        const call=await seen(page);
         if(from==='opened') await shot(page,`call-${width}x${height}`,false);
-        assert.equal(seen.tiles.length,13); assert.ok(seen.buttons.length>=2);
-        for(const [what,boxes] of [['hand tile',seen.tiles],['call button',seen.buttons]]) boxes.forEach((b,n)=>{
-          if(b.top<seen.bar.bottom-.5||b.bottom>seen.height+.5||b.left<-.5||b.right>seen.width+.5)
-            wrong.push(`${from}, scrolled ${Math.round(seen.scrolled)}: ${what} ${n+1} spans ${Math.round(b.top)} to ${Math.round(b.bottom)}, the bar ends at ${Math.round(seen.bar.bottom)}`);
-        });
+        if(from==='three chii shapes') await shot(page,`call-many-${width}x${height}`,false);
+        assert.equal(call.tiles.length,held(save)-(discarding?1:0),from);
+        assert.equal(call.buttons.length,discarding?2:JSON.parse(save.state)[1].length,from);
+        wrong.push(...hidden(call,from));
+        noErrors(page);
+      }
+      assert.deepEqual(wrong,[]);
+    });
+    if(width>=640) await check(`the player's own turn held sideways at ${width}x${height} shows the whole hand at the top of the page`,async()=>{
+      const wrong=[];
+      for(const [when,save] of [['late in a hand',lateTurnSave],['beside a called set',meldTurnSave]]) {
+        const page=await open(save,{width,height});
+        await page.waitForSelector('.hand button:not(:disabled)');
+        await page.evaluate(()=>scrollTo(0,0)); await still(page);
+        const turn=await seen(page);
+        if(save===lateTurnSave) await shot(page,`turn-${width}x${height}`,false);
+        assert.equal(turn.tiles.length,held(save),when); assert.equal(turn.scrolled,0,when);
+        wrong.push(...hidden(turn,when));
         noErrors(page);
       }
       assert.deepEqual(wrong,[]);
