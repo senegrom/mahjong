@@ -9,13 +9,15 @@
 
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
-  // A review shows this hand as one of the table's four, so it can name the
-  // tiles for the seat (`handLabel`), make them a list (`listed`), say what
-  // the player was doing (`note`) and put words over the tiles its moves
-  // concern (`tags`, by each tile's place in the hand).
+  // On a phone held sideways App draws the player's choices here, right
+  // under the hand (`controls`). A review shows this hand as one of the
+  // table's four, so it can name the tiles for the seat (`handLabel`), make
+  // them a list (`listed`), say what the player was doing (`note`) and put
+  // words over the tiles its moves concern (`tags`, by each tile's place in
+  // the hand).
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
-    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null),
+    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null), controls = null,
     handLabel = 'your tiles', listed = false, note = '', tags = null,
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
@@ -36,7 +38,7 @@
   let remainingByTile = $derived(hints && view ? unseenTileCounts(view) : new Map());
 </script>
 
-<section class="mine" class:turn={myTurn} aria-label="your seat">
+<section class="mine" class:turn={myTurn} class:listed class:over={view.phase === 'over'} aria-label="your seat">
   <header>
     <strong>You are {NAMES[me.seat]}</strong>
     <span class="score">{me.score.toLocaleString()}</span>
@@ -80,6 +82,7 @@
         safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
     {/each}
   </div>
+  {@render controls?.()}
   {#if me.melds.length}<div class="my-melds"><Melds melds={me.melds} size="small" dora={shownDora} /></div>{/if}
   <div class="own-discards">
     <span class="caption">Your discards ({me.discards.length})</span>
@@ -121,6 +124,15 @@
     .own-discards .caption { font-size: .62rem; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
     .hint { margin-left: 0; }
+  }
+  /* Held sideways, a phone's screen has room under the game's bar for the
+     hand and the choices drawn under it (App) only at the size the hand
+     has on a wider phone held sideways, so the tiles stay 44 pixels wide
+     under 640 pixels wide too, rather than a seventh of the width, which
+     made the hand alone taller than the room. A finished hand, shown with
+     its result, and a review's, one of four, keep their size. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .mine:not(.listed):not(.over) .hand { grid-template-columns: repeat(7,minmax(0,44px)); }
   }
 
   .my-dealer {

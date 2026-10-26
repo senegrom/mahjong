@@ -14,8 +14,8 @@ Presentation components cannot write a match or choose a fallback opponent.
 | `OfflineStatus` | Render actual core/AI persistence status and invoke an explicit download callback. |
 | `OpponentDialog` | Edit a separate draft; ask App to confirm replacement of the match. |
 | `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints, and those of a review's table, which shows every hand face up as it stood at a past decision, or the opponents' turned face down in their racks (`concealed`), on a dense board from 761 pixels wide (the centre a bar across the top, the three opponents in one row), and, where the player answers a discard, outlines the tile on offer in the row of the seat that let it go. |
-| `PlayerHand` | Render the hand and read-only hypothetical discard analysis; bind its DOM element to App. In a review, name the tiles for the seat, as one of the table's four hands, and put words over the tiles the review's moves concern (`tags`). |
-| `TurnChoices` | Render choices and forward actions/cancellation to App's guards. |
+| `PlayerHand` | Render the hand and read-only hypothetical discard analysis; bind its DOM element to App. In play on a phone held sideways, draw App's controls (`controls`) right under the hand, over the called sets and discards. In a review, name the tiles for the seat, as one of the table's four hands (`listed`), and put words over the tiles the review's moves concern (`tags`). |
+| `TurnChoices` | Render choices and forward actions/cancellation to App's guards. On a phone held sideways, stage a call's discard in a small card in the rows of its buttons, each the call's word beside its tiles. |
 | `ReviewInsight` (`src/lib`, in the review's `DecisionReplay`) | Render what App's `MatchInsight` has for the decision on show, the Why line and "What would change its mind?" with its progress, Cancel and what it found, only once Trained AI's answer is shown; ask it to explain, search, cancel or leave a decision, never the worker itself. |
 
 `types.ts` declares the view, choice, offline, preference and callback contracts.
