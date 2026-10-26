@@ -4,6 +4,7 @@ import { render } from 'svelte/server';
 import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
 import { playNetwork } from '../src/lib/trained-network.js';
 import { componentLoader, moduleUrl, svelteModule } from './fixtures/load-component.js';
+import { text } from './fixtures/markup-text.js';
 
 // Render the production presentation components. Only Tile, for its artwork,
 // and the agent-name import (which otherwise initializes the browser worker)
@@ -117,6 +118,23 @@ test('historical review distinguishes shared declaration weights from different 
   assert.match(body, /Discard given riichi: 75\.0%/);
   assert.match(body, /Discard given riichi: 25\.0%/);
   assert.doesNotMatch(body, /60\.0%/);
+});
+
+test("the preference line's title says what its percentages are, and at a riichi that its two weights are separate decisions", async () => {
+  const title = markup => /<p class="policy-preference[^"]*" title="([^"]*)"/.exec(markup)?.[1];
+  const weights = 'How strongly Trained AI prefers each move, not a chance of winning';
+  const discards = { advised_kind: 'discard', played_kind: 'discard', agreed: false, preferred_weight: .8, played_weight: .1 };
+  const plain = await html('ReviewPreference.svelte', { note: discards });
+  assert.equal(title(plain), weights);
+  // Asked for, not read: nothing of it in the line's own words.
+  assert.doesNotMatch(text(plain), /chance of winning|separate decisions/);
+  // A riichi on the line, Trained AI's, the player's or one they both
+  // declared, adds that its declaration and its discard are not one move.
+  const reach = { preferred_conditional_weight: .75, played_conditional_weight: .25 };
+  for (const kinds of [{ advised_kind: 'riichi' }, { played_kind: 'riichi' }, { advised_kind: 'riichi', played_kind: 'riichi', agreed: true }]) {
+    assert.equal(title(await html('ReviewPreference.svelte', { note: { ...discards, ...reach, ...kinds } })),
+      `${weights}. Declaring riichi and the discard given riichi are weighed as separate decisions, not as one move.`, JSON.stringify(kinds));
+  }
 });
 
 test('historical unevaluated riichi and unscored moves never acquire invented percentages', async () => {

@@ -166,7 +166,7 @@ depends on where the press starts (see below).
 | 1366x768 | any | 53 | 53 |
 | 1280x600 | any | 56 | 53 |
 | 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 263 | 315 |
-| 844x390, Trained AI still reviewing, from the foot | any | 154 | 204 |
+| 844x390, Trained AI still reviewing, from the foot | any | 139 | 140 |
 | 390x844 | keyboard | 2 | 343 |
 | 375x667 | keyboard | 183 | 516 |
 | 360x640 | keyboard | 124 | 451 |
@@ -190,11 +190,11 @@ browser's own scroll anchoring moves the page as the review opens and leaves
 the heading under the game's bar; the page then brings it out just below the
 bar, 72 pixels from the top of the screen. With Trained AI's review under way,
 a shorter review that says how far it has got, the page moves less, and the
-heading ends lower, 181 to 207 pixels from the top, in view below the bar.
+heading ends lower, 229 to 248 pixels from the top, in view below the bar.
 Where it starts matters too. Pressed where the button has only just come into
 view, **View table / my hand** moves the page 72 pixels and the heading lands
 358 pixels from the top. From there **Review final hand** moves it 358 pixels
-with Club, or 177 with Trained AI. With Trained AI the figures also vary by
+with Club, or 112 with Trained AI. With Trained AI the figures also vary by
 a few dozen pixels from press to press, as the review's progress line changes
 length while it downloads or saves.
 
@@ -236,6 +236,16 @@ reached, come into the page with the review. They wait in it, empty and out of
 sight, until the review has been drawn and a tenth of a second more, before
 their words arrive, so that a screen reader can hear them after the heading it
 reads out as focus arrives.
+
+With Trained AI as the adviser, each decision gives Trained AI's weight for its
+own choice and, where the player chose otherwise, for the player's move; a
+riichi gives its declaration weight and the discard's weight given riichi.
+Nothing above the notes says what the weights are. The line that gives them
+says it in its title, shown as a tooltip: "How strongly Trained AI prefers each
+move, not a chance of winning", and, where the line has a riichi, that
+declaring riichi and the discard given riichi are weighed as separate
+decisions, not as one move. The tile guide's "Trained AI's percentages" says
+the first as well.
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
