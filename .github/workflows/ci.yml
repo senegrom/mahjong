@@ -60,8 +60,9 @@ jobs:
     name: web app
     runs-on: ubuntu-latest
     # The browser suite outgrew 20 minutes with the whole-game review's replay
-    # cases, each of which loads the published network in a page of its own.
-    timeout-minutes: 30
+    # cases, each of which loads the published network in a page of its own,
+    # and 30 with the game review's checks: the job took 28m35s on 23 Oct.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
