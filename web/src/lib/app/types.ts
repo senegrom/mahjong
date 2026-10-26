@@ -101,7 +101,7 @@ export interface PlayerHandProps {
   /** The player's choices, drawn under the hand, over the called sets and
    * discards, where play has room for nothing between the hand and them (App);
    * null, as in a review, for nothing there. */
-  choices?: Snippet | null;
+  controls?: Snippet | null;
   /** What a screen reader calls the tiles; a review names them for the seat. */
   handLabel?: string;
   /** The tiles as a list, one of a review's four hands, rather than a group. */

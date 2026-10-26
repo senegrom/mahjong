@@ -10,14 +10,14 @@
   // Selection and keyboard focus stay owned by App across turn changes.
   // Only read-only presentation and hypothetical discard analysis live here.
   // On a phone held sideways App draws the player's choices here, right
-  // under the hand (`choices`). A review shows this hand as one of the
+  // under the hand (`controls`). A review shows this hand as one of the
   // table's four, so it can name the tiles for the seat (`handLabel`), make
   // them a list (`listed`), say what the player was doing (`note`) and put
   // words over the tiles its moves concern (`tags`, by each tile's place in
   // the hand).
   let {
     view, engine, closed, hints, busy, blocked, discardChoices, confirmDiscards, picked, selected,
-    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null), choices = null,
+    canDiscard, selectTile, syncHandFocus, handElement = $bindable(null), controls = null,
     handLabel = 'your tiles', listed = false, note = '', tags = null,
   }: PlayerHandProps = $props();
   let me = $derived(view?.seats[0]);
@@ -82,7 +82,7 @@
         safe={hints && view.phase !== 'over' && view.safe.includes(tile)} dora={shownDora.includes(tile)} />
     {/each}
   </div>
-  {@render choices?.()}
+  {@render controls?.()}
   {#if me.melds.length}<div class="my-melds"><Melds melds={me.melds} size="small" dora={shownDora} /></div>{/if}
   <div class="own-discards">
     <span class="caption">Your discards ({me.discards.length})</span>

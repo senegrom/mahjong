@@ -215,16 +215,19 @@
   // brought into view when they appear, by the shortest scroll that does
   // it and none at all when they are already there. They are measured
   // themselves: held sideways they share their rows with the staged
-  // discard, and their own row has no box (TurnChoices). The hand the
-  // player answers from comes into view too, below the game's bar where
-  // that stays at the top of the screen (AppSettings): with the buttons in
-  // view and the hand's top above that, as on a phone held sideways at the
-  // foot of the page, the page scrolls back up to the hand, as far as keeps
-  // the buttons in view. All is measured once the play area has finished
-  // easing: with reduced motion every change of style eases over a
-  // hundredth of a millisecond (app.css), which takes a frame or two, and
-  // until then a hand that has just thrown its drawn tile keeps that tile's
-  // gap, its tiles a pixel narrower and the buttons that much higher.
+  // discard, and their own row has no box (TurnChoices). Held sideways, the
+  // hand the player answers from comes into view too, below the game's bar,
+  // which stays at the top of the screen (AppSettings): with the buttons in
+  // view and the hand's top above that, as at the foot of the page, the
+  // page scrolls back up to the hand, as far as keeps the buttons in view.
+  // Upright and on a desktop the page stays where it is once the buttons
+  // show. All is measured once the play area has finished easing and the
+  // choices have slid in (TurnChoices): with reduced motion every change of
+  // style eases over a hundredth of a millisecond (app.css), which takes a
+  // frame or two, and until then a hand that has just thrown its drawn tile
+  // keeps that tile's gap, its tiles a pixel narrower and the buttons that
+  // much higher; and the slide's delay is not shortened, so until it ends
+  // the buttons sit 4 pixels low.
   $effect(() => {
     if (mode !== 'play' || !callChoices.length || !callElement) return;
     const section = callElement, hand = handElement;
@@ -241,13 +244,18 @@
         buttons[boxes.findIndex(box => box.bottom === bottom)].scrollIntoView({ block: 'end', behavior });
         return;
       }
+      if (!sideways) return;
       const bar = document.querySelector('.bar');
       const roof = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
       const lift = Math.min(roof - (hand?.getBoundingClientRect().top ?? roof), window.innerHeight - bottom);
       if (lift > 0) window.scrollBy({ top: -lift, behavior });
     };
-    const easing = section.closest('.play-area')?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [];
-    void Promise.allSettled(easing.map(transition => transition.finished)).then(bringIntoView);
+    const easing = [
+      ...section.closest('.play-area')?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [],
+      ...section.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSAnimation
+        && Number.isFinite(animation.effect?.getComputedTiming().endTime)),
+    ];
+    void Promise.allSettled(easing.map(motion => motion.finished)).then(bringIntoView);
     return () => { live = false; };
   });
 
@@ -826,7 +834,7 @@
       <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
         <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
           {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
-          {canDiscard} {selectTile} {syncHandFocus} bind:handElement choices={choicesInSeat ? controls : null} />
+          {canDiscard} {selectTile} {syncHandFocus} bind:handElement controls={choicesInSeat ? controls : null} />
 
         {#if !choicesInSeat}{@render controls()}{/if}
       </div>
