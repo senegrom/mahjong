@@ -33,18 +33,19 @@ fails every request still waiting on it, those queued behind it too, and
 whoever asked says so: the notes that the trained opponent did not answer in
 time, the review the same as it stops, and a Trained opponent's table by
 offering its recovery. A request the worker never begins, as when the worker
-dies without an error, has a backstop instead: its own deadline and those of
-the requests ahead of it, counted from when it was sent, after which it fails
-the same way.
+dies without an error, fails the same way when its backstop runs out: its own
+deadline and those of the requests still ahead of it, counted from when it was
+sent, or from when the network is ready if it was still loading, and again
+from each answer the worker gives.
 
 The review sizes its batches to the device, by the time a decision it has
 measured: eight decisions up to 1.25 seconds a decision, and on a slower
-device as many as take about ten seconds, at least one. A batch then takes at
-most half its deadline, and whatever queues behind it waits about ten seconds
-at most. The first batch can include loading the network, so it is not timed,
-and the first two are eight whatever the device, which run out of time from
-five seconds a decision. The review's reasoning about a decision asks in
-passes of the same size.
+device as many as take about ten seconds, at least one. On a device that takes
+up to ten seconds a decision, a batch then takes at most half its deadline,
+and whatever queues behind it waits about ten seconds at most. The first batch
+can include loading the network, so it is not measured, and the first two are
+eight whatever the device, which run out of time from five seconds a decision.
+The review's reasoning about a decision asks in passes of the same size.
 
 ## Saved matches
 
