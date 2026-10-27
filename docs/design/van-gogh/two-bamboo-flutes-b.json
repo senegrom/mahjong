@@ -1,0 +1,38 @@
+{
+  "tile": "2s",
+  "name": "Sou2",
+  "candidate": "Flutes B",
+  "title": "The Bamboo Duet",
+  "source": "docs/design/van-gogh/studies/34-two-bamboo-flutes-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou2.svg",
+  "approval": "Carl selected the two bamboo flutes on blue cloth and explicitly requested GitHub deployment. The footbridge and terracotta-wall alternatives are not selected.",
+  "originalFilename": "van_gogh_inspired_bamboo_flute_still_life.png",
+  "originalSha256": "673d03362f020ade5f7b1e256997e641ef58946d6a300def8e0a6a2c2061a785",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalRetention": "The full-resolution original PNG is retained with the approval conversation. This repository contains the optimized approved artwork and provenance, not a full-resolution PNG archive.",
+  "processing": "Uniformly resize the complete exact 3:4 RGB painting with Pillow Lanczos to 300 x 400, then encode AVIF quality 70, speed 0, 4:2:0. No cropping, stretching, repainting or recolouring. The normal exporter places the image at 0,0,300,400, with zero extra bleed. Both flutes and the complete setting are preserved apart from the standard rounded tile clipping.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 43105,
+  "rasterSha256": "a7ea6872aa22a34527eb4de3d2c9f5cfdc2efb8d0eea3d2dfd030c4d7b2e2636",
+  "svgSha256": "b96e075418830bb5f65c401a01efdfba1d492c8be5e55f7795678f41c1b45435",
+  "runtimeSvgSha256": "364fccf7e6fac3ab09bc7f4f1c0f7d913a25e799a304d707450ea5426a15fca2",
+  "supersededCandidate": "Bamboo B (green)",
+  "supersededSource": "docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp",
+  "archivedSvg": "docs/design/van-gogh/superseded/two-bamboo-garden-rhythm-Sou2.svg",
+  "archivedSvgSha256": "90a2b40148ffaf01efd4409c904aa904ff52168137452e2ab8099f1310d616c5",
+  "archivedPng": "docs/design/van-gogh/superseded/two-bamboo-garden-rhythm-Sou2.png",
+  "archivedPngSha256": "581df3d6e7992d547af374a676c5a051314cc698f16fe918fde1decb2099e14d"
+}
