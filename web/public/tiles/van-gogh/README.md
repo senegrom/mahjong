@@ -272,3 +272,10 @@ Carl selected the loom option C and explicitly requested deployment, replacing L
 The original PNG checksum is `de7bf8b8be8d6a1a445f045e3bb73e152a2ea2bc767c8b37ca6beb010cac2f73`. The original remains with the approval conversation; the repository retains the optimized source SVG and the complete provenance in `docs/design/van-gogh/six-characters-scarlet-loom-c.json`. The former playable Lemon Terrace SVG is preserved byte-for-byte in `docs/design/van-gogh/superseded/six-characters-lemon-terrace-Man6.svg`; its original optimized source is unchanged.
 
 Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=6m`. All 33 other Van Gogh faces, including the Almond-Blossom White Dragon and the Painter’s Red Dragon, remain unchanged. The set still contains all 34 identities.
+
+
+## Three Bamboo in a Vase A — 3 bamboo (3s / Sou3)
+
+Carl selected the left-hand vase painting and explicitly requested deployment. It replaces green Triple Shoots A, not the raft, wind chime or any other numbered tile. The crop at (22, 23), 576 × 768 pixels, removes the triptych gutters and A label, while preserving all three stalks and the complete vase. It is uniformly downsampled to 300 × 400 and encoded as quality-70 AVIF; the runtime fit has zero stretch and zero extra bleed. Standard rounded clipping remains unchanged.
+
+The previous playable PNG and SVG are archived byte-for-byte under `docs/design/van-gogh/superseded/three-bamboo-triple-shoots-Sou3.*`; its original study and provenance remain unchanged. The original triptych and lossless crop are available with the approval conversation; this repository retains the optimized selected image, not a full-resolution PNG archive. See `docs/design/van-gogh/three-bamboo-vase-a.json` for crop coordinates, original and export checksums. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=3s`. All other 33 Van Gogh faces and all other sets remain unchanged.
