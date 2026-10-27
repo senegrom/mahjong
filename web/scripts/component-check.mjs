@@ -103,6 +103,18 @@ try {
       return { width: box.width, height: box.height, position: style.position, display: style.display, clip: style.clipPath };
     }), { width: 1, height: 1, position: 'absolute', display: 'block', clip: 'inset(50%)' });
   });
+  await check("the turn's prompt shows its sentence alone, and the hand's description still names the keys", desktop, async page => {
+    // The keys are in the prompt out of sight, as the page's other unseen
+    // words are, and the hand names the prompt as its description, so a
+    // screen reader hears them with the hand.
+    assert.deepEqual(await page.$eval('#hand-help .visually-hidden', el => {
+      const box = el.getBoundingClientRect();
+      return { text: el.textContent, width: box.width, height: box.height, clip: getComputedStyle(el).clipPath };
+    }), { text: 'Focus your hand to use arrows and Enter.', width: 1, height: 1, clip: 'inset(50%)' });
+    const hand = await page.accessibility.snapshot({ root: await page.$('.hand'), interestingOnly: false });
+    assert.equal(hand?.name, 'your tiles');
+    assert.match(hand?.description ?? '', /^Your turn\. Select a tile, then confirm the discard\.\s+Focus your hand to use arrows and Enter\.$/);
+  });
   await check('real offline status reacts to a parent update and invokes download once', desktop, async page => {
     await openPanel(page, '.offline-settings > summary');
     assert.match(await page.$eval('[data-ai-status]', el => el.textContent), /Interrupted fixture download/);

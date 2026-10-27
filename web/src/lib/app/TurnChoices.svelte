@@ -27,23 +27,19 @@
 </script>
 
 <p class="visually-hidden" role="status">{announcement}</p>
-<p id="hand-help" class="prompt" role="status">
+<p id="hand-help" class="prompt" class:staged={Boolean(offered)} role="status">
   {#if saveConflict}Reload the latest match to continue here.
   {:else if failure}Choose a recovery option above to continue.
   {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
   {:else if myTurn}
     {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
-    {#if !touch && shortcuts}<span class="key-help">Focus your hand to use arrows and Enter.</span>{/if}
+    <!-- The hand takes focus as the turn comes (App) and the tile guide gives
+         the keys, so only a screen reader is told them here, in the prompt
+         that the hand names as its description. -->
+    {#if !touch && shortcuts}<span class="visually-hidden">Focus your hand to use arrows and Enter.</span>{/if}
   {:else if !callChoices.length}Waiting for the others…
   {:else}Choose a call, or pass.{/if}
 </p>
-{#if offered}
-  <div class="call-stage">
-    <span class="call-kicker">{robbing ? 'Kan' : 'Discard'}</span>
-    <Tile tile={offered} dora={shownDora.includes(offered)} />
-    <span class="call-message"><strong>{discarder}</strong><span>{robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></span>
-  </div>
-{/if}
 {#if chosen}
   <div class="confirm-discard">
     <span>Selected: {tileWords(chosen)}</span>
@@ -52,27 +48,42 @@
   </div>
 {/if}
 {#if callChoices.length}
-  <div class="call-options">
-    {#each callChoices as choice, index (index)}
-      <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
-        aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
-        <span class="call-label">{callLabel(choice, robbing)}</span>
-        {#if callTiles(choice, view.pending_discard).length}
-          <span class="call-preview" aria-hidden="true">
-            {#each callTiles(choice, view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" />{/each}
-          </span>
-        {/if}
-      </button>
-    {/each}
+  <div class="calls">
+    {#if offered}
+      <div class="call-stage">
+        <span class="call-kicker">{robbing ? 'Kan' : 'Discard'}</span>
+        <Tile tile={offered} dora={shownDora.includes(offered)} />
+        <span class="call-message"><strong>{discarder}</strong><span>{robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></span>
+      </div>
+    {/if}
+    <div class="call-options">
+      {#each callChoices as choice, index (index)}
+        <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
+          aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
+          <span class="call-label">{callLabel(choice, robbing)}</span>
+          <span class="call-word">{callLabel(choice, robbing).split(' — ')[0]}</span>
+          {#if callTiles(choice, view.pending_discard).length}
+            <span class="call-preview" aria-hidden="true">
+              {#each callTiles(choice, view.pending_discard) as tile, slot (slot)}<Tile {tile} size="tiny" />{/each}
+            </span>
+          {/if}
+        </button>
+      {/each}
+    </div>
   </div>
 {/if}
 
 <style>
   .prompt { margin: 0; font-size: .9rem; }
-  .key-help { display: block; font-size: .78rem; }
+  /* A call's staged discard and its buttons take a row each among the
+     controls (App), except on a phone held sideways (below). */
+  .calls { display: contents; }
   .call-options { display: flex; flex-wrap: wrap; gap: 8px; }
   .call-options button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
   .call-label { min-width: 0; overflow-wrap: anywhere; }
+  /* The call's word alone, such as Chii, which its name begins with, shown
+     in place of the name where there is room for no more (below). */
+  .call-word { display: none; }
   .call-preview { display: inline-flex; align-items: center; gap: 4px; }
   .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .confirm-discard > span { font-size: .85rem; }
@@ -119,5 +130,26 @@
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .call-stage { grid-template-columns: auto auto minmax(0,1fr); padding: 9px 10px; }
+  }
+
+  /* Held sideways, a phone's screen leaves the hand and a call's buttons
+     only the room under the game's bar, so the discard is staged in a card
+     no taller than the buttons, which follow it in the same rows, as many
+     to a row as fit: the tile, small, with the kicker over who let it go.
+     Each button shows its call's word beside the call's tiles. The rest of
+     the buttons' names and of the card's words, which the tiles say again,
+     are still read out, as is the prompt, whose line the call takes. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .calls { display: flex; flex-wrap: wrap; gap: 6px; }
+    .call-options { display: contents; }
+    .call-options button { gap: 6px; padding: 6px 8px; animation: choices-in .22s .06s ease-out both; }
+    .call-label { display: none; }
+    .call-word { display: inline; }
+    .call-preview { --tile-width: 38px; gap: 3px; }
+    .call-stage { --tile-width: 26px; grid-template-columns: auto auto; gap: 0 8px; padding: 3px 10px; }
+    .call-kicker { grid-area: 1 / 2; margin: 0; }
+    .call-stage > :global(.tile) { grid-area: 1 / 1 / 3; }
+    .call-message { grid-area: 2 / 2; }
+    .prompt.staged, .call-message span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }
 </style>

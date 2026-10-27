@@ -63,6 +63,12 @@ const lateSave=findFixture(m=>m.view.wall<=15,chooseOpen);
 const markedSave=findFixture(m=>{const all=m.view.seats.flatMap(s=>s.discards);return all.some(d=>d.claimed)&&all.some(d=>d.drawn&&!d.claimed)&&all.some(d=>!d.drawn&&!d.claimed);},chooseOpen);
 const meldSave=findFixture(m=>m.view.seats.reduce((n,s)=>n+s.melds.length,0)>=3,chooseOpen);
 const manyCallsSave=findFixture(m=>m.choices.filter(c=>c.kind!=='discard').length>=4,chooseOpen);
+// A chii of two shapes, and Pass.
+const twoChiiSave=findFixture(m=>m.view.phase==='call'&&m.choices.length===3&&m.choices.filter(c=>c.kind==='chii').length===2,chooseOpen);
+// The player's own turn with nothing to call: late in a hand, and beside a called set.
+const ownTurn=m=>m.view.phase==='act'&&m.view.seats[0].turn&&m.choices.every(c=>c.kind==='discard');
+const lateTurnSave=findFixture(m=>ownTurn(m)&&m.view.seats[0].discards.length>=12);
+const meldTurnSave=findFixture(m=>ownTurn(m)&&m.view.seats[0].melds.length>0&&m.view.seats[0].discards.length>=8,chooseOpen);
 function completeSave(seed) {
   const m=make(seed,'beginner');
   for(let n=0;n<3500&&!m.over;n++) {
@@ -75,6 +81,9 @@ const tiedSave=completeSave(2);
 const finalSave=completeSave(14);
 const chii=make(1);for(const tile of ['9s','3m','8s','7p'])step(chii,{kind:'discard',tile});
 const chiiSave=chii.snapshot();chii.dispose();
+// The turn before that call: discarding the 7 circles there brings it.
+const beforeCall=make(1);for(const tile of ['9s','3m','8s'])step(beforeCall,{kind:'discard',tile});
+const beforeCallSave=beforeCall.snapshot();beforeCall.dispose();
 const sharedCall=make(287,'neural');sharedCall.apply({type:'opponent',action:1});sharedCall.advance(false);
 const sharedCallSave=sharedCall.snapshot();sharedCall.dispose();
 
@@ -110,7 +119,8 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
 }
 const saved=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);
 const ui=page=>page.evaluate(()=>({failure:document.querySelector('.failure')?.textContent ?? '',selected:document.querySelectorAll('.hand .selected').length,opponents:document.querySelector('select').value}));
-async function shot(page,name) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage:true}); }
+// The whole page, or with fullPage false the screen as the player sees it.
+async function shot(page,name,fullPage=true) { await page.screenshot({path:resolve(output,`${name}.png`),fullPage}); }
 function noErrors(page) { assert.deepEqual(problems.get(page),[]); }
 function contrast(a,b) {
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
@@ -287,6 +297,69 @@ try {
       await page.click('.inspect');
       assert.equal(await page.$eval('.table-dialog',n=>n.open),true); assert.equal(await page.$$eval('.inspection-grid section',n=>n.length),4);
       await page.keyboard.press('Escape'); assert.equal(await page.$eval('.table-dialog',n=>n.open),false); noErrors(page);
+    });
+  }
+  // Held sideways, a phone's screen is short, and the game's bar stays at its
+  // top over the page. When a call is offered, the player must see their whole
+  // hand and every call button at once, below the bar, without scrolling:
+  // where the page is as the call comes, after its own scroll to the call,
+  // whether it was opened at the call, or scrolled to its top or its foot
+  // before the discard that brought it, and with two or three chii shapes on
+  // offer. On the player's own turn the whole hand is there at the top of the
+  // page, where a game opens, late in a hand and beside a called set: the
+  // discards and called sets lie under the hand and grow away from it. Under
+  // 640 pixels wide the table comes first, and the hand further down.
+  const seen=page=>page.evaluate(()=>{
+    const box=n=>n.getBoundingClientRect().toJSON();
+    return {bar:box(document.querySelector('.bar')),scrolled:scrollY,height:innerHeight,width:innerWidth,
+      tiles:[...document.querySelectorAll('.hand .hand-tile')].map(box),buttons:[...document.querySelectorAll('.call-options button')].map(box)};
+  });
+  // What of the hand and the buttons lies off the screen or under the bar, in words.
+  const hidden=(shown,where)=>[['hand tile',shown.tiles],['call button',shown.buttons]].flatMap(([what,boxes])=>boxes.flatMap((b,n)=>
+    b.top<shown.bar.bottom-.5||b.bottom>shown.height+.5||b.left<-.5||b.right>shown.width+.5
+      ?[`${where}, scrolled ${Math.round(shown.scrolled)}: ${what} ${n+1} spans ${Math.round(b.top)} to ${Math.round(b.bottom)}, the bar ends at ${Math.round(shown.bar.bottom)}`]:[]));
+  // Once every transition and every animation that ends has ended, the
+  // call's own scroll with them, and two frames have been drawn since.
+  const still=page=>page.evaluate(async()=>{
+    await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getComputedTiming().endTime!==Infinity).map(a=>a.finished));
+    await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));
+  });
+  const held=save=>{const me=JSON.parse(save.state)[0].seats[0];return me.hand.length+(me.drawn?1:0);};
+  for(const [width,height] of [[844,390],[932,430],[568,320],[667,375],[740,360]]) {
+    await check(`a call held sideways at ${width}x${height} shows the whole hand and every call button below the bar`,async()=>{
+      const wrong=[];
+      for(const [from,save] of [['opened',callSave],['top',beforeCallSave],['foot',beforeCallSave],['two chii shapes',twoChiiSave],['three chii shapes',manyCallsSave]]) {
+        const page=await open(save,{width,height}), discarding=from==='top'||from==='foot';
+        if(discarding) {
+          await page.evaluate(top=>scrollTo(0,top?0:document.documentElement.scrollHeight),from==='top');
+          // Pressed in the page, so that nothing scrolls it to the tile first.
+          await page.$eval('.hand button[data-tile="7p"]',n=>n.click());
+        }
+        await page.waitForFunction(()=>document.querySelector('.call-stage')&&document.querySelector('.call-options button:not(:disabled)'));
+        await still(page);
+        const call=await seen(page);
+        if(from==='opened') await shot(page,`call-${width}x${height}`,false);
+        if(from==='three chii shapes') await shot(page,`call-many-${width}x${height}`,false);
+        assert.equal(call.tiles.length,held(save)-(discarding?1:0),from);
+        assert.equal(call.buttons.length,discarding?2:JSON.parse(save.state)[1].length,from);
+        wrong.push(...hidden(call,from));
+        noErrors(page);
+      }
+      assert.deepEqual(wrong,[]);
+    });
+    if(width>=640) await check(`the player's own turn held sideways at ${width}x${height} shows the whole hand at the top of the page`,async()=>{
+      const wrong=[];
+      for(const [when,save] of [['late in a hand',lateTurnSave],['beside a called set',meldTurnSave]]) {
+        const page=await open(save,{width,height});
+        await page.waitForSelector('.hand button:not(:disabled)');
+        await page.evaluate(()=>scrollTo(0,0)); await still(page);
+        const turn=await seen(page);
+        if(save===lateTurnSave) await shot(page,`turn-${width}x${height}`,false);
+        assert.equal(turn.tiles.length,held(save),when); assert.equal(turn.scrolled,0,when);
+        wrong.push(...hidden(turn,when));
+        noErrors(page);
+      }
+      assert.deepEqual(wrong,[]);
     });
   }
   await check('dark-mode result button contrast exceeds 4.5:1',async()=>{

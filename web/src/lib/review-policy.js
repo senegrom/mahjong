@@ -9,11 +9,13 @@ import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
  * declaration first, then which tile it discards.
  *
  * A hand's review asks one position at a time. A whole-game review passes
- * `batch`, `{ size, analyze(positions, signal) }`, and asks that many
- * positions in one forward pass, then the second question of every
- * declaration among them in another. Either way each decision is judged the
- * same. With `skipForced`, a decision with one legal move is answered
- * without the network: the weights over one move are that move's whole. */
+ * `batch`, `{ size(), analyze(positions, signal) }`, and asks as many
+ * positions as `size()` says in one forward pass, asked again before each,
+ * since the review sizes its passes by the speed it measures as it goes;
+ * then the second question of every declaration among them in another.
+ * Either way each decision is judged the same. With `skipForced`, a decision
+ * with one legal move is answered without the network: the weights over one
+ * move are that move's whole. */
 const aborted = signal => {
   if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
 };
@@ -38,7 +40,6 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     mask: engine.review_mask_mortal(index),
     choices: engine.review_choices(index),
   }));
-  const size = batch ? batch.size : 1;
   // A group's positions in one request, or one request each, in order.
   const ask = async positions => {
     const answers = positions.map(position => (skipForced ? forcedAnswer(position.mask) : null));
@@ -56,8 +57,9 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     return answers;
   };
   const reviewed = [];
-  for (let start = 0; start < notes.length; start += size) {
+  for (let start = 0, size; start < notes.length; start += size) {
     aborted(signal);
+    size = batch ? batch.size() : 1;
     const group = [];
     for (let index = start; index < Math.min(notes.length, start + size); index++) {
       group.push({ index, ...inputs[index] });

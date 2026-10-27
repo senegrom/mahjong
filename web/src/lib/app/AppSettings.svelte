@@ -238,7 +238,7 @@
       </dd>
 
       <dt>Trained AI's percentages</dt>
-      <dd>How strongly it prefers each move, not a chance of winning.</dd>
+      <dd>How strongly it prefers each move, not a chance of winning. Declaring riichi and the discard given riichi are weighed separately.</dd>
 
       <dt>Keys</dt>
       <dd>

@@ -5,11 +5,17 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
-import { browserChecks, chromePath } from '../scripts/browser-harness.mjs';
+import puppeteer from 'puppeteer-core';
+import { browserChecks, chromePath, launchChrome } from '../scripts/browser-harness.mjs';
 
 const quiet = t => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'error', () => {});
+};
+const chromeBin = (t, path) => {
+  const previous = process.env.CHROME_BIN;
+  t.after(() => { if (previous === undefined) delete process.env.CHROME_BIN; else process.env.CHROME_BIN = previous; });
+  process.env.CHROME_BIN = path;
 };
 
 test('consecutive cases release their own contexts before the next case', async t => {
@@ -110,10 +116,35 @@ test('the report saves every result and a failure fails the process', async t =>
 });
 
 test('CHROME_BIN chooses the browser', t => {
-  const previous = process.env.CHROME_BIN;
-  t.after(() => { if (previous === undefined) delete process.env.CHROME_BIN; else process.env.CHROME_BIN = previous; });
-  process.env.CHROME_BIN = 'custom-chrome';
+  chromeBin(t, 'custom-chrome');
   assert.equal(chromePath(), 'custom-chrome');
+});
+
+test('a Chrome that fails to start has 60 s and is tried once more', async t => {
+  quiet(t);
+  chromeBin(t, 'custom-chrome');
+  const browser = {};
+  let attempts = 0;
+  const launch = t.mock.method(puppeteer, 'launch', async () => {
+    if (++attempts === 1) throw new Error('Timed out after 60000 ms while waiting for the WS endpoint URL to appear in stdout!');
+    return browser;
+  });
+  assert.equal(await launchChrome({ args: ['--lang=en'] }), browser);
+  assert.equal(launch.mock.callCount(), 2);
+  for (const { arguments: [options] } of launch.mock.calls) {
+    assert.equal(options.executablePath, 'custom-chrome');
+    assert.equal(options.timeout, 60000);
+    assert.deepEqual(options.args, ['--no-sandbox', '--disable-dev-shm-usage', '--lang=en']);
+  }
+});
+
+test('a Chrome that fails to start twice fails the launch', async t => {
+  quiet(t);
+  chromeBin(t, 'custom-chrome');
+  let attempts = 0;
+  t.mock.method(puppeteer, 'launch', async () => { throw new Error(`start ${++attempts} failed`); });
+  await assert.rejects(launchChrome(), /start 2 failed/);
+  assert.equal(attempts, 2);
 });
 
 test('every browser check finds, launches and reports through the shared harness', async () => {

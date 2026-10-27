@@ -135,22 +135,19 @@
   // The hand's own notes, opened by View table / my hand or Review final
   // hand, ask Trained AI a decision at a time (Review), of the page's one
   // worker, which answers its requests in turn. The review asks the same
-  // worker eight decisions a request, so each note would wait behind one of
-  // its batches: a hand's notes would take twenty seconds rather than two or
-  // three, and on a slow device any note could run out of its time, which
-  // ends the worker and stops the review with it. So the notes say when they
-  // begin and stop asking, and before each batch the review waits for them
-  // at its gate, then goes on exactly where it was: the same hand, the same
-  // hands queued and the same word from the player. Nothing need start it
-  // again, so the review of the whole game behind the standings still
-  // reaches the trend. Each time the notes begin to ask, only their first
-  // question can still wait behind a batch, the one already sent, whichever
-  // of the two was opened first, the review's screen open or shut. The gate
-  // spares the questions after it, not that one, whose deadline runs from
-  // when it is sent, its wait included (requestPolicy): on a device where a
-  // batch and a question take over twenty seconds together, it can still run
-  // out of time, which ends the worker and fails the notes, and stops the
-  // review too if its batch is still running.
+  // worker up to eight decisions a request, so each note would wait behind
+  // one of its batches: a hand's notes would take twenty seconds rather than
+  // two or three. So the notes say when they begin and stop asking, and
+  // before each batch the review waits for them at its gate, then goes on
+  // exactly where it was: the same hand, the same hands queued and the same
+  // word from the player. Nothing need start it again, so the review of the
+  // whole game behind the standings still reaches the trend. Each time the
+  // notes begin to ask, only their first question can still wait behind a
+  // batch, the one already sent, whichever of the two was opened first, the
+  // review's screen open or shut. Its deadline runs from when the worker
+  // begins it (requestPolicy), so that wait slows it but cannot make it run
+  // out of time. Once the review has timed the device (batchFor), the wait is
+  // about ten seconds at most on one that takes up to ten seconds a decision.
   const notesAsking = new Asking();
   // The review's reasoning asks the same worker, in passes no longer than the
   // review's batch (review-insight-policy.js), each sent only while the notes
@@ -159,10 +156,9 @@
   // shut the review's gate as the notes' do, so the review waits there for
   // the whole of a Why line or a search, until the worker has answered its
   // last pass, and sends no batch to wait behind one. Neither ever waits in
-  // the worker's queue for the other, where a deadline would run, only at
-  // its gate in the page. The notes' first question waits behind whichever
-  // of the two is with the worker, one at most, as it waited behind a batch
-  // before.
+  // the worker's queue for the other, only at its gate in the page. The
+  // notes' first question waits behind whichever of the two is with the
+  // worker, one at most, as it waited behind a batch before.
   const insightAsking = new Asking(), workerBatches = new Asking();
   const reviewBatch = countedBatches(analyzeBatch, workerBatches);
   const reasoning = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking: insightAsking, notes: notesAsking,
@@ -188,18 +184,79 @@
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
 
+  // Held sideways, a phone's screen has room under the game's bar for the
+  // hand and the player's choices only with nothing between them, so while
+  // a hand is played the choices are drawn in the player's seat, right under
+  // the hand and over the called sets and discards (PlayerHand), rather
+  // than after the seat. They are drawn in one place or the other rather
+  // than moved by CSS, so that a screen reader and the keyboard go through
+  // them in the order they are seen. As the screen turns, a choice that had
+  // focus would go with the place it was in, dropping focus to the page, so
+  // the same choice where they are now drawn has it instead.
+  const SIDEWAYS = '(max-height: 500px) and (orientation: landscape)';
+  let sideways = $state(matchMedia(SIDEWAYS).matches);
+  let choicesInSeat = $derived(sideways && view?.phase !== 'over' && !standings);
+  onMount(() => {
+    const media = matchMedia(SIDEWAYS);
+    const turned = async () => {
+      const kept = [...(callElement?.querySelectorAll('button') ?? [])].indexOf(document.activeElement);
+      sideways = media.matches;
+      if (kept < 0) return;
+      await tick();
+      callElement?.querySelectorAll('button')[kept]?.focus();
+    };
+    media.addEventListener('change', turned);
+    return () => media.removeEventListener('change', turned);
+  });
+
   // A call is offered under a table that fills the window, so the choices
   // can sit below the fold on an ordinary screen. Being asked a question
-  // whose answers are off screen is no question at all, so the section is
-  // brought into view when it appears, by the shortest scroll that does
-  // it and none at all when it is already there.
+  // whose answers are off screen is no question at all, so the buttons are
+  // brought into view when they appear, by the shortest scroll that does
+  // it and none at all when they are already there. They are measured
+  // themselves: held sideways they share their rows with the staged
+  // discard, and their own row has no box (TurnChoices). Held sideways, the
+  // hand the player answers from comes into view too, below the game's bar,
+  // which stays at the top of the screen (AppSettings): with the buttons in
+  // view and the hand's top above that, as at the foot of the page, the
+  // page scrolls back up to the hand, as far as keeps the buttons in view.
+  // Upright and on a desktop the page stays where it is once the buttons
+  // show. All is measured once the play area has finished easing and the
+  // choices have slid in (TurnChoices): with reduced motion every change of
+  // style eases over a hundredth of a millisecond (app.css), which takes a
+  // frame or two, and until then a hand that has just thrown its drawn tile
+  // keeps that tile's gap, its tiles a pixel narrower and the buttons that
+  // much higher; and the slide's delay is not shortened, so until it ends
+  // the buttons sit 4 pixels low.
   $effect(() => {
     if (mode !== 'play' || !callChoices.length || !callElement) return;
-    const buttons = callElement.querySelector('.call-options') ?? callElement;
-    const box = buttons.getBoundingClientRect();
-    if (box.bottom <= window.innerHeight && box.top >= 0) return;
-    const gentle = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    buttons.scrollIntoView({ block: 'end', behavior: gentle ? 'auto' : 'smooth' });
+    const section = callElement, hand = handElement;
+    let live = true;
+    const bringIntoView = () => {
+      if (!live) return;
+      const buttons = [...section.querySelectorAll('.call-options button')];
+      if (!buttons.length) return;
+      const boxes = buttons.map(button => button.getBoundingClientRect());
+      const top = Math.min(...boxes.map(box => box.top)), bottom = Math.max(...boxes.map(box => box.bottom));
+      const gentle = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const behavior = gentle ? 'auto' : 'smooth';
+      if (bottom > window.innerHeight || top < 0) {
+        buttons[boxes.findIndex(box => box.bottom === bottom)].scrollIntoView({ block: 'end', behavior });
+        return;
+      }
+      if (!sideways) return;
+      const bar = document.querySelector('.bar');
+      const roof = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+      const lift = Math.min(roof - (hand?.getBoundingClientRect().top ?? roof), window.innerHeight - bottom);
+      if (lift > 0) window.scrollBy({ top: -lift, behavior });
+    };
+    const easing = [
+      ...section.closest('.play-area')?.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSTransition) ?? [],
+      ...section.getAnimations({ subtree: true }).filter(animation => animation instanceof CSSAnimation
+        && Number.isFinite(animation.effect?.getComputedTiming().endTime)),
+    ];
+    void Promise.allSettled(easing.map(motion => motion.finished)).then(bringIntoView);
+    return () => { live = false; };
   });
 
   // When the turn comes to you and nothing else has focus, the hand takes
@@ -777,8 +834,15 @@
       <div class="play-area" class:ended={view.phase === 'over' || Boolean(standings)}>
         <PlayerHand {view} engine={session?.engine} closed={session?.closed ?? false}
           {hints} {busy} blocked={Boolean(failure || saveConflict)} {discardChoices} {confirmDiscards} {picked} {selected}
-          {canDiscard} {selectTile} {syncHandFocus} bind:handElement />
+          {canDiscard} {selectTile} {syncHandFocus} bind:handElement controls={choicesInSeat ? controls : null} />
 
+        {#if !choicesInSeat}{@render controls()}{/if}
+      </div>
+
+      <!-- The player's choices, or the hand's result and the standings once
+           it is over: after the player's seat, or in it, under the hand,
+           while a hand is played on a phone held sideways (choicesInSeat). -->
+      {#snippet controls()}
         <section class="controls" aria-label="your choices" bind:this={callElement}>
           {#if standings}
             <Standings {standings} onagain={() => start()} onsave={() => saveGame('standings')} onreview={() => reviewGame('standings')}
@@ -797,7 +861,7 @@
               {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
           {/if}
         </section>
-      </div>
+      {/snippet}
 
       <details class="history">
         <summary>Hand history · {log.length} event{log.length === 1 ? '' : 's'}</summary>
@@ -838,6 +902,18 @@
     .notice, .failure, .save-conflict, .loading, .history, main > :global(.game-review) { grid-column: 1 / -1; }
     .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
     .controls { font-size: .8rem; }
+  }
+  /* Held sideways, a phone's screen leaves the play area less room than it
+     takes under the game's bar, which stays at the top (AppSettings): the
+     hand's two rows alone are 157 pixels of the 264 to 374 left. Stuck to
+     the top of the screen, the play area hid its own foot, and the bar hid
+     the hand, so while a hand is played it scrolls with the page instead,
+     its choices drawn right under the hand, in the seat (choicesInSeat),
+     and a call brings the hand and its buttons into view together (above).
+     A finished hand's area, with its result, stays as it was. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .play-area:not(.ended) { position: static; }
+    .play-area:not(.ended) .controls { padding: 0; }
   }
 
   @media (min-width: 761px) and (min-height: 501px) {
