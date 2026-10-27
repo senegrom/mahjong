@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Bamboo B (green)', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Flutes B', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -57,7 +57,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['3s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['2s', '3s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
@@ -253,26 +253,27 @@ test('Van Gogh 2 and 4 characters preserve their exact approved source images', 
 });
 
 
-test('Van Gogh green Garden Rhythm B is the approved two bamboo', () => {
+test('Van Gogh Flutes B replaces two bamboo while Garden Rhythm remains recoverable', () => {
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   const entry = set.tiles.find(tile => tile.tile === '2s');
-  assert.ok(entry);
-  assert.equal(entry.candidate, 'Bamboo B (green)');
+  assert.equal(set.tiles.length, 34);
+  assert.equal(set.remaining.length, 0);
+  assert.equal(set.tiles.filter(tile => tile.tile === '2s').length, 1);
+  assert.equal(entry.candidate, 'Flutes B');
   assert.equal(entry.name, 'Sou2');
-  assert.equal(entry.source, 'docs/design/van-gogh/studies/11-two-bamboo-garden-rhythm-green.webp');
-  assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 });
-  const source = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
-  assert.equal(createHash('sha256').update(source).digest('hex'),
-    '528acc47e037fdce2fc9f48f827bbe554da35a1cc0186a4b74f1ac9fea0ad7ec');
+  assert.equal(entry.source, 'docs/design/van-gogh/studies/34-two-bamboo-flutes-b-approved.svg');
   assert.equal(tileImage('2s', 'van-gogh'), 'tiles/van-gogh/approved/Sou2.svg');
   assert.ok(TILE_IMAGE_URLS.includes(tileImage('2s', 'van-gogh')));
-  assert.ok(!set.remaining.includes('2s'));
+  const previous = set.superseded.find(tile => tile.tile === '2s' && tile.candidate === 'Bamboo B (green)');
+  assert.equal(previous.activeCandidate, 'Flutes B');
+  const bytes = readFileSync(new URL(`../../${previous.source}`, import.meta.url));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    '528acc47e037fdce2fc9f48f827bbe554da35a1cc0186a4b74f1ac9fea0ad7ec');
   const provenance = JSON.parse(readFileSync(new URL('../../docs/design/van-gogh/two-bamboo-green.json', import.meta.url), 'utf8'));
-  assert.equal(provenance.sourceSha256, createHash('sha256').update(source).digest('hex'));
   assert.equal(provenance.originalSha256, 'ba6cb69a60cc24173125750b412e3899a4406f28557256995ce81d4b34893748');
   assert.deepEqual(provenance.originalCrop, { x: 508, y: 143, width: 433, height: 667 });
+  assert.equal(provenance.sourceSha256, createHash('sha256').update(bytes).digest('hex'));
 });
-
 
 test('Van Gogh Vase A replaces three bamboo while Triple Shoots remains recoverable', () => {
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));

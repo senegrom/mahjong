@@ -80,8 +80,8 @@ test('every squeezed Van Gogh export is fitted to the shape its provenance recor
     assert.ok(entry.fit, `${record.tile} is a squeezed export without a fit (${file})`);
     assert.deepEqual(entry.fit.painting, shape, record.tile);
   }
-  // Scarlet Loom and Vase A replace squeezed exports: 6m and 3s are now native 3:4.
-  assert.deepEqual(squeezed.sort(), ['2s', '2z', '3p', '4p', '4s', '6p', '7s', '8s', '9m', '9p']);
+  // Scarlet Loom, Vase A and Flutes B replace squeezed exports: 6m, 3s and 2s are native 3:4.
+  assert.deepEqual(squeezed.sort(), ['2z', '3p', '4p', '4s', '6p', '7s', '8s', '9m', '9p']);
 });
 
 test('the lit Matisse white dragon keeps exactly the quiet face\'s geometry', () => {
