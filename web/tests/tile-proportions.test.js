@@ -73,14 +73,15 @@ test('every squeezed Van Gogh export is fitted to the shape its provenance recor
     if (!shape || Math.abs(shape.width / shape.height / 0.75 - 1) <= 0.02) continue;
     const entry = manifests['van-gogh'].tiles.find(entry => entry.tile === record.tile);
     // A record for a painting the deployed face no longer uses is history.
-    if (!entry || (record.source && record.source !== entry.source)) continue;
+    const recordedSource = record.source ?? record.productionSource;
+    if (!entry || (recordedSource && recordedSource !== entry.source)) continue;
     squeezed.push(record.tile);
     assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 }, record.tile);
     assert.ok(entry.fit, `${record.tile} is a squeezed export without a fit (${file})`);
     assert.deepEqual(entry.fit.painting, shape, record.tile);
   }
-  // Scarlet Loom replaces the wide Lemon Terrace: 6m is now natively 3:4.
-  assert.deepEqual(squeezed.sort(), ['2s', '2z', '3p', '3s', '4p', '4s', '6p', '7s', '8s', '9m', '9p']);
+  // Scarlet Loom and Vase A replace squeezed exports: 6m and 3s are now native 3:4.
+  assert.deepEqual(squeezed.sort(), ['2s', '2z', '3p', '4p', '4s', '6p', '7s', '8s', '9m', '9p']);
 });
 
 test('the lit Matisse white dragon keeps exactly the quiet face\'s geometry', () => {

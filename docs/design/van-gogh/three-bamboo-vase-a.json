@@ -1,0 +1,39 @@
+{
+  "tile": "3s",
+  "name": "Sou3",
+  "candidate": "Vase A",
+  "title": "Three Bamboo in a Vase",
+  "source": "docs/design/van-gogh/studies/33-three-bamboo-vase-a-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou3.svg",
+  "approval": "Carl selected the left-hand vase painting from the three-bamboo triptych and explicitly requested GitHub deployment, then asked to retry. The young-shoots and moonlit-pond alternatives are not selected.",
+  "originalBoardFilename": "a_wide_triptych_like_image_of_three_vertical_pane.png",
+  "originalBoardDimensions": [
+    1881,
+    836
+  ],
+  "originalBoardSha256": "8dd5305e3eb699112be9066facf28f4b126a1170ce8ebdb837903ca037b9fdb9",
+  "originalCrop": {
+    "x": 22,
+    "y": 23,
+    "width": 576,
+    "height": 768
+  },
+  "fullResolutionCropSha256": "86de33ef368bd44dc45835d7cdfdaa63abe5074a25483170bbb9291219074879",
+  "originalRetention": "The original triptych and lossless selected crop are retained with the approval conversation. This repository contains the optimized approved artwork and provenance, not a full-resolution PNG archive.",
+  "processing": "Mechanically extract the left panel at x=22,y=23,width=576,height=768, removing the white gutters, panel fringe and A label while retaining all three stalks and the complete vase. Uniformly resize this exact 3:4 crop with Pillow Lanczos to 300 x 400, then encode AVIF quality 70, speed 0, 4:2:0. No stretching, repainting or recolouring. The normal exporter places the image at 0,0,300,400, with zero extra bleed.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 42493,
+  "rasterSha256": "9e004fae4f28c634f74f55c2ad1b5bad84c51941994772ee1106d8c52f18f174",
+  "svgSha256": "f60e7639f7b7422f48f74a1996ef20e0f76e22a4c322ff5b833c00c11cdc7f38",
+  "runtimeSvgSha256": "106e53ecf2d0374e7aa861d4cdca7ae352ad0c21c9dff5cd1e0ae78710e32535",
+  "supersededCandidate": "Bamboo A (green)",
+  "supersededSource": "docs/design/van-gogh/studies/12-three-bamboo-triple-shoots-green.webp",
+  "archivedSvg": "docs/design/van-gogh/superseded/three-bamboo-triple-shoots-Sou3.svg",
+  "archivedSvgSha256": "d9840fbee6a11c44a9ff029e737626ac781957611627631a1e9d531b102722b6",
+  "archivedPng": "docs/design/van-gogh/superseded/three-bamboo-triple-shoots-Sou3.png",
+  "archivedPngSha256": "71b40f6a195e24ab4b785cf9680a2b42e895d9a63fad17ef44509c7a785d3ae3"
+}
