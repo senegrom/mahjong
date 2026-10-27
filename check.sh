@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Rules-engine checks; --web also runs the same complete web verification as CI.
+# Rules-engine checks; --web also runs npm run verify, the checks of CI's npm
+# audit and web app jobs.
 # Dependencies must already be installed. Browser checks use CHROME_BIN when set,
 # and the binding smoke test runs under PYTHON when set, python3 otherwise (on
 # Windows python3 is often only the Microsoft Store alias).

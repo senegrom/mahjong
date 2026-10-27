@@ -104,6 +104,47 @@ test('riichi, calls, an offered discard and a selection are said by regions alre
   for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
 });
 
+test("the turn's prompt names no keys on screen, and a screen reader still hears them in the hand's description", async () => {
+  // The hand takes focus as the turn comes (App) and the tile guide gives the
+  // keys, so the prompt shows its sentence alone. The keys stay in it out of
+  // sight, since the hand names the prompt as its description.
+  const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
+    dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
+    seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
+  const prompt = async props => /<p id="hand-help"[^>]*>([^]*?)<\/p>/.exec(await html('app/TurnChoices.svelte', { view, shownDora: [],
+    busy: false, thinking: false, failure: '', saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: false,
+    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props }))[1];
+  const keys = /<span class="visually-hidden[^"]*">Focus your hand to use arrows and Enter\.<\/span>/;
+  const keyed = await prompt({});
+  assert.match(keyed, keys);
+  assert.equal(text(keyed.replace(keys, '')), 'Your turn. Choose a tile to discard.');
+  const hand = await html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
+    discardChoices: [], confirmDiscards: false, picked: null, selected: null, canDiscard: () => true, selectTile() {}, syncHandFocus() {} });
+  assert.match(hand, /<div class="hand\b[^"]*"[^>]*aria-describedby="hand-help"/);
+  // On a touch screen, or with the shortcuts off, there are no keys to name.
+  for (const props of [{ touch: true }, { shortcuts: false }]) assert.doesNotMatch(await prompt(props), /arrows and Enter/, JSON.stringify(props));
+});
+
+test("the custom table says in one line that opponents keep their type, and what each type plays in its option's title", async () => {
+  const dialog = props => html('app/OpponentDialog.svelte', { customDialog: null, draftOpponents: ['club', 'beginner', 'club'],
+    opponents: ['club', 'club', 'club'], trainedAvailable: true, ready: true, saveConflict: '', startCustomTable() {}, ...props });
+  const lines = markup => [...markup.matchAll(/<p\b[^>]*>([^]*?)<\/p>/g)].map(([, said]) => text(said));
+  const line = 'Opponents keep their type as the seat winds change.';
+  const offered = await dialog({});
+  assert.deepEqual(lines(offered), [line]);
+  const plays = [['beginner', 'Plays simply'], ['club', 'Uses tile efficiency and defence'],
+    ['neural', 'Plays the network picked under Trained network in the settings; all Trained players share one loaded model']];
+  assert.deepEqual([...offered.matchAll(/<option value="(\w+)"[^>]*\btitle="([^"]*)"/g)].map(([, type, title]) => [type, title]),
+    [...plays, ...plays, ...plays], 'in each of the three selects');
+  // While the network cannot be had and no Trained player sits at the table,
+  // Trained cannot be picked, and a short line says why.
+  const unavailable = await dialog({ trainedAvailable: false });
+  assert.deepEqual(lines(unavailable), [line, 'The trained network is not available right now.']);
+  assert.equal((unavailable.match(/<option value="neural"[^>]*\bdisabled/g) ?? []).length, 3);
+  // A Trained player already at the table keeps Trained on offer, unremarked.
+  assert.deepEqual(lines(await dialog({ trainedAvailable: false, opponents: ['neural', 'club', 'club'] })), [line]);
+});
+
 test('the table inspection names each opponent once: position, wind, score', async () => {
   const view = { round: 'east', kyoku: 1, wall: 70, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [], outcome: null,
     seats: [seat('east', 0), seat('south', 1), seat('west', 2), seat('north', 3)] };
@@ -247,8 +288,10 @@ async function tileGuide() {
   return settings.slice(settings.indexOf('class="guide'));
 }
 
-test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning", async () => {
-  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\.<\/dd>/);
+test("the tile guide says what Trained AI's percentages are: how strongly it prefers a move, not a chance of winning, and that riichi and its discard are weighed separately", async () => {
+  // The preference line's title says both as well, but a title shows only
+  // under a mouse: the guide is where a keyboard or a finger finds them.
+  assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\. Declaring riichi and the discard given riichi are weighed separately\.<\/dd>/);
 });
 
 test("the tile guide says the blue ring is Trained AI's choice in a review, as it is the agent's in Agent watch and Guided play, and gives the review's keys and where each kind works", async () => {

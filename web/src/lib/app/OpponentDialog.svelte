@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { OpponentDialogProps } from './types';
+  import type { Opponent, OpponentDialogProps } from './types';
   import { opponentName, OPPONENT_TYPES, OPPONENT_POSITIONS } from '../opponents.js';
 
   // Only the draft is editable here. App confirms replacement of the current
@@ -8,25 +8,31 @@
     customDialog = $bindable(null), draftOpponents = $bindable(),
     opponents, trainedAvailable, ready, saveConflict, startCustomTable,
   }: OpponentDialogProps = $props();
+  // How each type plays: its option's title, there when it is asked for
+  // rather than read in the dialog.
+  const PLAYS: Record<Opponent, string> = {
+    beginner: 'Plays simply',
+    club: 'Uses tile efficiency and defence',
+    neural: 'Plays the network picked under Trained network in the settings; all Trained players share one loaded model',
+  };
 </script>
 
 <dialog class="custom-dialog" bind:this={customDialog} aria-labelledby="custom-table-title">
   <h2 id="custom-table-title">Custom table</h2>
-  <p>Choose each opponent for a new match. They keep their type as the seat winds change.</p>
+  <p>Opponents keep their type as the seat winds change.</p>
   <div class="opponent-fields">
     {#each [2, 1, 0] as position (position)}
       <label>
         <span>{OPPONENT_POSITIONS[position]}</span>
         <select class="app-control" bind:value={draftOpponents[position]} aria-label={`${OPPONENT_POSITIONS[position]} opponent`}>
           {#each OPPONENT_TYPES as type (type)}
-            <option value={type} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{opponentName(type)}</option>
+            <option value={type} title={PLAYS[type]} disabled={type === 'neural' && !trainedAvailable && !opponents.includes('neural')}>{opponentName(type)}</option>
           {/each}
         </select>
       </label>
     {/each}
   </div>
-  <p class="custom-help">Beginner plays simply. Club uses tile efficiency and defence. Trained plays the network picked under Trained network in the game settings; all Trained players share one loaded model.</p>
-  {#if !trainedAvailable && !opponents.includes('neural')}<p class="custom-help">The trained model is not currently available. Beginner and Club can still be mixed.</p>{/if}
+  {#if !trainedAvailable && !opponents.includes('neural')}<p class="custom-help">The trained network is not available right now.</p>{/if}
   <div class="custom-actions">
     <button class="app-control" onclick={() => customDialog?.close()}>Cancel</button>
     <button class="app-control primary" onclick={startCustomTable} disabled={!ready || Boolean(saveConflict)}>Start custom game</button>
@@ -41,7 +47,8 @@
   .opponent-fields { display: grid; gap: 10px; }
   .opponent-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .opponent-fields select { width: 60%; min-width: 0; }
-  .custom-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  /* Kept apart from the selects, with or without the note between them. */
+  .custom-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
   .custom-help { opacity: .85; }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {

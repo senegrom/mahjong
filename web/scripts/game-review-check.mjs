@@ -194,7 +194,11 @@ const facts = hands.map(hand => {
 /** The first questions of every hand's decisions as the review groups them,
  * eight decisions a group, forced moves unasked, each by the masks it asks
  * one after another: what no pass of the review's reasoning may be, since a
- * group asked twice or out of turn would otherwise pass for one. */
+ * group asked twice or out of turn would otherwise pass for one. The review
+ * asks eight a group on a device it measures at up to 1.25 seconds a position
+ * (batchFor), as Chromium answers here, behind every delay a case below adds
+ * where it walks the batches: 300 milliseconds a position, or a second a
+ * batch, at most. */
 const groupKeys = new Set(facts.flatMap(decisions => decisions.flatMap((_, start) => {
   if (start % BATCH) return [];
   const group = decisions.slice(start, start + BATCH).filter(decision => !decision.forced);

@@ -299,3 +299,11 @@ The entire **1086 × 1448** approved PNG is exactly **3:4**. It is uniformly Lan
 `west-wind-clouds.json` records the original and export checksums and processing. The untouched original and game export are preserved in `Van_Gogh_West_Wind_Clouds_Approved.zip`, supplied in chat; the repository source SVG embeds the game-sized image. Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=3z`.
 
 **All 34 tile identities now have approved Van Gogh artwork.** All 33 earlier paintings, their proportions and the fourteen-tile example hand remain unchanged.
+
+## The Scarlet Loom C — Six Characters (6m / Man6)
+
+Carl selected the loom option C and explicitly requested deployment, replacing Lemon Terrace. The full 1086 × 1448 portrait, including the loom and both spools, is uniformly reduced to 300 × 400 and encoded as quality-70 AVIF. There is no crop, stretch, repainting or recolouring. The normal rounded tile clipping is unchanged.
+
+The original PNG checksum is `de7bf8b8be8d6a1a445f045e3bb73e152a2ea2bc767c8b37ca6beb010cac2f73`. The original remains with the approval conversation; the repository retains the optimized source SVG and the complete provenance in `docs/design/van-gogh/six-characters-scarlet-loom-c.json`. The former playable Lemon Terrace SVG is preserved byte-for-byte in `docs/design/van-gogh/superseded/six-characters-lemon-terrace-Man6.svg`; its original optimized source is unchanged.
+
+Reproduce only this face with `node web/scripts/export-van-gogh-tiles.mjs --only=6m`. All 33 other Van Gogh faces, including the Almond-Blossom White Dragon and the Painter’s Red Dragon, remain unchanged. The set still contains all 34 identities.

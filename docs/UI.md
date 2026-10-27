@@ -8,6 +8,8 @@ Calls are presented as a staged discard followed by the legal response choices. 
 
 The 7-by-2 phone hand layout is intentional: it preserves large, reliable touch targets instead of squeezing fourteen tiles into one row. The newly drawn tile remains slightly separated, including its hint count, and carries no border merely for being newly drawn.
 
+On a phone held sideways, 500 pixels high or less, the game's bar stays at the top of the screen and leaves 264 to 374 pixels under it, so a call is laid out to show the whole hand and every call button there at once. While the hand is played, the player's choices are drawn in their seat, right under the hand, with the discards and called sets after them, so nothing lies between the hand and the buttons, and the hand keeps its place as the discards grow. The choices are drawn there rather than moved by CSS, so a screen reader and the keyboard go through them in the order they are seen, and a choice that has focus as the phone turns keeps it. The tiles stay 44 pixels wide on a phone under 640 pixels wide too. The discard on offer is staged in a card no taller than the buttons, its tile small, with Discard or Kan over who let it go, and the buttons follow it in the same rows, each the call's word, such as Chii, beside the call's tiles; the rest of the buttons' names ("Chii — 3–4–5 characters"), the card's other words ("discarded the 5 characters") and the prompt are still read out. The play area scrolls with the page there instead of sticking to the top of the screen, where it hid its own foot and the bar hid the hand, and an offered call brings the buttons into view with the hand above them, below the bar; from the foot of the page it scrolls back up to the hand, as far as keeps the buttons in view. Measured in Chromium at 568x320, 667x375, 740x360, 844x390 and 932x430, the whole hand and every button fit for a chii and Pass, two or three chii shapes and Pass, a pon, a chii and Pass, and a pon, a kan and Pass, late in a hand and beside a called set too; with more choices than fit, the buttons come first and the top of the hand goes under the bar. On the player's own turn, from 640 pixels wide, the whole hand is on the screen at the top of the page, as before. A finished hand and its result are laid out as before.
+
 ## Tile faces
 
 Classic, Matisse and Van Gogh have a picture for every tile. Unavailable saved
@@ -121,6 +123,14 @@ After a keyboard discard, the hand regains focus for the next decision unless
 the player has deliberately focused another control. Browser shortcuts and
 other focused controls remain unaffected.
 
+The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
+discard."), with no line about the keys: the hand takes focus as the turn
+comes, unless another control has it, and the tile guide gives the keys. A
+screen reader still hears "Focus your hand to use arrows and Enter.", kept out
+of sight in the prompt that the hand names as its description, wherever the
+keys work: with **Keyboard shortcuts in your hand** on, and not on a touch
+screen.
+
 ### The hand's review
 
 **View table / my hand** on a hand's result opens the hand's review, **Your
@@ -165,8 +175,8 @@ depends on where the press starts (see below).
 | 1100x900 | any | 53 | 53 |
 | 1366x768 | any | 53 | 53 |
 | 1280x600 | any | 56 | 53 |
-| 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 263 | 315 |
-| 844x390, Trained AI still reviewing, from the foot | any | 154 | 204 |
+| 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 315 | 315 |
+| 844x390, Trained AI still reviewing, from the foot | any | 139 | 140 |
 | 390x844 | keyboard | 2 | 343 |
 | 375x667 | keyboard | 183 | 516 |
 | 360x640 | keyboard | 124 | 451 |
@@ -190,11 +200,11 @@ browser's own scroll anchoring moves the page as the review opens and leaves
 the heading under the game's bar; the page then brings it out just below the
 bar, 72 pixels from the top of the screen. With Trained AI's review under way,
 a shorter review that says how far it has got, the page moves less, and the
-heading ends lower, 181 to 207 pixels from the top, in view below the bar.
+heading ends lower, 229 to 248 pixels from the top, in view below the bar.
 Where it starts matters too. Pressed where the button has only just come into
-view, **View table / my hand** moves the page 72 pixels and the heading lands
+view, **View table / my hand** moves the page 124 pixels and the heading lands
 358 pixels from the top. From there **Review final hand** moves it 358 pixels
-with Club, or 177 with Trained AI. With Trained AI the figures also vary by
+with Club, or 112 with Trained AI. With Trained AI the figures also vary by
 a few dozen pixels from press to press, as the review's progress line changes
 length while it downloads or saves.
 
@@ -236,6 +246,19 @@ reached, come into the page with the review. They wait in it, empty and out of
 sight, until the review has been drawn and a tenth of a second more, before
 their words arrive, so that a screen reader can hear them after the heading it
 reads out as focus arrives.
+
+With Trained AI as the adviser, each decision gives Trained AI's weight for its
+own choice and, where the player chose otherwise, for the player's move; a
+riichi gives its declaration weight and the discard's weight given riichi.
+Nothing above the notes says what the weights are. The line that gives them
+says it in its title, shown as a tooltip: "How strongly Trained AI prefers each
+move, not a chance of winning", and, where the line has a riichi, that
+declaring riichi and the discard given riichi are weighed as separate
+decisions, not as one move. A tooltip shows only under a mouse, so the tile
+guide in the settings says both, for a keyboard or a finger too, under
+"Trained AI's percentages": "How strongly it prefers each move, not a chance
+of winning. Declaring riichi and the discard given riichi are weighed
+separately."
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
@@ -454,15 +477,13 @@ them before each batch it sends, and then goes on where it was: the hand under
 review, the hands waiting and the player's word stay as they were, so nothing
 need start it again, the review of the whole game included. The page's one
 worker answers its requests in turn, so notes asked between the review's
-batches of eight would wait behind one at every decision: a hand of fifteen
-decisions would take twenty seconds rather than two or three. Only the first
-note can wait behind a batch, the one already sent, whichever of the two was
-opened first, and on a slow device that note can still run out of time: its
-twenty seconds run from when it is sent, its wait included, so where what is
-left of the batch and the note take more than that together, they run out,
-which ends the worker and fails the notes, and the review stops too if its
-batch is still running. [UI reliability](UI_RELIABILITY.md) gives the speeds at
-which each can happen.
+batches would wait behind one at every decision: a hand of fifteen decisions
+would take twenty seconds rather than two or three. Only the first note can
+wait behind a batch, the one already sent, whichever of the two was opened
+first, and its twenty seconds run from when the worker begins it, so the wait
+slows it but cannot make it run out of time. [UI reliability](UI_RELIABILITY.md)
+says how requests are timed, and how the review sizes its batches to the
+device.
 
 **How it is built.** Nothing is added to the saved match, and its format is
 unchanged. The finished match is replayed from its saved commands, from the
@@ -473,10 +494,10 @@ saved match is unchanged."). A replay that ends where the match did, but in a
 hand still being played, is refused too ("A hand is still being played"),
 though a review opens only at a result. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
-a forward pass: Mortal's planes for each decision as it was made, then, where
-the network declares riichi, which tile it would discard. A move with one
-legal choice, such as the discard after riichi, is not asked and is left out
-of every figure.
+a forward pass, fewer on a slow device: Mortal's planes for each decision as it
+was made, then, where the network declares riichi, which tile it would
+discard. A move with one legal choice, such as the discard after riichi, is not
+asked and is left out of every figure.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
@@ -646,7 +667,8 @@ once that the tiles are compared given riichi. It leads with the five heaviest
 moves and those it tags; **Show 3 more moves** shows the rest and stays, as
 **Show fewer moves**, so focus stays on it. The tile guide in the settings says
 what the weights are, under "Trained AI's percentages": how strongly Trained AI
-prefers each move, not a chance of winning. For a turn, "What each move
+prefers each move, not a chance of winning, and that declaring riichi and the
+discard given riichi are weighed separately. For a turn, "What each move
 leaves", folded until it is opened, sets out what each of the two moves leaves,
 a column each ("You", "Trained AI") where the review measured it, counted as
 the hand review counts it: the hand left, the unseen tiles that improve it,
@@ -716,10 +738,10 @@ stays with its decision alone, shown whenever it is again and never asked
 again. While the reasoning asks, the
 review of the rest of the game waits at its gate, as it waits for the hand's
 notes, for the whole of a Why line or a search, until the worker has
-answered its last pass. Each of its passes, no longer than the review's
-batch, waits for any batch with the worker, and the review sends a batch in
-the turn it finds its gate open, so neither ever waits in the worker's queue
-for the other, where a deadline would run. Being part of Trained AI's
+answered its last pass. Each of its passes, the size of the review's batch,
+waits for any batch with the worker, and the review sends a batch in the turn
+it finds its gate open, so neither ever waits in the worker's queue for the
+other. Being part of Trained AI's
 view, all of it waits with the view while the settings keep Trained AI's move
 back: nothing of it is drawn, said or asked until the answer is shown. It
 explains Trained AI's choice, not good play, and changes only what the player
@@ -852,13 +874,17 @@ measured so.
 the page's own worker on one thread, a position took a median 163 ms one at a
 time and 157 ms in batches of eight, with identical weights; natively the same
 batch nearly halves the cost. A game of 150 to 200 decisions takes about half a
-minute there; phones were not measured. The review runs in the background with
-its progress and an estimate of the time left ("3 of 6 decisions · about 2
-minutes left"), goes on while its screen is closed, waits before each batch
-while a hand's own notes or its own reasoning about a decision ask Trained AI,
-which counts neither in the estimate nor against the device, and stops at
-**Stop** or when the player leaves Play. A
-device that takes over half a second a position holds after each hand
+minute there; phones were not measured. A device the review measures at over
+1.25 seconds a position is asked fewer at a time, as many as take about ten
+seconds and at least one, so that on a device that takes up to ten seconds a
+decision a batch ends well within its deadline and nothing waits long behind it
+([UI reliability](UI_RELIABILITY.md)). The review runs in the
+background with its progress and an estimate of the time left ("3 of 6
+decisions · about 2 minutes left"), goes on while its screen is closed, waits
+before each batch while a hand's own notes or its own reasoning about a
+decision ask Trained AI, which counts neither in the estimate nor against the
+device, and stops at **Stop** or when the player leaves Play. A device that
+takes over half a second a position holds after each hand
 ("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
 offers **Review next hand** or **Review the rest**; any hand can also be
 reviewed alone by **Review** in its header in the list, which opens by itself

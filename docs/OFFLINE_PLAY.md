@@ -81,7 +81,8 @@ could not save the network (no service worker, an installation still running, a
 hard reload, a storage failure), the worker downloads it itself, showing its
 progress. That phase has no fixed deadline: it ends when the worker has reported
 nothing for two minutes. The 20-second deadline for a move starts only once the
-network is loaded. A Retry after a failed start tries offline saving again.
+network is loaded and the worker begins that move. A Retry after a failed start
+tries offline saving again.
 
 The service worker saves the runtime (a few megabytes); the page saves the
 network itself (over 100 MB), because a browser cuts a service worker's work
@@ -147,11 +148,12 @@ memory](ONNX_RUNTIME.md#verification-and-memory)).
 
 ## Verification
 
-Run `npm run verify` in `web` for the same checks as CI. The component tests mount
-real components under a reactive parent and exercise bindings, context, download
-callbacks, modal focus, breakpoint changes and unmount. Production checks cover
-saved preferences across reload, unchanged matches, unavailable unused artwork
-and failed face switches. Unit tests cover preload cancellation and retry.
+Run `npm run verify` in `web` for the checks of CI's npm audit and web app jobs.
+The component tests mount real components under a reactive parent and exercise
+bindings, context, download callbacks, modal focus, breakpoint changes and
+unmount. Production checks cover saved preferences across reload, unchanged
+matches, unavailable unused artwork and failed face switches. Unit tests cover
+preload cancellation and retry.
 
 `scripts/offline-check.mjs`, part of `npm run test:browser`, exercises the real
 production service worker and the default network, including a browser-process restart with HTTP cache cleared, disabled

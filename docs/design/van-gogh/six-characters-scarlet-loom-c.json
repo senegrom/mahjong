@@ -1,0 +1,35 @@
+{
+  "tile": "6m",
+  "name": "Man6",
+  "candidate": "Scarlet Loom C",
+  "title": "The Scarlet Loom",
+  "source": "docs/design/van-gogh/studies/32-six-characters-scarlet-loom-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man6.svg",
+  "originalFilename": "scarlet_woven_characters_on_a_provençal_loom.png",
+  "originalSha256": "de7bf8b8be8d6a1a445f045e3bb73e152a2ea2bc767c8b37ca6beb010cac2f73",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalRetention": "The original PNG is retained with the approval conversation; this repository stores the optimized approved artwork and its checksums, not that full-resolution PNG.",
+  "processing": "The complete 3:4 RGB painting is uniformly resized with Pillow Lanczos to 300 x 400, then encoded as AVIF quality 70, speed 0, 4:2:0. No cropping, stretching, repainting or recolouring. The shared source SVG box is placed at 0,0,300,400 by the normal exporter.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 43761,
+  "rasterSha256": "6b1754cbada078e40e15ef3e9791355e574d11a8c595d3a3fcbb7470c828d806",
+  "svgSha256": "1530fc9cfa0b9a4dcbb6bb7129d05300467a6c95c21ed73647285389dd04dbed",
+  "runtimeSvgSha256": "952f5ba7b31e9ff6253fc2f8660fe23088b1e3a6826e30df59f60ff0c3d47633",
+  "supersededCandidate": "Lemon Terrace",
+  "archivedSvg": "docs/design/van-gogh/superseded/six-characters-lemon-terrace-Man6.svg",
+  "archivedSvgSha256": "b448abf38e3f768de796fb65d9b1265c7d146ae3792264796bb2dc67407b319d",
+  "supersededSource": "docs/design/van-gogh/studies/19-six-characters-lemon-terrace-approved.svg"
+}

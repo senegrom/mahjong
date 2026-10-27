@@ -1,4 +1,5 @@
 /** Presentation contracts. App owns mutation, persistence and engine lifetime. */
+import type { Snippet } from 'svelte';
 export type GameMode = 'play' | 'watch' | 'physical' | 'guided';
 export type TileFace = 'classic' | 'matisse' | 'van-gogh';
 export type Opponent = 'beginner' | 'club' | 'neural';
@@ -97,6 +98,10 @@ export interface PlayerHandProps {
    * a keyboard's press from a pointer's. */
   selectTile: (tile: Tile, index: number, event?: MouseEvent) => void;
   syncHandFocus: (event: FocusEvent) => void; handElement?: HTMLDivElement | null;
+  /** The player's choices, drawn under the hand, over the called sets and
+   * discards, where play has room for nothing between the hand and them (App);
+   * null, as in a review, for nothing there. */
+  controls?: Snippet | null;
   /** What a screen reader calls the tiles; a review names them for the seat. */
   handLabel?: string;
   /** The tiles as a list, one of a review's four hands, rather than a group. */
