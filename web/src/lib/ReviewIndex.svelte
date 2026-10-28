@@ -115,6 +115,23 @@
     if (Math.abs(moved) >= 0.5) box.scrollTop += moved;
     const line = box.querySelector(CURRENT);
     if (line && (line.dataset.stepTo !== before?.current || (before.whole && anchor?.element === line))) reveal(line, box);
+    if (line && !before) afterEasing(line, box);
+  }
+  /** Brings the line on show into view again once the page has finished
+   * easing, where the list has just come on the screen. With reduced motion
+   * every change of style eases over a hundredth of a millisecond (app.css),
+   * which takes a frame or two, so a change of the screen's size can draw
+   * the list in its new place while the page's spacing and heading around it
+   * are still as they were: from a phone held sideways to a screen of 1100 by
+   * 900, they then moved the column 33 pixels down, and its line off the foot
+   * of the screen. Not where the box has been scrolled meanwhile, by the
+   * player or by the list. */
+  function afterEasing(line, box) {
+    const top = box.scrollTop, easing = document.getAnimations().filter(motion => motion instanceof CSSTransition);
+    if (!easing.length) return;
+    void Promise.allSettled(easing.map(motion => motion.finished)).then(() => {
+      if (line.isConnected && line.matches(CURRENT) && box.scrollTop === top && box.getClientRects().length) reveal(line, box);
+    });
   }
   /** How far below the top of the box an element of it is drawn. */
   const below = (box, element) => element.getBoundingClientRect().top - box.getBoundingClientRect().top;
