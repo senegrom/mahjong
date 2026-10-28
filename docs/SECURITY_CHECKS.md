@@ -24,8 +24,15 @@ Modal training image use Rust 1.98.1.
 
 In `web/`, run `npm ci` and then `npm run verify`, which runs the checks of
 CI's npm audit and web app jobs; the [README](../README.md#run-and-verify)
-lists its steps. Its npm audit runs at `--audit-level=low`, so any advisory
-rated low or above fails it. CI runs that audit as a job of its own, so an
+lists its steps. Its npm audit, `scripts/npm-audit.mjs`, fails on any
+advisory rated low or above but one it excuses, and an excuse holds only while
+the case is the one reviewed: the same package, used by the same packages and
+no others, at the same severity and over the same versions (a fixed release
+changes them), with no fix available. The one excuse is deepmerge's prototype
+poisoning (GHSA-gcqx-w48m-w2h4, low, no fix on 28 October 2026): only the
+Svelte plugin uses deepmerge, to merge its own defaults, `svelte.config.js`
+and Vite's inline options in the build and the dev server, and none of it
+ships in the site. CI runs that audit as a job of its own, so an
 advisory or a registry outage fails the audit without stopping the tests.
 Generated WASM, third-party runtime files, build output and screenshots are
 not linted as handwritten application source.
