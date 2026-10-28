@@ -9,7 +9,7 @@
     "dev": "node scripts/copy-runtime.mjs && vite",
     "build": "node scripts/copy-runtime.mjs && vite build",
     "check": "svelte-check --no-tsconfig --fail-on-warnings",
-    "verify": "npm audit --audit-level=low && npm run wasm && npm run lint && npm run check && npm run build && npm run test:unit && npm run test:browser && npm run check:icons",
+    "verify": "node scripts/npm-audit.mjs && npm run wasm && npm run lint && npm run check && npm run build && npm run test:unit && npm run test:browser && npm run check:icons",
     "check:icons": "node scripts/check-icons.mjs && node scripts/check-icons.mjs --built",
     "test:unit": "node --test tests/*.test.js",
     "test:browser": "node scripts/browser-suite.mjs",

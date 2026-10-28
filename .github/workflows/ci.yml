@@ -70,10 +70,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
-      # The audit reads the lockfile, so nothing is installed.
+      # The audit reads the lockfile, so nothing is installed. The script fails
+      # on any advisory rated low or above but those it excuses.
       - name: Audit npm dependencies
         working-directory: web
-        run: npm audit --audit-level=low
+        run: node scripts/npm-audit.mjs
 
   # The rest of npm run verify, in three shards side by side. Each builds the
   # WebAssembly and the site and runs its share of the browser suite, which
