@@ -613,17 +613,21 @@ async function overviewIsRight(page, hand, step) {
 
 /** Waits until the page has stopped moving: the scroll, where the stage and
  * the player's tiles lie and how tall the page is, the same over three
- * frames running. A change of the screen's size takes the page and the
- * browser a few frames to settle, the browser's own scroll that keeps what
- * was in view in view (scroll anchoring) among them. Gives up after two
- * seconds, leaving what is measured next to say what moved. */
+ * frames running, with nothing easing. A change of the screen's size takes
+ * the page and the browser a few frames to settle, the browser's own scroll
+ * that keeps what was in view in view (scroll anchoring) among them; and
+ * with reduced motion, as every page here has it, each change of style
+ * eases over a hundredth of a millisecond (app.css), which on a slow machine
+ * can hold the page as it was for more than three frames before it moves.
+ * Gives up after two seconds, leaving what is measured next to say what
+ * moved. */
 const steady = page => page.evaluate(() => new Promise(done => {
   const read = () => [scrollY, document.documentElement.scrollHeight,
     ...['[data-game-review] [data-stage]', '[data-decision] .mine .hand .tile'].map(selector => Math.round(document.querySelector(selector)?.getBoundingClientRect().top ?? 0))].join();
   let last = read(), same = 0, frames = 0;
   const frame = () => {
-    const now = read();
-    same = now === last ? same + 1 : 0;
+    const now = read(), easing = document.getAnimations().some(motion => motion instanceof CSSTransition);
+    same = now === last && !easing ? same + 1 : 0;
     last = now;
     if (same >= 3 || ++frames >= 120) done();
     else requestAnimationFrame(frame);
@@ -1151,6 +1155,11 @@ try {
       await page.waitForFunction(selector => document.activeElement?.matches(selector), { timeout: 5000 }, line(key))
         .catch(async () => assert.fail(`the line of ${key} keeps focus across ${size}, not ${await focusedName(page)}`));
       assert.equal(await page.$('details[data-review-index]:not([open])'), null, `the list open for the line at ${size}`);
+      // The page around the list eases into the change of size after the
+      // list is drawn in its new place, and the list brings its line into
+      // view again once it has (ReviewIndex), so the line is looked for once
+      // the page has stopped moving.
+      await steady(page);
       assert.equal(await lineInView(page), true, `the line of ${key} in view at ${size}`);
     };
     let wasWide = true;

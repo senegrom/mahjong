@@ -559,15 +559,17 @@ steps, hands and the hands reviewed meanwhile. Either way the list keeps the
 line of the decision on show in view by scrolling its own box, never the page,
 which `scrollIntoView` would move as well: a step brings the new line into view
 by as little as will, below the bars that stay over a folded list at the top of
-the screen, and so does the list as it opens. Where hands reviewed meanwhile or
-another filter draw the list again, what the player is looking at stays where
-it is, as a browser's scroll anchoring keeps it: the control in the list that
-has focus, else the line on show, else the first line in view, or the top of a
-list at its top. Safari has no scroll anchoring, so the boxes have none, and
-the list does it itself. Its lines are kept by their hand and number, so that
-lines of other hands arriving as they are reviewed never take one away, or
-keyboard focus on it. Where the screen changes across that size, a control of
-the list that had focus has it again where the list is drawn now.
+the screen, and so does the list as it opens, and once more after the page
+around it has finished easing, which with reduced motion takes a frame or two
+after a change of the screen's size. Where hands reviewed meanwhile or another
+filter draw the list again, what the player is looking at stays where it is, as
+a browser's scroll anchoring keeps it: the control in the list that has focus,
+else the line on show, else the first line in view, or the top of a list at its
+top. Safari has no scroll anchoring, so the boxes have none, and the list does
+it itself. Its lines are kept by their hand and number, so that lines of other
+hands arriving as they are reviewed never take one away, or keyboard focus on
+it. Where the screen changes across that size, a control of the list that had
+focus has it again where the list is drawn now.
 
 **Every hand, face up.** At every decision the table is shown as it stood,
 every player's hand face up unless the player keeps the others' back (Hidden

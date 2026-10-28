@@ -111,14 +111,21 @@ between hands.
   the part of the box the player can see, below the bars stuck over a folded
   list, which the line's `scroll-margin-top` measures; the toggle that opens a
   folded list arrives after the browser has opened it, so the list goes by
-  whether it was on the screen before rather than by its box. Where hands
-  reviewed meanwhile or another filter draw the list again, the list keeps
-  still what the player is looking at, as scroll anchoring would: the control
-  in the box that has focus, else the line on show, else the first line in
-  view. Keeping the line on show still whatever the player looked at moved
-  everything they read above it by the lines arriving in between. Safari has
-  no scroll anchoring, so the boxes turn Chromium's off
-  (`overflow-anchor: none`) and behave alike in every browser.
+  whether it was on the screen before rather than by its box. The list coming
+  on the screen brings the line into view once more after the page's CSS
+  transitions have finished: with reduced motion every change of style eases
+  over a hundredth of a millisecond (`app.css`), a frame or two, so after a
+  change of the screen's size the list can be drawn in its new place while the
+  page's spacing and heading are still as they were, and from a phone held
+  sideways to 1100 by 900 they then moved the column 33 pixels down, and its
+  line off the foot of the screen. Where hands reviewed meanwhile or another
+  filter draw the list again, the list keeps still what the player is looking
+  at, as scroll anchoring would: the control in the box that has focus, else
+  the line on show, else the first line in view. Keeping the line on show
+  still whatever the player looked at moved everything they read above it by
+  the lines arriving in between. Safari has no scroll anchoring, so the boxes
+  turn Chromium's off (`overflow-anchor: none`) and behave alike in every
+  browser.
 - A screen reader announces a status line only once it already knows it. So
   these lines wait in the page, empty and out of sight, before their words
   arrive, rather than arriving with them:
