@@ -14,19 +14,19 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = relative => readFileSync(path.join(root, relative));
 const hash = data => createHash('sha256').update(data).digest('hex');
 const set = JSON.parse(read('web/public/tiles/van-gogh/manifest.json'));
-const record = JSON.parse(read('docs/design/van-gogh/nine-characters-poppy-field.json'));
+const record = JSON.parse(read('docs/design/van-gogh/nine-characters-poppy-hillside-b.json'));
 const entry = set.tiles.find(tile => tile.tile === '9m');
 
-test('nine characters uses the approved revised poppy field with smaller Wan', () => {
+test('nine characters uses the exact selected middle Poppy Hillside B', () => {
   assert.ok(entry);
-  assert.equal(entry.candidate, 'Poppies B (smaller Wan)');
+  assert.equal(entry.candidate, 'Poppy Hillside B');
   assert.equal(entry.name, 'Man9');
   assert.equal(entry.source, record.source);
-  assert.equal(record.originalFilename, 'van_gogh_style_poppy_field_characters.png');
-  assert.equal(record.originalSha256, 'ff3137d35a61f8569d3f6c7ff4c98dc2cc2809fe2b8d0b49be109d20a3ff4ac6');
-  assert.deepEqual(record.originalDimensions, [1122, 1402]);
-  assert.equal(hash(read(record.source)), '99f6155e1a7972f082fac869aca5e24559d65508be1ad175c2457b578372825a');
-  assert.equal(hash(read(record.runtime)), 'ed88ef4bd1f0531ba649490137076547633e5fc99b8afef9bde9af2beda4b140');
+  assert.equal(record.originalFilename, 'van_gogh_style_poppy_characters_in_provence.png');
+  assert.equal(record.originalSha256, 'fb028118434d2817b2dbaaef5b3ddf9ba5f474cd03e6760c77876d1b75e6e4f9');
+  assert.deepEqual(record.originalDimensions, [1086, 1448]);
+  assert.equal(hash(read(record.source)), '7b62e183e307623673c7f004bcb04ccf5ae4991981472745fdd139dbabde4caa');
+  assert.equal(hash(read(record.runtime)), '2f1303facc7868b37827b9feace26618adca6c69fd2947758b7dc92bb5416c79');
   assert.equal(entry.svgSha256, record.svgSha256);
 });
 
@@ -35,7 +35,7 @@ test('the source embeds the approved AVIF and the face changes placement only, w
   const embedded = source.toString().match(/href="data:image\/avif;base64,([A-Za-z0-9+/=]+)"/);
   assert.ok(embedded);
   const raster = Buffer.from(embedded[1], 'base64');
-  assert.equal(hash(raster), '5ddc2af7ede1d69f7a51e71ab308afcca157fbaf9b5a2cdfd8b09e56cc539f03');
+  assert.equal(hash(raster), '046444eb5ba454bbc0a740cd965a6b8863d86898603057de1a919f2f26603bd1');
   assert.equal(entry.rasterMimeType, 'image/avif');
   assert.equal(entry.rasterSha256, hash(raster));
   assert.equal(raster.toString('ascii', 4, 8), 'ftyp');
@@ -43,8 +43,10 @@ test('the source embeds the approved AVIF and the face changes placement only, w
   const ispe = raster.indexOf('ispe');
   assert.ok(ispe >= 0);
   assert.deepEqual([raster.readUInt32BE(ispe + 8), raster.readUInt32BE(ispe + 12)], [300, 400]);
-  assert.deepEqual(record.fit, { painting: [1122, 1402], stretch: 0, anchor: 0.5, bleedPixels: 0 });
+  assert.deepEqual(record.fit, { painting: [1086, 1448], stretch: 0, anchor: 0.5, bleedPixels: 0 });
   assert.deepEqual(entry.fit, fitRecord(record.fit, record.rasterDimensions));
+  assert.deepEqual(entry.fit.image, { x: 0, y: 0, width: 300, height: 400 });
+  assert.equal(raster.length, 49281);
   assert.deepEqual(face, placeStudyImage(source, faceImage(record.fit, record.rasterDimensions)));
   assert.match(face.toString(), /viewBox="0 0 300 400"/);
   assert.match(face.toString(), /rx="26"/);
@@ -66,7 +68,7 @@ test('nine characters is registered and preloaded exactly once, preserving the o
 
 test('the revised poppies appear in the gallery and the fourteen-tile hand', () => {
   const preview = read('web/public/tiles/van-gogh/preview.html').toString();
-  assert.match(preview, /Poppies B \(smaller Wan\) · Nine characters/);
+  assert.match(preview, /Poppy Hillside B · Nine characters/);
   const rack = preview.match(/<div class="rack" id="rack">([\s\S]*?)<\/div>/)?.[1];
   assert.ok(rack);
   assert.equal((rack.match(/<img /g) ?? []).length, 14);
@@ -102,4 +104,23 @@ test('--only=9m reproduces the fitted poppy face and leaves all other artwork un
     assert.deepEqual(generated.tiles.find(tile => tile.tile === '9m'), entry);
     assert.deepEqual(generated.remaining, set.remaining);
   }
+});
+
+
+test('the previous poppy face remains archived exactly and recent replacements stay selected', () => {
+  const previous = set.superseded.find(tile => tile.tile === '9m' && tile.candidate === 'Poppies B (smaller Wan)');
+  assert.equal(previous.activeCandidate, 'Poppy Hillside B');
+  assert.equal(previous.archivedSvg, record.archivedSvg);
+  assert.equal(hash(read(record.archivedSvg)), 'ed88ef4bd1f0531ba649490137076547633e5fc99b8afef9bde9af2beda4b140');
+  assert.equal(record.archivedSvgSha256, hash(read(record.archivedSvg)));
+  assert.equal(hash(read(previous.source)), '99f6155e1a7972f082fac869aca5e24559d65508be1ad175c2457b578372825a');
+  const historical = JSON.parse(read('docs/design/van-gogh/nine-characters-poppy-field.json'));
+  assert.equal(historical.source, previous.source);
+  assert.equal(historical.svgSha256, record.archivedSvgSha256);
+  assert.equal(set.tiles.length, 34);
+  assert.deepEqual(set.remaining, []);
+  for (const [tile, candidate] of Object.entries({
+    '2s': 'Flutes B', '3s': 'Vase A', '4s': 'Sunlit Garden B',
+    '6m': 'Scarlet Loom C', '5z': 'Almond Blossom C', '7z': 'Painter C',
+  })) assert.equal(set.tiles.find(entry => entry.tile === tile).candidate, candidate);
 });

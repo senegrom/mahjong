@@ -81,7 +81,8 @@ test('every squeezed Van Gogh export is fitted to the shape its provenance recor
     assert.deepEqual(entry.fit.painting, shape, record.tile);
   }
   // Scarlet Loom, Vase A, Flutes B and Sunlit Garden B use native 3:4 crops.
-  assert.deepEqual(squeezed.sort(), ['2z', '3p', '4p', '6p', '7s', '8s', '9m', '9p']);
+  // Poppy Hillside B also replaces a squeezed export: 9m is now native 3:4.
+  assert.deepEqual(squeezed.sort(), ['2z', '3p', '4p', '6p', '7s', '8s', '9p']);
 });
 
 test('the lit Matisse white dragon keeps exactly the quiet face\'s geometry', () => {

@@ -1,0 +1,46 @@
+{
+  "tile": "9m",
+  "name": "Man9",
+  "candidate": "Poppy Hillside B",
+  "title": "Poppy Hillside — Floral Nine B",
+  "source": "docs/design/van-gogh/studies/36-nine-characters-poppy-hillside-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man9.svg",
+  "approval": "Carl selected the middle of the three new Nine Characters candidates and explicitly requested GitHub deployment. Use the exact second painting, with the floral nine over a golden hillside, smaller floral Wan, cypresses, village and swirling sky. Neither the first meadow nor the third winding-path alternative is selected.",
+  "originalFilename": "van_gogh_style_poppy_characters_in_provence.png",
+  "originalSha256": "fb028118434d2817b2dbaaef5b3ddf9ba5f474cd03e6760c77876d1b75e6e4f9",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalRetention": "The full-resolution original PNG is retained with the approval conversation and the supplied artwork archive. The repository stores the optimized approved artwork and checksums, not a full-resolution PNG archive.",
+  "processing": "Uniformly downsample the entire exact 3:4 RGB painting using Pillow Lanczos to 300 x 400, then encode AVIF quality 70, speed 0, 4:2:0. No cropping, stretching, repainting or recolouring. The standard exporter places the image at 0,0,300,400 with zero extra bleed. Only the shared rounded-corner clipping applies.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 49281,
+  "rasterSha256": "046444eb5ba454bbc0a740cd965a6b8863d86898603057de1a919f2f26603bd1",
+  "sourceSha256": "7b62e183e307623673c7f004bcb04ccf5ae4991981472745fdd139dbabde4caa",
+  "svgSha256": "2f1303facc7868b37827b9feace26618adca6c69fd2947758b7dc92bb5416c79",
+  "runtimeSvgSha256": "2f1303facc7868b37827b9feace26618adca6c69fd2947758b7dc92bb5416c79",
+  "fit": {
+    "painting": [
+      1086,
+      1448
+    ],
+    "stretch": 0,
+    "anchor": 0.5,
+    "bleedPixels": 0
+  },
+  "supersededCandidate": "Poppies B (smaller Wan)",
+  "supersededSource": "docs/design/van-gogh/studies/24-nine-characters-poppy-field-smaller-wan-approved.svg",
+  "archivedSvg": "docs/design/van-gogh/superseded/nine-characters-poppy-field-smaller-wan-Man9.svg",
+  "archivedSvgSha256": "ed88ef4bd1f0531ba649490137076547633e5fc99b8afef9bde9af2beda4b140"
+}
