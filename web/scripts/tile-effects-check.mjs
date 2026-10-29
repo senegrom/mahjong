@@ -8,7 +8,7 @@ import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'vite';
+import { build, normalizePath } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VAN_GOGH_APPROVED } from '../src/lib/van-gogh-faces.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
@@ -23,12 +23,17 @@ const { check, report } = browserChecks();
 // Supply missing-art cases only in this fixture, now that shipped sets are complete.
 const FIXTURE_APPROVED = VAN_GOGH_APPROVED.filter(tile => !['2m', '2z', '5z'].includes(tile));
 const writtenTiles = TILE_TYPES.filter(tile => !FIXTURE_APPROVED.includes(tile));
+// Vite names a module by its path with forward slashes, on Windows too, so a
+// path from resolve() alone never matched there and the fixture painted every tile.
+const vanGoghFaces = normalizePath(resolve(web, 'src/lib/van-gogh-faces.js'));
+let fixtureApplied = false;
 const unpaintedFixture = {
   name: 'unpainted-tile-fixture',
   enforce: 'pre',
   transform(code, id) {
-    if (id === resolve(web, 'src/lib/van-gogh-faces.js')) {
+    if (id === vanGoghFaces) {
       assert.match(code, /export const VAN_GOGH_APPROVED/);
+      fixtureApplied = true;
       return { code: 'export const VAN_GOGH_APPROVED = Object.freeze(' + JSON.stringify(FIXTURE_APPROVED) + ');', map: null };
     }
   },
@@ -115,6 +120,7 @@ let writtenShown = $state(false);
 {#if writtenShown}<div class="samples" id="written">{#each written as {set,tile}}<Painted face={set}>{#each writtenSizes as [width,size]}{#each [false,true] as rotated}{#each [true,false] as claimed}<span data-face="{set} {tile}" style="--tile-width:{width}px"><Tile {tile} {size} {rotated} {claimed}/></span>{/each}{/each}{/each}</Painted>{/each}</div>{/if}
 <style>:global(body){margin:30px;background:#173e35;color:#fff;font:16px system-ui;--tile-width:60px;--ivory:#fffaf0;} .samples{display:flex;gap:26px;align-items:start;flex-wrap:wrap;margin-bottom:40px} #written{gap:4px} section{min-width:70px} #dynamic{margin:25px 0} button{margin:10px;padding:10px}</style>`);
   await build({configFile:false,root:temporary,base:'/mahjong/',publicDir:false,plugins:[unpaintedFixture,svelte()],logLevel:'warn',build:{outDir:out,target:'es2022'}});
+  assert.ok(fixtureApplied, 'the fixture build replaced src/lib/van-gogh-faces.js');
   server = createServer(createFixtureHandler({root:out,publicRoot:resolve(web,'public')}));
   await new Promise(done=>server.listen(0,'127.0.0.1',done));
   browser = await launchChrome();
