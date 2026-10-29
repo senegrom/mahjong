@@ -1,0 +1,39 @@
+{
+  "tile": "4s",
+  "name": "Sou4",
+  "candidate": "Sunlit Garden B",
+  "title": "Four Bamboo in the Sunlit Garden",
+  "source": "docs/design/van-gogh/studies/35-four-bamboo-sunlit-garden-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou4.svg",
+  "approval": "Carl selected the middle sunlit garden painting from the four-bamboo triptych and explicitly requested GitHub deployment. Neither moonlit alternative is selected.",
+  "originalBoardFilename": "a_triptych_three_panel_painting_illustration_in_a.png",
+  "originalBoardDimensions": [
+    1882,
+    836
+  ],
+  "originalBoardSha256": "030abbb0fa849e6b87fa9ba77f29576ce88e3890453c260c5e23cbb529b9b4b2",
+  "originalCrop": {
+    "x": 640,
+    "y": 16,
+    "width": 600,
+    "height": 800
+  },
+  "fullResolutionCropSha256": "c416e891d268623b2db453e4e11c8eeb5a8080541c90e278d1e0f7b564c311b5",
+  "originalRetention": "The original triptych and lossless selected crop are retained with the approval conversation. This repository stores the optimized selected artwork and provenance, not a full-resolution PNG archive.",
+  "processing": "Mechanically extract the middle panel at x=640,y=16,width=600,height=800, removing the white gutters and panel fringe. Keep all four bamboo stalks, the stone wall and terracotta pot. Uniformly downsample this exact 3:4 crop with Pillow Lanczos to 300 x 400 and encode AVIF quality 70, speed 0, 4:2:0. No stretching, repainting or recolouring. The normal exporter uses zero extra bleed; standard rounded tile clipping is unchanged.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 48483,
+  "rasterSha256": "bee554c0d08868e23f20ad7b82dd57df88dbd25b19fc87ea297c2ddb6dfc2b75",
+  "svgSha256": "dad4f4cdf389ef5dbadbe82261e036054b5325e98b4e5eb1d562c13cc4749a59",
+  "runtimeSvgSha256": "574e208e0e6dbb4a247b1d58fc09a2e9a610bf43d64d9d7a2948d1f5c2efe841",
+  "supersededCandidate": "Bamboo C (green)",
+  "supersededSource": "docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp",
+  "archivedSvg": "docs/design/van-gogh/superseded/four-bamboo-moonlit-four-Sou4.svg",
+  "archivedSvgSha256": "a004166a84ae21c2900e83300ff7e5bea4a417f9318925a7cdc211c0fad0374e",
+  "archivedPng": "docs/design/van-gogh/superseded/four-bamboo-moonlit-four-Sou4.png",
+  "archivedPngSha256": "64e5d720aa3fc55dc5df67e832781e6fd8821a9ccddf3105284145b555d9156a"
+}

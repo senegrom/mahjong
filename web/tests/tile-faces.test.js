@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Flutes B', 'Bamboo C (green)', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Characters B', 'Characters C', 'Flutes B', 'Sunlit Garden B', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppies B (smaller Wan)', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -57,7 +57,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['2s', '3s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['2s', '3s', '4s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
@@ -298,31 +298,29 @@ test('Van Gogh Vase A replaces three bamboo while Triple Shoots remains recovera
   assert.equal(set.superseded.find(tile => tile.tile === '3s' && tile.candidate === 'C').activeCandidate, 'Vase A');
 });
 
-test('Van Gogh greener Moonlit Four C is the approved four bamboo', () => {
+test('Van Gogh Sunlit Garden B replaces four bamboo while Moonlit Four remains recoverable', () => {
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   const entry = set.tiles.find(tile => tile.tile === '4s');
-  assert.ok(entry);
-  assert.equal(entry.candidate, 'Bamboo C (green)');
+  assert.equal(set.tiles.length, 34);
+  assert.equal(set.remaining.length, 0);
+  assert.equal(set.tiles.filter(tile => tile.tile === '4s').length, 1);
+  assert.equal(entry.candidate, 'Sunlit Garden B');
   assert.equal(entry.name, 'Sou4');
-  assert.equal(entry.source, 'docs/design/van-gogh/studies/13-four-bamboo-moonlit-four-green.webp');
-  assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 });
-  const source = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
-  assert.equal(createHash('sha256').update(source).digest('hex'),
-    '4d1e76c1716b6086524dfcf94ec8141fa9196a78fce5ecffa517e904204304fb');
-  const png = readFileSync(new URL(`tiles/van-gogh/${entry.png}`, publicRoot));
-  assert.equal(png.readUInt32BE(16), 300);
-  assert.equal(png.readUInt32BE(20), 400);
+  assert.equal(entry.source, 'docs/design/van-gogh/studies/35-four-bamboo-sunlit-garden-b-approved.svg');
   assert.equal(tileImage('4s', 'van-gogh'), 'tiles/van-gogh/approved/Sou4.svg');
   assert.ok(TILE_IMAGE_URLS.includes(tileImage('4s', 'van-gogh')));
-  assert.ok(!set.remaining.includes('4s'));
+  const previous = set.superseded.find(tile => tile.tile === '4s' && tile.candidate === 'Bamboo C (green)');
+  assert.equal(previous.activeCandidate, 'Sunlit Garden B');
+  const bytes = readFileSync(new URL(`../../${previous.source}`, import.meta.url));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    '4d1e76c1716b6086524dfcf94ec8141fa9196a78fce5ecffa517e904204304fb');
   const provenance = JSON.parse(readFileSync(new URL('../../docs/design/van-gogh/four-bamboo-green.json', import.meta.url), 'utf8'));
-  assert.equal(provenance.source, entry.source);
-  assert.equal(provenance.sourceSha256, createHash('sha256').update(source).digest('hex'));
+  assert.equal(provenance.source, previous.source);
+  assert.equal(provenance.sourceSha256, createHash('sha256').update(bytes).digest('hex'));
   assert.deepEqual(provenance.originalCrop, { x: 974, y: 144, width: 438, height: 671 });
   assert.equal(provenance.originalBoardSha256,
     '8aa09c5f197667a94effffd037e506a02064a409444667923e7a46de3d09a450');
 });
-
 
 test('Van Gogh Seven with Irises C is the approved seven bamboo', () => {
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
