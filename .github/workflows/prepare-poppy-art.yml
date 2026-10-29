@@ -1,0 +1,36 @@
+name: Prepare approved Nine Characters Poppy Hillside B
+on:
+  push:
+    branches:
+      - art/prepare-van-gogh-poppy-hillside-20261029
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_SHA: 88dce1b4e7805bcd438d563c2122be12bfd2b103
+      TARGET_BRANCH: art/van-gogh-nine-characters-poppy-hillside-b-20261029
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install selected middle painting and archive its predecessor
+        run: python3 .poppy-prep/install.py
+      - name: Install existing locked dependencies
+        working-directory: web
+        run: npm ci
+      - name: Validate tile integration and proportions
+        working-directory: web
+        run: node --test tests/van-gogh*.test.js tests/tile-faces.test.js tests/tile-proportions.test.js
+      - name: Lint changed code
+        working-directory: web
+        run: npx eslint scripts/export-van-gogh-tiles.mjs tests/tile-faces.test.js tests/tile-proportions.test.js tests/van-gogh-nine-characters.test.js --max-warnings 0
+      - name: Verify preservation and publish clean artwork-only branch
+        run: python3 .poppy-prep/publish.py
