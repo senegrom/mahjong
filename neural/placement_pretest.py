@@ -139,15 +139,17 @@ def seat_others(args, device: str) -> tuple[Population, list]:
     return roster, seated
 
 
-def play_round(net, args, roster, seated, device: str) -> selfplay.Batch:
+def play_round(net, args, roster, seated, device: str, **more) -> selfplay.Batch:
     """One round of the checkpoint as its run plays one: sampled moves,
-    the others seated as the run seats them, the ledger kept."""
+    the others seated as the run seats them, the ledger kept. `more` goes
+    to `selfplay.play` as it is: the noise pre-test asks for the oracle's
+    planes and the reach's preview."""
     amp = args.amp and device == "cuda"
     player = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False) if amp else net
     batch = selfplay.play(
         player, games=args.games, seed=args.seed, device=device, amp=amp, opponents=seated,
         opponent_share=args.opponent_share, seat_share=args.seat_share, population=roster,
-        want_held=False, ledger=True,
+        want_held=False, ledger=True, **more,
     )
     del player
     return batch
@@ -265,12 +267,17 @@ def by_stage(values: torch.Tensor, stages: np.ndarray) -> dict:
 # ------------------------------------------------------------- the gradients
 
 
-def head_gradients(net, rollout, weights: torch.Tensor, args, device: str) -> tuple[torch.Tensor, str]:
+def head_gradients(net, rollout, weights: torch.Tensor, args, device: str,
+                   fallback: bool = True) -> tuple[torch.Tensor, str]:
     """Σ_i w_ki ∇ log π(a_i | s_i) over the fusion head's parameters, for
     every row k of `weights` (k, decisions): one pass over the round, the
     networks beneath the head read once a minibatch and held still.
     Answers (k, parameters) and how the products were taken: batched over k
-    where the graph allows, one at a time otherwise."""
+    where the graph allows, one at a time otherwise. With `fallback` false
+    a batched product that fails raises instead, running out of the card's
+    memory included: one at a time, sixty vectors would take sixty times
+    as long, and the noise pre-test would rather retry the chunk smaller
+    (see `noise_pretest.gradient_sums`)."""
     amp = args.amp and device == "cuda"
     dtype = torch.bfloat16 if amp else torch.float32
     net.set_mode("mortal+ours")
@@ -296,6 +303,8 @@ def head_gradients(net, rollout, weights: torch.Tensor, args, device: str) -> tu
                 grads = torch.autograd.grad(log_prob, params, grad_outputs=asked, is_grads_batched=True,
                                             retain_graph=True, allow_unused=True)
             except (RuntimeError, NotImplementedError):
+                if not fallback:
+                    raise
                 how = "one at a time"
         if grads is not None:
             out += torch.cat([g.reshape(len(weights), -1) if g is not None

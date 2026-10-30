@@ -171,7 +171,8 @@ class Batch:
     #: concealed tiles, the draws to come and the hidden indicators, as 0/1
     #: planes kept in bytes. For the oracle critic, which only trains; the
     #: network is never shown this when choosing. Empty for a learner that
-    #: decides for itself, since no trainer of one trains an oracle critic.
+    #: decides for itself, since no trainer of one trains an oracle critic,
+    #: unless the round was asked to keep them (`play`'s `keep_oracle`).
     oracle: torch.Tensor
     returns: torch.Tensor
     log_probs: torch.Tensor
@@ -218,6 +219,13 @@ class Batch:
     #: The rules' account of the round (`selfplay_rules.Played.report`), for
     #: the generation's record; None when the round was played without them.
     rules: dict | None = None
+    #: How many steps the round took; and the seconds of its wall time
+    #: spent copying the oracle's planes out of the engine and keeping the
+    #: learner's rows of them, nought when nobody asked for them. The
+    #: copying fills every game's planes one game after another, so what it
+    #: costs a round is its steps times what it costs a step.
+    steps: int = 0
+    oracle_seconds: float = 0.0
 
 
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
@@ -254,6 +262,7 @@ def play(
     abandon=None,
     ledger: bool = False,
     last_hand_rules: tuple[str, ...] = (),
+    keep_oracle: bool | None = None,
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -265,8 +274,14 @@ def play(
     is copied out for every game on every step. The oracle's planes are
     4.4 kilobytes a game a step: the network that `train.py` trains always
     has them, for its oracle critic, and a learner that decides for itself
-    (one with `decide`) never does: no trainer of one trains an oracle
-    critic, though the fusion's network of ours holds one.
+    (one with `decide`) does not: no trainer of one trains an oracle
+    critic, though the fusion's network of ours holds one. `keep_oracle`
+    says otherwise when it is given: True keeps them for every decision
+    the learner records, whichever kind it is, and False for none. A
+    learner that decides for itself is given the planes of the row each
+    record came from, so a riichi, two records from one row, has the same
+    planes twice: the reach changes nothing hidden. The noise pre-test
+    asks for them (see `noise_pretest`).
     `want_held=False` leaves out what the opponents held, for a
     learner with no head that reads it: a gigabyte of host memory on a
     round of 2.8 million decisions. Neither changes a move or a reward.
@@ -339,7 +354,7 @@ def play(
         population = population.for_round(seed)
     recording = net.kind == "mortal"
     decides = hasattr(net, "decide")
-    wants_oracle = not decides
+    wants_oracle = (not decides) if keep_oracle is None else bool(keep_oracle)
     # The last hand's rules, when the learner is played by them: the round's
     # account, handed to the learner with every question and nothing when
     # none are named, so a learner that knows nothing of them still plays.
@@ -452,6 +467,9 @@ def play(
     timing = {"engine": 0.0, "encode": 0.0, "network": 0.0, "opponents": 0.0, "other": 0.0}
     # The seated others' views made on this thread (see `Batch`).
     seated_here = 0.0
+    # Copying the oracle's planes out of the engine and keeping the
+    # learner's rows of them (see `Batch.oracle_seconds`).
+    oracle_seconds = 0.0
     # A learner that keeps its own account may have been deciding
     # elsewhere since, in a measurement; this round starts from nothing.
     own = getattr(net, "timing", None)
@@ -509,8 +527,10 @@ def play(
             truth = np.frombuffer(arena.opponent_hands(), dtype=np.float32)
             truth = truth.reshape(games, OPPONENTS, POSITIONS)
         if wants_oracle:
+            fetched = clock()
             hidden = np.frombuffer(arena.oracle(), dtype=np.float32)
             hidden = hidden.reshape(games, ORACLE_PLANES, POSITIONS)
+            oracle_seconds += clock() - fetched
         players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
         their_choice = np.zeros(games, dtype=np.int64)
         timing["engine"] += clock() - began
@@ -617,6 +637,12 @@ def play(
             # of the hands is trained on both.
             if want_held:
                 held.append(truth[index][record_slots].copy())
+            if wants_oracle:
+                # Likewise a row for each decision recorded, taken by the
+                # row it came from, so a riichi's two records share theirs.
+                fetched = clock()
+                oracle.append(hidden[index[np.asarray(record_slots, dtype=np.int64)]].astype(np.uint8))
+                oracle_seconds += clock() - fetched
             record_forced = getattr(records, "forced", None)
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
@@ -669,7 +695,10 @@ def play(
             legal_masks.append(mask[index].copy())
             if want_held:
                 held.append(truth[index].copy())
-            oracle.append(hidden[index].astype(np.uint8))
+            if wants_oracle:
+                fetched = clock()
+                oracle.append(hidden[index].astype(np.uint8))
+                oracle_seconds += clock() - fetched
             timing["network"] += clock() - began
             began = clock()
 
@@ -815,8 +844,8 @@ def play(
         legal=gather(legal_masks),
         actions=torch.tensor(actions, dtype=torch.int64),
         # A label nobody collected is empty: a learner that decides for
-        # itself has no oracle's planes, and `want_held=False` leaves out
-        # what the opponents held.
+        # itself has no oracle's planes unless it kept them, and
+        # `want_held=False` leaves out what the opponents held.
         held=gather(held) if held else torch.zeros(0),
         oracle=gather(oracle) if oracle else torch.zeros(0),
         explored=gather(wandered) if wandered else None,
@@ -831,6 +860,8 @@ def play(
         ledger=record,
         ruled=ruled,
         rules=rules_report,
+        steps=steps,
+        oracle_seconds=oracle_seconds,
     )
 
 
