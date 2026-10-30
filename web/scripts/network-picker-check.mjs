@@ -3,12 +3,12 @@
  * network's address alone, names it wherever Trained plays or advises, and
  * is reported on by the worker; picking the default again brings the default
  * back and leaves no pick, and a pick made in Agent watch reloads into Agent
- * watch. Settings saved before 1410 (record version 3, or 2 from before
- * 1110) play the default, whatever they picked, keep every other choice and
- * resume a saved match; a pick made after that stays. On a phone a seat's
- * badge says Trained without the version, and the opponents menu shows the
- * version whole, not cut off before its chevron. The networks' host is
- * unreachable for the whole browser and the page's own requests for a
+ * watch. Settings saved before 2610 (record version 4, 3 from before 1410,
+ * or 2 from before 1110) play the default, whatever they picked, keep every
+ * other choice and resume a saved match; a pick made after that stays. On a
+ * phone a seat's badge says Trained without the version, and the opponents
+ * menu shows the version whole, not cut off before its chevron. The networks'
+ * host is unreachable for the whole browser and the page's own requests for a
  * network are answered here, so nothing downloads 116 MB: what is checked is
  * which address each page asks for. */
 import assert from 'node:assert/strict';
@@ -41,7 +41,7 @@ let browser;
 const chosen = { difficulty: 'custom', opponents: ['neural', 'club', 'neural'], hints: false, confirmDiscards: true,
   shortcuts: false, tileFace: 'matisse', reviewAdviser: 'club', reviewHideMove: true, reviewHideTiles: true, reviewFilter: 'every' };
 // A match at that table saved part way through its first hand, as a page
-// before 1410 left it. Its Trained moves are replayed from the save, never
+// before 2610 left it. Its Trained moves are replayed from the save, never
 // asked of a network: each Trained seat passes on every call and otherwise
 // throws the first tile it may. The Club seat can end a hand early, so the
 // first deal still under way after thirty moves is taken.
@@ -221,12 +221,12 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
-  // What builds before generation 1410 wrote: settings record version 3, and
-  // before 1110 version 2, each of which held a pick only once a player made
-  // one. Every such pick is dropped once, so that the player meets the
-  // default.
+  // What builds before generation 2610 wrote: settings record version 4,
+  // before 1410 version 3 and before 1110 version 2, each of which held a
+  // pick only once a player made one. Every such pick is dropped once, so
+  // that the player meets the default.
   const picks = [...others.map(network => [`a pick of ${network.version}`, network.version]), ['no pick', undefined], ['a pick no build lists', '0.1.36']];
-  const before = [3, 2].flatMap(record => picks.map(([which, trainedNetwork]) => [record, which, trainedNetwork]));
+  const before = [4, 3, 2].flatMap(record => picks.map(([which, trainedNetwork]) => [record, which, trainedNetwork]));
   for (const [index, [record, which, trainedNetwork]] of before.entries()) {
     // The first also makes a pick afterwards, and the second resumes a match.
     const later = index === 0 ? others[0] : null, resumes = index === 1;
@@ -238,10 +238,10 @@ try {
       const page = await open(asked, undefined, saved);
       await page.waitForSelector('.board');
       assert.deepEqual(await askedFor(page, asked, MANIFEST), [addressOf(MANIFEST)], `the page asks for ${MANIFEST.version} alone`);
-      // The page writes the record back as it loads: version 4, every other
+      // The page writes the record back as it loads: version 5, every other
       // choice as it was, and no pick.
-      await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.version === 4, {}, SETTINGS_KEY);
-      assert.deepEqual(await settings(page), { version: 4, ...chosen });
+      await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.version === 5, {}, SETTINGS_KEY);
+      assert.deepEqual(await settings(page), { version: 5, ...chosen });
       assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'custom');
       if (resumes) {
         // The match goes on where it was saved, its Trained seats now played by the default.
@@ -258,7 +258,7 @@ try {
         await page.waitForSelector('.board');
         assert.deepEqual(await askedFor(page, asked, later), [addressOf(later)]);
         for (let load = 0; load < 2; load++) {
-          assert.deepEqual(await settings(page), { version: 4, ...chosen, trainedNetwork: later.version });
+          assert.deepEqual(await settings(page), { version: 5, ...chosen, trainedNetwork: later.version });
           assert.deepEqual(await named(page), playing(later, 2));
           asked.length = 0;
           await page.reload({ waitUntil: 'domcontentloaded' });

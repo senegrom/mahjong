@@ -21,7 +21,7 @@ test('the selectable faces are Classic, Matisse and Van Gogh with every tile ava
 
 test('retired Dali preferences become Classic without resetting other supported settings', () => {
   assert.equal(normalizeTileFace('dali'), 'classic');
-  for (const version of [1, 2, 3, 4]) {
+  for (const version of [1, 2, 3, 4, 5]) {
     const saved = { version, tileFace: 'dali', hints: false, confirmDiscards: false, shortcuts: false };
     const read = settings => readSettings({ getItem: () => JSON.stringify(settings) });
     assert.deepEqual(read(saved), read({ ...saved, tileFace: 'classic' }));

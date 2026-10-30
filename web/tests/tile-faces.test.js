@@ -170,8 +170,8 @@ test('tile face survives preference restoration and retired or invalid settings 
   }
   // No settings reset touched the tile face; a record of a version this
   // build does not know is not read.
-  for (const version of [2, 3, 4]) assert.equal(read({ version, tileFace: 'matisse' }).tileFace, 'matisse');
-  assert.equal(read({ version: 5, tileFace: 'matisse' }).tileFace, 'classic');
+  for (const version of [2, 3, 4, 5]) assert.equal(read({ version, tileFace: 'matisse' }).tileFace, 'matisse');
+  assert.equal(read({ version: 6, tileFace: 'matisse' }).tileFace, 'classic');
 });
 
 test('the real Tile component respects the selected face and hidden state', async () => {
