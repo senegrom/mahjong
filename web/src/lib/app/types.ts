@@ -43,7 +43,7 @@ export interface OfflineState {
 }
 export interface OfflineStatusProps {
   offline: OfflineState; downloadAi: () => void; open?: boolean;
-  /** The version of the trained network the page plays, such as '0.1.1410'. */
+  /** The version of the trained network the page plays, such as '0.1.2610'. */
   network?: string;
 }
 export interface SettingsProps extends OfflineStatusProps {

@@ -24,13 +24,17 @@ test('the manifest lists every network whole, the default first, and keeps expor
   }
 });
 
-test('0.1.1410 is the default, and 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
-  // Generation 1410 of the placement fork that pays points at alpha 0.05, at
-  // the owner's word; 1110, 810 and 410 are the exports the site played
-  // before it, byte for byte.
+test('0.1.2610 is the default, and 0.1.1410, 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
+  // Generation 2610 of the placement fork that pays points at alpha 0.05, as
+  // 1410 is, at the owner's word; 1410, 1110, 810 and 410 are the exports the
+  // site played before it, byte for byte.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
-  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
-  assert.equal(MANIFEST, find('0.1.1410'));
+  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.2610', '0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
+  assert.equal(MANIFEST, find('0.1.2610'));
+  assert.deepEqual({ ...find('0.1.2610') }, { version: '0.1.2610', source: 'fusion-place-a005/history/gen-02610', generation: 2610,
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107861561, origin,
+    object: 'models/g2610/422d3a87d1143f7b2bbe161e9920e99891b00ce213fb472813fc95be1487b721',
+    sha256: '422d3a87d1143f7b2bbe161e9920e99891b00ce213fb472813fc95be1487b721' });
   assert.deepEqual({ ...find('0.1.1410') }, { version: '0.1.1410', source: 'fusion-place-a005/history/gen-01410', generation: 1410,
     reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107858348, origin,
     object: 'models/g1410/5c34e472d19e61714d8b2e32320fcbc46415dff932ef4ec2c3da603fe55fbf26',
@@ -70,15 +74,17 @@ test("a network's value is named and described by the reward it learned from, as
     help: `Trained 0.1.1110 was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, points counting only through the places they win. An estimate, not a win probability.`,
   });
   assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
-  // 1410: the same at alpha 0.05, which pays the hand's points beside the
-  // bonus and says how much they weigh, in the tooltip too.
-  const tiebreak = valueWords(find('0.1.1410'));
-  assert.deepEqual(tiebreak, {
-    label: 'Estimated placement reward',
-    title: 'Estimated placement bonus plus 0.05 × point change ÷ 4,000, not a win probability',
-    help: `Trained 0.1.1410 was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, plus 0.05 × the hand's point change ÷ 4,000. An estimate, not a win probability.`,
-  });
-  assert.doesNotMatch(tiebreak.help, /training reward|finishing place|only through the places/);
+  // 2610 and 1410: the same at alpha 0.05, which pays the hand's points
+  // beside the bonus and says how much they weigh, in the tooltip too.
+  for (const version of ['0.1.2610', '0.1.1410']) {
+    const tiebreak = valueWords(find(version));
+    assert.deepEqual(tiebreak, {
+      label: 'Estimated placement reward',
+      title: 'Estimated placement bonus plus 0.05 × point change ÷ 4,000, not a win probability',
+      help: `Trained ${version} was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, plus 0.05 × the hand's point change ÷ 4,000. An estimate, not a win probability.`,
+    });
+    assert.doesNotMatch(tiebreak.help, /training reward|finishing place|only through the places/);
+  }
   // Another weight is said as it was given.
   assert.match(valueWords({ version: '0.1.9', reward: { kind: 'placement', alpha: 0.4 } }).help, /, plus 0\.4 × the hand's point change ÷ 4,000\./);
   // A reward this build cannot describe is not described.

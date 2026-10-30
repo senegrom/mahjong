@@ -10,10 +10,10 @@ export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
 const VERSION = 1;
 // The settings record's own version: 2 since the site played generation 810,
-// 3 since it played generation 1110 and 4 since it played generation 1410,
-// see readSettings. Saved matches keep VERSION, so a match saved before any of
-// them still resumes.
-const SETTINGS_VERSION = 4;
+// 3 since it played generation 1110, 4 since it played generation 1410 and 5
+// since it played generation 2610, see readSettings. Saved matches keep
+// VERSION, so a match saved before any of them still resumes.
+const SETTINGS_VERSION = 5;
 const MAX_COMMANDS = 20000;
 const MAX_SAVE_BYTES = 2_000_000;
 const PLAYER_ACTIONS = ['discard', 'riichi', 'tsumo', 'concealed-kan', 'extended-kan', 'ron', 'pon', 'kan', 'chii', 'pass'];
@@ -44,12 +44,12 @@ const REVIEW_FILTERS = ['flagged', 'differed', 'every'];
  * default, the network published last, and moves on with it when a newer one
  * is published. Without a pick, and for a version this build does not list,
  * it is left out, and the page plays the default (trained-network.js). A
- * record from before the site played generation 1110 (version 2) or 1410
- * (version 3) keeps every other choice but not its pick: when 1110 arrived
- * every player was put in front of it once, at the owner's word, whatever
- * version they had picked before, and 1410's release followed that example.
- * A pick made since writes a version 4 record, and from version 4 a pick is
- * kept as it stands.
+ * record from before the site played generation 1110 (version 2), 1410
+ * (version 3) or 2610 (version 4) keeps every other choice but not its pick:
+ * when 1110 arrived every player was put in front of it once, at the owner's
+ * word, whatever version they had picked before, and the releases of 1410 and
+ * 2610 followed that example. A pick made since writes a version 5 record,
+ * and from version 5 a pick is kept as it stands.
  *
  * reviewHideMove and reviewHideTiles say whether Trained AI's reviews keep
  * its move back, and the other players' tiles, until the player asks to see
@@ -64,7 +64,7 @@ export function readSettings(storage, touch = false) {
     reviewHideMove: false, reviewHideTiles: false, reviewFilter: 'flagged' };
   try {
     const value = JSON.parse(storage?.getItem(SETTINGS_KEY));
-    if (![1, 2, 3, SETTINGS_VERSION].includes(value?.version)) return defaults;
+    if (![1, 2, 3, 4, SETTINGS_VERSION].includes(value?.version)) return defaults;
     defaults.tileFace = normalizeTileFace(value.tileFace);
     for (const key of ['hints', 'confirmDiscards', 'shortcuts', 'reviewHideMove', 'reviewHideTiles']) {
       if (typeof value[key] === 'boolean') defaults[key] = value[key];
