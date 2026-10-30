@@ -7,7 +7,13 @@
  * Each game names the version of the network that judged it. A player can
  * pick another version, which judges differently, so a game judged again by
  * another version is entered beside its first entry, not over it, and a
- * figure is compared only with games the same version judged. */
+ * figure is compared only with games the same version judged.
+ *
+ * Since the review averaged over the suits (suits.js), each game says so
+ * (`suits`), and a game judged so differs from one judged plain as another
+ * version's would, if less: so it too is entered beside a plain entry of the
+ * same game, and compared only with games judged alike. A game entered before
+ * then says nothing, and counts as judged plain. */
 export const TREND_KEY = 'riichi.review-trend.v1';
 const VERSION = 1;
 /** The games kept, the newest last. */
@@ -17,7 +23,12 @@ export const TREND_WINDOW = 10;
 
 const entry = value => value && typeof value === 'object' && typeof value.id === 'string' && typeof value.network === 'string'
   && Number.isSafeInteger(value.at) && Number.isSafeInteger(value.matched) && Number.isSafeInteger(value.decisions)
-  && value.decisions > 0 && value.matched >= 0 && value.matched <= value.decisions;
+  && value.decisions > 0 && value.matched >= 0 && value.matched <= value.decisions
+  && (value.suits === undefined || typeof value.suits === 'boolean');
+
+/** Whether two games were judged alike: by the same version, and both
+ * averaging over the suits or both plain. */
+const alike = (game, other) => game.network === other.network && Boolean(game.suits) === Boolean(other.suits);
 
 /** The games recorded so far, oldest first; none when storage cannot be read. */
 export function readTrend(storage) {
@@ -29,17 +40,18 @@ export function readTrend(storage) {
 }
 
 /** Enters one reviewed game, replacing an earlier entry for the same game
- * judged by the same network, and returns the games as they now stand,
- * whether or not they could be kept. */
+ * judged alike, and returns the games as they now stand, whether or not they
+ * could be kept. */
 export function recordTrend(storage, game) {
-  const games = [...readTrend(storage).filter(other => other.id !== game.id || other.network !== game.network), game]
+  const games = [...readTrend(storage).filter(other => other.id !== game.id || !alike(other, game)), game]
     .filter(entry).slice(-TREND_GAMES);
   try { storage?.setItem(TREND_KEY, JSON.stringify({ version: VERSION, games })); } catch { /* Kept for this page only. */ }
   return games;
 }
 
-/** The games judged by this version of the network, oldest first. */
-export const judgedBy = (games, network) => games.filter(game => game.network === network);
+/** The games judged by this version of the network, oldest first, averaging
+ * over the suits as the page's review does unless `suits` is false. */
+export const judgedBy = (games, network, suits = true) => games.filter(game => alike(game, { network, suits }));
 
 /** The share of decisions matched over these games, decision-weighted, so a
  * short game counts for what it held; null for no decisions at all. */

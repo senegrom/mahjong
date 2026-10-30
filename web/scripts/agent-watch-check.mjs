@@ -1,4 +1,6 @@
-/** Watch the actual production UI against decisions and hints from real WASM. */
+/** Watch the actual production UI against decisions and hints from real WASM,
+ * and with Trained AI in every seat, the network this page plays asked each
+ * question it hesitates over again of the renamed game (renamed-requests.mjs). */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -13,6 +15,7 @@ import { unseenTileCounts } from '../src/lib/ui.js';
 import { tileWords } from '../src/lib/tiles.js';
 import { playerNames } from '../src/lib/game-log.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
+import { renamedRequests, watchRenamedRequests } from './renamed-requests.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), output = resolve(web, 'test-results');
@@ -62,6 +65,40 @@ async function open(seed, width = 1100, { height = 900, touch = width < 600, scr
   await page.evaluate(value => { Date.now = () => value; }, seed);
   await page.click('.watch-setup .primary');
   await page.waitForSelector('.weight-row.best .choice-action:not(:disabled)');
+  return page;
+}
+
+/** Agent watch, its first game started from this seed with Trained AI in
+ * every seat: the followed agent's adviser and the three it plays against,
+ * all asking the network this page plays, each question watched as it is
+ * asked (renamed-requests.mjs). Waits for the network and the adviser's
+ * first answer. */
+async function openTrained(seed) {
+  const page = await (await openContext(browser)).newPage(); page.problems = [];
+  page.on('pageerror', error => page.problems.push(error.message));
+  await page.setViewport({ width: 1100, height: 900, deviceScaleFactor: 1 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await watchRenamedRequests(page);
+  await page.evaluateOnNewDocument(key => {
+    localStorage.setItem(key, JSON.stringify({ version: 2, difficulty: 'club', hints: true }));
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener('message', ({ data }) => window.renamedRequests.answered(data));
+      }
+      postMessage(data, ...rest) {
+        window.renamedRequests.posted(data);
+        super.postMessage(data, ...rest);
+      }
+    };
+  }, SETTINGS_KEY);
+  await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/?mode=watch`, { waitUntil: 'networkidle0' });
+  await page.waitForSelector('select[aria-label="Followed agent"] option[value="full"]:not(:disabled)', { timeout: 60000 });
+  for (const label of ['Followed agent', 'Right', 'Opposite', 'Left']) await page.select(`select[aria-label="${label}"]`, 'full');
+  await page.evaluate(value => { Date.now = () => value; }, seed);
+  await page.click('.watch-setup .primary');
+  await page.waitForSelector('.weight-row.best .choice-action:not(:disabled)', { timeout: 180000 });
   return page;
 }
 
@@ -152,6 +189,35 @@ try {
       await assertMarks(page, watch);
       await page.screenshot({ path: resolve(output, 'agent-watch-desktop.png'), fullPage: true });
     } finally { watch.dispose(); }
+  });
+
+  await check('watch asks Trained AI, for its seats and its adviser, each question it hesitates over again of the renamed game, which is the renamed game', async () => {
+    // Played on by the controls' button, the followed agent's choice each
+    // time, through the first deal or so: every question a trained seat or
+    // the adviser asks is watched, and one Trained AI hesitates over must be
+    // followed at once by its renamed game, its moves renamed.
+    const page = await openTrained(31);
+    // The table as it stands: the wall, the discards and whether a hand's
+    // result is up, one of which every press changes.
+    const table = () => [document.querySelector('.watch-round span')?.textContent, document.querySelectorAll('.watch-table .pool .tile').length,
+      Boolean(document.querySelector('.agent-watch .screen'))].join('|');
+    let seen = await renamedRequests(page);
+    for (let step = 0; step < 40 && seen.checked < 3; step++) {
+      const before = await page.evaluate(table);
+      await page.click('.watch-controls > button');
+      // Until the table has moved and the followed agent is advised again,
+      // or the hand's result is up; or a failure is said.
+      await page.waitForFunction(`(() => { const table = ${table}, before = ${JSON.stringify(before)};
+        return Boolean(document.querySelector('[role="alert"]')) || (table() !== before && !document.querySelector('.watch-controls > button').disabled
+          && Boolean(document.querySelector('.weight-row.best .choice-action:not(:disabled)') || document.querySelector('.agent-watch .screen'))); })()`,
+      { timeout: 60000 });
+      assert.equal(await page.$eval('[role="alert"]', el => el.textContent).catch(() => null), null, 'the watch goes on');
+      seen = await renamedRequests(page);
+    }
+    assert.deepEqual(seen.faults, [], 'every question asked again is the renamed game of its own');
+    assert.equal(seen.awaited, false, 'no question that hesitated waits for its renamed game');
+    assert.ok(seen.checked >= 3, `questions asked again of the renamed game: ${seen.checked}`);
+    assert.deepEqual(page.problems, []);
   });
 
   await check('mobile watch shows dora and copy counts, respects the hint setting, and separates opponent melds', async () => {

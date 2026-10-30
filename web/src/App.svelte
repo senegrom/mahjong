@@ -19,7 +19,7 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { analyzeBatch, chooseAction, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
   import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
@@ -147,10 +147,13 @@
   // review's screen open or shut. Its deadline runs from when the worker
   // begins it (requestPolicy), so that wait slows it but cannot make it run
   // out of time. Once the review has timed the device (batchFor), the wait is
-  // about ten seconds at most on one that takes up to ten seconds a decision.
+  // about ten seconds at most on one that takes up to ten seconds a position:
+  // the decisions Trained AI hesitates over are asked again in a batch of
+  // their own (suits.js), which waits at the gate as the first did.
   const notesAsking = new Asking();
-  // The review's reasoning asks the same worker, in passes no longer than the
-  // review's batch (review-insight-policy.js), each sent only while the notes
+  // The review's reasoning asks the same worker, in passes that take about as
+  // long as the review's batch, the tables it hesitates over asked again
+  // (review-insight-policy.js), each request sent only while the notes
   // ask nothing and no batch is with the worker: the review's, counted as it
   // is sent (workerBatches), or another pass. Its spells (insightAsking)
   // shut the review's gate as the notes' do, so the review waits there for
@@ -310,8 +313,10 @@
   });
 
   const callbacks = {
-    // Greedy: the opponent plays its best move, not a sample of them.
-    ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
+    // Greedy: the opponent plays its best move, not a sample of them. Its
+    // weights say whether it hesitates, and the renamed game is then asked
+    // too (MatchSession.trainedMove).
+    ai: (planes, mask, signal) => analyzePolicy(planes, mask, signal),
     onChange: update,
     onSave: (snapshot) => matchStore.save(snapshot),
     guard: (task) => matchStore.run(task),
@@ -698,7 +703,8 @@
   // press builds the review; each press after takes it on to the match as it
   // now stands, so a hand reviewed at an earlier result is not asked about
   // again. Says whether the review is open. The network this page plays
-  // judges it, and the trend keeps which version that was. Its batches are
+  // judges it, averaging over the suits, and the trend keeps which version
+  // that was and that it averaged (review-trend.js). Its batches are
   // counted as they go to the worker, and it waits at the gate of the notes'
   // spells and of its reasoning's, which is built with it for the match.
   function openGameReview() {

@@ -101,7 +101,8 @@ test('single-player recovery retains the other trained and Beginner assignments'
     for (let i=0;i<20&&!m.needsRecovery;i++) { if(i===0) await m.run(); else await m.choose(pick(m.choices)); }
     assert.ok(m.needsRecovery); const pending = m.pendingOpponent; assert.ok(pending);
     const index = m.view.seats.findIndex(s => s.player === pending.player) - 1;
-    m.ai = async (_obs, mask) => neuralChoice(mask);
+    // Sure of its move, as analyzePolicy answers, so nothing is asked again.
+    m.ai = async (_obs, mask) => { const action = neuralChoice(mask); return { action, weights: Array.from(mask, (_, move) => Number(move === action)) }; };
     const engine = m.engine; assert.equal(await m.continueOpponentWithClub(), true);
     assert.equal(m.engine,engine);
     const expected = ['neural','beginner','neural']; expected[index]='club';

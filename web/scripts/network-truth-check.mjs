@@ -1,10 +1,13 @@
 // Does the page play what the network says?
 //
 // Every trained decision is recorded as the page made it: the planes it sent,
-// the legality mask, and the move it took. The same planes are then put to the
-// same checkpoint in PyTorch (`neural/tests/replay_browser_decisions.py`), and
-// the two must name the same move. A network served the wrong planes, the
-// wrong mask or the wrong graph disagrees here rather than in a person's game.
+// the legality mask, the move it took and its weights. The same planes are
+// then put to the same checkpoint in PyTorch
+// (`neural/tests/replay_browser_decisions.py`), and the two must name the
+// same move. A network served the wrong planes, the wrong mask or the wrong
+// graph disagrees here rather than in a person's game. A question the weights
+// say Trained AI hesitated over is followed by the renamed game's
+// (web/src/lib/suits.js), which the replay checks is the renamed game.
 //
 //   node web/scripts/network-truth-check.mjs [out.json] [decisions]
 import { createServer } from 'node:http';
@@ -55,7 +58,8 @@ try {
           const asked = this.pending.get(data.id);
           if (!asked || data.action === undefined) return;
           this.pending.delete(data.id);
-          window.asked.push({ ...asked, action: data.action, value: data.value ?? null });
+          window.asked.push({ ...asked, action: data.action, value: data.analysis?.value ?? null,
+            weights: data.analysis ? Array.from(data.analysis.weights) : null });
         });
       }
       postMessage(data, ...args) {

@@ -5,13 +5,14 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
+import { MOVES, averagedAnswer, swapMoves } from '../src/lib/suits.js';
 import { loadModule } from './fixtures/load-module.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 // Exercise the actual evaluator with only its worker call replaced. The same
 // real weight mapper and actual WASM action translation run in both paths.
 const evaluator = analyze => loadModule('agents.js', {
-  analyzePolicy: analyze, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
+  analyzePolicy: analyze, averagedAnswer, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
 }, ['evaluateAgent']).evaluateAgent;
 
 test('Mortal\'s red-five actions are never opened at a table without red fives', () => {
@@ -41,7 +42,11 @@ for (const [alias, canonical] of [[34, 4], [35, 13], [36, 22]]) {
       const weights = Array(46).fill(0);
       weights[canonical] = .8;
       weights[game.mortal_action_of(other.index)] = .2;
-      const analyze = async () => ({ action: canonical, weights });
+      // Hesitant at 0.8, so every question is asked again of the renamed
+      // game, which answers here as the plain answer renamed: the mean is
+      // the plain answer.
+      let asked = 0;
+      const analyze = async () => (asked++ % 2 ? { action: MOVES[canonical], weights: swapMoves(weights) } : { action: canonical, weights });
       const result = await evaluator(analyze)(game, 'full');
       assert.equal(result.choice.index, canonical, 'the plain five translates to the engine\'s five discard');
       const preferred = result.choices.find(choice => choice.index === canonical);

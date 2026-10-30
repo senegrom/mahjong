@@ -155,7 +155,11 @@ fn furiten_unshown(hand: &Hand, who: Wind, player: &Player) -> bool {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::{describe_action, may_reach_from, mortal_mask_of, Game, MORTAL_VERSION};
+    use crate::renamed_rows::not_renamed;
+    use crate::{
+        describe_action, may_reach_from, mortal_mask_of, planes_of, Game, RecordedDecision,
+        MORTAL_VERSION,
+    };
     use riichi_core::game::{Action, Call};
     use riichi_core::hand::Meld;
     use riichi_core::mjai::Event;
@@ -271,14 +275,20 @@ pub(super) mod tests {
 
     /// Everything the trained adviser is asked at a decision: the planes,
     /// the mask, and where a riichi may be declared the second question's
-    /// planes and mask; and the listed choices its answers are read into.
+    /// planes and mask; the renamed game's planes where those are asked
+    /// too; and the listed choices its answers are read into.
     #[derive(PartialEq, Debug)]
     struct Asked {
         planes: Vec<f32>,
         mask: Vec<bool>,
         reach: Option<(Vec<f32>, Vec<bool>)>,
+        renamed: Option<Renamed>,
         choices: Vec<(Option<usize>, String, Option<String>, bool)>,
     }
+
+    /// The renamed game's planes at a decision, and where a riichi may be
+    /// declared its planes once it is.
+    type Renamed = (Vec<f32>, Option<Vec<f32>>);
 
     fn listed(hand: &Hand, seat: Wind) -> Vec<(Option<usize>, String, Option<String>, bool)> {
         choices(hand, seat)
@@ -297,40 +307,116 @@ pub(super) mod tests {
     /// What a written position asks, read back as `PhysicalAnalysis` reads
     /// it, through the very function that answers the page: Mortal's state
     /// from the replay of the position, and for a riichi's second question
-    /// that state once the seat has declared.
-    fn asked(hand: &Hand, seat: Wind, history: &History) -> Option<Asked> {
-        let reach = if may_reach_from(hand, seat) {
+    /// that state once the seat has declared; with `renamed` the renamed
+    /// game's too.
+    fn asked(hand: &Hand, seat: Wind, history: &History, renamed: bool) -> Option<Asked> {
+        let reachable = may_reach_from(hand, seat);
+        let reach = if reachable {
             Some((
-                replayed_planes(hand, seat, history, true)?,
+                replayed_planes(hand, seat, history, true, false)?,
                 mortal_mask_of(hand, seat, true),
             ))
         } else {
             None
         };
+        let renamed = if renamed {
+            let reach = if reachable {
+                Some(replayed_planes(hand, seat, history, true, true)?)
+            } else {
+                None
+            };
+            Some((replayed_planes(hand, seat, history, false, true)?, reach))
+        } else {
+            None
+        };
         Some(Asked {
-            planes: replayed_planes(hand, seat, history, false)?,
+            planes: replayed_planes(hand, seat, history, false, false)?,
             mask: mortal_mask_of(hand, seat, false),
             reach,
+            renamed,
             choices: listed(hand, seat),
         })
     }
 
     /// The same as the review asked it: Mortal's state from the events the
     /// game told it, and the decision's own hand.
-    fn asked_in_play(game: &Game, index: usize) -> Asked {
+    fn asked_in_play(game: &Game, index: usize, renamed: bool) -> Asked {
         let decision = &game.decisions[index];
         let (hand, seat) = (&decision.position, decision.seat);
-        let player = game.hand_seating[seat.index()];
+        let reachable = may_reach_from(hand, seat);
         Asked {
-            planes: game.mortal_planes_at(decision.told, player, false),
+            planes: game.mortal_planes_at(decision, false, false),
             mask: mortal_mask_of(hand, seat, false),
-            reach: may_reach_from(hand, seat).then(|| {
+            reach: reachable.then(|| {
                 (
-                    game.mortal_planes_at(decision.told, player, true),
+                    game.mortal_planes_at(decision, true, false),
                     mortal_mask_of(hand, seat, true),
                 )
             }),
+            renamed: renamed.then(|| {
+                (
+                    game.mortal_planes_at(decision, false, true),
+                    reachable.then(|| game.mortal_planes_at(decision, true, true)),
+                )
+            }),
             choices: listed(hand, seat),
+        }
+    }
+
+    /// The deciding player's state told every event of the game, the same of
+    /// the renamed game, and how many events they have been told: the replay
+    /// from the game's opening that a review made before it replayed the
+    /// decision's hand alone, kept as the reference the two agree.
+    struct WholeGame {
+        plain: riichi::state::PlayerState,
+        renamed: riichi::state::PlayerState,
+        told: usize,
+    }
+
+    impl WholeGame {
+        fn new(player: usize) -> WholeGame {
+            WholeGame {
+                plain: riichi::state::PlayerState::new(player as u8),
+                renamed: riichi::state::PlayerState::new(player as u8),
+                told: 0,
+            }
+        }
+
+        /// What the review asked at `decision` as the whole game told reads
+        /// it: the planes, and where a riichi may be declared the planes
+        /// once it is; with `renamed` the renamed game's too.
+        fn asked_at(
+            &mut self,
+            game: &Game,
+            decision: &RecordedDecision,
+            renamed: bool,
+        ) -> (Vec<f32>, Option<Vec<f32>>, Option<Renamed>) {
+            for json in &game.mortal_events[self.told..decision.told] {
+                let mut event = serde_json::from_str::<MortalEvent>(json).expect("Mortal reads it");
+                self.plain.update(&event).expect("Mortal follows the game");
+                event.augment();
+                self.renamed
+                    .update(&event)
+                    .expect("Mortal follows the renamed game");
+            }
+            self.told = decision.told;
+            let (player, reachable) = (
+                game.player,
+                may_reach_from(&decision.position, decision.seat),
+            );
+            let read = |state: &riichi::state::PlayerState, after_reach: bool| {
+                planes_of(state, player, after_reach)
+            };
+            (
+                read(&self.plain, false),
+                reachable.then(|| read(&self.plain, true)),
+                renamed.then(|| {
+                    (
+                        read(&self.renamed, false),
+                        reachable.then(|| read(&self.renamed, true)),
+                    )
+                }),
+            )
         }
     }
 
@@ -343,16 +429,24 @@ pub(super) mod tests {
 
     /// The gate a review that edits a decision's table stands on: the table
     /// written unedited asks the trained adviser exactly what the review
-    /// asked, every one of the thousand and twelve planes, the mask, a
-    /// riichi's second question and the listed choices, at every decision
-    /// of whole games. The review check's game (seed 5, Beginner opponents,
-    /// no calls) is among them; the games that call every set and declare
-    /// every quad reach the claims, the quads and the tied scores that a
-    /// typed-in table read wrong until it carried each quad's turn and was
-    /// numbered by its hand number; seed 17 has the player claim a tile let
-    /// go after a quad's replacement; and the games the club player plays
-    /// come to riichi questions after the first hand, where the seat's
-    /// player number is not its seat's.
+    /// asked, every one of the thousand and twelve planes, the renamed
+    /// game's too, the mask, a riichi's second question and the listed
+    /// choices, at every decision of whole games. The review check's game
+    /// (seed 5, Beginner opponents, no calls) is among them; the games that
+    /// call every set and declare every quad reach the claims, the quads and
+    /// the tied scores that a typed-in table read wrong until it carried
+    /// each quad's turn and was numbered by its hand number; seed 17 has the
+    /// player claim a tile let go after a quad's replacement; and the games
+    /// the club player plays come to riichi questions after the first hand,
+    /// where the seat's player number is not its seat's.
+    ///
+    /// The review itself replays the decision's hand alone, from its own
+    /// deal, and must read as the whole game told reads. Every sixth
+    /// decision and every riichi question are asked of the renamed game
+    /// too, which the written table and the whole game told must read
+    /// alike, and which outside the efficiency lookahead reads as the game
+    /// renamed; only some, as an encoding costs about eight milliseconds
+    /// unoptimised.
     #[test]
     fn every_decision_written_as_a_position_asks_what_the_review_asked() {
         /// How many decisions reached each thing a table typed in by hand
@@ -368,6 +462,11 @@ pub(super) mod tests {
             renumbered_riichi_questions: usize,
             riichi_draws: usize,
             claims_after_a_replacement: usize,
+            /// Asked of the renamed game too.
+            renamed: usize,
+            /// Of those, where its lookahead reads otherwise than the
+            /// game's renamed, as it may.
+            lookahead_renamed_otherwise: usize,
         }
         let mut reached = Reached::default();
         let mut wrong = Vec::new();
@@ -382,7 +481,9 @@ pub(super) mod tests {
         ];
         for (seed, opponents, plays) in games {
             let mut in_game = 0;
+            let mut whole: Option<WholeGame> = None;
             whole_game(seed, opponents, plays, |game| {
+                let whole = whole.get_or_insert_with(|| WholeGame::new(game.player));
                 for index in 0..game.decisions.len() {
                     let at = format!(
                         "seed {seed} against {opponents}, hand {}, decision {index}",
@@ -395,16 +496,53 @@ pub(super) mod tests {
                         "{at}"
                     );
                     let (hand, seat, history) = read_back(game, index);
-                    let want = asked_in_play(game, index);
-                    match asked(&hand, seat, &history) {
+                    let decision = &game.decisions[index];
+                    // The review's replay opens on the hand's own deal.
+                    let deal = |json: &String| json.starts_with(r#"{"type":"start_kyoku""#);
+                    let replayed = &game.mortal_events[decision.began..decision.told];
+                    if !replayed.first().is_some_and(deal) || replayed[1..].iter().any(deal) {
+                        wrong.push(format!("{at}: the review does not replay its own hand"));
+                    }
+                    let renamed = index.is_multiple_of(6)
+                        || may_reach_from(&decision.position, decision.seat);
+                    let want = asked_in_play(game, index, renamed);
+                    let (planes, reach, named) = whole.asked_at(game, decision, renamed);
+                    if (&planes, reach.as_ref(), named.as_ref())
+                        != (
+                            &want.planes,
+                            want.reach.as_ref().map(|(planes, _)| planes),
+                            want.renamed.as_ref(),
+                        )
+                    {
+                        wrong.push(format!(
+                            "{at}: the hand replayed from its deal reads otherwise than the game"
+                        ));
+                    }
+                    if let Some((named, named_reach)) = &want.renamed {
+                        let mut otherwise = not_renamed(&want.planes, named, false);
+                        if let (Some((planes, _)), Some(named)) = (&want.reach, named_reach) {
+                            otherwise.extend(not_renamed(planes, named, false));
+                        }
+                        if !otherwise.is_empty() {
+                            wrong.push(format!(
+                                "{at}: renamed rows {:?} are not the game's rows renamed",
+                                &otherwise[..otherwise.len().min(8)]
+                            ));
+                        }
+                        reached.renamed += 1;
+                        reached.lookahead_renamed_otherwise +=
+                            usize::from(!not_renamed(&want.planes, named, true).is_empty());
+                    }
+                    match asked(&hand, seat, &history, renamed) {
                         None => wrong.push(format!("{at}: the replay refused it")),
                         Some(got) if got != want => {
                             let planes = differing(&want.planes, &got.planes);
                             wrong.push(format!(
-                                "{at}: planes {:?}, same mask {}, same reach {}, same choices {}",
+                                "{at}: planes {:?}, same mask {}, same reach {}, same renamed {}, same choices {}",
                                 &planes[..planes.len().min(8)],
                                 got.mask == want.mask,
                                 got.reach == want.reach,
+                                got.renamed == want.renamed,
                                 got.choices == want.choices
                             ));
                         }
@@ -448,6 +586,8 @@ pub(super) mod tests {
         assert!(reached.renumbered_riichi_questions > 3, "{reached:?}");
         assert!(reached.riichi_draws > 0, "{reached:?}");
         assert!(reached.claims_after_a_replacement > 0, "{reached:?}");
+        assert!(reached.renamed > 150, "{reached:?}");
+        assert!(reached.lookahead_renamed_otherwise > 0, "{reached:?}");
     }
 
     /// The position is the table as the deciding seat saw it: its own tiles
@@ -783,7 +923,7 @@ pub(super) mod tests {
             let (built, _) = position
                 .build()
                 .unwrap_or_else(|error| panic!("{error}: {text}"));
-            let got = replayed_planes(&built, seat, &position.history(), false)
+            let got = replayed_planes(&built, seat, &position.history(), false, false)
                 .expect("the replay builds");
             assert_eq!(
                 differing(&told_planes(&hand, seat), &got),

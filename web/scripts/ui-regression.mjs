@@ -105,10 +105,13 @@ async function open(saved=initial, {width=1100,height=850,dark=false,confirm=fal
     await page.setRequestInterception(true);
     page.on('request',request=>{
       if(request.url().includes('/assets/policy.worker-')) {
-        const text=mock.sharedCall ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[38]?38:d.mask.findIndex(Boolean)});'
-          : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)}),${mock.delay});`
+        // A move answered as the worker answers one it is sure of, all its
+        // weight on it, so that nothing is asked again of the renamed game.
+        const sure=pick=>`const a=${pick};self.postMessage({id:d.id,action:a,analysis:{action:a,weights:Array.from(d.mask,(_,i)=>Number(i===a))}});`;
+        const text=mock.sharedCall ? `self.onmessage=({data:d})=>{${sure('d.mask[38]?38:d.mask.findIndex(Boolean)')}};`
+          : mock.delay ? `self.onmessage=({data:d})=>setTimeout(()=>{${sure('d.mask.findIndex(Boolean)')}},${mock.delay});`
           : mock.fail ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'
-          : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask.findIndex(Boolean)});';
+          : `self.onmessage=({data:d})=>{${sure('d.mask.findIndex(Boolean)')}};`;
         void request.respond({status:200,contentType:'text/javascript',body:text});
       } else void request.continue();
     });

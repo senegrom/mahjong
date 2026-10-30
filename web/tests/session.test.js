@@ -4,8 +4,13 @@ import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW
 import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
 import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
+import { average, swapMoves } from '../src/lib/suits.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+/** Weights over Mortal's forty-six moves, nought where none is given. */
+const weightsOf = entries => Array.from({ length: 46 }, (_, move) => entries[move] ?? 0);
+/** An answer as analyzePolicy gives it, sure of its move. */
+const sure = action => ({ action, weights: weightsOf({ [action]: 1 }) });
 class FakeGame {
   constructor(seed, difficulty) { this.seed = seed; this.external = difficulty === 'neural'; this.pending = this.external; this.moves = 0; this.applied = 0; this.declared = 0; this.awaitingTile = false; this.freed = false; }
   view() { assert.ok(!this.freed); return { phase: 'act', hands_played: 0, seats: [{discards: Array(this.moves).fill('1m'), melds: [], riichi: false}], moves: this.moves, pending: this.pending }; }
@@ -17,6 +22,8 @@ class FakeGame {
    * second answer names the tile it discards. */
   opponent_mask_mortal() { const mask = new Uint8Array(46); mask[0] = 1; if (!this.awaitingTile) mask[37] = 1; return mask; }
   opponent_observation_mortal() { return new Float32Array([this.awaitingTile ? 1 : 0]); }
+  /** The renamed game's planes, other than the game's own. */
+  opponent_observation_mortal_renamed() { this.renamedReads = (this.renamedReads ?? 0) + 1; assert.ok(!this.freed); return new Float32Array([this.awaitingTile ? 11 : 10]); }
   play_opponent_mortal(action) {
     assert.ok(!this.freed);
     if (action === 37) { this.declared++; this.awaitingTile = true; return true; }
@@ -35,7 +42,7 @@ test('late AI answer cannot mutate a restarted match or notify its UI', async ()
   const run = old.run(); const oldEngine = old.engine;
   old.dispose(); const checkpoint = changes;
   const replacement = new MatchSession(FakeGame, 2, 'club');
-  await replacement.run(); answer.resolve(0); await run;
+  await replacement.run(); answer.resolve(sure(0)); await run;
   assert.equal(oldEngine.applied, 0); assert.equal(changes, checkpoint);
   assert.equal(replacement.engine.moves, 0); assert.equal(replacement.failure, '');
   replacement.dispose();
@@ -47,12 +54,12 @@ test('late AI error cannot alter the replacement loading state', async () => {
   const freshAnswer = deferred(); const fresh = new MatchSession(FakeGame, 2, 'neural', {ai: () => freshAnswer.promise});
   const freshRun = fresh.run(); answer.reject(new Error('old network error')); await running;
   assert.equal(fresh.busy, true); assert.equal(fresh.thinking, true); assert.equal(fresh.failure, '');
-  freshAnswer.resolve(0); await freshRun; fresh.dispose();
+  freshAnswer.resolve(sure(0)); await freshRun; fresh.dispose();
 });
 
 test('AI failure remains explicit and retry succeeds without changing opponents', async () => {
   let fail = true;
-  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => {if (fail) throw new Error('offline'); return 0;}});
+  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => {if (fail) throw new Error('offline'); return sure(0);}});
   await match.run(); assert.equal(match.needsRecovery, true); assert.equal(match.difficulty, 'neural'); assert.equal(match.busy, false);
   fail = false; await match.retry(); assert.equal(match.failure, ''); assert.equal(match.needsRecovery, false); match.dispose();
 });
@@ -68,16 +75,16 @@ test('continue with Club changes the engine in place and survives restoration', 
 test('busy sessions ignore additional player choices', async () => {
   const answer = deferred(); const match = new MatchSession(FakeGame, 1, 'neural', {ai: () => answer.promise});
   const run = match.run(); assert.equal(await match.choose({kind:'discard',tile:'1m'}), false);
-  assert.equal(match.commands.length, 0); answer.resolve(0); await run; match.dispose();
+  assert.equal(match.commands.length, 0); answer.resolve(sure(0)); await run; match.dispose();
 });
 
 test('illegal neural output is rejected rather than used as a fallback move', async () => {
-  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => 1});
+  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => sure(1)});
   await match.run(); assert.match(match.failure, /Invalid opponent/); assert.equal(match.engine.applied, 0); match.dispose();
 });
 
 test('a declared reach is answered twice and replays without asking again', async () => {
-  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async (_planes, mask) => mask[37] ? 37 : 0});
+  const match = new MatchSession(FakeGame, 1, 'neural', {ai: async (_planes, mask) => sure(mask[37] ? 37 : 0)});
   assert.equal(await match.run(), true);
   assert.deepEqual(match.commands, [{type:'opponent',action:37},{type:'opponent',action:0}]);
   assert.equal(match.engine.declared, 1); assert.equal(match.engine.applied, 1); assert.equal(match.failure, '');
@@ -86,6 +93,47 @@ test('a declared reach is answered twice and replays without asking again', asyn
   assert.equal(restored.stateKey(), match.stateKey());
   assert.equal(restored.engine.declared, 1); assert.equal(restored.engine.applied, 1);
   match.dispose(); restored.dispose();
+});
+
+test('a Trained opponent that hesitates is asked the renamed game too, with its moves renamed, and plays the mean', async () => {
+  // Move 0 (1m) at 0.6 and the reach at 0.4: hesitant. The renamed game,
+  // where 1m is called 1p (move 9), puts 0.2 on it and 0.8 on the reach, and
+  // the mean declares. The tile the reach then throws is its only move.
+  const asked = [], plain = { action: 0, weights: weightsOf({ 0: 0.6, 37: 0.4 }) }, renamed = { action: 37, weights: weightsOf({ 9: 0.2, 37: 0.8 }) };
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (planes, mask, signal) => {
+    asked.push({ planes: Array.from(planes), mask: Array.from(mask), signal });
+    return [plain, renamed, sure(0)][asked.length - 1];
+  } });
+  try {
+    assert.equal(await match.run(), true, match.failure);
+    const reachMask = Array.from(match.engine.opponent_mask_mortal(), (_, move) => Number([0, 37].includes(move)));
+    assert.deepEqual(asked.map(({ planes, mask }) => ({ planes, mask })), [
+      { planes: [0], mask: reachMask }, { planes: [10], mask: swapMoves(reachMask) }, { planes: [1], mask: Array.from(weightsOf({ 0: 1 })) }]);
+    assert.ok(asked.every(({ signal }) => signal === match.abort.signal));
+    assert.equal(average(plain.weights, renamed.weights, reachMask).action, 37);
+    assert.deepEqual(match.commands, [{ type: 'opponent', action: 37 }, { type: 'opponent', action: 0 }]);
+  } finally { match.dispose(); }
+});
+
+test('a sure Trained opponent is asked once, and one closed while it was asked reads no renamed game from a freed engine', async () => {
+  const asked = [];
+  const sureMatch = new MatchSession(FakeGame, 1, 'neural', { ai: async (planes, mask) => {
+    asked.push(Array.from(planes));
+    return { action: 0, weights: Array.from(mask, (open, move) => (!open ? 0 : move === 0 ? 0.95 : 0.05)) };
+  } });
+  try {
+    assert.equal(await sureMatch.run(), true, sureMatch.failure);
+    assert.deepEqual(asked, [[0]]);
+    assert.deepEqual(sureMatch.commands, [{ type: 'opponent', action: 0 }]);
+  } finally { sureMatch.dispose(); }
+  // Answered hesitantly as the match closes: its engine is freed, and the
+  // renamed planes are never read from it.
+  const answer = deferred(), closing = new MatchSession(FakeGame, 1, 'neural', { ai: () => answer.promise });
+  const run = closing.run(), engine = closing.engine;
+  closing.dispose();
+  answer.resolve({ action: 0, weights: weightsOf({ 0: 0.5, 37: 0.5 }) });
+  assert.equal(await run, false);
+  assert.deepEqual([engine.applied, engine.renamedReads ?? 0], [0, 0]);
 });
 
 test('restoration rejects invalid versions, illegal commands and changed state', async () => {
@@ -299,7 +347,7 @@ test('a record from before 1110, 1410 or 2610 plays the default once, whatever i
 test('a match saved with Trained opponents before the settings reset resumes, and asks the page for the next move', async () => {
   // A match's own save is unchanged: version 1, as before 810, 1110, 1410
   // and 2610.
-  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => mask[37] ? 37 : 0 });
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => sure(mask[37] ? 37 : 0) });
   await match.run();
   await match.choose({ kind: 'discard', tile: '1m' });
   const saved = match.snapshot();
@@ -309,7 +357,7 @@ test('a match saved with Trained opponents before the settings reset resumes, an
   // without the network, and the move still to come is asked of the network
   // the page now plays.
   let asked = 0;
-  const restored = MatchSession.restore(FakeGame, JSON.stringify(saved), { ai: async (_planes, mask) => { asked++; return mask[37] ? 37 : 0; } });
+  const restored = MatchSession.restore(FakeGame, JSON.stringify(saved), { ai: async (_planes, mask) => { asked++; return sure(mask[37] ? 37 : 0); } });
   try {
     assert.equal(restored.stateKey(), match.stateKey());
     assert.deepEqual(restored.commands, saved.commands);

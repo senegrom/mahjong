@@ -8,6 +8,7 @@ import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives
 import { trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
+import { mirroringNetwork } from './fixtures/renamed-planes.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -704,8 +705,12 @@ test('a Why line takes every riichi back at once, said in one clause', async () 
   // answered both tables in the page's runtime, read as the page reads it.
   const recorded = JSON.parse(readFileSync(new URL('./fixtures/review-insight-two-riichi.json', import.meta.url), 'utf8'));
   const answers = new Map([recorded.unedited, recorded.probe].map(({ digest, weights }) => [digest, weights]));
-  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: async sent => sent.map(({ planes, mask }) => ({ weights: answers.get(planesDigest(planes, mask)) })) });
+  // Asked as the page asks, a table Trained AI hesitates over again of the
+  // renamed game, which answers here as the recorded answer renamed.
+  const network = mirroringNetwork((planes, mask) => ({ weights: answers.get(planesDigest(planes, mask)) }));
+  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: network.analyzeBatch });
   const { position } = clubSixteen.get(`${recorded.hand} #${recorded.decision}`), [{ moves: weights }] = await ask([position]);
+  assert.deepEqual(network.requests, [{ size: 1, renamed: false }, { size: 1, renamed: true }], 'at 79.3% the unedited table is asked again');
   const why = async played => {
     const tables = [];
     const said = await explainWhy({ position, ...asked(played, '7m'), weights, facts, ask: positions => { tables.push(...positions); return ask(positions); } });
@@ -729,10 +734,16 @@ test('a Why line weighs a safety fact on the tiles as safe as Trained AI\'s or s
   // table, and the table without North's riichi, in the page's runtime.
   const recorded = JSON.parse(readFileSync(new URL('./fixtures/review-insight-honour-against-riichi.json', import.meta.url), 'utf8'));
   const answers = new Map([recorded.unedited, recorded.probe].map(({ digest, weights }) => [digest, weights]));
-  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: async sent => sent.map(({ planes, mask }) => ({ weights: answers.get(planesDigest(planes, mask)) })) });
+  // Asked as the page asks, a table Trained AI hesitates over again of the
+  // renamed game, which answers here as the recorded answer renamed.
+  const network = mirroringNetwork((planes, mask) => ({ weights: answers.get(planesDigest(planes, mask)) }));
+  const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: network.analyzeBatch });
   const { position } = reviewCheck.get(`${recorded.hand} #${recorded.decision}`), [{ moves: weights }] = await ask([position]);
   const tables = [];
   const why = await explainWhy({ position, ...asked('7m', '2z'), weights, facts, ask: positions => { tables.push(...positions); return ask(positions); } });
   assert.deepEqual(saidLines(why), ['Why: Against North\'s riichi your 7 characters is a tile with no suji; Trained AI\'s south wind is an honour nobody has thrown. Trained AI puts 99.8% on tiles as safe as the south wind or safer. If North had not declared riichi: the 9 characters 56.8%, your 7 characters <0.1%, the south wind 1.3%.']);
   assert.deepEqual(tables.map(table => table.players.map(player => player.riichi)), [position.players.map(player => player.riichi), ['none', 'none', 'none', 'none']]);
+  // Sure of the table, Trained AI asked it once; at 56.8% without the riichi,
+  // it asked that table again, renamed, in a pass of its own.
+  assert.deepEqual(network.requests, [{ size: 1, renamed: false }, { size: 2, renamed: false }, { size: 1, renamed: true }]);
 });

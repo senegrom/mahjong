@@ -1,4 +1,5 @@
 import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
+import { averagedAnswers } from './suits.js';
 
 /** Review captured decisions in order, sharing the ordinary bounded AI worker.
  *
@@ -6,16 +7,19 @@ import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
  * so each recorded decision is rebuilt by replaying the events that had
  * happened by then, and the answer is turned back into a move the review can
  * name. A reach is asked in two steps here as everywhere else: the
- * declaration first, then which tile it discards.
+ * declaration first, then which tile it discards. Each question Trained AI
+ * hesitates over is asked again of the renamed game, as everywhere else, and
+ * judged by the mean of the two answers (suits.js).
  *
  * A hand's review asks one position at a time. A whole-game review passes
  * `batch`, `{ size(), analyze(positions, signal) }`, and asks as many
  * positions as `size()` says in one forward pass, asked again before each,
  * since the review sizes its passes by the speed it measures as it goes;
- * then the second question of every declaration among them in another.
- * Either way each decision is judged the same. With `skipForced`, a decision
- * with one legal move is answered without the network: the weights over one
- * move are that move's whole. */
+ * then those it hesitates over, renamed, in another; then the second
+ * question of every declaration among them, and those of these it hesitates
+ * over, the same way. Either way each decision is judged the same. With
+ * `skipForced`, a decision with one legal move is answered without the
+ * network: the weights over one move are that move's whole. */
 const aborted = signal => {
   if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
 };
@@ -30,7 +34,8 @@ function forcedAnswer(mask) {
 export async function reviewWithStrong(engine, notes, analyze, { signal, onProgress = () => {}, batch = null, skipForced = false } = {}) {
   aborted(signal);
   // Copy the small observations before awaiting anything. The engine calls
-  // that follow an await, for a reach's second question and to translate the
+  // that follow an await, for a reach's second question, for the renamed
+  // game of a question Trained AI hesitates over and to translate the
   // answers back, are guarded only by the abort signal checked after each
   // await, so the caller must abort the review when the hand moves on or the
   // engine is freed. Each input is released as it is consumed; no engine
@@ -39,18 +44,25 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     planes: engine.review_observation_mortal(index),
     mask: engine.review_mask_mortal(index),
     choices: engine.review_choices(index),
+    renamed: () => engine.review_observation_mortal_renamed(index),
   }));
-  // A group's positions in one request, or one request each, in order.
+  // Positions in one request, or one position without a batch.
+  const request = async positions => {
+    const replies = batch ? await batch.analyze(positions, signal)
+      : [await analyze(positions[0].planes, positions[0].mask, signal)];
+    aborted(signal);
+    if (!Array.isArray(replies) || replies.length !== positions.length) {
+      throw new Error('The trained network returned the wrong number of answers');
+    }
+    return replies;
+  };
+  // A group's positions in one request, or one request each, in order, and
+  // those Trained AI hesitates over again, renamed (averagedAnswers).
   const ask = async positions => {
     const answers = positions.map(position => (skipForced ? forcedAnswer(position.mask) : null));
     const asked = positions.filter((_, index) => !answers[index]);
     if (asked.length) {
-      const replies = batch ? await batch.analyze(asked, signal)
-        : [await analyze(asked[0].planes, asked[0].mask, signal)];
-      aborted(signal);
-      if (!Array.isArray(replies) || replies.length !== asked.length) {
-        throw new Error('The trained network returned the wrong number of answers');
-      }
+      const replies = await averagedAnswers(request, asked, signal);
       let next = 0;
       for (let index = 0; index < answers.length; index++) answers[index] ??= replies[next++];
     }
@@ -72,6 +84,7 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
     const reaching = group.filter((_, slot) => firsts[slot].action === MORTAL_REACH);
     const seconds = reaching.length ? await ask(reaching.map(({ index }) => ({
       planes: engine.review_observation_after_reach(index), mask: engine.review_mask_after_reach(index),
+      renamed: () => engine.review_observation_after_reach_renamed(index),
     }))) : [];
     group.forEach(({ index, mask, choices }, slot) => {
       const first = firsts[slot], second = first.action === MORTAL_REACH ? seconds[reaching.findIndex(entry => entry.index === index)] : null;

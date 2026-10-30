@@ -7,6 +7,7 @@ import { emptyGuided, editGuided, guidedEvent } from '../src/lib/guided-game.js'
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
+import { averagedAnswer } from '../src/lib/suits.js';
 import { loadModule } from './fixtures/load-module.js';
 
 // agents.js loads the policy client, whose offline storage resolves the
@@ -21,14 +22,16 @@ const MORTAL_PASS = 45;
 
 /** The adviser's own code with the network stood in for. The engine's
  * questions and the worker's softmax over the legal moves are the real ones;
- * only the network's raw preferences are made up. */
+ * only the network's raw preferences are made up, the same in either naming,
+ * so a question it hesitates over, asked again of the renamed game, is
+ * answered by the same preferences over that game's moves. */
 function adviserWith(logits) {
   const analyzePolicy = async (planes, mask) => {
     assert.ok(planes.length / 34 > 900, 'the network is asked about Mortal planes');
     // What policy.worker.js answers with, by the same arithmetic.
     return { ...policyWeights(logits, mask), value: 0.25, hands: new Float32Array(102) };
   };
-  return loadModule('agents.js', { analyzePolicy, readBeliefs, readValue, weightsByChoice, MORTAL_REACH },
+  return loadModule('agents.js', { analyzePolicy, averagedAnswer, readBeliefs, readValue, weightsByChoice, MORTAL_REACH },
     ['evaluateAgent']).evaluateAgent;
 }
 

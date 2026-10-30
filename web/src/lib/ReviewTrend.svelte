@@ -10,9 +10,11 @@
    * stated, not coloured as good or bad. Another version of Trained AI judges
    * differently, so only the games judged by the version this page plays are
    * compared and shown; the rest wait for that version to be picked again.
-   * `complete` is whether this game is whole and every hand of it reviewed,
-   * and `over` whether the match is over at all: a game reviewed so far, as
-   * it is played, joins the trend only once it is over.
+   * Nor are the games it judged before the review averaged over the suits
+   * (review-trend.js): the note on the games not counted counts both as
+   * judged otherwise. `complete` is whether this game is whole and every
+   * hand of it reviewed, and `over` whether the match is over at all: a game
+   * reviewed so far, as it is played, joins the trend only once it is over.
    *
    * It is folded to one line, the figure, as the review's list of hands
    * opens with it, above the decisions it is a figure of; the rest is inside,
@@ -61,7 +63,7 @@
       <p class="change">Joins your trend once {over ? '' : 'the game is over and '}fully reviewed.</p>
     {/if}
     {#if elsewhere}
-      <p class="change">Not counted: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged by another version.</p>
+      <p class="change">Not counted: {elsewhere} game{elsewhere === 1 ? '' : 's'} judged otherwise.</p>
     {/if}
     {#if points.length >= 2}
       <svg class="line" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label={summary}>

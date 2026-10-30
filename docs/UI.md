@@ -496,8 +496,11 @@ though a review opens only at a result. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
 a forward pass, fewer on a slow device: Mortal's planes for each decision as it
 was made, then, where the network declares riichi, which tile it would
-discard. A move with one legal choice, such as the discard after riichi, is not
-asked and is left out of every figure.
+discard. The questions Trained AI hesitates over are asked again of the game
+with characters and circles renamed, in a forward pass of their own, and
+judged by the mean of the two answers' logits ([Agent modes](AGENT_MODES.md)). A move
+with one legal choice, such as the discard after riichi, is not asked and is
+left out of every figure.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
@@ -697,14 +700,15 @@ when pressed, for a keyboard, a finger or a screen reader. A line that fails
 before it has its fact says why ("Not checked: The trained opponent did not
 answer in time."), and a line that could not ask Trained AI asks again when
 its decision is next shown. The line is worked out as the decision is shown,
-in the page's engine and at most one forward pass, and drawn with what
-follows it once it is had, so nothing moves under a pointer. Then **What
-would change its mind?**, with about how long the search
-takes, from the tables it asks first to the most it may ask, at the review's
-own time a position as it stood when the decision came on show, so the words
-do not change under the player ("What would change its mind? · about 6–10
-s"; one figure where both round alike, "about 1 s", and minutes from a
-minute, "about 3–4 min"). It asks Trained AI about the table changed in one
+in the page's engine and at most two forward passes, the second for its
+tables Trained AI hesitates over, renamed, and drawn with what follows it
+once it is had, so nothing moves under a pointer. Then **What would change
+its mind?**, with about how long the search takes, from the tables it asks
+first to the most it may ask, each 1.43 positions on average, those Trained
+AI hesitates over asked twice, at the review's own time a position as it
+stood when the decision came on show, so the words do not change under the
+player ("What would change its mind? · about 8–14 s"; one figure where both
+round alike, "about 1 s", and minutes from a minute, "about 4–5 min"). It asks Trained AI about the table changed in one
 thing the player could see, a tile of the hand, a discard, the dora
 indicator, a riichi, the score or the round, only as a game can reach it, and
 never the wall, the dealer or a call taken back; pairs of changes only where
@@ -732,16 +736,19 @@ riichi or not, not while Trained AI cannot be reached, and not where the Why
 line found that Trained AI does not answer the decision's table as the review
 recorded. A search finding that first says so ("Asked again, Trained AI
 answered this table differently, so no change was tried."), and the Why line
-is then Not checked too. A search asks 23 to 61 tables: 4 to 10 seconds at
-desktop Chromium's 157 ms a position, 12 to 31 seconds at half a second. A
+is then Not checked too. A search asks 23 to 61 tables, those Trained AI
+hesitates over twice (102 of the recorded searches' 237): 5 to 14 seconds at
+desktop Chromium's 157 ms a position, 16 to 44 seconds at half a second. A
 step to another decision, **Cancel**, closing the review, the next deal and
 leaving Play stop a search under way, which is forgotten; what was found
 stays with its decision alone, shown whenever it is again and never asked
 again. While the reasoning asks, the
 review of the rest of the game waits at its gate, as it waits for the hand's
 notes, for the whole of a Why line or a search, until the worker has
-answered its last pass. Each of its passes, the size of the review's batch,
-waits for any batch with the worker, and the review sends a batch in the turn
+answered its last pass. Each of its passes, as many tables as take about as
+long as the review's batch, those it hesitates over counted twice and asked
+again in a pass of their own, waits for any batch with the worker, and the
+review sends a batch in the turn
 it finds its gate open, so neither ever waits in the worker's queue for the
 other. Being part of Trained AI's
 view, all of it waits with the view while the settings keep Trained AI's move
@@ -841,9 +848,9 @@ the player can pick in the game settings, and the trend names it ("Matched
 Trained AI 0.1.1110"). Another version judges differently, so each game is kept
 with the version that judged it, a game judged again by another version is kept
 beside its first entry, and the figure, the line and the table take only the
-games of the version playing now; a note counts the others ("Not counted: 2
-games judged by another version."), which come back when their version is
-picked again.
+games of the version playing now, judged since the review averaged over the
+suits; a note counts the others ("Not counted: 2 games judged otherwise."),
+and another version's come back when it is picked again.
 
 **Measured on played games.** On 16 October 2026, 50 games were played with
 the Beginner bot in the player's seat and 50 with the Club bot, each against
@@ -875,14 +882,18 @@ been measured so.
 **Speed.** Measured on 14 October 2026 in Chromium 155 on the desktop, through
 the page's own worker on one thread, a position took a median 163 ms one at a
 time and 157 ms in batches of eight, with identical weights; natively the same
-batch nearly halves the cost. A game of 150 to 200 decisions takes about half a
-minute there; phones were not measured. A device the review measures at over
-1.25 seconds a position is asked fewer at a time, as many as take about ten
-seconds and at least one, so that on a device that takes up to ten seconds a
-decision a batch ends well within its deadline and nothing waits long behind it
-([UI reliability](UI_RELIABILITY.md)). The review runs in the
+batch nearly halves the cost. A decision takes about 1.1 positions, none where
+its move is forced and two where Trained AI hesitates, so a game of 150 to 200
+decisions takes about half a minute there; phones were not measured. A device
+the review measures at over 1.25 seconds a position is asked fewer at a time,
+as many as take about ten seconds and at least one, so that on a device that
+takes up to ten seconds a position a batch ends well within its deadline and
+nothing waits long behind it ([UI reliability](UI_RELIABILITY.md)). The
+positions asked again, renamed, go in a batch of their own, so a hesitant
+group never counts as a slow device. The review runs in the
 background with its progress and an estimate of the time left ("3 of 6
-decisions · about 2 minutes left"), goes on while its screen is closed, waits
+decisions · about 2 minutes left"), which counts every position a decision has
+taken, goes on while its screen is closed, waits
 before each batch while a hand's own notes or its own reasoning about a
 decision ask Trained AI, which counts neither in the estimate nor against the
 device, and stops at **Stop** or when the player leaves Play. A device that

@@ -1,4 +1,7 @@
-/** Review a restored hand with the actual production UI and trained worker. */
+/** Review a restored hand with the actual production UI and trained worker.
+ * Each question Trained AI hesitates over is asked again of the renamed game,
+ * which must be the renamed game (renamed-requests.mjs), and judged by the
+ * mean of the two answers (src/lib/suits.js). */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -9,13 +12,15 @@ import { browserChecks, launchChrome } from './browser-harness.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
+import { average, hesitates } from '../src/lib/suits.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
+import { renamedRequests, watchRenamedRequests } from './renamed-requests.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const match = new MatchSession(Game, 1, 'club');
-let snapshot, notes, first, choices, translations, reachTranslations;
+let snapshot, notes, first, choices, translations, reachTranslations, masks, reachMasks;
 try {
   match.advance(false);
   for (let n = 0; n < 250 && match.view.phase !== 'over'; n++) {
@@ -32,6 +37,8 @@ try {
     match.engine.review_action_from_mortal(index, action, false)));
   reachTranslations = notes.map((_, index) => Array.from({ length: 34 }, (_, action) =>
     match.engine.review_action_from_mortal(index, action, true)));
+  masks = notes.map((_, index) => Array.from(match.engine.review_mask_mortal(index)));
+  reachMasks = notes.map((_, index) => Array.from(match.engine.review_mask_after_reach(index)));
 } finally { match.dispose(); }
 
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist }));
@@ -59,12 +66,22 @@ async function strongResults(page) {
     agreed: el.classList.contains('agreed'),
   })));
   const inference = await page.evaluate(() => window.reviewAnswers);
-  let cursor = 0;
-  for (let index = 0; index < notes.length; index++) {
+  let cursor = 0, again = 0;
+  // A question's answer, and where it hesitates the mean of it and the
+  // renamed game's, the next answer.
+  const asked = mask => {
     const answer = inference[cursor++];
     assert.ok(answer, 'each historical decision needs a real trained answer');
+    if (!hesitates(answer.weights)) return answer;
+    const renamed = inference[cursor++];
+    assert.ok(renamed, 'a question Trained AI hesitates over is asked again of the renamed game');
+    again++;
+    return { ...answer, ...average(answer.weights, renamed.weights, mask) };
+  };
+  for (let index = 0; index < notes.length; index++) {
+    const answer = asked(masks[index]);
     const afterReach = answer.action === 37;
-    const action = afterReach ? inference[cursor++]?.action : answer.action;
+    const action = afterReach ? asked(reachMasks[index]).action : answer.action;
     assert.ok(Number.isInteger(action), 'a reach must also answer which tile is discarded');
     const chosen = (afterReach ? reachTranslations : translations)[index][action];
     const preferred = choices[index].find(c => c.index === chosen);
@@ -85,7 +102,10 @@ async function strongResults(page) {
   assert.equal(requests.length, cursor);
   assert.ok(requests.every(request => request.url === networkUrl));
   assert.deepEqual({ planes: requests[0].planes, mask: requests[0].mask }, first);
+  // Every question asked again was the renamed game's, right after its own.
+  assert.deepEqual(await renamedRequests(page), { checked: again, faults: [], awaited: false });
   assert.deepEqual(await saved(page), snapshot);
+  return again;
 }
 
 try {
@@ -97,6 +117,7 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.setViewport({ width: 1100, height: 900 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await watchRenamedRequests(page);
     await page.evaluateOnNewDocument((saveKey, settingsKey, initial) => {
       if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(initial));
       if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({
@@ -107,7 +128,10 @@ try {
       window.Worker = class extends NativeWorker {
         constructor(...args) {
           super(...args);
-          this.addEventListener('message', ({ data }) => { if (data.analysis) window.reviewAnswers.push(data.analysis); });
+          this.addEventListener('message', ({ data }) => {
+            if (data.analysis) window.reviewAnswers.push(data.analysis);
+            window.renamedRequests.answered(data);
+          });
         }
         postMessage(data, ...args) {
           if (data.details) {
@@ -123,6 +147,7 @@ try {
             window.reviewRequests.push({ url: data.url,
               ...(window.reviewRequests.length ? {} : { planes: Array.from(data.planes), mask: Array.from(data.mask) }),
             });
+            window.renamedRequests.posted(data);
           }
           super.postMessage(data, ...args);
         }
@@ -138,7 +163,10 @@ try {
     await page.waitForSelector('.review .retry', { timeout: 90000 });
     assert.match(await page.$eval('.review [role="alert"]', el => el.textContent), /Review connection interrupted/);
     await page.click('.review .retry');
-    await strongResults(page);
+    // However many questions the network hesitates over, none included for a
+    // network sure of the whole hand, each was paired with its renamed game
+    // and the answers averaged (strongResults); the count is only said.
+    console.log(`  Trained AI asked ${await strongResults(page)} of the hand's questions again, renamed`);
     await page.screenshot({ path: resolve(output, 'adviser-review-desktop.png'), fullPage: true });
     await page.select(select, 'club');
     await page.waitForFunction(() => document.querySelector('.review .summary')?.textContent.includes('matched Club'));

@@ -638,13 +638,26 @@ impl PhysicalAnalysis {
     /// This seat's observation as Mortal builds it, rebuilt from the
     /// position by replaying what it says happened.
     pub fn agent_observation_mortal(&self) -> Result<Vec<f32>, JsValue> {
-        self.planes(false)
+        self.planes(false, false)
+    }
+
+    /// The same observation of the renamed game, characters and circles
+    /// trading names, for a question Trained AI hesitates over. Its moves
+    /// are `agent_mask_mortal`'s renamed.
+    pub fn agent_observation_mortal_renamed(&self) -> Result<Vec<f32>, JsValue> {
+        self.planes(false, true)
     }
 
     /// The same seat once a reach is declared, for the second question a
     /// declaration asks. Nothing is declared: it is put to a copy.
     pub fn agent_observation_after_reach(&self) -> Result<Vec<f32>, JsValue> {
-        self.planes(true)
+        self.planes(true, false)
+    }
+
+    /// The same of the renamed game. Its moves are
+    /// `agent_mask_after_reach`'s renamed.
+    pub fn agent_observation_after_reach_renamed(&self) -> Result<Vec<f32>, JsValue> {
+        self.planes(true, true)
     }
 
     /// Which of Mortal's moves this seat may make, by our rules.
@@ -680,16 +693,18 @@ impl PhysicalAnalysis {
 }
 
 impl PhysicalAnalysis {
-    fn planes(&self, after_reach: bool) -> Result<Vec<f32>, JsValue> {
-        replayed_planes(&self.hand, self.seat, &self.history, after_reach)
+    fn planes(&self, after_reach: bool, renamed: bool) -> Result<Vec<f32>, JsValue> {
+        replayed_planes(&self.hand, self.seat, &self.history, after_reach, renamed)
             .ok_or_else(|| JsValue::from_str(&replay_refusal(&self.hand)))
     }
 }
 
 /// The planes Mortal's encoder builds for `seat` of a position replayed with
 /// `history`, and with `after_reach`, where the seat may declare riichi, the
-/// planes once it has, for the second question a declaration asks. `None`
-/// where the replay refuses the position.
+/// planes once it has, for the second question a declaration asks. With
+/// `renamed` they are the renamed game's, every event replayed with
+/// characters and circles trading names. `None` where the replay refuses
+/// the position.
 ///
 /// The declaration is put to a copy of the state, never to a game: it is
 /// recorded only when the move is actually made. It is told as the seat's
@@ -701,8 +716,9 @@ pub(super) fn replayed_planes(
     seat: Wind,
     history: &History,
     after_reach: bool,
+    renamed: bool,
 ) -> Option<Vec<f32>> {
-    let mut state = mortal_log::state_for(hand, seat, history)?;
+    let mut state = mortal_log::state_named(hand, seat, history, renamed)?;
     if after_reach && super::may_reach_from(hand, seat) {
         let _ = state.update(&MortalEvent::Reach {
             actor: history.seating[seat.index()] as u8,
@@ -1575,8 +1591,10 @@ mod tests {
                 "riichi is offered in hand {kyoku}"
             );
             let history = position.history();
-            let before = replayed_planes(&hand, seat, &history, false).expect("the replay builds");
-            let after = replayed_planes(&hand, seat, &history, true).expect("the riichi is told");
+            let before =
+                replayed_planes(&hand, seat, &history, false, false).expect("the replay builds");
+            let after =
+                replayed_planes(&hand, seat, &history, true, false).expect("the riichi is told");
             (0..before.len() / 34)
                 .filter(|plane| before[plane * 34..][..34] != after[plane * 34..][..34])
                 .collect()

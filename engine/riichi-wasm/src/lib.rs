@@ -151,6 +151,42 @@ pub(crate) fn may_reach_from(hand: &Hand, seat: Wind) -> bool {
         .any(|allowed| *allowed)
 }
 
+/// One of the lines Mortal is told, as Mortal reads it, or nothing where it
+/// cannot read it. With `renamed` it is the line of the renamed game, every
+/// character named as the circle of its number and every circle as the
+/// character: Mortal's own augmentation (`Event::augment`), which
+/// `neural/suits.py` measured its renamed game against. Under our rules the
+/// two suits are interchangeable, so the renamed game is another game played
+/// the same way, and Trained AI asks a question it hesitates over of both.
+pub(crate) fn read_event(json: &str, renamed: bool) -> Option<MortalEvent> {
+    let mut event = serde_json::from_str::<MortalEvent>(json).ok()?;
+    if renamed {
+        event.augment();
+    }
+    Some(event)
+}
+
+/// What Mortal's encoder answers for `player` from its state, flattened row
+/// by row, and with `after_reach` once that player has declared a reach.
+///
+/// A declared reach is put to a copy, never to the state itself: the real
+/// declaration arrives later through the engine's own log, and telling it
+/// twice would describe a game nobody is playing. This is how the training
+/// side asks the second question too.
+fn planes_of(state: &MortalState, player: usize, after_reach: bool) -> Vec<f32> {
+    let state = if after_reach {
+        let mut preview = state.clone();
+        let _ = preview.update(&MortalEvent::Reach {
+            actor: player as u8,
+        });
+        std::borrow::Cow::Owned(preview)
+    } else {
+        std::borrow::Cow::Borrowed(state)
+    };
+    let (observation, _mask) = state.encode_obs(MORTAL_VERSION, false);
+    observation.iter().copied().collect()
+}
+
 /// One tile in a discard row, as the interface needs it.
 #[derive(Serialize)]
 pub struct DiscardView {
@@ -504,35 +540,31 @@ struct RecordedDecision {
     /// How much of the run of events had happened, so Mortal's reading of
     /// this position can be rebuilt exactly rather than approximately.
     told: usize,
+    /// Where in that run the decision's hand began, at its deal, which is
+    /// where a review starts rebuilding it.
+    began: usize,
 }
 
 /// What Mortal's encoder answers for one person, flattened row by row.
 ///
 /// Kept apart from the exported methods because it is only ever reached
-/// after `tell_mortal`, and reading a state that has not been told about
-/// the moves just played would encode a position nobody is in.
+/// after `tell_mortal`, or `tell_renamed` for the renamed game, and reading
+/// a state that has not been told about the moves just played would encode
+/// a position nobody is in.
 impl Game {
     fn pending_reach_for(&self, seat: Wind) -> bool {
         self.mortal_awaiting_riichi
             == Some((self.hand_seating[seat.index()], self.hand.discards_made))
     }
 
-    fn mortal_planes(&self, player: usize, after_reach: bool) -> Vec<f32> {
-        // A declared reach is put to a copy, never to the state itself: the
-        // real declaration arrives later through the engine's own log, and
-        // telling it twice would describe a game nobody is playing. This is
-        // how the training side asks the second question too.
-        let state = if after_reach {
-            let mut preview = self.mortal[player].clone();
-            let _ = preview.update(&MortalEvent::Reach {
-                actor: player as u8,
-            });
-            std::borrow::Cow::Owned(preview)
+    /// With `renamed`, read from the renamed game's four.
+    fn mortal_planes(&self, player: usize, after_reach: bool, renamed: bool) -> Vec<f32> {
+        let states = if renamed {
+            &self.mortal_renamed
         } else {
-            std::borrow::Cow::Borrowed(&self.mortal[player])
+            &self.mortal
         };
-        let (observation, _mask) = state.encode_obs(MORTAL_VERSION, false);
-        observation.iter().copied().collect()
+        planes_of(&states[player], player, after_reach)
     }
 
     /// Everything that has happened since the last telling, to all four of
@@ -544,6 +576,11 @@ impl Game {
             let json = riichi_core::mjai::Event::StartGame { names }.to_json([0, 1, 2, 3]);
             self.tell_all(&json);
             self.mortal_started = true;
+        }
+        if self.mortal_logged == 0 {
+            // Nothing of the hand has been told yet, so the next event is
+            // its deal.
+            self.mortal_began = self.mortal_events.len();
         }
         let seating = self.hand_seating;
         // Collected first: telling borrows self mutably, and the log is on it.
@@ -562,7 +599,7 @@ impl Game {
     /// dropped rather than half applied, and that can only happen if the two
     /// engines' events have drifted apart.
     fn tell_all(&mut self, json: &str) {
-        let Ok(event) = serde_json::from_str::<MortalEvent>(json) else {
+        let Some(event) = read_event(json, false) else {
             return;
         };
         for state in &mut self.mortal {
@@ -571,22 +608,46 @@ impl Game {
         self.mortal_events.push(json.to_owned());
     }
 
+    /// Everything Mortal has been told that the renamed game's four have
+    /// not, each event renamed. Only a renamed view asks, so a table that
+    /// never asks one tells them nothing, and the first one asked, of a
+    /// restored match too, catches them up in one pass.
+    fn tell_renamed(&mut self) {
+        self.tell_mortal();
+        for json in &self.mortal_events[self.renamed_told..] {
+            if let Some(event) = read_event(json, true) {
+                for state in &mut self.mortal_renamed {
+                    let _ = state.update(&event);
+                }
+            }
+        }
+        self.renamed_told = self.mortal_events.len();
+    }
+
     /// Mortal's reading of a position the player decided from, rebuilt by
-    /// replaying the events that had happened by then.
-    fn mortal_planes_at(&self, told: usize, player: usize, after_reach: bool) -> Vec<f32> {
+    /// replaying the events that had happened by then, and with `renamed`
+    /// the renamed game's reading of it. Only the game's opening and the
+    /// decision's own hand are replayed: a deal sets afresh everything
+    /// Mortal reads, so the hands before it change nothing, and replaying
+    /// them made a review of South 4 replay the whole game at every
+    /// decision.
+    fn mortal_planes_at(
+        &self,
+        decision: &RecordedDecision,
+        after_reach: bool,
+        renamed: bool,
+    ) -> Vec<f32> {
+        let told = decision.told.min(self.mortal_events.len());
+        let began = decision.began.min(told);
+        let player = self.hand_seating[decision.seat.index()];
         let mut state = MortalState::new(player as u8);
-        for json in &self.mortal_events[..told.min(self.mortal_events.len())] {
-            if let Ok(event) = serde_json::from_str::<MortalEvent>(json) {
+        let opening = &self.mortal_events[..began.min(1)];
+        for json in opening.iter().chain(&self.mortal_events[began..told]) {
+            if let Some(event) = read_event(json, renamed) {
                 let _ = state.update(&event);
             }
         }
-        if after_reach {
-            let _ = state.update(&MortalEvent::Reach {
-                actor: player as u8,
-            });
-        }
-        let (observation, _mask) = state.encode_obs(MORTAL_VERSION, false);
-        observation.iter().copied().collect()
+        planes_of(&state, player, after_reach)
     }
 }
 
@@ -615,6 +676,16 @@ pub struct Game {
     /// Every event of the whole game, in the order Mortal was told them.
     /// Kept so a review can rebuild any position the player decided from.
     mortal_events: Vec<String>,
+    /// Where the hand being played begins in `mortal_events`, at its deal.
+    mortal_began: usize,
+    /// Mortal's reading of the renamed game, characters and circles trading
+    /// names, one for each of the four people: the second view Trained AI
+    /// asks of a question it hesitates over. Fed the same events as
+    /// `mortal`, each renamed (`read_event`), but only when a renamed view
+    /// is asked, by `tell_renamed`.
+    mortal_renamed: Vec<MortalState>,
+    /// How many of `mortal_events` the renamed four have been told.
+    renamed_told: usize,
     /// Every hand this game has finished, oldest first, each as the mjai
     /// lines `log` wrote for it under the seating it was dealt with. Kept so
     /// the whole game can be saved as one log. A saved match is replayed
@@ -678,6 +749,11 @@ impl Game {
             mortal_started: false,
             mortal_logged: 0,
             mortal_events: Vec::new(),
+            mortal_began: 0,
+            mortal_renamed: (0..4)
+                .map(|player| MortalState::new(player as u8))
+                .collect(),
+            renamed_told: 0,
             finished_hands: Vec::new(),
             mortal_awaiting_riichi: None,
             decisions: Vec::new(),
@@ -730,11 +806,28 @@ impl Game {
     /// `opponent_mask_mortal` says which of them are legal.
     pub fn opponent_observation_mortal(&mut self) -> Vec<f32> {
         self.tell_mortal();
+        self.opponent_planes(false)
+    }
+
+    /// The same observation of the renamed game, characters and circles
+    /// trading names, for a question Trained AI hesitates over, the tile a
+    /// declared reach still has to name included. Its moves are the ones
+    /// `opponent_mask_mortal` opens with the same names traded, which the
+    /// page trades itself.
+    pub fn opponent_observation_mortal_renamed(&mut self) -> Vec<f32> {
+        self.tell_renamed();
+        self.opponent_planes(true)
+    }
+
+    /// The planes of the opponent owing a decision, once a declared reach is
+    /// still to name its tile previewing that reach, or nothing but zeros
+    /// when nobody owes one.
+    fn opponent_planes(&self, renamed: bool) -> Vec<f32> {
         let (planes, positions) = obs_shape(MORTAL_VERSION);
         match self.opponent_owing() {
             Some(seat) => {
                 let after_reach = self.pending_reach_for(seat);
-                self.mortal_planes(self.hand_seating[seat.index()], after_reach)
+                self.mortal_planes(self.hand_seating[seat.index()], after_reach, renamed)
             }
             None => vec![0.0; planes * positions],
         }
@@ -793,7 +886,14 @@ impl Game {
     /// The followed player's observation as Mortal builds it.
     pub fn agent_observation_mortal(&mut self) -> Vec<f32> {
         self.tell_mortal();
-        self.mortal_planes(self.hand_seating[self.seat.index()], false)
+        self.mortal_planes(self.hand_seating[self.seat.index()], false, false)
+    }
+
+    /// The same observation of the renamed game, for a question Trained AI
+    /// hesitates over. Its moves are `agent_mask_mortal`'s renamed.
+    pub fn agent_observation_mortal_renamed(&mut self) -> Vec<f32> {
+        self.tell_renamed();
+        self.mortal_planes(self.hand_seating[self.seat.index()], false, true)
     }
 
     /// How many concealed tiles each of the three other seats holds, in the
@@ -816,7 +916,15 @@ impl Game {
     pub fn agent_observation_after_reach(&mut self) -> Vec<f32> {
         self.tell_mortal();
         let reachable = may_reach_from(&self.hand, self.seat);
-        self.mortal_planes(self.hand_seating[self.seat.index()], reachable)
+        self.mortal_planes(self.hand_seating[self.seat.index()], reachable, false)
+    }
+
+    /// The same of the renamed game. Its moves are
+    /// `agent_mask_after_reach`'s renamed.
+    pub fn agent_observation_after_reach_renamed(&mut self) -> Vec<f32> {
+        self.tell_renamed();
+        let reachable = may_reach_from(&self.hand, self.seat);
+        self.mortal_planes(self.hand_seating[self.seat.index()], reachable, true)
     }
 
     /// Which tiles that declaration may discard, in Mortal's numbering.
@@ -1225,12 +1333,13 @@ impl Game {
                 // so the mark counts everything that had happened and
                 // nothing that had not.
                 self.tell_mortal();
-                let told = self.mortal_events.len();
+                let (told, began) = (self.mortal_events.len(), self.mortal_began);
                 let before = self.hand.clone();
                 self.hand.act(action).map_err(refused)?;
                 self.note(self.seat, &describe_action(action).label);
                 self.decisions.push(RecordedDecision {
                     told,
+                    began,
                     position: before,
                     seat: self.seat,
                     played: ReviewedMove::Action(action),
@@ -1261,7 +1370,7 @@ impl Game {
                 // As above: the mark counts everything Mortal had been told
                 // by the time this seat had to answer.
                 self.tell_mortal();
-                let told = self.mortal_events.len();
+                let (told, began) = (self.mortal_events.len(), self.mortal_began);
                 let before = self.hand.clone();
                 if self.external {
                     self.begin_mixed_calls(&offered, Some(call))?;
@@ -1289,6 +1398,7 @@ impl Game {
                 // Even a pass or a pon superseded by ron belongs in the review.
                 self.decisions.push(RecordedDecision {
                     told,
+                    began,
                     position: before,
                     seat: self.seat,
                     played: ReviewedMove::Call(call),
@@ -1350,30 +1460,44 @@ impl Game {
     /// Mortal read it, for a review by the network the opponents play.
     /// Historical advice sees only what was known when the move was played.
     pub fn review_observation_mortal(&self, index: usize) -> Result<Vec<f32>, JsValue> {
-        let decision = self
-            .decisions
-            .get(index)
-            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        Ok(self.mortal_planes_at(
-            decision.told,
-            self.hand_seating[decision.seat.index()],
-            false,
-        ))
+        self.review_planes(index, false, false)
+    }
+
+    /// The same observation of the renamed game, for a question Trained AI
+    /// hesitates over. Its moves are `review_mask_mortal`'s renamed.
+    pub fn review_observation_mortal_renamed(&self, index: usize) -> Result<Vec<f32>, JsValue> {
+        self.review_planes(index, false, true)
     }
 
     /// The same decision once a reach is declared, for the second question
     /// a declaration asks. Nothing is declared: it is put to a fresh state.
     pub fn review_observation_after_reach(&self, index: usize) -> Result<Vec<f32>, JsValue> {
+        self.review_planes(index, true, false)
+    }
+
+    /// The same of the renamed game. Its moves are
+    /// `review_mask_after_reach`'s renamed.
+    pub fn review_observation_after_reach_renamed(
+        &self,
+        index: usize,
+    ) -> Result<Vec<f32>, JsValue> {
+        self.review_planes(index, true, true)
+    }
+
+    /// The planes of a recorded decision, plain or renamed, and with
+    /// `after_reach` once a reach is declared where one could be.
+    fn review_planes(
+        &self,
+        index: usize,
+        after_reach: bool,
+        renamed: bool,
+    ) -> Result<Vec<f32>, JsValue> {
         let decision = self
             .decisions
             .get(index)
             .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
-        let reachable = may_reach_from(&decision.position, decision.seat);
-        Ok(self.mortal_planes_at(
-            decision.told,
-            self.hand_seating[decision.seat.index()],
-            reachable,
-        ))
+        let reachable = after_reach && may_reach_from(&decision.position, decision.seat);
+        Ok(self.mortal_planes_at(decision, reachable, renamed))
     }
 
     /// Which tiles that declaration could have discarded, in Mortal's
@@ -1476,7 +1600,8 @@ impl Game {
     /// where follows from the hand number, as `Table::player_at` seats
     /// them. A review that asks what would change Trained AI's mind edits
     /// it and asks again, and unedited it replays to exactly the planes and
-    /// mask `review_observation_mortal` and `review_mask_mortal` give. It
+    /// mask `review_observation_mortal` and `review_mask_mortal` give, and
+    /// renamed to the planes `review_observation_mortal_renamed` gives. It
     /// shows the player nothing they did not see, so it is answered while
     /// the hand is played as well as after.
     pub fn review_position(&self, index: usize) -> Result<JsValue, JsValue> {
@@ -3310,6 +3435,15 @@ mod game_log_tests {
     /// view's order, the player's own exactly as the view showed it, and
     /// every seat holds as many tiles as the view said. While the hand is
     /// played the tiles are refused, since the table hides them.
+    ///
+    /// The same states hold the review to the whole game told at each
+    /// hand's first and last decision, as the written positions' test does
+    /// at every decision: the review replays a decision's hand alone, from
+    /// its deal, and must read as the deciding player's state does, plain
+    /// and renamed, and once a reach is declared where one could be.
+    /// A table with no trained player never asks a live renamed view, and
+    /// the reviews' renamed views are replayed, so the renamed game's own
+    /// states are told nothing.
     #[test]
     fn every_hand_at_every_decision_is_the_one_mortal_rebuilds_from_the_events() {
         let tables: [fn(f64) -> Game; 3] = [
@@ -3323,6 +3457,8 @@ mod game_log_tests {
             let mut game = tables[seed as usize % tables.len()](f64::from(seed));
             let mut states: [PlayerState; 4] =
                 std::array::from_fn(|player| PlayerState::new(player as u8));
+            // The deciding player's state of the renamed game.
+            let mut renamed = PlayerState::new(game.player as u8);
             let mut told = 0;
             let mut seen: Vec<Vec<SeatSeen>> = Vec::new();
             play_whole_game(&mut game, |game| {
@@ -3355,14 +3491,56 @@ mod game_log_tests {
                 assert_eq!(game.decisions.len(), seen.len(), "seed {seed}");
                 for (index, (decision, view)) in game.decisions.iter().zip(&seen).enumerate() {
                     for json in &game.mortal_events[told..decision.told] {
-                        let event: Read = serde_json::from_str(json).expect("Mortal reads it");
+                        let mut event: Read = serde_json::from_str(json).expect("Mortal reads it");
                         for state in &mut states {
                             state
                                 .update(&event)
                                 .unwrap_or_else(|error| panic!("seed {seed}: {error:?}\n{json}"));
                         }
+                        event.augment();
+                        renamed
+                            .update(&event)
+                            .unwrap_or_else(|error| panic!("seed {seed}: {error:?}\n{json}"));
                     }
                     told = decision.told;
+                    let player = game.hand_seating[decision.seat.index()];
+                    let mut reviewed = Vec::new();
+                    if index == 0 || index + 1 == seen.len() {
+                        reviewed.extend([
+                            (
+                                game.review_observation_mortal(index),
+                                &states[player],
+                                false,
+                            ),
+                            (
+                                game.review_observation_mortal_renamed(index),
+                                &renamed,
+                                false,
+                            ),
+                        ]);
+                        if may_reach_from(&decision.position, decision.seat) {
+                            reviewed.extend([
+                                (
+                                    game.review_observation_after_reach(index),
+                                    &states[player],
+                                    true,
+                                ),
+                                (
+                                    game.review_observation_after_reach_renamed(index),
+                                    &renamed,
+                                    true,
+                                ),
+                            ]);
+                        }
+                    }
+                    for (kind, (planes, state, after_reach)) in reviewed.into_iter().enumerate() {
+                        assert!(
+                            planes.expect("a recorded decision")
+                                == planes_of(state, player, after_reach),
+                            "seed {seed}, decision {index}: review {kind} reads otherwise \
+                             than the whole game"
+                        );
+                    }
                     let hands = game.hands_at(index).expect("the hand is over");
                     assert_eq!(hands.len(), 4);
                     assert_eq!(
@@ -3429,6 +3607,10 @@ mod game_log_tests {
                 );
                 seen.clear();
             });
+            assert_eq!(
+                game.renamed_told, 0,
+                "seed {seed}: the renamed game was told"
+            );
         }
         // Turns with a drawn tile, answers to discards, opponents holding
         // fewer tiles for their calls, quads and riichi on the table, and
@@ -3459,5 +3641,282 @@ mod game_log_tests {
             serde_json::json!(["You", "player 1", "Club 'left'", "player 3"])
         );
         assert_eq!(game.game_log_hands(), 0);
+    }
+}
+
+/// Characters and circles renamed in a game's planes, as
+/// `neural/tests/test_suits.py` renames them: what the renamed game's
+/// planes are held to outside the efficiency lookahead.
+#[cfg(test)]
+pub(crate) mod renamed_rows {
+    /// Tile kind `kind` of a game as the renamed game names it: characters
+    /// (0-8) and circles (9-17) trade places, and bamboo and honours stay
+    /// (`suits.KINDS`).
+    pub(crate) fn kind(kind: usize) -> usize {
+        match kind {
+            0..=8 => kind + 9,
+            9..=17 => kind - 9,
+            _ => kind,
+        }
+    }
+
+    /// Which row of a game's planes row `row` of the renamed game's planes
+    /// reads, renamed (`TILE_ROWS`): the same row, bar the rows that name a
+    /// tile as well as their columns. Those are the tiles each discard
+    /// needs, keeping the hand's distance from waiting (891-924) or
+    /// lowering it (925-958), a row a discard, and the red fives, a row a
+    /// suit, which our tables never deal.
+    pub(crate) fn row(row: usize) -> usize {
+        match row {
+            891..=924 => 891 + kind(row - 891),
+            925..=958 => 925 + kind(row - 925),
+            4 | 32 | 727 | 734 | 741 | 748 => row + 1,
+            5 | 33 | 728 | 735 | 742 | 749 => row - 1,
+            _ => row,
+        }
+    }
+
+    /// Whether the efficiency lookahead fills the row (`LOOKAHEAD`): its
+    /// best expected points, the discard with the most tiles needed, and
+    /// its tables by imagined turn. It breaks ties by tile index,
+    /// characters before circles, so there the renamed game may read
+    /// otherwise than the game renamed.
+    pub(crate) fn lookahead(row: usize) -> bool {
+        matches!(row, 889 | 890 | 959..=1011)
+    }
+
+    /// The rows of `renamed` that do not read as `plain` renamed: the rows
+    /// outside the lookahead (`EXACT`), which must be none, or with
+    /// `everywhere` every row.
+    pub(crate) fn not_renamed(plain: &[f32], renamed: &[f32], everywhere: bool) -> Vec<usize> {
+        assert_eq!(plain.len(), renamed.len());
+        (0..plain.len() / 34)
+            .filter(|at| everywhere || !lookahead(*at))
+            .filter(|at| {
+                (0..34)
+                    .any(|column| renamed[at * 34 + column] != plain[row(*at) * 34 + kind(column)])
+            })
+            .collect()
+    }
+}
+
+/// Trained AI's second view, the renamed game, at a table of trained
+/// opponents played as the page plays it.
+#[cfg(test)]
+mod renamed_game_tests {
+    use super::*;
+    use crate::renamed_rows::not_renamed;
+
+    /// The rows of thirty-four on which two observations differ.
+    fn differing(want: &[f32], got: &[f32]) -> Vec<usize> {
+        assert_eq!(want.len(), got.len());
+        (0..want.len() / 34)
+            .filter(|row| want[row * 34..][..34] != got[row * 34..][..34])
+            .collect()
+    }
+
+    /// The renamed game replayed for `player`: a fresh state told every
+    /// event of the game so far from its opening, each renamed, and with
+    /// `after_reach` a reach declared. Every renamed view must read so.
+    fn replayed_renamed(game: &Game, player: usize, after_reach: bool) -> Vec<f32> {
+        let mut state = MortalState::new(player as u8);
+        for json in &game.mortal_events {
+            let mut event: MortalEvent = serde_json::from_str(json).expect("Mortal reads it");
+            event.augment();
+            state
+                .update(&event)
+                .unwrap_or_else(|error| panic!("{error:?}\n{json}"));
+        }
+        if after_reach {
+            state
+                .update(&MortalEvent::Reach {
+                    actor: player as u8,
+                })
+                .expect("a reach is told");
+        }
+        let (observation, _mask) = state.encode_obs(MORTAL_VERSION, false);
+        observation.iter().copied().collect()
+    }
+
+    /// Holds a renamed view to the renamed game replayed, `want`, and its
+    /// rows outside the efficiency lookahead to the plain view's renamed.
+    /// Answers whether the lookahead's rows read otherwise, which they may.
+    fn renamed_as_replayed(plain: &[f32], renamed: &[f32], want: &[f32], at: &str) -> bool {
+        let wrong = differing(want, renamed);
+        assert!(
+            wrong.is_empty(),
+            "{at}: rows {:?} are not the renamed game's",
+            &wrong[..wrong.len().min(8)]
+        );
+        let wrong = not_renamed(plain, renamed, false);
+        assert!(
+            wrong.is_empty(),
+            "{at}: rows {:?} are not the game's renamed",
+            &wrong[..wrong.len().min(8)]
+        );
+        !not_renamed(plain, renamed, true).is_empty()
+    }
+
+    /// A trained opponent's answer here, in Mortal's moves: a reach whenever
+    /// one is open, then the first tile it may name, and otherwise the move
+    /// its built-in player would make.
+    fn trained_answer(game: &mut Game) -> usize {
+        let seat = game.opponent_owing().expect("an opponent owes a move");
+        let mask = game.opponent_mask_mortal();
+        if game.pending_reach_for(seat) {
+            return mask
+                .iter()
+                .position(|open| *open != 0)
+                .expect("a declared reach names a tile");
+        }
+        if mask[MORTAL_REACH] != 0 {
+            return MORTAL_REACH;
+        }
+        let who = game.hand_seating[seat.index()];
+        let ours = if game.asking.is_empty() {
+            encoding::action_index(game.bots[who].act(&game.hand))
+        } else {
+            let offered = game
+                .hand
+                .legal_calls()
+                .into_iter()
+                .find(|(other, _)| *other == seat)
+                .map(|(_, calls)| calls)
+                .expect("a seat is asked about a tile offered to it");
+            let call = game.bots[who].call(&game.hand, seat, &offered);
+            let claimed = game.hand.pending_discard.map(|(_, tile)| tile);
+            encoding::call_index(call, claimed).expect("every call it may make has a number")
+        };
+        usize::try_from(mortal_action_for(ours)).expect("every move of ours is one of Mortal's")
+    }
+
+    /// The player's move: what its own built-in player would do.
+    fn players_move(game: &mut Game) -> ActionView {
+        let (seat, player) = (game.seat, game.player);
+        match game.hand.phase {
+            Phase::Act => describe_action(game.bots[player].act(&game.hand)),
+            Phase::CallWindow => {
+                let offered = game
+                    .hand
+                    .legal_calls()
+                    .into_iter()
+                    .find(|(other, _)| *other == seat)
+                    .map(|(_, calls)| calls)
+                    .expect("the player is only asked about a call offered to them");
+                describe_call(game.bots[player].call(&game.hand, seat, &offered))
+            }
+            phase => panic!("the player is never asked anything in {phase:?}"),
+        }
+    }
+
+    /// A whole game against three trained opponents, played as the page
+    /// plays it: each opponent's question answered with one of Mortal's
+    /// moves, a reach declared whenever one is open and its tile asked
+    /// again. Every renamed view asked is the renamed game replayed from
+    /// its opening: the opponents', a reach's tile included, the player's,
+    /// and the player's once a reach is declared; and the review's of each
+    /// of the player's decisions reads what the player was shown. Outside
+    /// the efficiency lookahead each is the plain view renamed.
+    ///
+    /// The renamed game is asked now and then, as the page asks it only of
+    /// a question it hesitates over, and nothing renamed is asked in the
+    /// first hand, which its state must then catch up on at once, as a
+    /// restored match's does. Until then it has been told nothing.
+    #[test]
+    fn every_renamed_view_is_the_renamed_game_replayed() {
+        /// How many renamed views of each kind were compared.
+        #[derive(Default, Debug)]
+        struct Compared {
+            opponents: usize,
+            answering: usize,
+            previews: usize,
+            player: usize,
+            player_reaches: usize,
+            reviewed: usize,
+            lookahead_renamed_otherwise: usize,
+        }
+        let mut compared = Compared::default();
+        let mut game = Game::new(5.0, Some("neural".into()));
+        let mut questions = 0usize;
+        // The player's decisions this hand whose renamed views were asked,
+        // with the planes, and the planes after a reach where one was open.
+        let mut shown: Vec<(usize, Vec<f32>, Option<Vec<f32>>)> = Vec::new();
+        for _ in 0..20_000 {
+            game.play_on().expect("the table plays on");
+            let hand = game.table.hands_played + 1;
+            if hand == 1 {
+                assert_eq!(game.renamed_told, 0, "nothing renamed has been asked");
+            }
+            if game.needs_opponent_move() {
+                let seat = game.opponent_owing().expect("an opponent owes a move");
+                let player = game.hand_seating[seat.index()];
+                let preview = game.pending_reach_for(seat);
+                questions += 1;
+                if hand > 1 && (preview || questions.is_multiple_of(3)) {
+                    let at = format!("hand {hand}, question {questions}, player {player}");
+                    let plain = game.opponent_observation_mortal();
+                    let renamed = game.opponent_observation_mortal_renamed();
+                    let want = replayed_renamed(&game, player, preview);
+                    compared.lookahead_renamed_otherwise +=
+                        usize::from(renamed_as_replayed(&plain, &renamed, &want, &at));
+                    compared.opponents += 1;
+                    compared.previews += usize::from(preview);
+                    compared.answering += usize::from(!game.asking.is_empty());
+                }
+                let action = trained_answer(&mut game);
+                game.play_opponent_mortal(action)
+                    .expect("the opponent's move is legal");
+                continue;
+            }
+            if game.table.finished {
+                break;
+            }
+            if game.hand_is_over() {
+                for (index, planes, reach) in shown.drain(..) {
+                    let reviewed = game.review_observation_mortal_renamed(index).unwrap();
+                    assert!(reviewed == planes, "hand {hand}, decision {index}");
+                    if let Some(reach) = reach {
+                        let reviewed = game.review_observation_after_reach_renamed(index).unwrap();
+                        assert!(reviewed == reach, "hand {hand}, decision {index}, reach");
+                    }
+                    compared.reviewed += 1;
+                }
+                game.next_hand().expect("the next hand is dealt");
+                continue;
+            }
+            let index = game.decisions.len();
+            let reachable = may_reach_from(&game.hand, game.seat);
+            if hand > 1 && (reachable || index.is_multiple_of(2)) {
+                let at = format!("hand {hand}, decision {index}");
+                let plain = game.agent_observation_mortal();
+                let renamed = game.agent_observation_mortal_renamed();
+                let want = replayed_renamed(&game, game.player, false);
+                compared.lookahead_renamed_otherwise +=
+                    usize::from(renamed_as_replayed(&plain, &renamed, &want, &at));
+                compared.player += 1;
+                let mut reach = None;
+                if reachable {
+                    let plain = game.agent_observation_after_reach();
+                    let renamed = game.agent_observation_after_reach_renamed();
+                    let want = replayed_renamed(&game, game.player, true);
+                    renamed_as_replayed(&plain, &renamed, &want, &format!("{at}, reach"));
+                    compared.player_reaches += 1;
+                    reach = Some(renamed);
+                }
+                shown.push((index, renamed, reach));
+            }
+            let choice = players_move(&mut game);
+            game.choose(&choice.kind, choice.tile)
+                .expect("the player's move is legal");
+        }
+        assert!(game.table.finished, "the game did not finish");
+        println!("{compared:?}");
+        assert!(compared.opponents > 50, "{compared:?}");
+        assert!(compared.answering > 5, "{compared:?}");
+        assert!(compared.previews > 2, "{compared:?}");
+        assert!(compared.player > 20, "{compared:?}");
+        assert!(compared.player_reaches > 0, "{compared:?}");
+        assert_eq!(compared.reviewed, compared.player, "{compared:?}");
+        assert!(compared.lookahead_renamed_otherwise > 0, "{compared:?}");
     }
 }

@@ -5,8 +5,12 @@ import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.j
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { MatchInsight, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight, searchTime,
+import { FORWARDS_A_TABLE, MatchInsight, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight, searchTime,
   trainedAsk } from '../src/lib/review-insight-policy.js';
+import { policyWeights } from '../src/lib/policy-weights.js';
+import { reviewWithStrong } from '../src/lib/review-policy.js';
+import { MatchSession } from '../src/lib/session.js';
+import { MOVES, average, swapMoves } from '../src/lib/suits.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
@@ -94,10 +98,15 @@ function reviewedDecision(question = entry) {
   } finally { analysis.free(); }
 }
 
+/** How the recorded run is replayed: each pass asked once. The run was the
+ * plain player's, and its answers keep only the moves a panel reads, so the
+ * mean of one and a renamed game's would give those moves the weight the
+ * record does not keep (trainedAsk's `askBoth`). */
+const askOnce = (ask, tables) => ask(tables);
 /** The reasoning asked of `network`, with the spells of asking, of the notes
- * and of the worker's batches it keeps to. */
+ * and of the worker's batches it keeps to, replaying the recorded run. */
 const insightOf = (network, asking = new Asking(), notes = new Asking(), batches = new Asking()) => ({ asking, notes, batches,
-  insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches }) });
+  insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, askBoth: askOnce }) });
 
 test('a hand\'s tables are the positions the engine writes at the hand\'s end, read from a replay of their own', () => {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot), written = [];
@@ -168,7 +177,7 @@ test('a table the rules refuse is answered as refused, and never sent', async ()
   const fifth = structuredClone(entry.position);
   fifth.players[2].discards.push(...['5z', '5z', '5z', '5z'].map((tile, at) => ({ tile, order: 100 + at, drawn: false, riichi: false, claimed: false })));
   const network = recordedNetwork();
-  const answers = await trainedAsk({ PhysicalAnalysis, analyzeBatch: network.analyzeBatch })([fifth, entry.position]);
+  const answers = await trainedAsk({ PhysicalAnalysis, analyzeBatch: network.analyzeBatch, askBoth: askOnce })([fifth, entry.position]);
   assert.deepEqual(network.sizes, [1]);
   assert.match(answers[0].refused, /More than four copies/);
   assert.deepEqual(weighed(answers[1].moves), weighed(entry.weights));
@@ -308,15 +317,18 @@ test('a search stopped while its pass is with the worker holds the review back u
   await until(() => anyGate(second.notes, second.asking)() === null, 'the review goes on once the pass has failed');
 });
 
-test('a pass is the review\'s batch at the device\'s speed, so that what is sent behind one waits no longer than behind the review', async () => {
+test('a pass takes about as long as the review\'s batch at the device\'s speed, a table counted as the positions it takes, so that what is sent behind one waits no longer than behind the review', async () => {
   // Before anything is measured the review's batch, the most a pass asks;
-  // at 2.5 seconds a position the four the review asks there (batchFor), the
-  // search's 36 tables in nine passes of four.
+  // at 2.5 seconds a position, a table taking 1.43 positions on average
+  // (FORWARDS_A_TABLE), as many as take about ten seconds (batchFor): the
+  // search's 36 tables in eighteen passes of two.
   assert.equal(batchFor(null), PASS);
+  assert.equal(batchFor(2500 * FORWARDS_A_TABLE), 2);
   const network = recordedNetwork(), asking = new Asking(), notes = new Asking(), batches = new Asking();
-  const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 2500 });
+  const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 2500,
+    askBoth: askOnce });
   const found = await insight.search(questionOf(reviewedDecision(), entry.position));
-  assert.deepEqual([found.status, network.sizes], ['searched', [4, 4, 4, 4, 4, 4, 4, 4, 4]]);
+  assert.deepEqual([found.status, network.sizes], ['searched', Array(18).fill(2)]);
 });
 
 test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {
@@ -503,14 +515,19 @@ test("a search that finds Trained AI answering the decision's table otherwise th
 });
 
 test('the button says about how long a search takes, from the tables it asks first to the most it asks, in seconds or in minutes, in words for a screen reader', () => {
+  // A table takes 1.43 positions on average, those Trained AI hesitates over
+  // asked again (FORWARDS_A_TABLE): 36 tables at desktop Chromium's 157 ms a
+  // position take 8 seconds, and 64 take 14.
   const counts = { tables: 36, most: 64 };
-  assert.deepEqual(searchTime(counts, 157), { short: '6–10 s', said: '6 to 10 seconds' });
-  assert.deepEqual(searchTime(counts, 500), { short: '18–32 s', said: '18 to 32 seconds' });
+  assert.equal(FORWARDS_A_TABLE, 1.43);
+  assert.deepEqual(searchTime(counts, 157), { short: '8–14 s', said: '8 to 14 seconds' });
+  assert.deepEqual(searchTime(counts, 500), { short: '26–46 s', said: '26 to 46 seconds' });
   // One figure where both round alike, a second said as one.
-  assert.deepEqual(searchTime(counts, 20), { short: '1 s', said: '1 second' });
-  // Minutes once the longer rounds to a minute, 59.5 seconds among them.
-  assert.deepEqual(searchTime({ tables: 100, most: 119 }, 500), { short: '1 min', said: '1 minute' });
-  assert.deepEqual(searchTime({ tables: 400, most: 428 }, 500), { short: '3–4 min', said: '3 to 4 minutes' });
+  assert.deepEqual(searchTime(counts, 15), { short: '1 s', said: '1 second' });
+  // Minutes once the longer rounds to a minute, 60.06 seconds among them.
+  assert.deepEqual(searchTime({ tables: 70, most: 84 }, 500), { short: '1 min', said: '1 minute' });
+  assert.deepEqual(searchTime({ tables: 70, most: 83 }, 500), { short: '50–59 s', said: '50 to 59 seconds' });
+  assert.deepEqual(searchTime({ tables: 300, most: 428 }, 500), { short: '4–5 min', said: '4 to 5 minutes' });
   // Nothing timed yet, or nothing searched.
   assert.deepEqual([searchTime(counts, null), searchTime(counts, 0), searchTime({ tables: 0, most: 0 }, 157)], [null, null, null]);
 });
@@ -559,4 +576,125 @@ test('a hand that cannot be replayed to write its tables says nothing of its dec
   insight.explain(keyOf(entry));
   insight.search(keyOf(entry));
   assert.deepEqual([insight.at(keyOf(entry)), sizes], [null, []]);
+});
+
+/** The moves a mask opens. */
+const openMoves = mask => Array.from(mask).flatMap((allowed, move) => (allowed ? [move] : []));
+/** Weights over a mask's moves: `top` on `best`, the rest shared evenly. */
+const spread = (mask, best, top) => Array.from(mask, (allowed, move) => (!allowed ? 0 : move === best ? top : (1 - top) / (openMoves(mask).length - 1)));
+/** A table as the engine writes it, plain and renamed. */
+function tableOf(position) {
+  const analysis = new PhysicalAnalysis(position);
+  try {
+    return { planes: analysis.agent_observation_mortal(), renamed: analysis.agent_observation_mortal_renamed(), mask: Array.from(analysis.agent_mask_mortal(), Number) };
+  } finally { analysis.free(); }
+}
+/** Weights over Mortal's moves for a table read into the engine's moves, as
+ * the review reads them. */
+function readOn(position, weights) {
+  const analysis = new PhysicalAnalysis(position);
+  try {
+    return movesOf(weightsByChoice(analysis, analysis.agent_choices(), weights, action => analysis.agent_action_from_mortal(action, false)));
+  } finally { analysis.free(); }
+}
+
+test('a table Trained AI hesitates over is asked again of the renamed game, in a pass of its own after the first, and read by the mean', async () => {
+  // East 3 #5 unsure, at 0.6 on its first move, and South 3 #4 sure, at
+  // 0.95. The renamed game of East 3 #5 puts 0.7 on its second move.
+  const unsure = entry.position, sure = questions.find(question => question.id === 's3-4').position;
+  const [first, second] = [unsure, sure].map(tableOf), renamedMask = swapMoves(first.mask);
+  const answers = new Map([[planesKey(first.planes, first.mask), spread(first.mask, openMoves(first.mask)[0], 0.6)],
+    [planesKey(second.planes, second.mask), spread(second.mask, openMoves(second.mask)[0], 0.95)],
+    [planesKey(first.renamed, renamedMask), spread(renamedMask, MOVES[openMoves(first.mask)[1]], 0.7)]]);
+  const sent = [];
+  const analyzeBatch = async positions => {
+    sent.push(positions.map(({ planes, mask }) => planesKey(planes, mask)));
+    return positions.map(({ planes, mask }) => ({ weights: answers.get(planesKey(planes, mask)) }));
+  };
+  const [unsureAnswer, sureAnswer] = await trainedAsk({ PhysicalAnalysis, analyzeBatch })([unsure, sure]);
+  assert.deepEqual(sent, [[planesKey(first.planes, first.mask), planesKey(second.planes, second.mask)], [planesKey(first.renamed, renamedMask)]]);
+  const mean = average(answers.get(planesKey(first.planes, first.mask)), answers.get(planesKey(first.renamed, renamedMask)), first.mask);
+  assert.equal(mean.action, openMoves(first.mask)[1], 'the mean throws the renamed game\'s tile');
+  assert.deepEqual(unsureAnswer.moves, readOn(unsure, mean.weights));
+  assert.deepEqual(sureAnswer.moves, readOn(sure, answers.get(planesKey(second.planes, second.mask))));
+});
+
+test('a renamed pass waits at the gate as the first did, and a question stopped before it goes sends nothing more and lets its tables go', async () => {
+  const live = new Set();
+  // The engine's tables, each noted until it is freed.
+  function Tracked(position) {
+    const analysis = new PhysicalAnalysis(position), free = analysis.free.bind(analysis);
+    live.add(analysis);
+    analysis.free = () => { live.delete(analysis); free(); };
+    return analysis;
+  }
+  const table = tableOf(entry.position), renamedMask = swapMoves(table.mask);
+  const answers = new Map([[planesKey(table.planes, table.mask), spread(table.mask, openMoves(table.mask)[0], 0.6)],
+    [planesKey(table.renamed, renamedMask), spread(renamedMask, MOVES[openMoves(table.mask)[0]], 0.6)]]);
+  const notes = new Asking(), sent = [];
+  let stopNotes = null;
+  // The notes begin to ask while the first pass is with the worker.
+  const analyzeBatch = async positions => {
+    sent.push(positions.length);
+    if (sent.length === 1) stopNotes = notes.begin();
+    await turn();
+    return positions.map(({ planes, mask }) => ({ weights: answers.get(planesKey(planes, mask)) }));
+  };
+  const ask = trainedAsk({ PhysicalAnalysis: Tracked, analyzeBatch, gate: () => notes.gate() });
+  const asking = ask([entry.position]);
+  await until(() => stopNotes, 'the first pass is sent');
+  for (let count = 0; count < 20; count++) await turn();
+  assert.deepEqual([sent, live.size], [[1], 1], 'the renamed pass waits while the notes ask, the table kept for it');
+  stopNotes();
+  const [answer] = await asking;
+  assert.deepEqual([sent, live.size], [[1, 1], 0], 'then it goes, and the table is let go');
+  assert.deepEqual(answer.moves, readOn(entry.position, average(answers.get(planesKey(table.planes, table.mask)),
+    answers.get(planesKey(table.renamed, renamedMask)), table.mask).weights), 'read by the mean');
+  // Stopped while its renamed pass waits, a question sends nothing more.
+  const stop = new AbortController();
+  sent.length = 0;
+  stopNotes = null;
+  const stopped = ask([entry.position], stop.signal);
+  await until(() => stopNotes, 'the first pass is sent');
+  for (let count = 0; count < 20; count++) await turn();
+  stop.abort();
+  await assert.rejects(stopped, { name: 'AbortError' });
+  stopNotes();
+  for (let count = 0; count < 20; count++) await turn();
+  assert.deepEqual([sent, live.size], [[1], 0]);
+});
+
+/** A network whose answers follow from the planes and the moves alone, and
+ * that hesitates over every table with a choice: logits drawn from a hash of
+ * the planes, all within 1.5 of one another. */
+function unsureOf(planes, mask) {
+  let seed = 2166136261;
+  for (const word of new Uint32Array(Float32Array.from(planes).buffer)) seed = Math.imul(seed ^ word, 16777619) >>> 0;
+  const logits = Array.from(mask, (_, move) => (Math.imul(seed ^ Math.imul(move + 1, 2654435761), 1597334677) >>> 0) / 2 ** 32 * 1.5);
+  return policyWeights(logits, mask);
+}
+
+test('the reasoning asks the decision\'s table as the review asked it, of the renamed game too, so that Trained AI answers it as the review recorded', async () => {
+  // East 3 #5 reviewed by a network unsure of every table: the review asks
+  // the renamed game of each decision with a choice and keeps the mean. The
+  // search asks the same table, written by the engine as Mortal reads it,
+  // the same way, and finds the review's weights. Asked once, it finds the
+  // plain answer, which is not what the review recorded.
+  const snapshot = reviewCheckGame(Game), hand = scanMatch(Game, snapshot)[entry.record.hand], step = entry.record.decision;
+  const replay = new MatchSession(Game, snapshot.seed, snapshot.opponents);
+  let row;
+  try {
+    replay.advance(false);
+    for (const command of snapshot.commands.slice(0, hand.end)) { replay.apply(command); replay.advance(false); }
+    row = (await reviewWithStrong(replay.engine, replay.engine.review(), async (planes, mask) => unsureOf(planes, mask)))[step];
+  } finally { replay.dispose(); }
+  const preferred = row.weighted.find(choice => choice.kind === 'discard' && choice.tile !== row.played_tile && choice.weight > 0);
+  const question = questionOf({ ...row, advised_kind: 'discard', advised_tile: preferred.tile }, handTables(Game, snapshot, hand)[step]);
+  const searched = async askBoth => {
+    const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: async positions => positions.map(({ planes, mask }) => unsureOf(planes, mask)),
+      asking: new Asking(), notes: new Asking(), batches: new Asking(), askBoth });
+    return (await insight.search(question)).status;
+  };
+  assert.equal(await searched(undefined), 'searched');
+  assert.equal(await searched(askOnce), 'unlike the review');
 });

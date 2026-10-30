@@ -716,6 +716,96 @@ test('on a slow device the review asks fewer decisions a batch, as many as take 
   } finally { review.dispose(); }
 });
 
+test('the decisions Trained AI hesitates over are asked again in batches of their own, timed a position at a time, and the time left counts them', async () => {
+  // 600 ms a position, slower than SLOW_MS, and every decision with a choice
+  // hesitant: each is asked again, renamed, in a batch of its own after its
+  // group's (suits.js). The speed is a position's, not the two a hesitant
+  // decision takes, so the batches are sized as they would be without, and a
+  // device is slow by its own speed alone; what the rest takes counts every
+  // position a decision has taken.
+  let clock = 0;
+  const sizes = [], answered = network(sizes);
+  const unsure = ({ action, weights }) => ({ action, weights: weights.map(weight => (weight === 0.95 ? 0.6 : weight === 1 ? 1 : weight * 8)) });
+  const review = new MatchReview(Game, game, { now: () => clock, analyzeBatch: async (positions, signal) => {
+    clock += positions.length * 600;
+    return (await answered(positions, signal)).map(unsure);
+  } });
+  try {
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.deepEqual([review.held, review.reviewedHands, review.slow, review.positionMs], [true, 1, true, 600]);
+    assert.ok(sizes.every(size => size <= BATCH), `batches of eight at most: ${sizes.join(' ')}`);
+    const hand = review.hands.find(entry => entry.status === 'done');
+    assert.equal(review.judged, hand.frames.length);
+    const asked = hand.decisions.filter(decision => !decision.forced).length;
+    assert.ok(review.positions >= 2 * asked, `every decision with a choice asked twice: ${review.positions} positions for ${asked}`);
+    assert.equal(review.decisionMs, 600 * review.positions / review.judged);
+    assert.equal(review.estimate, Math.ceil(review.remaining * review.decisionMs / 1000));
+  } finally { review.dispose(); }
+  // Sure of every move, the same device takes a position a decision with a
+  // choice, and none for a forced one.
+  const sure = new MatchReview(Game, game, { now: () => clock, analyzeBatch: (positions, signal) => {
+    clock += positions.length * 600;
+    return network()(positions, signal);
+  } });
+  try {
+    sure.review();
+    await settled(sure);
+    const hand = sure.hands.find(entry => entry.status === 'done');
+    const asked = hand.decisions.filter(decision => !decision.forced).length;
+    const declared = hand.decisions.filter(decision => decision.advised_kind === 'riichi').length;
+    assert.ok(sure.positions >= asked && sure.positions <= asked + declared, `${sure.positions} positions for ${asked} decisions`);
+    assert.equal(sure.decisionMs, 600 * sure.positions / sure.judged);
+  } finally { sure.dispose(); }
+});
+
+test('a review stopped between the passes of a group counts none of its positions, so a decision costs what the decisions judged took', async () => {
+  // Every decision with a choice hesitant, as above, so a group asks its
+  // decisions, then asks them again, renamed. Once a group is judged, the
+  // next one's second pass waits until the review is stopped, as the next
+  // deal stops it, its first pass answered: positions for no decision judged,
+  // which counted would make a decision seem to cost more than it does.
+  const MS = 200, total = list => list.reduce((sum, size) => sum + size, 0);
+  let clock = 0, review = null, seen = 0, judgedAt = 0, stopped = false;
+  const sizes = [], answered = network(sizes);
+  const unsure = ({ action, weights }) => ({ action, weights: weights.map(weight => (weight === 0.95 ? 0.6 : weight === 1 ? 1 : weight * 8)) });
+  review = new MatchReview(Game, game, {
+    now: () => clock,
+    // How many passes had been sent when decisions were last judged.
+    onChange: () => { if (review.judged !== seen) { seen = review.judged; judgedAt = sizes.length; } },
+    analyzeBatch: async (positions, signal) => {
+      clock += positions.length * MS;
+      if (!stopped && review.judged && sizes.length > judgedAt) {
+        stopped = true;
+        await new Promise((_, reject) => signal.addEventListener('abort',
+          () => reject(new DOMException('Review changed', 'AbortError')), { once: true }));
+      }
+      return (await answered(positions, signal)).map(unsure);
+    },
+  });
+  try {
+    review.review();
+    await until(() => stopped, 'a group waits between its passes');
+    review.stop();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.equal(sizes.length - judgedAt, 1, 'the group\'s first pass was answered');
+    assert.ok(review.judged > 0);
+    assert.equal(review.positions, total(sizes.slice(0, judgedAt)), 'the positions of the decisions judged, and no others');
+    assert.equal(review.positionMs, MS);
+    assert.equal(review.decisionMs, MS * (total(sizes.slice(0, judgedAt)) / review.judged));
+    // Asked again, the hand stopped is judged anew, and the first pass of the
+    // group stopped is never counted, not even once the next group begins.
+    const lost = sizes.at(-1);
+    review.review();
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete);
+    assert.equal(review.positions, total(sizes) - lost);
+  } finally { review.dispose(); }
+});
+
 test('a batch is eight decisions, and on a device slower than 1.25 seconds a decision as many as take ten seconds, at least one', () => {
   // None measured yet, desktop Chromium's 157 ms, the slow threshold, the
   // last speed at eight, and slower: at 2.2 seconds eight took 17.6 seconds,
@@ -998,7 +1088,7 @@ test('a finished review is reported once, with what the trend keeps of it', asyn
     await settled(review);
     const { matched, decisions } = agreement(review.decisions);
     assert.deepEqual(reported, [{ id: `${game.seed}:${game.commands.length}`, matched, decisions,
-      flagged: review.decisions.filter(decision => decision.judgement?.flagged).length }]);
+      flagged: review.decisions.filter(decision => decision.judgement?.flagged).length, suits: true }]);
   } finally { review.dispose(); }
 });
 

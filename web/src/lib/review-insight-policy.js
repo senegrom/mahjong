@@ -22,11 +22,15 @@
  *    (`notes`); a question stopped while it waits sends nothing more.
  *  - So a pass goes to a worker with nothing to do, which begins it at once
  *    and would run it to its end whatever is cancelled: it is sent without
- *    the question's signal. It is the review's own batch at this device's
- *    speed (batchFor), about ten seconds at most once the review has measured
- *    a device that takes up to ten seconds a decision, and whatever is sent
- *    while it runs, the notes' first question or the next deal's first move,
- *    waits behind that one pass at most.
+ *    the question's signal. It holds as many tables as take about as long as
+ *    the review's own batch at this device's speed (batchFor), a table
+ *    counted as the positions it takes on average (FORWARDS_A_TABLE): those
+ *    Trained AI hesitates over are asked again, renamed, in a pass of their
+ *    own, sent at the gate as the first was (suits.js). Each of the two takes
+ *    about seven seconds at most once the review has measured a device that
+ *    takes up to seven seconds a position, and whatever is sent while one
+ *    runs, the notes' first question or the next deal's first move, waits
+ *    behind that one pass at most.
  *  - It holds a spell of asking of its own (`asking`), and the review of the
  *    rest of the game, given the gate of both spells (`anyGate`), waits at it
  *    as it waits for the notes. A question stopped while one of its passes is
@@ -44,25 +48,38 @@ import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
 import { batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
+import { averagedAnswers } from './suits.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
 
-/** A table as the worker is asked it: Mortal's planes and mask, and how to
- * read an answer into the engine's moves, as the review reads its own
+/** How many positions the reasoning asks a table, on average: one, and a
+ * second, of the renamed game, for a table Trained AI hesitates over
+ * (suits.js), as it did at 102 of the 237 tables of the recorded searches
+ * (network 1110, tests/fixtures/review-insight-answers.json). Its passes
+ * are sized by it, and a search's time said (searchTime). */
+export const FORWARDS_A_TABLE = 1.43;
+
+/** A table as the worker is asked it: Mortal's planes and mask, the renamed
+ * game's planes, read only once they are wanted (suits.js), and how to read
+ * an answer into the engine's moves, as the review reads its own
  * (weightsByChoice): Mortal has one kan, which the engine gives to the first
- * kan open, so a second kan open at once weighs nothing on either side. Or
- * why the rules refused the table. */
+ * kan open, so a second kan open at once weighs nothing on either side. The
+ * engine's table is kept for the renamed planes until `free()`. Or why the
+ * rules refused the table. */
 function written(PhysicalAnalysis, position) {
   let analysis;
   try {
     analysis = new PhysicalAnalysis(position);
     const planes = analysis.agent_observation_mortal(), mask = analysis.agent_mask_mortal(), choices = analysis.agent_choices();
     // What the reading needs of the engine, kept, since the analysis is freed
-    // long before the answer comes back.
+    // before the answer is read.
     const actions = new Map(choices.map(choice => [choice.index, analysis.mortal_action_of(choice.index)]));
     const owners = Array.from(mask, (open, action) => (open && action !== MORTAL_REACH ? analysis.agent_action_from_mortal(action, false) : -1));
     const engine = { mortal_action_of: index => actions.get(index) ?? -1 };
-    return { planes, mask, read: weights => movesOf(weightsByChoice(engine, choices, weights, action => owners[action])) };
+    let held = analysis;
+    analysis = null;
+    return { planes, mask, read: weights => movesOf(weightsByChoice(engine, choices, weights, action => owners[action])),
+      renamed: () => held.agent_observation_mortal_renamed(), free: () => { held?.free(); held = null; } };
   } catch (error) {
     return { refused: String(error?.message ?? error) };
   } finally { analysis?.free(); }
@@ -103,30 +120,41 @@ export function countedBatches(analyzeBatch, batches) {
 
 /** Trained AI's answers to typed-in tables, `ask(positions, signal)` as
  * review-insight.js asks: the tables in passes of at most `size`, each sent
- * once `gate()` is open, every answer read into moves. The gate is asked
- * again each time it opens, and a pass is sent in the same turn as the gate
- * is found open, before anything else can look, so that of two questions
- * waiting at one gate only one goes. A pass is sent without the signal, the
- * worker running it to its end anyway, and `sent(pass)` hears each one as it
- * goes; the asker is let go at once when the signal stops it. */
-export function trainedAsk({ PhysicalAnalysis, analyzeBatch, gate = () => null, size = PASS, sent = () => {} }) {
+ * once `gate()` is open, the tables of a pass Trained AI hesitates over then
+ * asked again, renamed, in a pass of their own, sent the same way
+ * (`askBoth`, averagedAnswers), and every answer read into moves. The gate is
+ * asked again each time it opens, and a pass is sent in the same turn as the
+ * gate is found open, before anything else can look, so that of two
+ * questions waiting at one gate only one goes. A pass is sent without the
+ * signal, the worker running it to its end anyway, and `sent(pass)` hears
+ * each one as it goes; the asker is let go at once when the signal stops it.
+ * Each table's engine is kept until its pass is answered, renamed or not.
+ * The tests replay the prototype's plain run asking once (`askBoth`): its
+ * answers keep only the moves its panels read, and their mean would give
+ * those moves the weight the record does not keep. */
+export function trainedAsk({ PhysicalAnalysis, analyzeBatch, gate = () => null, size = PASS, sent = () => {}, askBoth = averagedAnswers }) {
   return async (positions, signal) => {
+    const request = async tables => {
+      for (let shut = gate(); shut; shut = gate()) await unlessStopped(shut, signal);
+      if (signal?.aborted) throw stopped();
+      const pass = Promise.resolve(analyzeBatch(tables.map(({ planes, mask }) => ({ planes, mask }))));
+      sent(pass);
+      const replies = await unlessStopped(pass, signal);
+      if (signal?.aborted) throw stopped();
+      if (!Array.isArray(replies) || replies.length !== tables.length) throw new Error('The trained network returned the wrong number of answers');
+      return replies;
+    };
     const answers = [];
     for (let start = 0; start < positions.length; start += size) {
       const tables = positions.slice(start, start + size).map(position => written(PhysicalAnalysis, position));
-      const asked = tables.filter(table => !table.refused);
-      let replies = [];
-      if (asked.length) {
-        for (let shut = gate(); shut; shut = gate()) await unlessStopped(shut, signal);
-        if (signal?.aborted) throw stopped();
-        const pass = Promise.resolve(analyzeBatch(asked.map(({ planes, mask }) => ({ planes, mask }))));
-        sent(pass);
-        replies = await unlessStopped(pass, signal);
-        if (signal?.aborted) throw stopped();
-        if (!Array.isArray(replies) || replies.length !== asked.length) throw new Error('The trained network returned the wrong number of answers');
+      try {
+        const asked = tables.filter(table => !table.refused);
+        const replies = asked.length ? await askBoth(request, asked, signal) : [];
+        let next = 0;
+        for (const table of tables) answers.push(table.refused ? { refused: table.refused } : { moves: table.read(replies[next++].weights) });
+      } finally {
+        for (const table of tables) table.free?.();
       }
-      let next = 0;
-      for (const table of tables) answers.push(table.refused ? { refused: table.refused } : { moves: table.read(replies[next++].weights) });
     }
     return answers;
   };
@@ -169,8 +197,9 @@ export function questionOf(decision, position) {
  * is under way. The three must be spells apart: a search waiting for its own
  * spell to end would never ask. `positionMs()` is the review's time a
  * position, read as each begins, which sizes its passes as the review's
- * batches (batchFor). */
-export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null }) {
+ * batches (batchFor), a table counted as FORWARDS_A_TABLE positions.
+ * `askBoth` is trainedAsk's. */
+export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth }) {
   if (asking === notes) throw new Error('A search needs a spell of asking apart from the notes\'');
   if (!batches || batches === asking || batches === notes) throw new Error('The worker\'s batches need spells of their own (countedBatches)');
   const send = countedBatches(analyzeBatch, batches), gate = anyGate(notes, batches);
@@ -178,8 +207,8 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
     let end = null, out = 0, over = false;
     const close = () => { if (over && !out) end?.(); };
     const settled = () => { out--; close(); };
-    const size = batchFor(positionMs());
-    const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: send, gate, size, sent: pass => { out++; pass.then(settled, settled); } });
+    const size = batchFor(positionMs() * FORWARDS_A_TABLE);
+    const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: send, gate, size, sent: pass => { out++; pass.then(settled, settled); }, askBoth });
     try {
       return await work((positions, signal) => { end ??= asking.begin(); return ask(positions, signal); }, size);
     } finally {
@@ -195,15 +224,17 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
 }
 
 /** About how long a search takes on this device, as the button says it: the
- * tables it asks first and at most (`tables` and `most`, MatchInsight.at) at
- * the review's own time a position, in a few characters ("6–10 s") and in
- * words for a screen reader ("6 to 10 seconds"). In seconds, or in minutes
- * once the longer rounds to a minute; one figure where the two round alike.
- * None where the review has timed nothing yet, or nothing is searched. */
+ * tables it asks first and at most (`tables` and `most`, MatchInsight.at),
+ * each FORWARDS_A_TABLE positions at the review's own time a position, in a
+ * few characters ("9–14 s") and in words for a screen reader ("9 to 14
+ * seconds"). In seconds, or in minutes once the longer rounds to a minute;
+ * one figure where the two round alike. None where the review has timed
+ * nothing yet, or nothing is searched. */
 export function searchTime({ tables, most }, positionMs) {
   if (!(positionMs > 0) || !tables) return null;
-  const minutes = Math.round(most * positionMs / 1000) >= 60, unit = minutes ? 60000 : 1000;
-  const low = Math.max(1, Math.round(tables * positionMs / unit)), high = Math.max(low, Math.round(most * positionMs / unit));
+  const tableMs = positionMs * FORWARDS_A_TABLE;
+  const minutes = Math.round(most * tableMs / 1000) >= 60, unit = minutes ? 60000 : 1000;
+  const low = Math.max(1, Math.round(tables * tableMs / unit)), high = Math.max(low, Math.round(most * tableMs / unit));
   const [short, word] = minutes ? ['min', 'minute'] : ['s', 'second'];
   if (low === high) return { short: `${low} ${short}`, said: `${low} ${word}${low === 1 ? '' : 's'}` };
   return { short: `${low}–${high} ${short}`, said: `${low} to ${high} ${word}s` };

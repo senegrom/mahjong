@@ -67,6 +67,16 @@ request, fewer on a slow device, their planes and masks laid end to end with a
 `count`; the worker runs them as one batch and answers each position's best
 legal move and weights, and the request's deadline grows with the batch.
 
+Trained AI averages over the suits (`src/lib/suits.js`): a question whose
+answer puts under 0.9 on its best move is asked again, with the engine's
+planes of the game with characters and circles renamed and the mask's moves
+renamed, in a request of its own after the first, and the page plays the
+mean of the two answers' logits, worked out from their weights. The worker, its
+messages, deadlines and retries are unchanged: every request is still one
+forward pass, and a review's batch of renamed positions is never larger
+than the batch before it, so the memory ceilings hold. The worker parity
+job checks the page's mean against `neural.suits` on a small export.
+
 Every stored copy carries the size and SHA-256 its writer verified, as
 `X-Mahjong-SHA256` and `Content-Length` headers, the same record the service
 worker keeps for its own files. Status checks, the foreground availability
