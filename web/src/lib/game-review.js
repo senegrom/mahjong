@@ -33,7 +33,9 @@ export const BATCH = 8;
  * (policy.js), so that a pass ends well within its own deadline, which is
  * never shorter, and whatever is sent behind it, the hand's notes or the next
  * deal's first move, waits about ten seconds at most. That holds on a device
- * that takes up to ten seconds a decision; on a slower one a pass is a single
+ * that takes up to ten seconds a position, whether a pass asks the decisions
+ * of a group or, renamed, those of them Trained AI hesitates over (suits.js),
+ * each pass sent at the review's gate; on a slower one a pass is a single
  * position, which alone takes longer. */
 export const BATCH_MS = 10000;
 /** The positions in each forward pass on a device that takes `positionMs` a
@@ -45,7 +47,9 @@ export function batchFor(positionMs) {
 }
 /** A device slower than this a position reviews a hand at a time unless the
  * player asks for the rest of the game: at half a second a position, a game
- * of 150 to 200 decisions takes 75 to 100 seconds. */
+ * of 150 to 200 decisions takes about 80 to 110 seconds, a decision taking
+ * about 1.1 positions, none where its move is forced and two where Trained
+ * AI hesitates. */
 export const SLOW_MS = 500;
 
 /** "East 1" or "South 3", and "East 1 · 1 honba" for a hand that repeats one:
@@ -347,8 +351,18 @@ export class MatchReview {
     // review has been reported complete.
     this.requested = false;
     this.recorded = false;
+    // The time the network takes a position, a row of a forward pass, plain
+    // or renamed, as measured (timed); how many passes have been asked; and
+    // how many positions those held, against the decisions judged, forced
+    // ones included, which is what a decision costs (decisionMs). A group's
+    // positions are pending until its decisions are judged, and counted with
+    // them, so that a review stopped between a group's passes counts no
+    // positions without their decisions.
     this.positionMs = null;
     this.asked = 0;
+    this.positions = 0;
+    this.pending = 0;
+    this.judged = 0;
     this.replay = null;
     this.abort = new AbortController();
     this.current = null;
@@ -378,15 +392,23 @@ export class MatchReview {
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
   get complete() { return this.hands.every(hand => hand.status === 'done'); }
-  /** Positions still to ask about: the decisions of the hands not yet done. */
+  /** Decisions still to ask about: those of the hands not yet done. */
   get remaining() { return this.hands.filter(hand => hand.status !== 'done').reduce((sum, hand) => sum + hand.frames.length, 0); }
-  /** How long the rest would take at the speed seen so far, in seconds. */
-  get estimate() { return this.positionMs == null ? null : Math.ceil(this.remaining * this.positionMs / 1000); }
+  /** The time a decision takes at the speed seen so far: as many positions as
+   * the decisions judged have taken each, none for a forced move and two for
+   * one Trained AI hesitated over (suits.js), one before any is judged. */
+  get decisionMs() { return this.positionMs == null ? null : this.positionMs * (this.judged ? this.positions / this.judged : 1); }
+  /** How long the rest would take at that speed, in seconds. */
+  get estimate() { return this.decisionMs == null ? null : Math.ceil(this.remaining * this.decisionMs / 1000); }
+  /** Whether the device is slow: by the time a position takes, so that a
+   * group whose decisions Trained AI hesitated over, asked twice, is not
+   * held against it. */
   get slow() { return this.positionMs != null && this.positionMs > SLOW_MS; }
-  /** What the trend keeps of a finished review. */
+  /** What the trend keeps of a finished review, and that its judge averaged
+   * over the suits (review-trend.js). */
   get summary() {
     const { matched, decisions } = agreement(this.decisions);
-    return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions) };
+    return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions), suits: true };
   }
 
   notify() { if (!this.closed) this.onChange(this); }
@@ -511,7 +533,18 @@ export class MatchReview {
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
       batch: { size: () => batchFor(this.positionMs), analyze: (positions, signal) => this.passGate(positions, signal) },
-      onProgress: done => { hand.done = done; this.notify(); },
+      // Told as each group begins and as its decisions are judged: its
+      // positions count then, with them, and those of a group stopped before
+      // its end, left pending, are dropped as the next group begins.
+      onProgress: done => {
+        if (done > hand.done) {
+          this.positions += this.pending;
+          this.judged += done - hand.done;
+        }
+        this.pending = 0;
+        hand.done = done;
+        this.notify();
+      },
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
     hand.decisions = rows.map((row, index) => {
@@ -560,14 +593,18 @@ export class MatchReview {
     return this.timed(positions, signal);
   }
 
-  /** Asks one batch and keeps the time it took a position. The first batch
-   * of a review can include loading the network, so it is not counted. Time
-   * spent at the gate is the notes' rather than the network's, so it is not
-   * counted either: the clock starts once the gate is passed. */
+  /** Asks one batch and keeps the time it took a position, whether it asks
+   * the decisions of a group or, renamed, those Trained AI hesitated over: a
+   * forward pass's time, which sizes the batches and says whether the device
+   * is slow. The first batch of a review can include loading the network, so
+   * it is not counted. Time spent at the gate is the notes' rather than the
+   * network's, so it is not counted either: the clock starts once the gate is
+   * passed. Its positions wait for its group's decisions (pending). */
   async timed(positions, signal) {
     const started = this.now();
     const answers = await this.analyzeBatch(positions, signal);
     const each = (this.now() - started) / positions.length;
+    this.pending += positions.length;
     if (this.asked++ > 0) this.positionMs = this.positionMs == null ? each : (this.positionMs * 3 + each) / 4;
     return answers;
   }

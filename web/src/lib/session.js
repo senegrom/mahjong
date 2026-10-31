@@ -5,6 +5,7 @@
 import { normalizeOpponents, opponentPreset, DEFAULT_OPPONENT, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
 import { normalizeTileFace } from './tile-faces.js';
 import { NETWORKS } from './model-manifest.js';
+import { averagedAnswer } from './suits.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
@@ -292,7 +293,7 @@ export class MatchSession {
           require(moves++ < 400, 'The opponent sequence did not settle');
           this.thinking = true;
           this.notify();
-          const action = await this.ai(this.engine.opponent_observation_mortal(), this.engine.opponent_mask_mortal(), this.abort.signal);
+          const action = await this.trainedMove();
           if (this.closed) return false;
           this.apply({ type: 'opponent', action });
           this.advance();
@@ -311,6 +312,19 @@ export class MatchSession {
         this.notify();
       }
     }
+  }
+
+  /** The waiting Trained opponent's move, asked through `ai(planes, mask,
+   * signal)`, which answers as analyzePolicy does. Where Trained AI hesitates
+   * the renamed game is asked too, and the move is the mean of the two
+   * answers' (suits.js): its planes are read only then, from the engine as it
+   * still stands, since nothing moves it while the match is busy, and not at
+   * all once the match is closed. */
+  async trainedMove() {
+    const engine = this.engine;
+    const answer = await averagedAnswer(this.ai, { planes: engine.opponent_observation_mortal(), mask: engine.opponent_mask_mortal(),
+      renamed: () => engine.opponent_observation_mortal_renamed() }, this.abort.signal);
+    return answer.action;
   }
 
   choose(choice) { return this.run({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); }

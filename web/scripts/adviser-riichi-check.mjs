@@ -30,7 +30,9 @@ try {
   for (const width of [1100, 390]) await cases.check(`riichi grouping and alternative confirmation at ${width}px`, async () => {
     const fixture = riichiPosition(Game), errors = [];
     try {
-      const { match, plan, preferred, alternative, warmup } = fixture;
+      // The plan answers the adviser's every question, the two it hesitates
+      // over at the riichi each followed by the renamed game's (suits.js).
+      const { match, plan, preferred, alternative, warmup, declared, tile, actions } = fixture;
       const page = await (await cases.openContext(browser)).newPage();
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width, height: 1000 });
@@ -50,8 +52,10 @@ try {
         await ready(step === warmup - 1 ? plan.length : step + 2);
       }
       assert.equal(await page.$$eval('.reach-heading', rows => rows.length), 1);
-      assert.equal(await page.$eval('.reach-heading meter', meter => meter.value), .55);
-      assert.deepEqual(await page.$$eval('.reach-discards meter', meters => meters.map(meter => meter.value)), [.75, .25]);
+      // The weights shown are the means of the two namings' answers.
+      assert.equal(await page.$eval('.reach-heading meter', meter => meter.value), declared.weights[37]);
+      assert.deepEqual(await page.$$eval('.reach-discards meter', meters => meters.map(meter => meter.value)),
+        [tile.weights[actions[1]], tile.weights[actions[0]]]);
       assert.equal(await page.$eval('.weight-row.best', row => row.dataset.choice), preferred.label);
       assert.equal(await page.$eval('.weight-row.best', row => getComputedStyle(row).borderColor), 'rgb(78, 163, 255)');
       // The value is named and explained by the reward the network the page

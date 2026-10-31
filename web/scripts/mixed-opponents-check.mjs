@@ -50,9 +50,12 @@ async function open(snapshot=initial,{width=1100,height=900,mock=true,fail=false
   await p.setRequestInterception(true);
   p.on('request',req=>{
     if(missing&&req.url()===networkUrl)void req.respond({status:404,body:''});
+    // Answered as the worker answers a move it is sure of, all its weight on
+    // it, so that nothing is asked again of the renamed game (suits.js).
     else if(mock&&req.url().includes('/assets/policy.worker-'))void req.respond({status:200,contentType:'text/javascript',body:fail
       ? 'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Test network failure"});'
-      : 'self.onmessage=({data:d})=>self.postMessage({id:d.id,action:d.mask[43]?43:d.mask[45]?45:d.mask.findIndex(Boolean)});'});
+      : 'self.onmessage=({data:d})=>{const a=d.mask[43]?43:d.mask[45]?45:d.mask.findIndex(Boolean);'
+        + 'self.postMessage({id:d.id,action:a,analysis:{action:a,weights:Array.from(d.mask,(_,i)=>Number(i===a))}});};'});
     else void req.continue();
   });
   await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});

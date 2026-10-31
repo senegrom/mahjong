@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { WatchSession } from '../src/lib/watch-session.js';
+import { MOVES, swapMoves } from '../src/lib/suits.js';
+import { renamingFault } from './fixtures/renamed-planes.js';
 import { emptyPosition, parseTiles, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -243,13 +245,29 @@ test('a manually entered kan leads to a replacement win and ends ippatsu', () =>
 });
 
 test('watch uses the retained choice, asks the network for its trained seats, and finishes hands', async () => {
-  let asked = 0;
+  // The trained seats hesitate wherever they have a choice, so each such
+  // question is asked again: of the renamed game, the engine's own, with
+  // Mortal's moves renamed, answered here as the plain answer renamed, which
+  // leaves the mean the plain answer.
+  let asked = 0, again = 0, hesitant = null;
   const w = new WatchSession(Game, 287, ['beginner', 'full', 'full', 'club'], {
     ai: async (...args) => {
       assert.equal(args.length, 3, 'one network: no model is named');
       const pending = w.match.pendingOpponent;
       assert.notEqual(pending?.position, 'Left', 'the Club seat plays without the network');
-      asked++; return pick(args[1]);
+      asked++;
+      const [planes, mask] = args;
+      if (hesitant) {
+        const plain = hesitant;
+        hesitant = null; again++;
+        assert.deepEqual(Array.from(mask, Number), swapMoves(plain.mask), 'the renamed game\'s moves are the game\'s renamed');
+        assert.equal(renamingFault(plain.planes, planes), null, 'the renamed game\'s planes');
+        return { action: MOVES[plain.answer.action], weights: swapMoves(plain.answer.weights) };
+      }
+      const action = pick(mask), open = Array.from(mask).filter(Boolean).length;
+      const answer = { action, weights: Array.from(mask, (allowed, move) => (!allowed ? 0 : move === action ? (open > 1 ? 0.6 : 1) : 0.4 / (open - 1))) };
+      if (open > 1) hesitant = { planes: Float32Array.from(planes), mask: Array.from(mask, Number), answer };
+      return answer;
     }, evaluate: builtin,
   });
   try {
@@ -264,6 +282,7 @@ test('watch uses the retained choice, asks the network for its trained seats, an
     }
     assert.ok(decisions < 500 && decisions > 1); assert.ok(calls > 0);
     assert.ok(asked > 0, 'the trained seats asked the network');
+    assert.ok(again > 0 && hesitant === null, `every hesitant question was asked again: ${again} of ${asked}`);
   } finally { w.dispose(); }
 });
 

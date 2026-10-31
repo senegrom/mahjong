@@ -1,7 +1,7 @@
 <script>
   import { onDestroy, tick } from 'svelte';
   import { Game } from '../wasm/riichi.js';
-  import { chooseAction } from './policy.js';
+  import { analyzePolicy } from './policy.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { SEAT_NAMES } from './tiles.js';
   import { WatchSession } from './watch-session.js';
@@ -90,8 +90,10 @@
     fileNote = '';
     standingsFocused = false;
     watch?.dispose();
+    // A Trained seat plays as Play's opponents do, asked again of the renamed
+    // game where it hesitates (MatchSession.trainedMove).
     watch = new WatchSession(Game, Date.now() % 2 ** 31, lineup, {
-      ai: (planes, mask, signal) => chooseAction(planes, mask, signal),
+      ai: (planes, mask, signal) => analyzePolicy(planes, mask, signal),
       evaluate: evaluateAgent, onChange: update, delay: speed,
     });
     watch.autoplay = auto;

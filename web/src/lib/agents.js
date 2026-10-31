@@ -2,6 +2,7 @@ import { analyzePolicy } from './policy.js';
 import { readBeliefs, readValue } from './beliefs.js';
 import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
 import { trainedName } from './trained-network.js';
+import { averagedAnswer } from './suits.js';
 
 export const AGENTS = Object.freeze({ beginner: 'Beginner', club: 'Club', full: 'Trained' });
 export const isTrained = agent => agent === 'full';
@@ -13,15 +14,16 @@ export async function evaluateAgent(engine, agent, signal) {
   const choices = engine.agent_choices();
   if (!choices.length) throw new Error('This seat has no decision to make yet');
   if (isTrained(agent)) {
-    let { action, weights, value, hands } = await analyzePolicy(
-      engine.agent_observation_mortal(), engine.agent_mask_mortal(), signal,
-    );
+    // Each question as Trained AI is asked everywhere: of the renamed game
+    // too where it hesitates, its answer then the mean of the two (suits.js).
+    // The value and the belief are the plain answer's.
+    let { action, weights, value, hands } = await averagedAnswer(analyzePolicy, { planes: engine.agent_observation_mortal(),
+      mask: engine.agent_mask_mortal(), renamed: () => engine.agent_observation_mortal_renamed() }, signal);
     let afterReach = false, reachWeights = null;
     if (action === MORTAL_REACH) {
       afterReach = true;
-      ({ action, weights: reachWeights } = await analyzePolicy(
-        engine.agent_observation_after_reach(), engine.agent_mask_after_reach(), signal,
-      ));
+      ({ action, weights: reachWeights } = await averagedAnswer(analyzePolicy, { planes: engine.agent_observation_after_reach(),
+        mask: engine.agent_mask_after_reach(), renamed: () => engine.agent_observation_after_reach_renamed() }, signal));
     }
     const index = engine.agent_action_from_mortal(action, afterReach);
     const choice = choices.find(entry => entry.index === index);

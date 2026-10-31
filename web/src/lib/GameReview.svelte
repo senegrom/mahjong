@@ -59,7 +59,7 @@
   const read = owner => ({
     hands: owner.hands.map(hand => ({ ...hand })), busy: owner.busy, failure: owner.failure, held: owner.held,
     slow: owner.slow, estimate: owner.estimate, complete: owner.complete, requested: owner.requested,
-    positionMs: owner.positionMs, over: owner.over,
+    positionMs: owner.positionMs, decisionMs: owner.decisionMs, over: owner.over,
   });
   // The review tells this screen when it changes; the screen reads it again.
   let version = $state(0);
@@ -325,7 +325,7 @@
     }
     if (status.busy) return reviewing ? `Reviewing ${reviewing.name}…` : 'Reviewing your game…';
     if (status.held) {
-      return `Reviewed ${reviewed} of ${status.hands.length} hands; about ${(status.positionMs / 1000).toFixed(1)} seconds a decision on this device.`;
+      return `Reviewed ${reviewed} of ${status.hands.length} hands; about ${(status.decisionMs / 1000).toFixed(1)} seconds a decision on this device.`;
     }
     return `Reviewed ${reviewed} of ${status.hands.length} hands.`;
   });

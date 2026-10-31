@@ -38,7 +38,7 @@ const done = (index, values = {}) => hand(index, { status: 'done',
 // A finished match's review unless `over` says the match is under way.
 const review = (values = {}) => ({
   id: '7:120', hands: [hand(0), hand(1), hand(2)], busy: false, failure: '', held: false, slow: false, estimate: null,
-  complete: false, requested: true, positionMs: null, recorded: false, closed: false, over: true,
+  complete: false, requested: true, positionMs: null, decisionMs: null, recorded: false, closed: false, over: true,
   onChange: () => {}, review: () => {}, resume: () => {}, stop: () => {}, ...values,
 });
 const page = (props = {}) => render(GameReview, { props: { trainedAvailable: true, ...props } }).body;
@@ -275,7 +275,7 @@ test('a repeated hand goes by its name with its honba wherever the review names 
 });
 
 test('a review of the game so far offers the game so far, the next hand or the rest, and keeps the game out of the trend until it is whole', () => {
-  const earlier = { id: 'earlier', network: playedNetwork().version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100 };
+  const earlier = { id: 'earlier', network: playedNetwork().version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, suits: true };
   const reviewed = page({ trend: [earlier], review: review({ over: false, complete: true, hands: [done(0), done(1), done(2)] }) });
   assert.match(reviewed, /role="status"[^>]*>All hands reviewed: 6 decisions\.</);
   assert.doesNotMatch(reviewed, /data-continue|data-stop-review/);
@@ -288,7 +288,7 @@ test('a review of the game so far offers the game so far, the next hand or the r
   // or the rest.
   const unasked = page({ review: review({ over: false, requested: false, hands: [done(0), done(1), hand(2)] }) });
   assert.equal(buttonSaid(unasked, 'data-continue'), 'Review game so far');
-  const held = page({ review: review({ over: false, held: true, slow: true, positionMs: 800, estimate: 20, hands: [hand(0), hand(1), done(2)] }) });
+  const held = page({ review: review({ over: false, held: true, slow: true, positionMs: 700, decisionMs: 800, estimate: 20, hands: [hand(0), hand(1), done(2)] }) });
   assert.equal(buttonSaid(held, 'data-next-hand'), 'Review next hand');
   assert.equal(buttonSaid(held, 'data-rest'), 'Review the rest');
   // With no decision made yet, there is nothing to step through, and the
@@ -310,7 +310,7 @@ test('a finished review whose filter keeps nothing says so in the list, in the w
 });
 
 test('a slow device that held after a hand offers the next hand or the rest, with how long the rest takes, and opens the list to choose a hand from', () => {
-  const html = page({ review: review({ held: true, slow: true, positionMs: 800, estimate: 200, hands: [done(0), hand(1), hand(2)] }) });
+  const html = page({ review: review({ held: true, slow: true, positionMs: 700, decisionMs: 800, estimate: 200, hands: [done(0), hand(1), hand(2)] }) });
   assert.match(html, /role="status"[^>]*>Reviewed 1 of 3 hands; about 0\.8 seconds a decision on this device\.</);
   assert.match(html, /about 3 minutes left/);
   assert.equal(buttonSaid(html, 'data-next-hand'), 'Review next hand');
@@ -352,7 +352,7 @@ test('without the network the review waits and says so, and is not offered hand 
 
 test('the trend states the change against earlier games without judging it, with a table of the games', () => {
   const network = playedNetwork().version;
-  const games = Array.from({ length: 4 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
+  const games = Array.from({ length: 4 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100, suits: true }));
   const figure = { matched: 65, decisions: 100, share: 0.65 };
   const html = render(ReviewTrend, { props: { figure, complete: true, current: 'g3',
     games: [...games.slice(0, 3), { ...games[3], matched: 65 }] } }).body;
@@ -388,7 +388,7 @@ test('the trend states the change against earlier games without judging it, with
 
 test("folded to one line for the review's list, the trend gives the version and the figure, so far until the game is whole, and keeps the rest inside", () => {
   const network = playedNetwork().version;
-  const games = Array.from({ length: 3 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100 }));
+  const games = Array.from({ length: 3 }, (_, index) => ({ id: `g${index}`, network, at: Date.UTC(2026, 9, 10 + index, 12), matched: 60, decisions: 100, suits: true }));
   const figure = { matched: 21, decisions: 100, share: 0.21 };
   const folded = render(ReviewTrend, { props: { figure, complete: false, over: false, current: 'g9', games } }).body;
   const summary = /<details class="trend[^"]*" data-trend="">\s*<summary[^>]*>([^]*?)<\/summary>/.exec(folded);
@@ -410,16 +410,24 @@ test('the trend compares and shows only the games judged by the version of Train
   const network = playedNetwork().version, other = `${network}-other`;
   const at = index => Date.UTC(2026, 9, 10 + index, 12);
   const games = [
-    { id: 'g0', network, at: at(0), matched: 60, decisions: 100 },
+    { id: 'g0', network, at: at(0), matched: 60, decisions: 100, suits: true },
     // Another version judged these, one of them the same game again.
-    { id: 'g1', network: other, at: at(1), matched: 20, decisions: 100 },
-    { id: 'g0', network: other, at: at(2), matched: 25, decisions: 100 },
-    { id: 'g3', network, at: at(3), matched: 70, decisions: 100 },
+    { id: 'g1', network: other, at: at(1), matched: 20, decisions: 100, suits: true },
+    { id: 'g0', network: other, at: at(2), matched: 25, decisions: 100, suits: true },
+    // This version judged this one before the review averaged over the suits.
+    { id: 'g2', network, at: at(2), matched: 30, decisions: 100 },
+    { id: 'g3', network, at: at(3), matched: 70, decisions: 100, suits: true },
   ];
   const html = render(ReviewTrend, { props: { figure: { matched: 70, decisions: 100, share: 0.7 }, complete: true, current: 'g3', games } }).body;
   assert.match(html, /\+10 points against your previous game \(60%\)/, 'only the same version is compared');
   assert.match(html, /aria-label="Matched Trained AI in your last 2 reviewed games: from 60% to 70%"/);
   assert.equal((html.match(/<tr/g) ?? []).length, 3, 'a row for each of its games and the header');
-  assert.match(html, /Not counted: 2 games judged by another version\./);
-  assert.doesNotMatch(html, /20%|25%/);
+  assert.match(html, /Not counted: 3 games judged otherwise\./);
+  assert.doesNotMatch(html, /20%|25%|30%/);
+  // The same version's game judged before the averaging is not counted alone
+  // either, and the note says no more than that.
+  const plain = render(ReviewTrend, { props: { figure: { matched: 70, decisions: 100, share: 0.7 }, complete: true, current: 'g3',
+    games: [games[0], games[3], games[4]] } }).body;
+  assert.match(plain, /\+10 points against your previous game \(60%\)/);
+  assert.match(plain, />Not counted: 1 game judged otherwise\.</);
 });

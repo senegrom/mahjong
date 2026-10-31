@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
+import { renamingFault } from './fixtures/renamed-planes.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -26,6 +27,20 @@ function planesOf(position) {
 }
 /** The moves a seat could make, as the review lists them. */
 const moves = choices => choices.map(({ index, kind, tile }) => ({ index, kind, tile: tile ?? null }));
+/** Where a riichi's second question, asked of a copy declared, is not the
+ * review's own in a written position (`analysis`): its planes and moves, and
+ * its renamed game's planes, which must be the review's renamed game. */
+function afterReach(engine, index, analysis) {
+  const faults = [];
+  const plain = engine.review_observation_after_reach(index);
+  if (!(same(plain, analysis.agent_observation_after_reach())
+    && same(engine.review_mask_after_reach(index), analysis.agent_mask_after_reach()))) faults.push('after a riichi');
+  const renamed = engine.review_observation_after_reach_renamed(index), got = analysis.agent_observation_after_reach_renamed();
+  if (!same(renamed, got)) faults.push(`after a riichi, renamed planes ${planesDiffering(renamed, got).slice(0, 8).join(', ')}`);
+  const fault = renamingFault(plain, renamed);
+  if (fault) faults.push(`after a riichi, renamed planes: ${fault}`);
+  return faults;
+}
 
 test('every decision of the review check\'s game, written as a position, asks Trained AI what the review asked', () => {
   const wrong = [];
@@ -38,11 +53,17 @@ test('every decision of the review check\'s game, written as a position, asks Tr
       const at = `${hand.name}, decision ${index + 1}`;
       const want = engine.review_observation_mortal(index), got = analysis.agent_observation_mortal();
       if (!same(want, got)) wrong.push(`${at}: planes ${planesDiffering(want, got).slice(0, 8).join(', ')}`);
+      // The game with characters and circles renamed, which the review asks
+      // where Trained AI hesitates and the reasoning asks of the written
+      // position: the same planes, and the review's own game renamed.
+      const renamed = engine.review_observation_mortal_renamed(index), gotRenamed = analysis.agent_observation_mortal_renamed();
+      if (!same(renamed, gotRenamed)) wrong.push(`${at}: renamed planes ${planesDiffering(renamed, gotRenamed).slice(0, 8).join(', ')}`);
+      const fault = renamingFault(want, renamed);
+      if (fault) wrong.push(`${at}: renamed planes: ${fault}`);
       const mask = engine.review_mask_mortal(index);
       if (!same(mask, analysis.agent_mask_mortal())) wrong.push(`${at}: mask`);
       // A riichi is two questions; the second is asked of a copy declared.
-      if (mask[37] && !(same(engine.review_observation_after_reach(index), analysis.agent_observation_after_reach())
-        && same(engine.review_mask_after_reach(index), analysis.agent_mask_after_reach()))) wrong.push(`${at}: after a riichi`);
+      if (mask[37]) wrong.push(...afterReach(engine, index, analysis).map(what => `${at}: ${what}`));
       assert.deepEqual(moves(analysis.agent_choices()), moves(engine.review_choices(index)), at);
     } finally { analysis.free(); }
   });
@@ -93,15 +114,15 @@ test('players on the same points after the first hand rank as the game ranked th
   assert.ok(tied > 20, `only ${tied} decisions with tied points after the first hand`);
 });
 
-test('the riichi\'s second question of a written position is the review\'s own, in the first hand and after it', () => {
+test('the riichi\'s second question of a written position, and of its renamed game, is the review\'s own, in the first hand and after it', () => {
+  // The review check's game above has no riichi question; this one has.
   const wrong = [];
   let asked = 0, later = 0;
   eachDecision(Game, clubAdvisedGame(Game, 5), ({ hand, index, engine, position }) => {
     if (!engine.review_mask_mortal(index)[37]) return;
     const analysis = new PhysicalAnalysis(position);
     try {
-      if (!same(engine.review_observation_after_reach(index), analysis.agent_observation_after_reach())
-        || !same(engine.review_mask_after_reach(index), analysis.agent_mask_after_reach())) wrong.push(`${hand.name}, decision ${index + 1}`);
+      wrong.push(...afterReach(engine, index, analysis).map(what => `${hand.name}, decision ${index + 1}: ${what}`));
     } finally { analysis.free(); }
     asked++;
     // From a round's second hand on, a seat's player number is not its own.

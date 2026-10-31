@@ -162,15 +162,28 @@ impl History {
     }
 }
 
+/// The plain game's state, which most of the tests read.
+#[cfg(test)]
+pub(super) fn state_for(hand: &Hand, seat: Wind, history: &History) -> Option<MortalState> {
+    state_named(hand, seat, history, false)
+}
+
 /// Mortal's state for one seat of a position on its own, having been told
-/// everything the position says happened.
+/// everything the position says happened, and with `renamed` the renamed
+/// game's state: every event told with characters and circles trading
+/// names, as a game's renamed states are told them (`read_event`).
 ///
 /// `None` where the position describes a hand this replay cannot express;
 /// the caller says so rather than answering from a state built on a guess.
-pub(super) fn state_for(hand: &Hand, seat: Wind, history: &History) -> Option<MortalState> {
+pub(super) fn state_named(
+    hand: &Hand,
+    seat: Wind,
+    history: &History,
+    renamed: bool,
+) -> Option<MortalState> {
     let mut state = MortalState::new(history.seating[seat.index()] as u8);
     for json in events(hand, seat, history)? {
-        let event = serde_json::from_str::<MortalEvent>(&json).ok()?;
+        let event: MortalEvent = super::read_event(&json, renamed)?;
         state.update(&event).ok()?;
     }
     Some(state)
@@ -685,12 +698,14 @@ mod tests {
     /// Mortal's state for a hand that really was played, told the engine's
     /// own log: the answer the replay has to match.
     fn told(hand: &Hand, seat: Wind) -> MortalState {
-        told_as(hand, seat, [0, 1, 2, 3])
+        told_as(hand, seat, [0, 1, 2, 3], false)
     }
 
     /// The same with the players numbered as `seating` seats them, which is
-    /// how a game tells Mortal a hand after the first deal has moved on.
-    fn told_as(hand: &Hand, seat: Wind, seating: [usize; 4]) -> MortalState {
+    /// how a game tells Mortal a hand after the first deal has moved on, and
+    /// with `renamed` every event renamed, as Mortal's own augmentation
+    /// renames a game.
+    fn told_as(hand: &Hand, seat: Wind, seating: [usize; 4], renamed: bool) -> MortalState {
         let mut state = MortalState::new(seating[seat.index()] as u8);
         let start = riichi_core::mjai::Event::StartGame {
             names: std::array::from_fn(|player| format!("player {player}")),
@@ -698,7 +713,10 @@ mod tests {
         for json in std::iter::once(start.to_json(seating))
             .chain(hand.log.iter().map(|event| event.to_json(seating)))
         {
-            if let Ok(event) = serde_json::from_str::<MortalEvent>(&json) {
+            if let Ok(mut event) = serde_json::from_str::<MortalEvent>(&json) {
+                if renamed {
+                    event.augment();
+                }
                 let _ = state.update(&event);
             }
         }
@@ -906,6 +924,46 @@ mod tests {
         assert!(called > 20, "only {called} of them had a called set");
         assert!(quads > 0, "none of them had a quad");
         assert!(reached > 20, "only {reached} of them had a declared riichi");
+    }
+
+    /// The renamed game of a position is the renamed game of the hand it
+    /// came from: told renamed, the position's replay reads as the hand's
+    /// own events renamed do, at every seat a table would ask, bar the two
+    /// planes excused a seat in riichi.
+    #[test]
+    fn a_position_replays_into_the_renamed_games_observation() {
+        let (mut checked, mut reached) = (0, 0);
+        for seed in 1..12u64 {
+            for steps in [9usize, 22, 36, 52] {
+                let hand = part_way(seed, steps);
+                if matches!(hand.phase, Phase::Over) {
+                    continue;
+                }
+                for seat in Wind::ALL {
+                    if hand.phase == Phase::Act && hand.turn != seat {
+                        continue;
+                    }
+                    let want = planes(&told_as(&hand, seat, [0, 1, 2, 3], true));
+                    let position = hidden(hand.clone(), seat);
+                    let state = state_named(&position, seat, &history(&position), true)
+                        .unwrap_or_else(|| panic!("seed {seed} step {steps} seat {seat:?}"));
+                    let wrong = differing(&want, &planes(&state));
+                    let excused = hand.players[seat.index()].has_riichi()
+                        && wrong
+                            .iter()
+                            .all(|plane| FROZEN_SHANTEN_DISCARDS.contains(plane));
+                    assert!(
+                        wrong.is_empty() || excused,
+                        "seed {seed} step {steps} seat {seat:?}: planes {:?}",
+                        &wrong[..wrong.len().min(12)],
+                    );
+                    checked += 1;
+                    reached += usize::from(hand.players.iter().any(|p| p.has_riichi()));
+                }
+            }
+        }
+        assert!(checked > 80, "only {checked} positions were compared");
+        assert!(reached > 5, "only {reached} of them had a declared riichi");
     }
 
     /// A seat not in riichi has nothing excused: every one of the thousand
@@ -1434,7 +1492,7 @@ mod tests {
             if hand.phase == Phase::Act && hand.turn != seat {
                 continue;
             }
-            let want = planes(&told_as(&hand, seat, seating));
+            let want = planes(&told_as(&hand, seat, seating, false));
             let position = hidden(hand.clone(), seat);
             let state = state_for(&position, seat, &History::of_kyoku(3)).unwrap();
             assert_eq!(

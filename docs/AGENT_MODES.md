@@ -74,6 +74,19 @@ invented percentages. Additional legal kans that the network cannot name stay
 available but unscored. Advice for physical play uses the table data entered by
 the player; enter visible history accurately, and leave unknown hands empty.
 
+Trained AI averages over the suits, as the ruler's averaging player does
+([Ruler](RULER.md#averaging-over-the-suits)): characters and circles are
+interchangeable under our rules, so a question whose answer puts under 0.9 on
+its best move is asked again of the game with the two renamed, and the move
+played and the weights shown are the softmax of the mean of the two answers'
+logits (the square root of each move's two weights multiplied, normalised),
+each question on its own answer, a riichi's tile included. Play's opponents,
+Watch's trained seats, the adviser in Watch, guided and physical play, the
+hand's notes, the game's review and its reasoning all ask so, so Trained AI is
+one player everywhere; the value and the belief stay the first answer's. About
+one question in six is asked twice. Saves, replays and the exported log are
+unchanged: a save keeps the move played, which the plain mask allows.
+
 Riichi is one row for the declaration, carrying the network's weight for
 declaring, with its candidate discards beneath it. Each candidate's
 `conditionalWeight` is the answer to the second question a declaration asks,

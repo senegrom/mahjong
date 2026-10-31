@@ -50,6 +50,13 @@ It is off unless asked for: only a ruler seats a player that averages
 (`neural.ruler --average-suits`), so self-play, training and the watcher's
 duel play as they did. A question asked again costs a second encoding and
 a second forward, for about a fifth of the player's rows.
+
+The site's Trained AI plays as this player does, everywhere the page asks it
+(web/src/lib/suits.js), its engine following the renamed game too; the page
+works the mean out from the two answers' weights, the square root of each
+move's two weights multiplied and normalised, which is the softmax of the
+mean of the two logits. CI's worker parity job holds the page to `averaged`
+(neural/tests/export_worker_fixture.py).
 """
 
 from __future__ import annotations

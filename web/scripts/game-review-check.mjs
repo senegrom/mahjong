@@ -93,6 +93,15 @@
  * between the review's batches, and the batches are walked with its passes
  * set apart, none of them a batch of the review's.
  *
+ * Each group's decisions Trained AI hesitates over are asked again, renamed,
+ * in a batch of their own after the group's, the reasoning's tables in a pass
+ * of their own after theirs (src/lib/suits.js): every such batch must hold
+ * exactly those positions, in order, with their moves renamed, each the
+ * renamed game of its own position and not that position, and the review
+ * judges by the mean of the two answers, as it is worked out again here. The
+ * hand's notes, a question at a time, are watched as they ask
+ * (renamed-requests.mjs).
+ *
  * Before the end, any hand's result opens the review of the game so far,
  * restored from a save waiting at that result. It must open on the hand just
  * played, at its first decision, and ask Trained AI about it first, then about
@@ -125,8 +134,10 @@ import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
 import { callLabel, quadOnOffer } from '../src/lib/ui.js';
 import { TREND_KEY } from '../src/lib/review-trend.js';
 import { MANIFEST } from '../src/lib/model-manifest.js';
+import { average, hesitates, swapMoves } from '../src/lib/suits.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { runtimeDirectory } from './copy-runtime.mjs';
+import { renamedRequests, watchRenamedRequests } from './renamed-requests.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist'), output = resolve(web, 'test-results');
@@ -207,19 +218,22 @@ const groupKeys = new Set(facts.flatMap(decisions => decisions.flatMap((_, start
 
 /** Walks the batches the review sent, asking about the hands of `order` in
  * that order: a hand at a time, eight decisions a group, forced moves
- * unasked, then each group's declarations. Every batch must be the group it
- * stands for, asked from the decisions' own positions, and answered. The
- * review's reasoning (review-insight.js), a decision's Why line or what would
- * change Trained AI's mind, asks the same worker between the review's
- * batches, never beside one: any other batch is one of its passes, which
- * must be answered too, and none may be a group of the review's. Says the
- * network's answers to each decision, the places of the reasoning's passes
- * among the batches (`passes`), and how many batches were walked, the
- * reasoning's among them, so that a caller can tell whether any was missing
- * or extra. */
+ * unasked, then those of them Trained AI hesitated over, renamed, then each
+ * group's declarations, and those of them it hesitated over, renamed. Every
+ * batch must be the group it stands for, asked from the decisions' own
+ * positions, or their renamed games (renamedOf), and answered. The review's
+ * reasoning (review-insight.js), a decision's Why line or what would change
+ * Trained AI's mind, asks the same worker between the review's batches,
+ * never beside one: any other batch is one of its passes, which must be
+ * answered too, and none may be a group of the review's. Says the network's
+ * answers to each decision, each the mean of the two answers where it was
+ * asked again, the places of the reasoning's passes among the batches
+ * (`passes`), how many batches were walked, the reasoning's among them, so
+ * that a caller can tell whether any was missing or extra, and how many
+ * positions were asked again (`renamed`). */
 function walkBatches(batches, order) {
   const first = new Map(), second = new Map(), passes = [];
-  let cursor = 0;
+  let cursor = 0, renamed = 0;
   // The next batch that asks the positions of `masks`, in order: any batch
   // before it is a pass of the reasoning.
   const take = masks => {
@@ -242,13 +256,16 @@ function walkBatches(batches, order) {
       const batch = take(group.map(index => decisions[index].mask));
       assert.ok(batch, `hand ${hand}, group from ${start}, asked from its decisions' own positions`);
       assert.ok(batch.answers, 'every batch was answered');
-      group.forEach((index, slot) => first.set(`${hand}:${index}`, batch.answers[slot]));
-      const reaching = group.filter((_, slot) => batch.answers[slot].action === MORTAL_REACH);
+      const firsts = averaged(batch, group.map(index => decisions[index].mask), `hand ${hand}, group from ${start}`);
+      group.forEach((index, slot) => first.set(`${hand}:${index}`, firsts[slot]));
+      const reaching = group.filter((_, slot) => firsts[slot].action === MORTAL_REACH);
       const asked = reaching.filter(index => legalCount(decisions[index].reachMask) > 1);
       if (asked.length) {
         const named = take(asked.map(index => decisions[index].reachMask));
         assert.equal(named?.count, asked.length);
-        asked.forEach((index, slot) => second.set(`${hand}:${index}`, named.answers[slot]));
+        assert.ok(named.answers, 'every batch was answered');
+        const seconds = averaged(named, asked.map(index => decisions[index].reachMask), `hand ${hand}, declarations from ${start}`);
+        asked.forEach((index, slot) => second.set(`${hand}:${index}`, seconds[slot]));
       }
       for (const index of reaching.filter(index => !asked.includes(index))) {
         const only = decisions[index].reachMask.indexOf(1);
@@ -258,7 +275,52 @@ function walkBatches(batches, order) {
   }
   // Whatever the reasoning asked after the review's last batch.
   take([]);
-  return { first, second, passes, walked: cursor };
+  renamed += pairedPasses(batches, passes);
+  return { first, second, passes, walked: cursor, renamed };
+
+  /** The answers to `batch`'s positions, whose moves are `masks`: each the
+   * answer it was given, and where Trained AI hesitated the mean of it and
+   * the renamed game's, which the next batch must ask (renamedOf). */
+  function averaged(batch, masks, where) {
+    const again = batch.answers.flatMap((answer, slot) => (hesitates(answer.weights) ? [slot] : []));
+    if (!again.length) return batch.answers;
+    const twin = take(again.map(slot => swapMoves(masks[slot])));
+    assert.ok(twin?.answers, `${where}: the positions Trained AI hesitated over are asked again, renamed, and answered`);
+    assert.equal(twin.count, again.length, `${where}: those positions alone`);
+    again.forEach((slot, at) => assert.equal(renamedOf(batch.prints[slot], twin.prints[at]), null, `${where}, position ${slot}`));
+    renamed += again.length;
+    return batch.answers.map((answer, slot) => (!again.includes(slot) ? answer
+      : { ...answer, ...average(answer.weights, twin.answers[again.indexOf(slot)].weights, masks[slot]) }));
+  }
+}
+
+/** What is wrong with the position of digests `asked` (renamed-requests.mjs)
+ * as the renamed game of the position of digests `plain`, or null. */
+function renamedOf(plain, asked) {
+  if (asked.exact !== plain.renamedExact) return 'its planes are not the renamed game\'s';
+  return asked.full === plain.full ? 'its planes are the position\'s own' : null;
+}
+
+/** How many tables the reasoning asked again, renamed, among its passes: a
+ * pass with tables Trained AI hesitated over is followed among them by one
+ * of those tables renamed, unless the question was stopped first, and that
+ * one is asked nothing more of. Where the next pass asks those tables' moves
+ * renamed, it must ask their renamed games. Says how many tables were so
+ * asked again. */
+function pairedPasses(batches, passes) {
+  let paired = 0;
+  for (let place = 0; place < passes.length; place++) {
+    const at = passes[place], pass = batches[at], next = batches[passes[place + 1]];
+    const masks = Array.from({ length: pass.count }, (_, slot) => pass.mask.slice(slot * 46, (slot + 1) * 46));
+    const again = (pass.answers ?? []).flatMap((answer, slot) => (hesitates(answer.weights) ? [slot] : []));
+    if (!again.length || !next || next.count !== again.length) continue;
+    const renamedMasks = again.map(slot => swapMoves(masks[slot]));
+    if (!renamedMasks.every((mask, row) => mask.every((open, move) => next.mask[row * 46 + move] === open))) continue;
+    again.forEach((slot, row) => assert.equal(renamedOf(pass.prints[slot], next.prints[row]), null, `pass ${at}, table ${slot}`));
+    paired += again.length;
+    place++;
+  }
+  return paired;
 }
 
 /** Each decision judged from the network's answers alone, as the review is
@@ -367,11 +429,13 @@ async function openPage(width, height, { touch = false, network = true, saved = 
       void answer.catch(() => {}); // A context can close while a request is pending.
     });
   }
+  await watchRenamedRequests(page);
   await page.evaluateOnNewDocument((saveKey, settingsKey, saved, answerDelay, positionDelay, trendKey, trend, settings) => {
     if (!localStorage.getItem(saveKey)) localStorage.setItem(saveKey, JSON.stringify(saved));
     if (!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify(settings));
     if (trend && !localStorage.getItem(trendKey)) localStorage.setItem(trendKey, JSON.stringify({ version: 1, games: trend }));
-    // Every batch the review sends, and the worker's answer to it.
+    // Every batch the review sends, its positions' digests, and the worker's
+    // answer to it; and every question the hand's notes ask, as they ask.
     window.reviewBatches = [];
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
@@ -380,11 +444,14 @@ async function openPage(width, height, { touch = false, network = true, saved = 
         this.addEventListener('message', ({ data }) => {
           const batch = data.analyses && window.reviewBatches.find(entry => entry.id === data.id);
           if (batch) batch.answers = data.analyses.map(({ action, weights }) => ({ action, weights: Array.from(weights) }));
+          window.renamedRequests.answered(data);
         });
       }
       postMessage(data, ...rest) {
+        window.renamedRequests.posted(data);
         if (data?.count) {
-          window.reviewBatches.push({ id: data.id, count: data.count, mask: Array.from(data.mask) });
+          window.reviewBatches.push({ id: data.id, count: data.count, mask: Array.from(data.mask),
+            prints: window.renamedRequests.prints(data.planes, data.count) });
           const delay = answerDelay + positionDelay * data.count;
           if (delay) {
             setTimeout(() => super.postMessage(data, ...rest), delay);
@@ -942,8 +1009,12 @@ try {
     // hand first, then the rest from the first deal.
     const batches = await page.evaluate(() => window.reviewBatches);
     const indices = hands.map(hand => hand.index);
-    const { first, second, walked } = walkBatches(batches, [indices.at(-1), ...indices.slice(0, -1)]);
+    const { first, second, walked, renamed } = walkBatches(batches, [indices.at(-1), ...indices.slice(0, -1)]);
     assert.equal(walked, batches.length, 'no batch is missing or extra');
+    // Trained AI hesitated over some decisions, and asked their renamed
+    // games, each the renamed game of its own position (walkBatches).
+    assert.ok(renamed > 0, 'some decisions were asked again, renamed');
+    assert.deepEqual((await renamedRequests(page)).faults, []);
 
     const verdicts = facts.flatMap((decisions, hand) => decisions.map((fact, index) => {
       const key = `${hand}:${index}`;
@@ -973,7 +1044,7 @@ try {
     const trend = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), TREND_KEY);
     assert.equal(trend.games.length, 1);
     assert.deepEqual({ ...trend.games[0], at: 0 }, { id: `${snapshot.seed}:${snapshot.commands.length}`, network: MANIFEST.version,
-      at: 0, matched, decisions: counted.length, flagged: flagged.length });
+      at: 0, matched, decisions: counted.length, flagged: flagged.length, suits: true });
     assert.ok((await page.$eval('[data-trend] > summary', el => el.textContent.trim())).startsWith(`Matched Trained AI ${MANIFEST.version}: `));
 
     // Every flagged decision by keyboard, from the last back to the first by
@@ -1475,7 +1546,7 @@ try {
     // table of games. A tablet's width, where the list is folded above the
     // decision.
     const page = await openPage(800, 1280, { answerDelay: 4500,
-      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4 }] });
+      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4, suits: true }] });
     // What the page did not keep as the player left it, said together at the
     // end, so that each list is checked whatever the others do.
     const changed = [];
@@ -2089,7 +2160,8 @@ try {
 
     // Kept for its decision alone: the decision beside it shows nothing it
     // did not ask for, and back at the one searched, what was found is there
-    // again, asked nothing more; only the other's Why line may have asked.
+    // again, asked nothing more; only the other's Why line may have asked,
+    // and asked its tables again, renamed, where it hesitated over them.
     const { verdict, found } = grouped, asked = await page.evaluate(() => window.reviewBatches.length);
     const [away, back] = await page.$('[data-game-review] [data-next]:not(:disabled)') ? ['next', 'previous'] : ['previous', 'next'];
     await press(page, `[data-game-review] [data-${away}]`);
@@ -2100,7 +2172,7 @@ try {
     await onPlace(page, hands[verdict.hand], verdict.index);
     const again = await insightAt(page);
     assert.deepEqual([again.lead, again.items], [found.lead, found.items], 'what was found is kept for its decision');
-    assert.ok(await page.evaluate(() => window.reviewBatches.length) - asked <= 1, 'nothing more asked than the other Why line');
+    assert.ok(await page.evaluate(() => window.reviewBatches.length) - asked <= 2, 'nothing more asked than the other Why line');
     // On a phone it wraps to the screen.
     await page.setViewport({ width: 390, height: 844 });
     await settle(page);
@@ -2427,7 +2499,7 @@ try {
     // A game reviewed before this one, for the trend to say when this one
     // joins it.
     let page = await openPage(1100, 900, { saved: midway, ready: button,
-      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4 }] });
+      trend: [{ id: 'earlier', network: MANIFEST.version, at: Date.UTC(2026, 9, 1, 12), matched: 60, decisions: 100, flagged: 4, suits: true }] });
     // The result takes focus as it appears; its button is pressed after it,
     // by keyboard.
     await page.waitForFunction(() => document.activeElement?.matches('.screen'));

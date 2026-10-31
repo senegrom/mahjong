@@ -38,14 +38,21 @@ deadline and those of the requests still ahead of it, counted from when it was
 sent, or from when the network is ready if it was still loading, and again
 from each answer the worker gives.
 
-The review sizes its batches to the device, by the time a decision it has
-measured: eight decisions up to 1.25 seconds a decision, and on a slower
-device as many as take about ten seconds, at least one. On a device that takes
-up to ten seconds a decision, a batch then takes at most half its deadline,
-and whatever queues behind it waits about ten seconds at most. The first batch
-can include loading the network, so it is not measured, and the first two are
-eight whatever the device, which run out of time from five seconds a decision.
-The review's reasoning about a decision asks in passes of the same size.
+The review sizes its batches to the device, by the time a position it has
+measured, a row of a forward pass: eight positions up to 1.25 seconds a
+position, and on a slower device as many as take about ten seconds, at least
+one. The decisions of a batch that Trained AI hesitates over are asked again,
+renamed, in a batch of their own (src/lib/suits.js), sent at the gate as any
+other: it is not sized but holds just those, never more than the batch before
+it. On a device that takes up to ten seconds a position, a batch then takes at
+most half its deadline, and whatever queues behind it waits about ten seconds
+at most. The first batch can include loading the network, so it is not
+measured, and the first two are at most eight whatever the device, which run
+out of time from five seconds a position; the second, the first one timed,
+may be the first's decisions Trained AI hesitated over, renamed. The review's
+reasoning about a decision asks in passes that take about as long, a table
+counted as 1.43 positions, those it hesitates over asked again in a pass of
+their own.
 
 ## Saved matches
 

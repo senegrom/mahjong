@@ -193,8 +193,18 @@ deals the averaging arm should cost a fifth to a third more than a plain one.
 Each arm that averages says under `suits` how many rows it was asked, how many
 of them it asked again, and how many moves the mean changed.
 
-The browser does not average yet: that needs a second encoder state in the
-site's worker, a later step.
+The site's Trained AI averages the same way, wherever the page asks it
+(`web/src/lib/suits.js`, [Agent modes](AGENT_MODES.md)). The second state
+lives in the page's engine too (`engine/riichi-wasm`): four more of Mortal's
+states, told the same events renamed by `Event::augment`, and told only when
+a renamed view is asked, so a table without a trained player pays nothing.
+A review rebuilds a decision's renamed view from the hand's deal, as it does
+the plain one. The page asks a hesitant question's renamed view in a request
+of its own after the plain one, and works the mean out from the two
+answers' weights: the square root of each move's two weights multiplied,
+normalised, is the softmax of the mean of the two logits. CI's worker
+parity job checks the page against `suits.averaged` on a small export's
+PyTorch twin (`neural/tests/export_worker_fixture.py`).
 
 ### The series: 810 averaging against 810 plain
 
