@@ -22,11 +22,14 @@ const excused = {
   'GHSA-gcqx-w48m-w2h4': {
     package: 'deepmerge', usedBy: ['@sveltejs/vite-plugin-svelte'], severity: 'low', range: '>=4.2.0 <=4.3.1',
   },
-  // minimatch's denial of service through glob-part amplification, fixed only
-  // in minimatch 11.0.1, on 31 October 2026. ESLint, even the newest release
-  // (10.14.0), and its config array still take minimatch ^10. They match only
-  // the lint configuration's own file patterns while linting, and none of it
-  // ships in the site. npm's only fix is ESLint 4.0.0, which is no fix.
+  // minimatch's denial of service through glob-part amplification, on 31
+  // October 2026 fixed only in minimatch 11.0.1, with no 10.x release. ESLint,
+  // even the newest release (10.14.0), and its config array still take
+  // minimatch ^10. They compile only this repository's patterns, the lint
+  // configuration's files and ignores and the lint script's `.`, and at
+  // minimatch's default optimization level, 1, while the amplification runs
+  // only at level 2 or above. None of it ships in the site. npm's only fix is
+  // ESLint 4.0.0, which still takes minimatch 3, through glob 7: no fix.
   'GHSA-g3hv-75wg-m249': {
     package: 'minimatch', usedBy: ['eslint', '@eslint/config-array'], severity: 'moderate', range: '<11.0.1',
   },
@@ -44,8 +47,12 @@ const users = name => Object.entries(lock.packages)
   .map(([path]) => path ? path.split('node_modules/').pop() : lock.name);
 /** Whether npm's fix for a vulnerability is one to take: any fix but a
  * semver-major step down to an older release of a package than the lockfile
- * holds, which `npm audit fix --force` offers when no newer release drops the
- * vulnerable one. A package the lockfile does not hold at the top counts. */
+ * holds, which `npm audit fix --force` offers when no newer release it would
+ * pick drops the vulnerable one. npm prefers releases that run on the Node it
+ * runs on, so a clean release that needs a newer Node than the audit's shows
+ * as such a step down too, until the audit runs on that Node: an excused line
+ * says what npm offered (`offered`). A package the lockfile does not hold at
+ * the top counts. */
 const major = version => Number.parseInt(String(version).split('.')[0], 10);
 const fixable = fix => {
   if (!fix) return false;
@@ -53,6 +60,10 @@ const fixable = fix => {
   const held = lock.packages[`node_modules/${fix.name}`]?.version;
   return !held || !(major(fix.version) < major(held));
 };
+/** The step down npm offers, which an excuse holds through, for its line. */
+const offered = fix => (typeof fix === 'object' && fix
+  ? `; npm offers only ${fix.name} ${fix.version}, a step down from ${lock.packages[`node_modules/${fix.name}`]?.version}`
+  : '');
 
 // Through a shell, which finds npm everywhere (on Windows it is a .cmd file).
 const audit = spawnSync('npm audit --json', { cwd: web, encoding: 'utf8', shell: true });
@@ -84,7 +95,7 @@ for (const vulnerability of Object.values(report.vulnerabilities)) {
       fixable(vulnerability.fixAvailable) && 'a fix is out: update, and drop the excuse',
     ].filter(Boolean);
     if (changed.length) failed.push(`${line}; no longer excused, as ${changed.join(', ')}`);
-    else console.log(`Excused: ${line}`);
+    else console.log(`Excused: ${line}${offered(vulnerability.fixAvailable)}`);
   }
 }
 // An offline audit reports nothing, so only CI's can show an excuse is done with.

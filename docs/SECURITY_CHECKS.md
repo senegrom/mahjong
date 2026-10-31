@@ -30,18 +30,24 @@ while the case is the one reviewed: the same package, used by the same
 packages and no others, at the same severity and over the same versions (a
 fixed release changes them), with no fix available. A "fix" that only steps a
 package down to an older major release than the lockfile holds does not
-count. Two advisories are excused:
+count. npm offers such a step down also when every newer release that drops
+the vulnerable package needs a newer Node than the audit runs on, so the audit
+prints the offer it passed over beside each excuse. Two advisories are
+excused:
 - deepmerge's prototype poisoning (GHSA-gcqx-w48m-w2h4, low, no fix on 28
   October 2026). Only the Svelte plugin uses deepmerge, to merge its own
   defaults, `svelte.config.js` and Vite's inline options in the build and the
   dev server.
 - minimatch's denial of service through glob-part amplification
-  (GHSA-g3hv-75wg-m249, moderate, fixed only in minimatch 11.0.1 on 31 October
-  2026). Only ESLint and its config array use minimatch, still ^10 in the
-  newest ESLint (10.14.0), to match the lint configuration's own file patterns
-  while linting. npm's only fix is ESLint 4.0.0.
+  (GHSA-g3hv-75wg-m249, moderate; on 31 October 2026 fixed only in minimatch
+  11.0.1, of 27 October, with no 10.x release). Only ESLint and its config
+  array use minimatch, still ^10 in the newest ESLint (10.14.0). They compile
+  only this repository's patterns, the lint configuration's files and ignores
+  and the lint script's `.`, at minimatch's default optimization level, while
+  the amplification runs only at level 2 or above. npm's only fix is ESLint
+  4.0.0, which still pulls in minimatch 3.
 
-None of either ships in the site. CI runs that audit as a job of its own, so an
+Neither ships in the site. CI runs that audit as a job of its own, so an
 advisory or a registry outage fails the audit without stopping the tests.
 Generated WASM, third-party runtime files, build output and screenshots are
 not linted as handwritten application source.
