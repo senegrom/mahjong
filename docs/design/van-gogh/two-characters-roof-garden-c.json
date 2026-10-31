@@ -1,0 +1,48 @@
+{
+  "tile": "2m",
+  "name": "Man2",
+  "candidate": "Roof Garden C",
+  "title": "Night Cafe — Roofs and Flower Pots",
+  "source": "docs/design/van-gogh/studies/37-two-characters-roof-garden-c-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Man2.svg",
+  "approval": "Carl selected the right-hand standalone painting with flower pots after explicitly clarifying that the two strokes of the numeral must remain roofs. Use the exact final third image, not the earlier triptych or hanging-sign cafe alternatives.",
+  "originalFilename": "impasto_lanternlit_temple_gate.png",
+  "originalSha256": "41985fa1d76b04bbdface9459132c3b1f8379e7cf857854edc3334fec68237f7",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalRetention": "Full-resolution original retained in the approval conversation and supplied download archive. Repository stores the optimized approved artwork and provenance, not the full-resolution PNG.",
+  "processing": "Uniformly resize the entire exact 3:4 RGB painting with Pillow Lanczos to 300 x 400 and encode AVIF quality 70, speed 0, 4:2:0. No cropping, stretching, repainting or recolouring; zero extra bleed. The two roof strokes, structural Wan, flower pots, furniture and lantern are retained. Only standard rounded tile corners are clipped.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 40984,
+  "rasterSha256": "097c1b200cf2603502818fd04249308cb5f8c2317b82ef20664f29f8bc71df64",
+  "sourceSha256": "3a1a10ccba933fc27b5b267d67b9c3f394ef0f6c1e83fd648be38ccc4420059e",
+  "svgSha256": "d3aa6d977455047b42716dec3069174e86b99171d04517de05544f3aa4cf72c6",
+  "runtimeSvgSha256": "d3aa6d977455047b42716dec3069174e86b99171d04517de05544f3aa4cf72c6",
+  "fit": {
+    "painting": [
+      1086,
+      1448
+    ],
+    "stretch": 0,
+    "anchor": 0.5,
+    "bleedPixels": 0
+  },
+  "supersededCandidate": "Characters B",
+  "supersededSource": "docs/design/van-gogh/studies/07-two-characters-night-cafe.png",
+  "archivedSvg": "docs/design/van-gogh/superseded/two-characters-night-cafe-Man2.svg",
+  "archivedSvgSha256": "d56bf9ad1e089e7d4a57c76984f04de475220f1e4322077819d0b68c25a3625b",
+  "archivedPng": "docs/design/van-gogh/superseded/two-characters-night-cafe-Man2.png",
+  "archivedPngSha256": "cffc26815cb5b41382237019695be71209a7b60fdbecaad5205c1a7381defc01"
+}
