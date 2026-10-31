@@ -25,14 +25,23 @@ Modal training image use Rust 1.98.1.
 In `web/`, run `npm ci` and then `npm run verify`, which runs the checks of
 CI's npm audit and web app jobs; the [README](../README.md#run-and-verify)
 lists its steps. Its npm audit, `scripts/npm-audit.mjs`, fails on any
-advisory rated low or above but one it excuses, and an excuse holds only while
-the case is the one reviewed: the same package, used by the same packages and
-no others, at the same severity and over the same versions (a fixed release
-changes them), with no fix available. The one excuse is deepmerge's prototype
-poisoning (GHSA-gcqx-w48m-w2h4, low, no fix on 28 October 2026): only the
-Svelte plugin uses deepmerge, to merge its own defaults, `svelte.config.js`
-and Vite's inline options in the build and the dev server, and none of it
-ships in the site. CI runs that audit as a job of its own, so an
+advisory rated low or above but those it excuses, and an excuse holds only
+while the case is the one reviewed: the same package, used by the same
+packages and no others, at the same severity and over the same versions (a
+fixed release changes them), with no fix available. A "fix" that only steps a
+package down to an older major release than the lockfile holds does not
+count. Two advisories are excused:
+- deepmerge's prototype poisoning (GHSA-gcqx-w48m-w2h4, low, no fix on 28
+  October 2026). Only the Svelte plugin uses deepmerge, to merge its own
+  defaults, `svelte.config.js` and Vite's inline options in the build and the
+  dev server.
+- minimatch's denial of service through glob-part amplification
+  (GHSA-g3hv-75wg-m249, moderate, fixed only in minimatch 11.0.1 on 31 October
+  2026). Only ESLint and its config array use minimatch, still ^10 in the
+  newest ESLint (10.14.0), to match the lint configuration's own file patterns
+  while linting. npm's only fix is ESLint 4.0.0.
+
+None of either ships in the site. CI runs that audit as a job of its own, so an
 advisory or a registry outage fails the audit without stopping the tests.
 Generated WASM, third-party runtime files, build output and screenshots are
 not linted as handwritten application source.
