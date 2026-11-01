@@ -491,6 +491,32 @@ class SwitchTests(unittest.TestCase):
                 self.assertNotIn("--preview-reach", launch(self, trainer))
                 self.assertIn("--preview-reach", launch(self, trainer, preview_reach=True))
 
+    def test_the_last_hand_rules_are_refused_without_it(self):
+        """The rules of the last hand decide once a reach's tile is drawn,
+        which only asking ahead allows: the trainer, the cloud and self-play
+        each refuse them without the switch, and take them with it."""
+        from neural import cloud_requests
+
+        rules = ["all-last-dama", "decline-last"]
+        with patch.object(sys, "argv", ["trainer", "--last-hand-rules", *rules]), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            train_combined.parse_args()
+        with patch.object(sys, "argv", ["trainer", "--preview-reach", "--last-hand-rules", *rules]):
+            self.assertEqual(train_combined.parse_args().last_hand_rules, rules)
+        with self.assertRaisesRegex(ValueError, "preview_reach"):
+            cloud_requests.rule_arguments(rules, preview_reach=False)
+        with self.assertRaisesRegex(ValueError, "preview_reach"):
+            test_mixed_tables.CloudLaunchTests.launch(self, "train_combined", last_hand_rules=rules)
+
+        class Learner(test_mixed_tables.Seated):
+            timing: dict = {}
+
+            def decide(self, *_args, **_options):
+                raise AssertionError("asked for a move by a round that should have been refused")
+
+        with self.assertRaisesRegex(ValueError, "preview_reach"):
+            selfplay.play(Learner(), games=1, seed=3, device="cpu", last_hand_rules=tuple(rules))
+
     def test_the_trainers_play_with_it_as_told(self):
         """Each trainer hands its switch to the round it plays."""
         for module in (train_combined, train_mortal):

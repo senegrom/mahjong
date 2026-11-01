@@ -45,11 +45,13 @@ names no arena.
 
 It is off unless asked for: only a ruler seats a player that follows it
 (`neural.ruler --all-last-dama`). Self-play decides through
-`Combined.decide`, never `_ask`, so the rule never reaches training. What it
-did is kept as the player's `all_last` (`Account`): the decisions it was
-asked about and those it fired on, the tables and hands it fired at, why it
-kept the reach elsewhere, and how often a hand it had fired in declared
-later all the same.
+`Combined.decide`, never `_ask`, so the rule reaches training only through
+`selfplay_rules`, which plays the learner's own drawn moves by it, at the
+tile each reach drew, when the trainer is told (`train_combined
+--last-hand-rules`). What it did is kept as the player's `all_last`
+(`Account`): the decisions it was asked about and those it fired on, the
+tables and hands it fired at, why it kept the reach elsewhere, and how often
+a hand it had fired in declared later all the same.
 """
 
 from __future__ import annotations

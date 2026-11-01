@@ -191,6 +191,21 @@ class ControlTests(unittest.TestCase):
                 self.assertEqual(command[command.index('--target-kl')+1],'0.02')
                 self.assertEqual(command[command.index('--baseline-batch')+1],'16')
 
+    def test_checkpoints_name_the_last_hand_rules_only_when_played_by_them(self):
+        # Beside the other controls, for whoever ships the network: the rules
+        # of the last hand its self-play was played by (neural.selfplay_rules).
+        from neural.tests.test_baseline_from_play import fake_round
+        from neural.tests.test_selfplay_rules import ruled_round, trainer_run
+        rules=['all-last-dama','decline-last']
+        for flags,wanted in (([],None),(['--preview-reach','--last-hand-rules',*reversed(rules)],rules)):
+            with self.subTest(flags=flags),tempfile.TemporaryDirectory() as folder:
+                _asked,code,_printed,out=trainer_run(Path(folder),flags,
+                                                     lambda _options:ruled_round() if wanted else fake_round())
+                self.assertIsNone(code)
+                controls=torch.load(out/'latest.pt',map_location='cpu',weights_only=True)['training_controls']
+                self.assertEqual(controls.get('last_hand_rules'),wanted)
+                self.assertEqual(controls['ppo_reference'],'unforced_policy_rows')
+
     def test_real_main_training_step_and_checkpoint_without_padding_stubs(self):
         import os
         import subprocess
