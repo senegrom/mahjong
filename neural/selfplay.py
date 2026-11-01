@@ -209,6 +209,15 @@ class Batch:
     #: them (`play`'s `ledger`); None otherwise. What the placement reward
     #: is settled from (see `settle_placement`).
     ledger: Ledger | None = None
+    #: Which decisions a rule of the last hand made, one a decision in the
+    #: order above, when the round was played by them (`play`'s
+    #: `last_hand_rules`); None otherwise. Each is recorded alone, its mask
+    #: holding only the move played at a log-probability of nought, so the
+    #: policy learns nothing from it (see `selfplay_rules`).
+    ruled: torch.Tensor | None = None
+    #: The rules' account of the round (`selfplay_rules.Played.report`), for
+    #: the generation's record; None when the round was played without them.
+    rules: dict | None = None
 
 
 def gather(blocks: list[np.ndarray]) -> torch.Tensor:
@@ -244,6 +253,7 @@ def play(
     own_draws: bool = False,
     abandon=None,
     ledger: bool = False,
+    last_hand_rules: tuple[str, ...] = (),
 ) -> Batch:
     """Plays `games` games to the end and returns every decision made.
 
@@ -285,6 +295,18 @@ def play(
     `mortal_learner.decide_in_mortal_space`). The others are asked as their
     trainer seated them (`ppo_loop.load_others`).
 
+    `last_hand_rules` has the learner's own decisions, in every seat it
+    holds, played by those rules of the last hand (the all-last dama rule
+    and decline-last, `cloud_requests.LAST_HAND_RULES`), each move a rule
+    plays recorded alone and flagged (`Batch.ruled`), and the round's
+    account of them kept (`Batch.rules`; see `selfplay_rules`). The seated
+    others stay plain. It needs a learner that decides for itself and
+    `preview_reach`, so that nothing of a reach is told before the rules
+    decide. The round is refused, with `selfplay_rules.RuleCheckFailed`,
+    unless the records flagged, the account and the firings agree and every
+    reach played kept its tile record. None named, the default, the
+    learner is handed nothing new, and the round is what it always was.
+
     `own_draws` has the learner draw its moves from a generator of the
     round's own, seeded from `seed` as the wandering is, rather than from
     torch's (see `sampled`): a round played beside the learning
@@ -318,6 +340,23 @@ def play(
     recording = net.kind == "mortal"
     decides = hasattr(net, "decide")
     wants_oracle = not decides
+    # The last hand's rules, when the learner is played by them: the round's
+    # account, handed to the learner with every question and nothing when
+    # none are named, so a learner that knows nothing of them still plays.
+    played = None
+    rule_options = {}
+    if last_hand_rules:
+        from . import selfplay_rules
+
+        named = selfplay_rules.require(last_hand_rules)
+        if not decides:
+            raise ValueError("the last hand's rules are played by a learner that decides for itself (one with "
+                             "`decide`), which records each move a rule plays alone")
+        if not preview_reach:
+            raise ValueError("the last hand's rules need the reach's tile asked with the reach (preview_reach): "
+                             "without it a reach is told to the follower before its tile is drawn")
+        played = selfplay_rules.Played(named)
+        rule_options["rules"] = played
 
     # Which older checkpoint, if any, holds each player of each game, -1
     # being the learner. Fixed for the game, so a seat does not change
@@ -384,6 +423,13 @@ def play(
     held: list[np.ndarray] = []
     oracle: list[np.ndarray] = []
     wandered: list[np.ndarray] = []
+    # Which decisions a rule of the last hand made, a block a step, when the
+    # round is played by them; and the reaches the learner sent to the table
+    # and the reaches' tile records gathered, counted here apart from the
+    # rules' own account, which the round's end holds them to (see
+    # `selfplay_rules.reconcile`).
+    ruled_blocks: list[np.ndarray] = []
+    reaches_sent = tiles_gathered = 0
     # The learner's values of its decisions, a block a step, while every
     # step's records carry them; None from the first that does not.
     valued: list[np.ndarray] | None = []
@@ -531,7 +577,7 @@ def play(
                 picked, records = net.decide(
                     views, index, deciding[index], mask[index], greedy=False,
                     explore_share=explore_share, wanderer=wanderer,
-                    preview_reach=preview_reach, **draws,
+                    preview_reach=preview_reach, **draws, **rule_options,
                 )
             began = clock()
             # Whatever of the others' encoding the learner's deciding did
@@ -575,6 +621,17 @@ def play(
             if record_forced is None:
                 record_forced = np.zeros(len(record_slots), dtype=bool)
             wandered.append(record_forced)
+            if played is not None:
+                flags = getattr(records, "ruled", None)
+                ruled_blocks.append(np.zeros(len(record_slots), dtype=bool) if flags is None
+                                    else np.asarray(flags, dtype=bool))
+                # The reaches among the moves the table is sent, and the
+                # tile records gathered: each a second record of a row the
+                # step recorded already.
+                sent = choice[index]
+                reaches_sent += int(np.count_nonzero((sent >= zoo.RIICHI_DISCARD) & (sent < zoo.TSUMO)))
+                slots = np.asarray(record_slots, dtype=np.int64)
+                tiles_gathered += len(slots) - int(np.count_nonzero(np.bincount(slots, minlength=1)))
             record_values = getattr(records, "values", None)
             if record_values is None:
                 valued = None
@@ -724,6 +781,19 @@ def play(
     if decisions == 0:
         raise RuntimeError("self-play produced no decisions")
 
+    # The last hand's rules: every decision flagged or not, and the round
+    # refused unless the flags, the account and the firings agree and every
+    # reach played kept its tile record, as counted here and as the account
+    # says (see `selfplay_rules.reconcile`).
+    ruled = rules_report = None
+    if played is not None:
+        ruled = gather(ruled_blocks) if ruled_blocks else torch.zeros(0, dtype=torch.bool)
+        if len(ruled) != decisions:
+            raise selfplay_rules.RuleCheckFailed(
+                f"the round flagged {len(ruled)} decisions as a rule's or not, and made {decisions}")
+        selfplay_rules.reconcile(played, int(ruled.sum()), reaches_sent, tiles_gathered)
+        rules_report = played.report()
+
     # How the learner placed in each game, so the round can say who it
     # played and how it did against each of them rather than only how it
     # did on average. Places are per person; the learner holds every seat
@@ -759,6 +829,8 @@ def play(
         timing=timing,
         seated_encode_seconds=views.aside_seconds + seated_here,
         ledger=record,
+        ruled=ruled,
+        rules=rules_report,
     )
 
 

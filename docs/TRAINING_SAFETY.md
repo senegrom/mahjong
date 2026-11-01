@@ -435,3 +435,179 @@ host anyway, and on the processor, it decides at once as before.
 PPO clipping alone does not guarantee a small policy change; the original
 Spinning Up implementation stops early too:
 https://spinningup.openai.com/en/latest/algorithms/ppo.html
+
+## The last hand's rules in self-play
+
+`train_combined --last-hand-rules all-last-dama decline-last` plays the
+joined player's own self-play by the two rules of the last hand the project
+kept on 31 October (`neural.all_last`, `neural.late_rules`; their series are
+in docs/RULER.md), in every seat the learner holds at every table
+(`neural.selfplay_rules`). The seated others are opponents and stay plain,
+as each series measured its rule against a plain incumbent, and so does the
+in-training measurement, which plays the network's own argmax against the
+Club bots and only picks `best.pt`. It is off unless asked for: without the
+flag self-play hands the learner nothing new, the record and the checkpoint
+gain no key, and the cloud launches pass no flag
+(`cloud_requests.rule_arguments`). The rules need `--preview-reach`, and are
+refused without it: with the preview the reach's tile comes from the forward
+that chose the reach and nothing is told to the follower before the rules
+decide.
+
+**What the rules read.** Self-play draws its moves, so each rule reads the
+move drawn, not the network's best, inside the learner's deciding
+(`mortal_learner.decide_in_mortal_space`). Decline-last is asked about every
+learner row whose drawn move is a win: where the engine says the win would
+leave the player alone in last, a ron becomes the pass, and a self-draw the
+best other move of the same forward's logits, the win struck, as the ruler
+plays them. Then the all-last dama rule is asked about every row whose move
+is still a riichi, at the tile the reach drew from its preview: where the
+engine says that tile keeps the player first, its discard is played instead.
+Decline comes first because a declined self-draw can leave a riichi, which
+dama then judges. Neither rule reads anything hidden: dama reads the
+player's own hand, the scores and what the player has seen, and decline
+reads a riichi win at the most its ura dora could add.
+
+**Why the best other move and not a draw.** It is the ruler's own choice
+(`late_rules.decline_last`), and a move drawn from the moves that remain
+could not be recorded so that the learner reproduces it: the mask is an
+input to the head (Mortal's duelling head subtracts the mean over the legal
+moves, the fusion's correction reads the mask), so a mask without the win
+would not give the move the probability it was drawn with. The move is
+recorded alone, as every rule's move is.
+
+**How a rule's move is recorded.** Alone: its row's mask holds only the move
+played, its log-probability is exactly nought, it keeps its own planes,
+value, hand and return, and it is flagged (`Records.ruled`, `Batch.ruled`).
+Where dama fires, the reach's tile record is dropped from every field: the
+position after the reach never happens at the table. A reach left standing
+after a declined self-draw keeps its tile record, an ordinary decision of
+the policy, drawn from the preview of a position that does happen.
+
+**Why that keeps it out of the policy's learning, exactly.** The learning
+forward masks every move outside the recorded mask to minus infinity, so a
+one-move row has one finite logit whatever the weights: its log-probability
+is x - logsumexp(x) = 0 in float32, its log-softmax's gradient is g - 1 x g =
+0 at the move and nought elsewhere, its ratio is exactly one and never
+clipped, its entropy and its KL term are nought, and the drift guard's term
+is expm1(0) - 0 = 0. Beyond the means' denominators, it touches the policy's
+update only through its return in the round's standardisation of the
+advantages, which runs over every row, and through the critic's share of
+the single clip on the gradient's norm; never through its own probability.
+Both are slight: a few hundred such rows in a round of a million and a half,
+and a gradient's norm the clip seldom reaches. Such rows were common already
+(a declared riichi's draw has one move), and `ppo_epochs` is unchanged. The
+critic and the reading of the hands never read the mask, so they still learn
+the position, and returns come per hand and player from the ledger: a rule's
+consequence, a game that goes on after a declined win or a win without the
+reach's thousand, reaches every decision of that hand. The policy is not
+taught the rules. They stay play-time rules, which must be played wherever
+the network plays to deliver their gain; what training gets is games, values
+and credit consistent with rule-following play.
+
+**Checks.** Each raises `selfplay_rules.RuleCheckFailed`:
+
+- at a decision: a judged row's code must be one a legal move can have, a
+  fired dama discard must be legal, and a fired decline must leave a move;
+- each step: the tile records' rows are exactly the recorded rows that play
+  a reach, each reach throws the tile its record holds, and each row a rule
+  decided sends exactly its recorded move (`selfplay_rules.check_step`);
+- at the round's end: the decisions flagged, the account's records and the
+  firings (dama's and decline's, less the rows both fired at) agree, the
+  reaches sent to the table and the tile records gathered, counted by the
+  round itself as it steps the table and gathers the records, agree with
+  each other and with the account, and decline's firings are its claim
+  windows' and its turns' (`selfplay_rules.reconcile`);
+- before learning: a round of a run played by the rules must say it was
+  played by exactly those (`train_combined.check_rules_played`), and every
+  flagged row must hold one move, its action, at a recorded log-probability
+  of exactly nought, and the baseline pass's log-probability of it, read on
+  every round that gets the pass, played ahead or not, within 1e-6 of
+  nought, the largest recorded as `ruled_begun_max`
+  (`train_combined.check_ruled`; nought where no pass reads it, a round
+  valued from play, which a005's recipe never asks for).
+
+A failed check stops the trainer before the round is learned or saved,
+whether it failed here or on the worker that played the round ahead: the
+trainer writes why to `rule-check-failed.txt` in its workspace and exits with
+75 (`cloud_requests.RULE_CHECK_EXIT`). On that code alone the cloud's trainer
+runner publishes the last generation the trainer completed once more, as a
+clean exit does, its record perhaps not yet in the volume's log, and nothing
+new: nothing of the refused round exists. It then writes
+`rule-check-failed.json` beside the run's checkpoints (the generation the
+run had published, the message and the time), commits the volume, and ends
+the call with an answer that starts "stopped: rule check failed", rather
+than fail it for Modal to retry the same round to the same end. Every other
+exit is as before. Every checkpoint published passed every check, so after
+a fix and a redeploy the run can resume from its `latest.pt` once the marker
+is moved aside; a new run name is needed only if a round already learned is
+shown to have been wrong.
+
+**What the record says.** Each generation's record carries the round's
+account, in the ruler's vocabulary, the tables and hands as counts. An
+illustration, not a measurement:
+
+```json
+"last_hand_rules": {
+  "rules": ["all-last-dama", "decline-last"],
+  "all-last-dama": {"judged": 1700, "fired": 115, "tables": 105, "hands": 110,
+                    "kept": {"no_yaku": 670, "short": 915, "dead": 0},
+                    "riichi_after_firing": 3, "calls": 1050},
+  "decline-last": {"judged": 2000, "fired": 150, "in_window": 120, "at_turn": 30,
+                   "to_riichi": 2, "tables": 120, "hands": 130,
+                   "kept": {"not_last": 1850}, "kept_after_firing": 4, "calls": 1400},
+  "ruled_records": 264, "both": 1, "tile_records": 1180, "reaches_sent": 1180,
+  "ruled_begun_max": 0.0, "seconds": 0.412
+}
+```
+
+There `judged` is `fired` plus every `kept`, decline's `fired` is `in_window`
+plus `at_turn`, `both` (a declined self-draw's reach that dama then left
+undeclared) is at most `to_riichi`, which is at most `at_turn`, and
+`ruled_records` is the two `fired` less `both`; `calls` are the engine's
+questions and `seconds` the time the rules' own work took inside deciding.
+The checkpoint's `training_controls` gains `"last_hand_rules"`, so whoever
+ships the network knows it was trained on games played by them; nothing but
+the tests reads `training_controls`, so such a checkpoint loads wherever a
+checkpoint of the trainer does (`zoo.load_player`, a ruler, the cloud's
+copies).
+
+**What it costs.** No forward more: the reach's tile comes from the preview
+the recipe already asks for. At most one question to the engine for each
+rule a step, only when some learner row drew a win or a riichi, its rows
+chosen by array masks; in a round that keeps a ledger, as every run paid the
+placement reward does, only about rows the engine can answer, a non-dealer's
+in South 4, read from the hands begun, and about nothing before any game has
+begun South 4 (`selfplay_rules.last_hand`, `may_ask`), since each question
+wakes the engine's threads. The logits come back from the card only for a
+self-draw declined at the player's turn, a handful a round. On this desktop
+(2 November), rounds of 256 tables of a learner that declares wherever it
+can, so that the rules have the most to judge, spent 0.22 to 0.59 seconds in
+the rules' own work, 0.36 on average, against 109 to 199 seconds of play
+(the slowest round was slowed throughout by other work on the desktop), and
+a round's processors' time was 357 seconds with the rules against 349
+without (within 0.1% and 0.9% in two runs on 1 November). Scaled linearly by
+tables to a005's 4,096 that is 5.7 seconds a round, an upper bound and not
+the measure: it multiplies by 16 the work done once a step, though 16 times
+the tables take only about 1.4 times the steps; the engine's questions,
+though a step asks at most one of each kind; and the rows judged, of which
+this learner gives about three a table to a005's one. The measure is built
+by parts from one instrumented round of the same learner: a step that asks
+the engine nothing cost 45 microseconds, a question 162 besides the
+engine's answer, and the engine 38 a row judged (124 at its first asking,
+which wakes its threads and carries the desktop's waits). a005's round of
+about 2,000 steps, at most two questions a step over its 1,500 from the
+first South 4 on and about 3,700 rows judged, comes to 0.7 seconds, 0.2% of
+its 350 seconds of play, and to 1.2 seconds with a step's work extended to
+a005's 800 rows and the engine's answers at their first asking. The
+record's seconds are wall-clock: in a round played ahead they also count
+waits for the learning beside it, as every part of play's time does there
+(a005's `translate` read 1.1 seconds in round 2610 and 8.5 in 2611), so
+there the generation's seconds against a005's are what judge the cost.
+
+**The first lineage played by them.** `fusion-place-ruled`, from
+fusion-place-a005's `history/gen-02610` at half of a005's three rates,
+`--lr` 1e-6, `--lr-ours` 4e-7 and `--lr-mortal` 3e-7, trained on the app
+`mahjong-train-rules`. The halved `--lr` is the optimiser's first group,
+which trains the critic and the reading of the hands as well as the head
+(`Combined.always_trained`): they learn at half of a005's rate too, as the
+owner asked.

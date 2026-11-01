@@ -50,7 +50,8 @@ from neural.checkpoints import (
 )
 from neural.cloud_runs import workspace, validate_run, managed_process
 from neural.cloud_requests import (
-    placement_arguments, round_arguments, validate_cloud_request, stage_opponents,
+    RULE_CHECK_EXIT, RULE_CHECK_FILE, placement_arguments, round_arguments, rule_arguments,
+    validate_cloud_request, stage_opponents,
 )
 
 HERE = Path(__file__).parent.parent
@@ -467,12 +468,51 @@ def _target(command: list[str], start: int) -> int:
     return start + rounds if rounds else int(command[command.index("--generations") + 1])
 
 
+def _stopped_on_rule_check(where: Path, run: str, seen: int) -> str:
+    """What a trainer that a check of the last hand's rules stopped leaves
+    behind (`train_combined --last-hand-rules`, exit
+    `cloud_requests.RULE_CHECK_EXIT`): `rule-check-failed.json` in the run's
+    directory, with the generation the run's `generation.txt` says it has
+    published (null where it says none), the trainer's message and the time,
+    committed to the volume, and the answer the call ends with. Nothing new
+    is published: the round the check refused was neither learned nor
+    saved, and the last generation completed was published before this
+    (see `_run_trainer`). A launcher's watcher stops on the answer's start,
+    and refuses to launch a run whose directory holds the file."""
+    written = where / RULE_CHECK_FILE
+    message = (written.read_text(encoding="utf-8").strip() if written.exists()
+               else "the trainer wrote no message")
+    try:
+        generation = int((VOLUME / run / "generation.txt").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        generation = None
+    from datetime import datetime, timezone
+
+    marker = VOLUME / run / "rule-check-failed.json"
+    record = {"generation": generation, "message": message, "time": datetime.now(timezone.utc).isoformat()}
+    with staging_file(marker) as staged:
+        staged.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        os.replace(staged, marker)
+    volume.commit()
+    answer = (f"stopped: rule check failed at generation {seen if generation is None else generation}: "
+              f"{message[:300]}")
+    print(answer, flush=True)
+    return answer
+
+
 def _run_trainer(command: list[str], where: Path, run: str, called: float) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
     cleanly; whatever the compiler built goes to the volume with each (see
     `_save_cache`). Answers how it ended.
+
+    A trainer that a check of the last hand's rules stopped (exit
+    `cloud_requests.RULE_CHECK_EXIT`) is answered for, not raised: its round
+    would fail the check again on every retry, so the call ends, leaving
+    `rule-check-failed.json` in the run (see `_stopped_on_rule_check`), once
+    the last generation it completed is published as a clean exit's last
+    is; it stopped before learning or saving anything of the round.
 
     A call that cannot finish the run raises rather than answers, so that
     Modal's retries resume it from the checkpoint published last. A call
@@ -544,8 +584,23 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
         seen = _publish(where, seen, run, started_at, published)
+    elif code == RULE_CHECK_EXIT and seen > started_at:
+        # A trainer a check of the last hand's rules stopped ended before it
+        # learned or saved the round it refused, so the workspace holds the
+        # last generation it completed, each of whose rounds passed every
+        # check: published as a clean exit publishes its last, for the same
+        # reason, its record perhaps not yet in the volume's log. Nothing of
+        # the refused round exists to publish. The call must still end as a
+        # rule check's stop, so a failure here is only said.
+        try:
+            seen = _publish(where, seen, run, started_at, published)
+        except Exception as error:  # noqa: BLE001
+            print(f"the last completed generation {seen} was not published again ({type(error).__name__}: "
+                  f"{error}); the volume keeps what was published as each record arrived", flush=True)
     else:
         print(f"no final publication (exit={code}); last completed generation {seen}", flush=True)
+    if code == RULE_CHECK_EXIT:
+        return _stopped_on_rule_check(where, run, seen)
     if code != 0 and seen < target:
         raise subprocess.CalledProcessError(
             code, command, output=f"the trainer stopped at generation {seen} of {target}"
@@ -875,6 +930,7 @@ def train_combined(
     value_warm_up: int = 0,
     value_warm_up_lr: float = 1e-4,
     seed: int | None = None,
+    last_hand_rules: list[str] | None = None,
 ) -> str:
     """Trains the joined player, our network and a Mortal beneath one
     fusion head, in a run directory of its own: see
@@ -927,6 +983,15 @@ def train_combined(
     compiled before the first round, the trainer's `--compile-play`; passed
     on only when true, and only beside `play_graphs`, which keeps the small
     questions from them.
+
+    `last_hand_rules` names rules of the last hand (`all-last-dama`,
+    `decline-last`) that the learner's own self-play is played by, the
+    trainer's `--last-hand-rules`: passed on only when some are named, and
+    refused before anything is staged without `preview_reach`, or for a name
+    it does not know or names twice (`cloud_requests.rule_arguments`). A
+    trainer whose check of them refuses a round ends the call with an answer
+    starting "stopped: rule check failed", rather than fail it for Modal to
+    retry (see `_run_trainer`).
     """
     # The timeout counts from here, not from when the trainer starts.
     called = time.time()
@@ -941,6 +1006,7 @@ def train_combined(
                          "its small ones: pass play_graphs=True too")
     placement = placement_arguments(reward, alpha, place_model, place_refit_every, place_refit_rounds,
                                     value_warm_up, value_warm_up_lr)
+    ruled = rule_arguments(last_hand_rules, preview_reach)
     seeded = []
     if seed is not None:
         if type(seed) is not int or not 0 <= seed < 1 << 63:
@@ -995,6 +1061,7 @@ def train_combined(
             command.append("--play-graphs")
         if compile_play:
             command.append("--compile-play")
+        command += ruled
         if fixed:
             command += ["--fixed", *fixed]
         command += placement + seeded

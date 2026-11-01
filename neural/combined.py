@@ -451,14 +451,17 @@ class Combined(nn.Module):
         wanderer=None,
         preview_reach: bool = False,
         generator: torch.Generator | None = None,
+        rules=None,
     ):
         """One of our engine's actions per row, and what the policy decided
         to get there, with the value its head gave each decision: the
         fusion's judgement, the one the baseline pass reads. Its moves are
         Mortal's, so a riichi is answered in two steps and both are
         recorded; with `preview_reach`, from one forward; drawn from
-        `generator` when one is given (see
-        `mortal_learner.decide_in_mortal_space`)."""
+        `generator` when one is given; played by the last hand's `rules`
+        when given, a round's account handed in with the call rather than
+        kept here, since a round played ahead is played by a copy of the
+        learner (see `mortal_learner.decide_in_mortal_space`)."""
         return mortal_learner.decide_in_mortal_space(
             lambda planes, mask: (self.deciding or self.decision)(planes, mask)[:2],
             views,
@@ -472,6 +475,7 @@ class Combined(nn.Module):
             wanderer=wanderer,
             preview_reach=preview_reach,
             generator=generator,
+            rules=rules,
         )
 
     def parameter_count(self) -> int:

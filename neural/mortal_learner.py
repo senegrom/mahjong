@@ -66,6 +66,14 @@ class Records:
     #: over the round (`--baseline-from-play`). None when the score gave
     #: the logits alone.
     values: np.ndarray | None = None
+    #: Which of these decisions a rule of the last hand made rather than the
+    #: policy (see `selfplay_rules`), each recorded alone: its mask holds
+    #: only the move played and its log-probability is nought, so the
+    #: learning forward gives it probability one and the policy learns
+    #: nothing from it, while the critic and the reading of the hands learn
+    #: its position. None when no rules were played; a reach's tile record
+    #: is never flagged.
+    ruled: np.ndarray | None = None
 
 
 def scored(answer) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -98,6 +106,7 @@ def decide_in_mortal_space(
     wanderer=None,
     preview_reach: bool = False,
     generator: torch.Generator | None = None,
+    rules=None,
 ) -> tuple[np.ndarray, Records]:
     """One of our engine's actions per row, and the records of everything
     the policy decided to get there, in Mortal's action space.
@@ -131,9 +140,25 @@ def decide_in_mortal_space(
 
     The moves and the reach's tiles are drawn from `generator` when one is
     given, and from torch's own generator otherwise (see `selfplay.sampled`).
+
+    `rules`, a round's `selfplay_rules.Played`, has the moves drawn played
+    by the last hand's rules it names, and keeps its account of them, the
+    seconds their work takes included (`timing`'s `rules` as well): a win
+    drawn that decline-last declines gives way to the pass or the best other
+    move of the same answer, and then a riichi whose drawn tile the all-last
+    dama rule keeps first is thrown undeclared (see `selfplay_rules`). Each
+    move a rule played is recorded alone, flagged (`Records.ruled`), and a
+    reach left undeclared loses its tile record. It needs `preview_reach`,
+    so that nothing is told of a reach before the rules decide; checks of
+    every step's records against the moves sent raise
+    `selfplay_rules.RuleCheckFailed`. Without it every move and record is
+    what it always was, bit for bit.
     """
     clock = time.perf_counter
     timing = timing if timing is not None else {}
+    if rules is not None and not preview_reach:
+        raise ValueError("the last hand's rules need the reach's tile asked with the reach (preview_reach), so "
+                         "that nothing is told of a reach before they decide")
     follower = views.observer.follower
     who = list(zip(np.asarray(rows).tolist(), np.asarray(players).tolist()))
     legal = np.atleast_2d(legal)
@@ -213,25 +238,54 @@ def decide_in_mortal_space(
         value = value.float().cpu().numpy()
     timing["network"] = timing.get("network", 0.0) + clock() - began
 
+    # The last hand's rules, when the round is played by them: which rows a
+    # rule decided (`Records.ruled`), the seconds their work takes, and
+    # whether the step's moves, probabilities and forced flags are still
+    # the arrays the draws made, which a rule's move must not overwrite.
+    # Each rule asks the engine only about the rows it can answer, and
+    # nothing at all while no game can be in its last hand (`asking`, see
+    # `selfplay_rules.may_ask` and `last_hand`).
+    ruled = None
+    spent = 0.0
+    copied = False
+    asking = False
+    if rules is not None:
+        from . import selfplay_rules
+
+        began = clock()
+        ruled = np.zeros(len(who), dtype=bool)
+        asking = selfplay_rules.may_ask(views)
+        if asking and selfplay_rules.DECLINE in rules.rules:
+            # Decline-last first, on every win drawn: a declined self-draw
+            # can leave a riichi, which the all-last dama rule then judges.
+            # The logits come back from the card only for a win declined
+            # at the player's own turn, a handful a round.
+            asked = np.flatnonzero(decidable & (picked == zoo.MORTAL_AGARI))
+            if len(asked):
+                asked = asked[selfplay_rules.last_hand(views, np.asarray(rows)[asked], np.asarray(players)[asked])]
+            if len(asked):
+                moves = selfplay_rules.decline(
+                    views.arena, who, asked, allowed,
+                    lambda at: logits[torch.from_numpy(at).to(logits.device)].cpu().numpy(), rules)
+                if moves:
+                    picked, log_prob, was_forced = picked.copy(), log_prob.copy(), was_forced.copy()
+                    copied = True
+                    at = np.fromiter(moves.keys(), dtype=np.int64, count=len(moves))
+                    instead = np.fromiter(moves.values(), dtype=np.int64, count=len(moves))
+                    picked[at] = instead
+                    log_prob[at] = 0.0
+                    was_forced[at] = False
+                    ruled[at] = True
+                    rules.to_riichi += int((instead == zoo.MORTAL_RIICHI).sum())
+        spent += clock() - began
+
     choice = zoo.first_meaning(picked, legal)
     choice = np.where(decidable & (choice >= 0), choice, legal.argmax(axis=1)).astype(np.int64)
-    record_planes = [planes]
-    record_masks = [allowed]
-    record_actions = [picked]
-    record_log_probs = [log_prob]
-    record_slots = [np.arange(len(who))]
-    record_forced = [was_forced]
-    record_values = [value]
     second = np.nonzero(decidable & (picked == zoo.MORTAL_RIICHI))[0].tolist()
-    if not decidable.all():
-        keep = decidable
-        record_planes = [planes.rows(np.nonzero(keep)[0])]
-        record_masks = [allowed[keep]]
-        record_actions = [picked[keep]]
-        record_log_probs = [log_prob[keep]]
-        record_slots = [np.nonzero(keep)[0]]
-        record_forced = [was_forced[keep]]
-        record_values = [None if value is None else value[keep]]
+    # The records of the reaches' tiles, by field, or None where no reach
+    # was chosen: assembled into the step's records below, once the rules
+    # have said which reaches are played.
+    tiles = None
 
     if second:
         if not preview_reach:
@@ -279,18 +333,118 @@ def decide_in_mortal_space(
         tile = tile.cpu().numpy()
         for slot, i in enumerate(second):
             choice[i] = zoo.RIICHI_DISCARD + int(tile[slot])
-        record_planes.append(after)
-        record_masks.append(allowed_after)
-        record_actions.append(tile)
-        record_log_probs.append(log_prob_after)
-        record_slots.append(np.array(second, dtype=np.int64))
-        # The tile a declaration throws is never a forced move; see
-        # `Records.forced`.
-        record_forced.append(np.zeros(len(second), dtype=bool))
-        # The value of the state the tile is chosen in, the reach declared:
-        # the position the second record is.
-        record_values.append(None if value_after is None else value_after.float().cpu().numpy())
+        tiles = {
+            "planes": after,
+            "masks": allowed_after,
+            "actions": tile,
+            "log_probs": log_prob_after,
+            "slots": np.array(second, dtype=np.int64),
+            # The tile a declaration throws is never a forced move; see
+            # `Records.forced`.
+            "forced": np.zeros(len(second), dtype=bool),
+            # The value of the state the tile is chosen in, the reach
+            # declared: the position the second record is.
+            "values": None if value_after is None else value_after.float().cpu().numpy(),
+        }
         timing["riichi"] = timing.get("riichi", 0.0) + clock() - began
+
+    if asking and second and selfplay_rules.DAMA in rules.rules:
+        # The all-last dama rule on every reach, drawn or left by a declined
+        # self-draw, that the engine can answer, read at the tile it drew:
+        # where that tile keeps the player first, its discard is played
+        # instead and recorded alone, and the reach's tile record, of a
+        # position the table never sees, is dropped. `fired` are places in
+        # `second`.
+        began = clock()
+        slots = tiles["slots"]
+        considered = np.flatnonzero(selfplay_rules.last_hand(views, np.asarray(rows)[slots],
+                                                             np.asarray(players)[slots]))
+        fired = []
+        if len(considered):
+            fired = considered[selfplay_rules.dama(views.arena, who, tiles["slots"][considered], tile[considered],
+                                                   legal, rules)].tolist()
+        if fired:
+            if not copied:
+                picked, log_prob, was_forced = picked.copy(), log_prob.copy(), was_forced.copy()
+                copied = True
+            at = tiles["slots"][fired]
+            thrown = tile[fired].astype(np.int64)
+            choice[at] = zoo.DISCARD + thrown
+            picked[at] = thrown
+            log_prob[at] = 0.0
+            was_forced[at] = False
+            rules.both += int(ruled[at].sum())
+            ruled[at] = True
+            kept = np.ones(len(second), dtype=bool)
+            kept[fired] = False
+            if not kept.any():
+                tiles = None
+            else:
+                tiles = {
+                    "planes": tiles["planes"].rows(np.flatnonzero(kept)),
+                    **{name: tiles[name][kept] for name in ("masks", "actions", "log_probs", "slots", "forced")},
+                    "values": None if tiles["values"] is None else tiles["values"][kept],
+                }
+        spent += clock() - began
+
+    masks = allowed
+    if ruled is not None and ruled.any():
+        # Each move a rule played is recorded alone: the only move in its
+        # mask, at the log-probability of nought set above.
+        began = clock()
+        flagged = np.flatnonzero(ruled)
+        masks = allowed.copy()
+        masks[flagged] = False
+        masks[flagged, picked[flagged]] = True
+        spent += clock() - began
+    record_planes = [planes]
+    record_masks = [masks]
+    record_actions = [picked]
+    record_log_probs = [log_prob]
+    record_slots = [np.arange(len(who))]
+    record_forced = [was_forced]
+    record_values = [value]
+    if not decidable.all():
+        keep = decidable
+        record_planes = [planes.rows(np.nonzero(keep)[0])]
+        record_masks = [masks[keep]]
+        record_actions = [picked[keep]]
+        record_log_probs = [log_prob[keep]]
+        record_slots = [np.nonzero(keep)[0]]
+        record_forced = [was_forced[keep]]
+        record_values = [None if value is None else value[keep]]
+    if tiles is not None:
+        record_planes.append(tiles["planes"])
+        record_masks.append(tiles["masks"])
+        record_actions.append(tiles["actions"])
+        record_log_probs.append(tiles["log_probs"])
+        record_slots.append(tiles["slots"])
+        record_forced.append(tiles["forced"])
+        record_values.append(tiles["values"])
+
+    # Which of the records a rule made, one flag a record in the order
+    # above, or None when no rules were played.
+    record_ruled = None
+    if rules is not None:
+        # The records' flags; what is sent to the table against what is
+        # recorded, each reach's tile record its row and its tile (see
+        # `selfplay_rules.check_step`); and the step's account.
+        began = clock()
+        record_ruled = ruled if decidable.all() else ruled[decidable]
+        if tiles is None:
+            tile_slots = tile_actions = np.zeros(0, dtype=np.int64)
+        else:
+            tile_slots, tile_actions = tiles["slots"], tiles["actions"]
+            # A reach's tile record is the policy's own decision, never a
+            # rule's.
+            record_ruled = np.concatenate([record_ruled, np.zeros(len(tile_slots), dtype=bool)])
+        rules.reaches_sent += selfplay_rules.check_step(choice, picked, legal, decidable, ruled, tile_slots,
+                                                        tile_actions)
+        rules.records += int(np.count_nonzero(ruled))
+        rules.tile_records += len(tile_slots)
+        spent += clock() - began
+        rules.seconds += spent
+        timing["rules"] = timing.get("rules", 0.0) + spent
 
     # Values only when every part of the step has them.
     values = joined(record_values, np.concatenate)
@@ -305,6 +459,7 @@ def decide_in_mortal_space(
             slots=record_slots[0].astype(np.int64),
             forced=record_forced[0].astype(bool),
             values=values,
+            ruled=record_ruled,
         )
     else:
         records = Records(
@@ -315,6 +470,7 @@ def decide_in_mortal_space(
             slots=np.concatenate(record_slots).astype(np.int64),
             forced=np.concatenate(record_forced).astype(bool),
             values=values,
+            ruled=record_ruled,
         )
     return choice, records
 
@@ -382,13 +538,14 @@ class MortalLearner(nn.Module):
         wanderer=None,
         preview_reach: bool = False,
         generator: torch.Generator | None = None,
+        rules=None,
     ) -> tuple[np.ndarray, Records]:
         """One of our actions per row, and the records of the decisions
         made, in Mortal's action space, that produced them, with the value
         head's value of each, which the same forward has worked out; a
         reach's tile from that forward too with `preview_reach`; the moves
-        drawn from `generator` when one is given (see
-        `decide_in_mortal_space`)."""
+        drawn from `generator` when one is given, and played by the last
+        hand's `rules` when given (see `decide_in_mortal_space`)."""
         return decide_in_mortal_space(
             self.inference,
             views,
@@ -402,6 +559,7 @@ class MortalLearner(nn.Module):
             wanderer=wanderer,
             preview_reach=preview_reach,
             generator=generator,
+            rules=rules,
         )
 
     def choose(
