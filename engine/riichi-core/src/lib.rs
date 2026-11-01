@@ -27,6 +27,7 @@
 //! - [`encoding`] the action space, and the planes older networks read
 //! - [`mjai`] the event log other riichi programs read
 //! - [`review`] judging a decision after the hand is over
+//! - [`all_last`] what a move in the last hand could still buy
 //!
 //! The arena and the rules fuzzer are the `riichi-cli` crate beside this one.
 //!
@@ -42,6 +43,7 @@
 #![forbid(unsafe_code)]
 
 pub mod agari;
+pub mod all_last;
 pub mod bot;
 pub mod encoding;
 pub mod game;

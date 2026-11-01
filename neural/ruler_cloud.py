@@ -29,12 +29,40 @@ generations are compared by a series registered with `--also` or
 `--against`. A checkpoint is compared with itself averaging over the suits
 (see `neural.suits`) by a series that names it again with `--also` and
 says `--average-suits first`: the first challenger averages and the
-second plays as it always did.
+second plays as it always did. With itself leaving the last hand's riichi
+undeclared where its tile keeps it first through every win (see
+`neural.all_last`) it is compared the same way, `--all-last-dama first`,
+but only on an app deployed under another name from the checkout being
+measured, named with `--app`; never on the live app (`mahjong-train`),
+which keeps the code its training runs on: a series must play the rule of
+the checkout it measures, and deploying that checkout there would change
+the live code (a `mahjong-train` deployed before the rules would also fail
+every such call). Every report of such a series must pass the rule's check
+(see `looks.dama_problem`): the arm with the rule fired, the plain arm said
+nothing of it, and every table the two arms ended differently at is one the
+rule fired at. The first report that fails stops the series, kept, and no
+seed of it is spawned again. A series of the checkpoint with one of the late
+rules of the last hand (see `neural.late_rules`) is registered the same way,
+`--late-rule wide-dama`, `decline-last` or `dealer-noten` in place of
+`--all-last-dama` (one rule of the last hand a series), the first challenger
+following the rule: on an app named with `--app`, one checkpoint asked
+alike, each report held to the rule's check (see `looks.late_problem`).
+
+The app's ruler is looked up before anything is registered, and a call
+that failed on an argument the app's code does not take (an app deployed
+from an older checkout) is never spawned again: every call there fails
+alike.
+
+`--looks`, `--per-look` and `--bound` register another rule than the
+usual (see `looks.design`): one look of twenty seeds read at z above 2.0,
+say, in place of four looks of five read at Pocock's bound.
 
     python -m neural.ruler_cloud series <tag> <challenger> <incumbent> --local <folder>
         [--also <second> | --against <tag>] [--expected 0.006] [--graphs]
         [--questions fixed --graphs --skip-forced --preview-reach] [--run fusion-long]
-        [--average-suits first|second|both]
+        [--average-suits first|second|both] [--all-last-dama first|second|both --app <app>]
+        [--late-rule wide-dama|decline-last|dealer-noten --app <app>]
+        [--looks <looks> --per-look <seeds> --bound <z>]
     python -m neural.ruler_cloud looks <tag> --local <folder> [--against <tag>]
     python -m neural.ruler_cloud keep <tag> <call file> --local <folder>
     python -m neural.ruler_cloud timing <challenger> <incumbent> --local <folder>
@@ -144,6 +172,11 @@ PATIENCE = 60 * 60
 LAPSE = 15 * 60
 #: How often a seed whose call failed is spawned again, with its own seed.
 RESPAWNS = 2
+#: A call's failure (as `reason` words it) when the app's ruler does not
+#: take an argument the series gives every call: the app was deployed from
+#: a checkout without it, and every call there fails alike, so the seed is
+#: never spawned again.
+UNTAKEN = re.compile(r"TypeError: .*unexpected keyword argument '?(\w+)'?")
 #: What `modal_app.ruler` is told for every seed of a series.
 CALLED = ("challenger", "incumbent", "games", "questions", "rows", "graphs", "skip_forced", "preview_reach", "run")
 #: The players, the asking and the comparison a series keeps from its first
@@ -152,11 +185,14 @@ CALLED = ("challenger", "incumbent", "games", "questions", "rows", "graphs", "sk
 #: (`against`).
 SERIES = (*CALLED, "also", "against")
 #: What a series holds, and its calls are told, only when it is asked for:
-#: the challengers that average over the suits (see `neural.suits`). A
-#: series registered before it existed is then resumed as it was, and a
-#: call that asks for none of it is made as before, which an app deployed
-#: before it existed still takes.
-OPTIONAL = ("average_suits",)
+#: the challengers that average over the suits (see `neural.suits`), those
+#: that leave the last hand's riichi undeclared where its tile keeps them
+#: first through every win (see `neural.all_last`), and the late rule of the
+#: last hand the first challenger follows (see `neural.late_rules`). A series
+#: registered before they existed is then resumed as it was, and a call that
+#: asks for none of them is made as before, which an app deployed before they
+#: existed still takes.
+OPTIONAL = ("average_suits", "all_last_dama", "late_rule")
 #: A tag names a folder here and on the volume, so it is held to what
 #: `modal_app.ruler` takes for one (see `cloud_runs.validate_run`), before
 #: any folder is made.
@@ -321,15 +357,15 @@ def outcome(modal, call_id: str):
     return ("done", report) if isinstance(report, dict) and report else ("failed", "an empty answer")
 
 
-def queue_of(modal, function: str) -> tuple[int, int] | None:
-    """How many calls of the app's `function` wait in Modal's queue with no
+def queue_of(modal, function: str, app: str = APP) -> tuple[int, int] | None:
+    """How many calls of `app`'s `function` wait in Modal's queue with no
     container, and how many play: Modal's count for the whole function,
     whoever spawned them. No call says whether a container took it up: its
     call graph leaves the task blank while it plays and after it finished
     (20 Oct 2026). A function spawned with options is counted apart, not
     here. None when Modal cannot be asked."""
     try:
-        stats = modal.Function.from_name(APP, function).get_current_stats()
+        stats = modal.Function.from_name(app, function).get_current_stats()
     except Exception:  # noqa: BLE001 - the count only words what is said, never an outcome
         return None
     return stats.backlog, stats.num_running_inputs
@@ -396,8 +432,42 @@ class Heard:
                 f"{calls(waiting)} with no container, {playing} playing")
 
 
+def app_of(settings: dict) -> str:
+    """The app a series spawns its calls on: the one it was registered
+    with, which its settings name only when it is not the live app."""
+    return settings.get("app", APP)
+
+
+def require_ruler(modal, app: str) -> None:
+    """Stops, before a series is registered, if `app` has no ruler deployed:
+    every call of the series would fail, and the series, which keeps its
+    app, could not be resumed on the right one."""
+    try:
+        modal.Function.from_name(app, "ruler").hydrate()
+    except modal.exception.NotFoundError as error:
+        raise SystemExit(f"{app} has no ruler deployed ({reason(error)}): deploy it, or name the app that has one "
+                         "with --app; nothing was registered") from None
+
+
+def refuse_failed_check(series: Series, settings: dict | None = None,
+                        reports: dict[int, dict] | None = None) -> None:
+    """Stops if a report the series keeps, or one of `reports`, fails the
+    all-last dama rule's check (see `looks.dama_problem`) or a late rule's
+    (see `looks.late_problem`), by what the series was registered to play
+    (`settings`, or its own): it is then not one network played twice but
+    where the rule fired, which no other seed, and no seed spawned again,
+    can mend, and none of its looks is read. The report stays kept, so a
+    launcher run again stops here again, before it spawns anything."""
+    problem = looks.failed_check(series.reports() if reports is None else reports,
+                                 series.settings() if settings is None else settings)
+    if problem:
+        raise SystemExit(f"{series.tag}: {problem}. The series is invalid: none of its looks is read and no seed of "
+                         f"it is spawned again; the report is kept in {series.folder}, and calls already spawned end "
+                         "on their own")
+
+
 def spawn_seed(modal, series: Series, settings: dict, seed: int) -> str:
-    ruler = modal.Function.from_name(APP, "ruler")
+    ruler = modal.Function.from_name(app_of(settings), "ruler")
     arguments = {name: settings[name] for name in CALLED}
     arguments.update({name: settings[name] for name in OPTIONAL if settings.get(name)})
     call = ruler.spawn(also=settings["also"] or "", seed=seed, tag=series.tag, **arguments)
@@ -411,12 +481,17 @@ def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard
     calls that have finished, and spawns a failed seed again, at most
     `RESPAWNS` times; a call that waits or plays is waited for, as is one
     Modal could not be asked about, up to `heard`'s patience. True once
-    every one of `seeds` has a report."""
+    every one of `seeds` has a report. Stops the series, spawning nothing
+    more, on a report that fails the all-last dama rule's check (see
+    `refuse_failed_check`) and on a call the app's ruler failed for an
+    argument it does not take (`UNTAKEN`), which every call on that app
+    would fail alike."""
     heard = heard or Heard()
     # First what the volume kept: a launcher started again after Modal let a
     # finished call's answer go would otherwise take it to have failed, and
     # pay for its seed twice.
     mirror(modal, series)
+    refuse_failed_check(series, settings)
     reports = series.reports()
     calls = series.calls()
     for seed in seeds:
@@ -430,13 +505,22 @@ def settle(modal, series: Series, settings: dict, seeds: list[int], heard: Heard
         heard(f"{series.tag}: seed {seed}", state, call_id=spawned[-1], what=what)
         if state == "done":
             series.keep(what)
+            refuse_failed_check(series, settings, {seed: what})
         elif state == "failed":
+            untaken = UNTAKEN.search(what)
+            if untaken:
+                raise SystemExit(f"{series.tag}: seed {seed}'s call failed on an argument {app_of(settings)}'s code "
+                                 f"does not take, {untaken.group(1)} ({what}): every call there fails alike, so none "
+                                 "is spawned again. Deploy the app from a checkout that takes it and register the "
+                                 "series under a new tag: run again, this one stops at the same failed calls, none of "
+                                 "which played")
             if len(spawned) > RESPAWNS:
                 raise SystemExit(f"{series.tag}: seed {seed} failed {len(spawned)} times, last: {what}")
             say(f"{series.tag}: seed {seed} failed ({what}); spawning it again")
             spawn_seed(modal, series, settings, seed)
-    heard.queue("ruler", queue_of(modal, "ruler"))
+    heard.queue("ruler", queue_of(modal, "ruler", app_of(settings)))
     mirror(modal, series)
+    refuse_failed_check(series, settings)
     return all(seed in series.reports() for seed in seeds)
 
 
@@ -453,9 +537,12 @@ def differences_of(series: Series, settings: dict) -> dict[int, list[float]]:
 def challenger_name(settings: dict, which: str) -> str:
     """The first or the second challenger of a series as it is named where
     the series names its players: the checkpoint, said to average over the
-    suits when it does, so one checkpoint played both ways reads as two."""
+    suits when it does and to follow the all-last dama rule or a late rule
+    when it does, so one checkpoint played both ways reads as two."""
     name = settings["challenger" if which == "first" else "also"]
-    return name + (looks.AVERAGED if settings.get("average_suits") in (which, "both") else "")
+    return (name + (looks.AVERAGED if settings.get("average_suits") in (which, "both") else "")
+            + (looks.RULED if settings.get("all_last_dama") in (which, "both") else "")
+            + (looks.late_named(settings.get("late_rule") or "") if which == "first" else ""))
 
 
 def compared(series: Series, settings: dict) -> tuple[str, str]:
@@ -476,6 +563,8 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
                   "again to resume the series, which asks about the call again.")
     shown = 0
     while True:
+        # Before any look is read: one read of an invalid series is one too many.
+        refuse_failed_check(series, settings)
         taken, state = looks.read(rule, differences_of(series, settings))
         if len(taken) > shown:
             print(looks.describe(rule, taken, state, names), flush=True)
@@ -540,9 +629,12 @@ def names_of(series: Series) -> tuple[str, str]:
     sample = next(iter(series.reports().values()), {})
     arms = sample.get("arms")
     if arms:
-        return (checkpoint_name(arms[0].get("challenger", "the first")) + looks.averaged(arms[0]),
-                checkpoint_name(arms[1].get("challenger", "the second")) + looks.averaged(arms[1]))
-    return (checkpoint_name(sample.get("challenger", "the challenger")) + looks.averaged(sample),
+        return (checkpoint_name(arms[0].get("challenger", "the first")) + looks.averaged(arms[0])
+                + looks.ruled(arms[0]),
+                checkpoint_name(arms[1].get("challenger", "the second")) + looks.averaged(arms[1])
+                + looks.ruled(arms[1]))
+    return (checkpoint_name(sample.get("challenger", "the challenger")) + looks.averaged(sample)
+            + looks.ruled(sample),
             checkpoint_name(sample.get("incumbent", "the incumbent")))
 
 
@@ -560,6 +652,38 @@ def asking_problem(settings: dict) -> str | None:
         return "--games must be a positive whole number"
     if settings.get("average_suits") in ("second", "both") and not settings["also"]:
         return f"--average-suits {settings['average_suits']} names a second challenger: name it with --also"
+    rule = settings.get("all_last_dama")
+    if rule in ("second", "both") and not settings["also"]:
+        return f"--all-last-dama {rule} names a second challenger: name it with --also"
+    if rule and (settings["questions"] != "fixed" or not settings["preview_reach"]):
+        # Asked by seating, a firing changes the batches the rest of its
+        # seating is asked in; without the preview, a reach is told before
+        # the rule has decided whether there is one.
+        return "--all-last-dama needs --questions fixed and --preview-reach"
+    if rule and settings["also"] != settings["challenger"]:
+        # Its check reads every table the arms ended differently at as one
+        # the rule fired at, which holds only of one network played twice.
+        return "--all-last-dama compares a checkpoint with itself: --also must name the challenger as it is named"
+    if rule and settings.get("average_suits") not in (None, "", "both"):
+        return (f"--all-last-dama needs both arms asked alike, and --average-suits {settings['average_suits']} "
+                "averages one of them: average both or neither")
+    if rule and app_of(settings) == APP:
+        return (f"--all-last-dama is played only on an app deployed from a checkout that holds it, never on "
+                f"{APP}, which keeps the live code: deploy one under another name and name it with --app")
+    late = settings.get("late_rule")
+    if late and rule:
+        return "--late-rule and --all-last-dama are two rules of the last hand: a series plays one"
+    if late and (settings["questions"] != "fixed" or not settings["preview_reach"]):
+        # As for --all-last-dama.
+        return "--late-rule needs --questions fixed and --preview-reach"
+    if late and settings["also"] != settings["challenger"]:
+        return "--late-rule compares a checkpoint with itself: --also must name the challenger as it is named"
+    if late and settings.get("average_suits") not in (None, "", "both"):
+        return (f"--late-rule needs both arms asked alike, and --average-suits {settings['average_suits']} "
+                "averages one of them: average both or neither")
+    if late and app_of(settings) == APP:
+        return (f"--late-rule is played only on an app deployed from a checkout that holds it, never on {APP}, "
+                "which keeps the live code: deploy one under another name and name it with --app")
     return None
 
 
@@ -649,7 +773,9 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     read against another, or another against it, it is refused before any
     report is compared: before anything is mirrored when the local folders
     show it, and otherwise as soon as the reports of `against` are mirrored
-    (see `paired_problem`)."""
+    (see `paired_problem`). So is either series once a report of it fails
+    the all-last dama rule's check or a late rule's (see
+    `refuse_failed_check`)."""
     path = series.folder / "design.json"
     lines = []
     if path.exists():
@@ -666,10 +792,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     if against is not None:
         refuse_paired(series, against)
     reports = series.reports()
+    refuse_failed_check(series)
     if against is not None:
         mirror(modal, against)
         # A series only the volume held shows what it plays once mirrored.
         refuse_paired(series, against)
+        refuse_failed_check(against)
         by_seed = looks.against_each(reports, against.reports())
         names = (names_of(series)[0], names_of(against)[0])
         if against.tag != registered:
@@ -927,6 +1055,22 @@ def main() -> None:
     play.add_argument("--average-suits", choices=("first", "second", "both"), default="",
                       help="the challengers that ask the questions they hesitate over of the game with "
                            "characters and circles renamed too, and play the mean of the two answers")
+    play.add_argument("--all-last-dama", choices=("first", "second", "both"), default="",
+                      help="the challengers that leave the last hand's riichi undeclared where its tile keeps "
+                           "them first through every win; played only on an app named with --app")
+    play.add_argument("--late-rule", choices=tuple(looks.LATE), default="",
+                      help="the late rule of the last hand the first challenger follows, the second, its own "
+                           "checkpoint, playing plain (see neural.late_rules); played only on an app named with "
+                           "--app")
+    play.add_argument("--app", default=APP,
+                      help=f"the deployed app whose ruler the calls are spawned on; {APP}, the live app, unless "
+                           "another is named, which the series then keeps")
+    play.add_argument("--looks", type=int, default=None,
+                      help="how many looks the rule takes, in place of the usual four")
+    play.add_argument("--per-look", type=int, default=None,
+                      help="how many seeds a look covers, in place of the usual five, or ten for a small effect")
+    play.add_argument("--bound", type=float, default=0.0,
+                      help="the |z| a look must pass to stop the series, in place of Pocock's for the looks")
     play.add_argument("--run", default="w1012-run")
     play.add_argument("--local", type=Path, required=True, help=LOCAL)
     read = commands.add_parser("looks", help="mirror a series' reports and read its looks")
@@ -957,9 +1101,20 @@ def main() -> None:
     if args.command == "series":
         settings = {name: getattr(args, name) for name in SERIES}
         settings.update({name: getattr(args, name) for name in OPTIONAL if getattr(args, name)})
+        if not args.app:
+            parser.error("--app names a deployed app")
+        if args.app != APP:
+            # Kept only where it is not the live app, so that a series
+            # registered before there was a choice resumes as it was.
+            settings["app"] = args.app
         problem = asking_problem(settings)
         if problem:
             parser.error(problem)
+        for name in ("looks", "per_look"):
+            if getattr(args, name) is not None and getattr(args, name) <= 0:
+                parser.error(f"--{name.replace('_', '-')} must be a positive whole number")
+        if args.bound < 0:
+            parser.error("--bound is a size of z, nought for Pocock's")
     if args.command == "looks" and args.against:
         # As `reading` refuses it, but before the series is mirrored.
         refuse_paired(Series(args.local / args.tag), Series(args.local / args.against))
@@ -983,7 +1138,9 @@ def main() -> None:
         for line in reading(modal, series, series.beside(args.against) if args.against else None):
             print(line)
         return
-    rule = looks.design(args.expected, what_of(settings), args.first_seed)
+    rule = looks.design(args.expected, what_of(settings), args.first_seed, looks=args.looks,
+                        per_look=args.per_look, bound=args.bound)
+    require_ruler(modal, app_of(settings))
     if args.against:
         other = series.beside(args.against)
         mirror(modal, other)

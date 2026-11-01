@@ -1263,7 +1263,7 @@ impl Hand {
         forbidden
     }
 
-    fn apply_win(&mut self, winners: Vec<(Wind, Score)>, discarder: Option<Wind>) {
+    pub(crate) fn apply_win(&mut self, winners: Vec<(Wind, Score)>, discarder: Option<Wind>) {
         // Allocate bets exactly once. Every riichi winner gets their own bet
         // back; the first winner in turn order collects the remaining pool.
         let mut pool = self.riichi_sticks;
