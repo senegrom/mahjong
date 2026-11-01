@@ -1,19 +1,26 @@
 """Running rulers on Modal from the desktop (`neural.ruler_cloud`), with the
 Modal client stood in for: a series is registered before its first call and
-keeps what it plays and every field of its rule; it spawns one look's seeds
-at a time and stops where its rule says, on the comparison it was registered
-with (two challengers played in each call, or one read against another
-series deal by deal), never on the challenger against the incumbent once a
-second player is named; it spawns a failed seed again with its own seed,
-never one in Modal's queue, and says the queue by Modal's count; it gives a
-call Modal cannot be asked about an hour of polls and then stops without
-spawning its seed again, keeps every report locally and reads what the
-volume kept; what it could not play or read is refused before anything is
-registered, and a series of two challengers is not read against another,
-even one only the volume holds; and the timing says, in a fixed order,
-whether the ruler played the old duel's games, by its arena or by its graphs
-if not, and how much faster, keeps each report whole or not at all, and run
-again it spawns again only the ways whose call failed."""
+keeps what it plays, the app it is played on and every field of its rule,
+one look of twenty read at a bound of its own included; it spawns one
+look's seeds at a time and stops where its rule says, on the comparison it
+was registered with (two challengers played in each call, or one read
+against another series deal by deal), never on the challenger against the
+incumbent once a second player is named; it spawns a failed seed again with
+its own seed, never one whose call failed on an argument the app does not
+take and never one in Modal's queue, and says the queue by Modal's count;
+it gives a call Modal cannot be asked about an hour of polls and then stops
+without spawning its seed again, keeps every report locally and reads what
+the volume kept; a report that fails the all-last dama check or a late
+rule's stops the series for good, kept, with no seed spawned again and no
+look read; what it may not play or read is refused before anything is
+registered, the all-last dama rule or a late rule on the live app, on two
+checkpoints, asked unalike or both at once among it, as is an app with no
+ruler, and a series of two challengers is not read against another, even
+one only the volume holds; and the timing
+says, in a fixed order, whether the ruler played
+the old duel's games, by its arena or by its graphs if not, and how much
+faster, keeps each report whole or not at all, and run again it spawns again
+only the ways whose call failed."""
 
 import contextlib
 import io
@@ -49,12 +56,15 @@ class Modal:
     it raises, and a ruler's report lands on the volume as `modal_app.ruler`
     keeps it. Modal counts a function's queue from the states its calls were
     last polled in. The first `refusals` launches are refused, as is any
-    launch `refused(function, arguments)` says Modal refuses at that moment."""
+    launch `refused(function, arguments)` says Modal refuses at that moment.
+    The apps of `missing` have nothing deployed: a function of theirs is
+    not found once looked up."""
 
-    def __init__(self, answer, refusals: int = 0, queue=(), refused=None):
+    def __init__(self, answer, refusals: int = 0, queue=(), refused=None, missing=()):
         self.answer = answer
         self.refusals = refusals
         self.refused = refused or (lambda name, arguments: False)
+        self.missing = set(missing)
         self.queue = queue if callable(queue) else (lambda name, arguments: queue)
         self.spawned: list[tuple[str, dict]] = []
         self.results: dict[str, object] = {}
@@ -66,6 +76,8 @@ class Modal:
         self.files: dict[str, bytes] = {}
         self.uploaded: dict[str, str] = {}
         self.options: dict[str, dict] = {}
+        # Every function asked for, by app, to spawn on or to count the queue of.
+        self.named: list[tuple[str, str]] = []
         self.exception = SimpleNamespace(NotFoundError=NotFound, ResourceExhaustedError=Refused,
                                          ConnectionError=Unreachable)
         self.Function = SimpleNamespace(from_name=self.function)
@@ -73,6 +85,7 @@ class Modal:
         self.Volume = SimpleNamespace(from_name=lambda name: self)
 
     def function(self, app, name):
+        self.named.append((app, name))
         options = {}
 
         def with_options(**chosen):
@@ -100,7 +113,12 @@ class Modal:
                     self.landing[call_id] = {f"rulers/{arguments['tag']}/seed-{arguments['seed']}.json": text.encode()}
             return SimpleNamespace(object_id=call_id)
 
-        function = SimpleNamespace(spawn=spawn, with_options=with_options,
+        def hydrate():
+            if app in self.missing:
+                raise NotFound(f"Lookup failed for Function '{name}' from the '{app}' app: App '{app}' not found")
+            return function
+
+        function = SimpleNamespace(spawn=spawn, with_options=with_options, hydrate=hydrate,
                                    get_current_stats=lambda: self.stats(name))
         return function
 
@@ -193,6 +211,54 @@ SETTINGS = {"challenger": "history/gen-00910", "also": "history/gen-00810", "aga
 #: the old duel asked, on rulers of fifty deals.
 AGAINST = {**SETTINGS, "challenger": "history/gen-01010", "also": "", "against": "g910", "games": 50,
            "questions": "seating", "skip_forced": False, "preview_reach": False}
+#: 910 with the all-last dama rule against itself plain, on an app of its own.
+RULED = {**SETTINGS, "also": SETTINGS["challenger"], "all_last_dama": "first", "app": "mahjong-rules"}
+#: What the ruled arm of a paired call says of the rule, and the pair's
+#: check, as `neural.ruler` writes them where the rule fired at two tables
+#: and the arms' games ended differently at one of them.
+ACCOUNT = {"riichi": 4, "fired": 3, "tables": [1, 7], "hands": 2, "kept": {"no_yaku": 1, "short": 0, "dead": 0},
+           "riichi_after_firing": 0}
+CHECKED = {"differing": 1, "violations": []}
+
+
+def ruled_report(seed: int, gap: float, challenger: str = "history/gen-00910", account: dict = ACCOUNT,
+                 plain: dict | None = None, check: dict | None = CHECKED) -> dict:
+    """A paired call of one checkpoint with the all-last dama rule, the
+    first, and plain, as `neural.ruler` reports one: the first `gap` ahead
+    on every deal, its account of the rule, the second arm's if `plain`
+    gives one, and the pair's check unless `check` is None."""
+    report = paired_report(seed, gap)
+    for arm in report["arms"]:
+        arm["challenger"] = challenger
+    report["arms"][0]["all_last"] = dict(account)
+    if plain is not None:
+        report["arms"][1]["all_last"] = dict(plain)
+    if check is not None:
+        report["all_last_check"] = dict(check)
+    return report
+
+
+#: 910 with the late rule `decline-last` against itself plain, on an app of
+#: its own, and what the ruled arm says of it where it fired at one table.
+LATE = {**SETTINGS, "also": SETTINGS["challenger"], "late_rule": "decline-last", "app": "mahjong-rules"}
+LATE_ACCOUNT = {"rule": "decline-last", "judged": 5, "fired": 2, "tables": [7], "hands": 2,
+                "kept": {"not_last": 3}, "kept_after_firing": 0}
+
+
+def late_report(seed: int, gap: float, challenger: str = "history/gen-00910", account: dict = LATE_ACCOUNT,
+                plain: dict | None = None, check: dict | None = CHECKED) -> dict:
+    """A paired call of one checkpoint with a late rule, the first, and
+    plain, as `neural.ruler` reports one (see `ruled_report`), the pair's
+    check as `late_rule_check`."""
+    report = paired_report(seed, gap)
+    for arm in report["arms"]:
+        arm["challenger"] = challenger
+    report["arms"][0]["late_rule"] = dict(account)
+    if plain is not None:
+        report["arms"][1]["late_rule"] = dict(plain)
+    if check is not None:
+        report["late_rule_check"] = dict(check)
+    return report
 
 
 class SeriesTests(unittest.TestCase):
@@ -425,6 +491,196 @@ class SeriesTests(unittest.TestCase):
             series.register(plain, rule)
         self.assertIsNone(ruler_cloud.asking_problem(settings))
         self.assertIn("--also", ruler_cloud.asking_problem({**settings, "also": "", "average_suits": "second"}))
+
+    def test_a_checkpoint_against_itself_with_the_all_last_dama_rule_on_an_app_of_its_own(self):
+        """Every call says which challenger follows the rule, and is spawned
+        on the app the series names, whose queue is the one counted; the
+        app is never a call's argument. The looks name the ruled arm apart
+        from the same checkpoint played plain, and the series keeps both."""
+        settings = RULED
+
+        def answer(name, arguments):
+            return ruled_report(arguments["seed"], 0.3, arguments["challenger"])
+
+        modal = Modal(answer, queue=("queued",))
+        series = ruler_cloud.Series(self.root / "g910-dama")
+        rule = series.register(dict(settings), looks.design(None, ruler_cloud.what_of(settings)))
+        ruler_cloud.upload(modal, series)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            state = ruler_cloud.run_series(modal, series, dict(settings), rule, poll=0)
+        self.assertEqual(state, "first")
+        self.assertEqual(len(modal.spawned), 5)
+        for _name, arguments in modal.spawned:
+            self.assertEqual((arguments["all_last_dama"], arguments["also"]), ("first", "history/gen-00910"))
+            self.assertNotIn("app", arguments)
+            self.assertNotIn("average_suits", arguments)
+        self.assertEqual(set(modal.named), {("mahjong-rules", "ruler")})
+        self.assertIn("Modal's queue holds 5 calls of the ruler with no container", out.getvalue())
+        ruled = "history/gen-00910 with all-last dama"
+        self.assertIn(f"comparing: {ruled} against history/gen-00910 at zoo/mortal_298k's table", out.getvalue())
+        self.assertIn(f"stopped at look 1: {ruled} is the stronger", out.getvalue())
+        self.assertEqual(ruler_cloud.names_of(series), (ruled, "history/gen-00910"))
+        kept = json.loads(modal.uploaded["rulers/g910-dama/series.json"])
+        self.assertEqual((kept["all_last_dama"], kept["app"]), ("first", "mahjong-rules"))
+        for name in ("all_last_dama", "app"):
+            with self.subTest(dropped=name), self.assertRaisesRegex(SystemExit, name):
+                series.register({key: value for key, value in settings.items() if key != name}, rule)
+        with self.assertRaisesRegex(SystemExit, "app"):
+            series.register({**settings, "app": "mahjong-bench"}, rule)
+        self.assertIsNone(ruler_cloud.asking_problem(settings))
+        self.assertIsNone(ruler_cloud.asking_problem({**settings, "average_suits": "both"}))
+        for changed, why in (({"app": ""}, "--app"), ({"also": "", "all_last_dama": "both"}, "--also"),
+                             ({"preview_reach": False}, "--preview-reach"),
+                             ({"questions": "seating", "skip_forced": False, "preview_reach": False},
+                              "--questions fixed"),
+                             # Its check holds only of one checkpoint played twice, asked alike.
+                             ({"also": ""}, "--also must name the challenger"),
+                             ({"also": "history/gen-00810"}, "--also must name the challenger"),
+                             ({"average_suits": "first"}, "--average-suits first averages one of them"),
+                             ({"average_suits": "second"}, "--average-suits second averages one of them")):
+            with self.subTest(changed=changed):
+                problem = ruler_cloud.asking_problem(
+                    {key: value for key, value in {**settings, **changed}.items() if value != "" or key != "app"})
+                self.assertIn(why, problem)
+
+    def test_a_report_that_fails_the_all_last_check_stops_the_series_and_is_kept(self):
+        """The arms played otherwise where the rule did not fire, the ruled
+        arm never fired, the plain arm followed the rule, or the report says
+        nothing of the check: the series is invalid. It stops at that report,
+        which is kept, spawning nothing more and no seed again; run again,
+        it stops before it spawns anything; and its looks are not read."""
+        broken = looks.design().seeds[2]
+        violation = {"deal": 4, "place": 1, "tables": [1004, 5004]}
+        for name, failing, why in (
+            ("violations", {"check": {"differing": 3, "violations": [violation]}},
+             "at 1 of the 3 deals and seats whose tables ended differently in the two arms, the rule fired at "
+             "neither table"),
+            ("never fired", {"account": {**ACCOUNT, "fired": 0, "tables": [], "hands": 0}},
+             "the first challenger's rule never fired (4 riichi judged)"),
+            ("plain ruled", {"plain": ACCOUNT}, "the second challenger was to play plain"),
+            ("unchecked", {"check": None}, "it says nothing of the check"),
+        ):
+            def answer(function, arguments, failing=failing):
+                return ruled_report(arguments["seed"], 0.3, **(failing if arguments["seed"] == broken else {}))
+
+            modal = Modal(answer)
+            series = ruler_cloud.Series(self.root / name.replace(" ", "-"))
+            rule = series.register(dict(RULED), looks.design(None, ruler_cloud.what_of(RULED)))
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as stop:
+                    ruler_cloud.run_series(modal, series, dict(RULED), rule, poll=0)
+                message = str(stop.exception.code)
+                self.assertIn(f"seed {broken}'s report fails the all-last dama check: {why}", message)
+                self.assertIn("The series is invalid: none of its looks is read and no seed of it is spawned again",
+                              message)
+                self.assertEqual([arguments["seed"] for _name, arguments in modal.spawned], looks.design().seeds[:5])
+                self.assertIn(broken, series.reports())
+                with self.assertRaisesRegex(SystemExit, f"seed {broken}'s report fails"):
+                    ruler_cloud.run_series(modal, series, dict(RULED), rule, poll=0)
+                self.assertEqual(len(modal.spawned), 5)
+                with self.assertRaisesRegex(SystemExit, "none of its looks is read"):
+                    ruler_cloud.reading(modal, series)
+
+    def test_a_checkpoint_against_itself_with_a_late_rule_on_an_app_of_its_own(self):
+        """Every call says the rule, and is spawned on the app the series
+        names; the looks name the ruled arm by its rule, apart from the same
+        checkpoint played plain, and the series keeps the rule and the app."""
+        def answer(name, arguments):
+            return late_report(arguments["seed"], 0.3, arguments["challenger"])
+
+        modal = Modal(answer)
+        series = ruler_cloud.Series(self.root / "g910-decline")
+        rule = series.register(dict(LATE), looks.design(None, ruler_cloud.what_of(LATE)))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            state = ruler_cloud.run_series(modal, series, dict(LATE), rule, poll=0)
+        self.assertEqual(state, "first")
+        self.assertEqual(len(modal.spawned), 5)
+        for _name, arguments in modal.spawned:
+            self.assertEqual((arguments["late_rule"], arguments["also"]), ("decline-last", "history/gen-00910"))
+            self.assertNotIn("all_last_dama", arguments)
+            self.assertNotIn("app", arguments)
+        self.assertEqual(set(modal.named), {("mahjong-rules", "ruler")})
+        ruled = "history/gen-00910 declining last-place wins"
+        self.assertIn(f"comparing: {ruled} against history/gen-00910 at zoo/mortal_298k's table", out.getvalue())
+        self.assertIn(f"stopped at look 1: {ruled} is the stronger", out.getvalue())
+        self.assertEqual(ruler_cloud.names_of(series), (ruled, "history/gen-00910"))
+        kept = json.loads((series.folder / "series.json").read_text(encoding="utf-8"))
+        self.assertEqual((kept["late_rule"], kept["app"]), ("decline-last", "mahjong-rules"))
+        with self.assertRaisesRegex(SystemExit, "late_rule"):
+            series.register({**LATE, "late_rule": "wide-dama"}, rule)
+        self.assertIsNone(ruler_cloud.asking_problem(LATE))
+        self.assertIsNone(ruler_cloud.asking_problem({**LATE, "average_suits": "both"}))
+        for changed, why in (({"app": ""}, "--app"), ({"all_last_dama": "first"}, "two rules of the last hand"),
+                             ({"preview_reach": False}, "--preview-reach"),
+                             ({"questions": "seating", "skip_forced": False, "preview_reach": False},
+                              "--questions fixed"),
+                             ({"also": ""}, "--also must name the challenger"),
+                             ({"also": "history/gen-00810"}, "--also must name the challenger"),
+                             ({"average_suits": "first"}, "--average-suits first averages one of them")):
+            with self.subTest(changed=changed):
+                problem = ruler_cloud.asking_problem(
+                    {key: value for key, value in {**LATE, **changed}.items() if value != "" or key != "app"})
+                self.assertIn(why, problem)
+
+    def test_a_report_that_fails_a_late_rules_check_stops_the_series_and_is_kept(self):
+        """The arms played otherwise where the rule did not fire, the ruled
+        arm judged nothing or followed another rule, the plain arm followed
+        one, or the report says nothing of the check: the series is invalid,
+        stops at that report, which is kept, spawns nothing more, and run
+        again stops before it spawns anything; its looks are not read."""
+        broken = looks.design().seeds[2]
+        violation = {"deal": 4, "place": 1, "tables": [1004, 5004]}
+        for name, failing, why in (
+            ("violations", {"check": {"differing": 3, "violations": [violation]}},
+             "at 1 of the 3 deals and seats whose tables ended differently in the two arms, the rule fired at "
+             "neither table"),
+            ("judged nothing", {"account": {**LATE_ACCOUNT, "judged": 0, "fired": 0, "tables": [], "hands": 0}},
+             "the first challenger's decline-last rule judged nothing"),
+            ("another rule", {"account": {**LATE_ACCOUNT, "rule": "dealer-noten"}},
+             "the first challenger was to follow decline-last, and its report says it followed dealer-noten"),
+            ("plain ruled", {"plain": LATE_ACCOUNT}, "the second challenger was to play plain"),
+            ("unchecked", {"check": None}, "it says nothing of the late rule's check"),
+        ):
+            def answer(function, arguments, failing=failing):
+                return late_report(arguments["seed"], 0.3, **(failing if arguments["seed"] == broken else {}))
+
+            modal = Modal(answer)
+            series = ruler_cloud.Series(self.root / f"late-{name.replace(' ', '-')}")
+            rule = series.register(dict(LATE), looks.design(None, ruler_cloud.what_of(LATE)))
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as stop:
+                    ruler_cloud.run_series(modal, series, dict(LATE), rule, poll=0)
+                message = str(stop.exception.code)
+                self.assertIn(f"seed {broken}'s report fails the late rule's check: {why}", message)
+                self.assertIn("The series is invalid: none of its looks is read and no seed of it is spawned again",
+                              message)
+                self.assertEqual([arguments["seed"] for _name, arguments in modal.spawned], looks.design().seeds[:5])
+                self.assertIn(broken, series.reports())
+                with self.assertRaisesRegex(SystemExit, f"seed {broken}'s report fails"):
+                    ruler_cloud.run_series(modal, series, dict(LATE), rule, poll=0)
+                self.assertEqual(len(modal.spawned), 5)
+                with self.assertRaisesRegex(SystemExit, "none of its looks is read"):
+                    ruler_cloud.reading(modal, series)
+
+    def test_a_call_failed_on_an_argument_the_app_does_not_take_is_never_spawned_again(self):
+        """As every call fails on an app deployed from a checkout without
+        the rule: the series stops at the first such failure, spawning no
+        seed again, and run again it stops at the same calls."""
+        def answer(name, arguments):
+            raise TypeError("ruler() got an unexpected keyword argument 'all_last_dama'")
+
+        modal = Modal(answer)
+        series = ruler_cloud.Series(self.root / "old-app")
+        rule = series.register(dict(RULED), looks.design(None, ruler_cloud.what_of(RULED)))
+        for run in range(2):
+            with self.subTest(run=run), contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaises(SystemExit) as stop:
+                ruler_cloud.run_series(modal, series, dict(RULED), rule, poll=0)
+            message = str(stop.exception.code)
+            self.assertIn(f"seed {looks.design().seeds[0]}'s call failed on an argument mahjong-rules's code does "
+                          "not take, all_last_dama (TypeError: ruler() got an unexpected keyword argument", message)
+            self.assertIn("register the series under a new tag", message)
+            self.assertEqual([arguments["seed"] for _name, arguments in modal.spawned], looks.design().seeds[:5])
 
     def test_a_registered_series_keeps_what_it_plays_and_its_rule(self):
         series = ruler_cloud.Series(self.root / "kept")
@@ -746,6 +1002,175 @@ class CommandLineTests(unittest.TestCase):
                 else:
                     self.assertNotIn("average_suits", settings)
                     self.assertTrue(all("average_suits" not in arguments for _name, arguments in modal.spawned))
+
+    def test_a_series_holds_the_all_last_dama_rule_and_its_app_only_when_asked_for(self):
+        """Asked for, the rule and the app are kept in the series, every
+        call is told the rule and is spawned on the app, whose queue is the
+        one counted; asked for neither, the series is registered and its
+        calls made as before, on the live app."""
+        def answer(name, arguments):
+            if arguments.get("all_last_dama"):
+                return ruled_report(arguments["seed"], 0.3, arguments["challenger"])
+            return paired_report(arguments["seed"], 0.3)
+
+        fixed = ["--questions", "fixed", "--preview-reach"]
+        for asked in ([], ["--all-last-dama", "first", "--app", "mahjong-rules"]):
+            modal = Modal(answer)
+            with self.subTest(asked=asked), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(ruler_cloud.time, "sleep"):
+                code, _err = self.run_main("series", "g1410-dama", "history/gen-01410", "zoo/mortal_298k",
+                                           "--also", "history/gen-01410", *fixed, *asked, "--local", folder,
+                                           modal=modal)
+                settings = json.loads((Path(folder) / "g1410-dama" / "series.json").read_text(encoding="utf-8"))
+                self.assertEqual(code, 0)
+                self.assertEqual(len(modal.spawned), 5)
+                if asked:
+                    self.assertEqual((settings["all_last_dama"], settings["app"]), ("first", "mahjong-rules"))
+                    self.assertTrue(all(arguments["all_last_dama"] == "first" for _name, arguments in modal.spawned))
+                    self.assertEqual(set(modal.named), {("mahjong-rules", "ruler")})
+                else:
+                    self.assertNotIn("all_last_dama", settings)
+                    self.assertNotIn("app", settings)
+                    self.assertTrue(all("all_last_dama" not in arguments for _name, arguments in modal.spawned))
+                    self.assertEqual(set(modal.named), {("mahjong-train", "ruler")})
+
+    def test_the_all_last_dama_rule_is_refused_on_the_live_app_and_without_its_switches(self):
+        """Refused before the client is asked or a folder is made: on the
+        live app, whose code a series' checkout must not change; without
+        the switches the rule needs, fixed questions and the reach's tile
+        previewed; with one challenger averaging over the suits, so that the
+        two are asked unalike; and unless `--also` names the challenger
+        again, since the rule compares one checkpoint with itself."""
+        with tempfile.TemporaryDirectory() as folder:
+            series = ("series", "t", "history/gen-01410", "zoo/mortal_298k", "--also", "history/gen-01410",
+                      "--local", folder)
+            fixed = ["--questions", "fixed", "--preview-reach"]
+            for extra, why in (
+                (["--all-last-dama", "first", *fixed], "--app"),
+                (["--all-last-dama", "first", *fixed, "--app", "mahjong-train"], "--app"),
+                (["--all-last-dama", "first", "--app", "mahjong-rules"], "--questions fixed and --preview-reach"),
+                (["--all-last-dama", "first", "--questions", "fixed", "--app", "mahjong-rules"], "--preview-reach"),
+                (["--all-last-dama", "first", *fixed, "--app", "mahjong-rules", "--average-suits", "first"],
+                 "--average-suits first averages one of them"),
+            ):
+                with self.subTest(extra=extra):
+                    code, err = self.run_main(*series, *extra)
+                    self.assertEqual(code, 2)
+                    self.assertIn(why, err)
+            # The rule compares one checkpoint with itself.
+            for extra, why in ((["--all-last-dama", "second"], "name it with --also"),
+                               (["--all-last-dama", "first"], "--also must name the challenger"),
+                               (["--also", "history/gen-00810", "--all-last-dama", "first"],
+                                "--also must name the challenger")):
+                with self.subTest(extra=extra):
+                    code, err = self.run_main("series", "t", "history/gen-01410", "zoo/mortal_298k", *extra, *fixed,
+                                              "--app", "mahjong-rules", "--local", folder)
+                    self.assertEqual(code, 2)
+                    self.assertIn(why, err)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_a_series_holds_a_late_rule_only_when_asked_for(self):
+        """Asked for, the rule and the app are kept in the series and every
+        call is told the rule on that app; the rule names the first
+        challenger, and a series follows one rule of the last hand."""
+        def answer(name, arguments):
+            return late_report(arguments["seed"], 0.3, arguments["challenger"],
+                               account={**LATE_ACCOUNT, "rule": arguments["late_rule"]})
+
+        fixed = ["--questions", "fixed", "--preview-reach"]
+        for rule in ("wide-dama", "decline-last", "dealer-noten"):
+            modal = Modal(answer)
+            with self.subTest(rule=rule), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(ruler_cloud.time, "sleep"):
+                code, _err = self.run_main("series", "g1410-late", "history/gen-01410", "zoo/mortal_298k",
+                                           "--also", "history/gen-01410", *fixed, "--late-rule", rule, "--app",
+                                           "mahjong-rules", "--local", folder, modal=modal)
+                settings = json.loads((Path(folder) / "g1410-late" / "series.json").read_text(encoding="utf-8"))
+                self.assertEqual(code, 0)
+                self.assertEqual((settings["late_rule"], settings["app"]), (rule, "mahjong-rules"))
+                self.assertNotIn("all_last_dama", settings)
+                self.assertTrue(all(arguments["late_rule"] == rule for _name, arguments in modal.spawned))
+                self.assertEqual(set(modal.named), {("mahjong-rules", "ruler")})
+
+    def test_a_late_rule_is_refused_on_the_live_app_without_its_switches_and_beside_the_dama_rule(self):
+        with tempfile.TemporaryDirectory() as folder:
+            series = ("series", "t", "history/gen-01410", "zoo/mortal_298k", "--also", "history/gen-01410",
+                      "--local", folder)
+            fixed = ["--questions", "fixed", "--preview-reach"]
+            for extra, why in (
+                (["--late-rule", "wide-dama", *fixed], "--app"),
+                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-train"], "--app"),
+                (["--late-rule", "wide-dama", "--app", "mahjong-rules"], "--questions fixed and --preview-reach"),
+                (["--late-rule", "wide-dama", "--questions", "fixed", "--app", "mahjong-rules"], "--preview-reach"),
+                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-rules", "--average-suits", "first"],
+                 "--average-suits first averages one of them"),
+                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-rules", "--all-last-dama", "first"],
+                 "two rules of the last hand"),
+                (["--late-rule", "blind-dama", *fixed, "--app", "mahjong-rules"], "invalid choice"),
+            ):
+                with self.subTest(extra=extra):
+                    code, err = self.run_main(*series, *extra)
+                    self.assertEqual(code, 2)
+                    self.assertIn(why, err)
+            for extra in (["--also", "history/gen-00810"], []):
+                with self.subTest(extra=extra):
+                    code, err = self.run_main("series", "t", "history/gen-01410", "zoo/mortal_298k", *extra, *fixed,
+                                              "--late-rule", "decline-last", "--app", "mahjong-rules", "--local",
+                                              folder)
+                    self.assertEqual(code, 2)
+                    self.assertIn("--also must name the challenger", err)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_a_series_on_an_app_with_no_ruler_is_refused_before_anything_is_registered(self):
+        """A mistyped or stopped app would fail every call, and a series
+        registered on it could not be resumed on the right one."""
+        modal = Modal(lambda name, arguments: ruled_report(arguments["seed"], 0.3), missing={"mahjong-rulez"})
+        with tempfile.TemporaryDirectory() as folder:
+            code, _err = self.run_main("series", "g1410-dama", "history/gen-01410", "zoo/mortal_298k", "--also",
+                                       "history/gen-01410", "--questions", "fixed", "--preview-reach",
+                                       "--all-last-dama", "first", "--app", "mahjong-rulez", "--local", folder,
+                                       modal=modal)
+            self.assertIn("mahjong-rulez has no ruler deployed (NotFound: Lookup failed for Function 'ruler'", code)
+            self.assertIn("nothing was registered", code)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+        self.assertEqual((modal.spawned, modal.uploaded, modal.named), ([], {}, [("mahjong-rulez", "ruler")]))
+
+    def test_a_series_resumed_on_another_app_is_refused(self):
+        def answer(name, arguments):
+            return paired_report(arguments["seed"], 0.3)
+
+        with tempfile.TemporaryDirectory() as folder, patch.object(ruler_cloud.time, "sleep"):
+            arguments = ("series", "g1010-g910", "history/gen-01010", "zoo/mortal_298k", "--also",
+                         "history/gen-00910", "--local", folder)
+            code, _err = self.run_main(*arguments, "--app", "mahjong-bench", modal=Modal(answer))
+            self.assertEqual(code, 0)
+            for elsewhere in ([], ["--app", "mahjong-rules"]):
+                with self.subTest(elsewhere=elsewhere):
+                    code, _err = self.run_main(*arguments, *elsewhere, modal=Modal(answer))
+                    self.assertIn("registered with other app", code)
+            code, err = self.run_main(*arguments, "--app", "")
+            self.assertEqual(code, 2)
+            self.assertIn("--app names a deployed app", err)
+
+    def test_a_rule_of_one_look_is_registered_as_asked(self):
+        """`--looks 1 --per-look 20 --bound 2.0` registers exactly that rule,
+        read at z above 2.0, its twenty seeds spawned at once; nonsense is
+        refused before anything is registered."""
+        modal = Modal(lambda name, arguments: paired_report(arguments["seed"], 0.0))
+        with tempfile.TemporaryDirectory() as folder, patch.object(ruler_cloud.time, "sleep"):
+            code, _err = self.run_main("series", "g1010-g910", "history/gen-01010", "zoo/mortal_298k", "--also",
+                                       "history/gen-00910", "--looks", "1", "--per-look", "20", "--bound", "2.0",
+                                       "--local", folder, modal=modal)
+            rule = looks.Design.load(Path(folder) / "g1010-g910" / "design.json")
+            self.assertEqual(code, 0)
+            self.assertEqual((rule.looks, rule.per_look, rule.bound), (1, 20, 2.0))
+            self.assertEqual(rule.seeds, looks.design().seeds)
+            self.assertEqual(sorted(arguments["seed"] for _name, arguments in modal.spawned), rule.seeds)
+            for extra in (["--looks", "0"], ["--per-look", "-1"], ["--bound", "-2"]):
+                with self.subTest(extra=extra):
+                    code, _err = self.run_main("series", "t", "x", "y", *extra, "--local", folder)
+                    self.assertEqual(code, 2)
+            self.assertFalse((Path(folder) / "t").exists())
 
     def test_a_second_challenger_that_averages_must_be_named(self):
         with tempfile.TemporaryDirectory() as folder:
