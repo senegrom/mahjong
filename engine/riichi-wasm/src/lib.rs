@@ -85,6 +85,7 @@ fn meanings(action: usize) -> Vec<usize> {
 }
 
 mod analysis;
+mod last_hand;
 #[path = "mortal_log.rs"]
 mod mortal_log;
 mod yaku_view;
@@ -846,6 +847,72 @@ impl Game {
         allowed.iter().map(|flag| u8::from(*flag)).collect()
     }
 
+    /// The reach of the opponent owing a decision, previewed on a copy
+    /// before anything is played or recorded: the planes
+    /// `opponent_observation_mortal` gives once `play_opponent_mortal(37)`
+    /// has noted the reach, asked before the last hand's rules decide
+    /// whether the reach is declared at all. The plain planes where that
+    /// seat may not declare, as `agent_observation_after_reach` gives them,
+    /// and nothing but zeros when nobody owes a decision.
+    pub fn opponent_observation_after_reach(&mut self) -> Vec<f32> {
+        self.tell_mortal();
+        self.opponent_preview(false)
+    }
+
+    /// The same of the renamed game. Its moves are
+    /// `opponent_mask_after_reach`'s renamed.
+    pub fn opponent_observation_after_reach_renamed(&mut self) -> Vec<f32> {
+        self.tell_renamed();
+        self.opponent_preview(true)
+    }
+
+    /// The planes of the opponent owing a decision once it has declared a
+    /// reach, where it may, or nothing but zeros when nobody owes one.
+    fn opponent_preview(&self, renamed: bool) -> Vec<f32> {
+        let (planes, positions) = obs_shape(MORTAL_VERSION);
+        match self.opponent_owing() {
+            Some(seat) => {
+                let reachable = may_reach_from(&self.hand, seat);
+                self.mortal_planes(self.hand_seating[seat.index()], reachable, renamed)
+            }
+            None => vec![0.0; planes * positions],
+        }
+    }
+
+    /// Which tiles the reach of the opponent owing a decision may discard,
+    /// in Mortal's numbering, or none when nobody owes a decision.
+    pub fn opponent_mask_after_reach(&self) -> Vec<u8> {
+        match self.opponent_owing() {
+            Some(seat) => mortal_mask_of(&self.hand, seat, true),
+            None => vec![false; MORTAL_ACTIONS],
+        }
+        .iter()
+        .map(|flag| u8::from(*flag))
+        .collect()
+    }
+
+    /// The all-last dama codes of the opponent owing a decision, a byte a
+    /// tile kind (`last_hand::dama_codes`). Zeros when nobody owes one, in a
+    /// claim window, and while a reach that opponent has declared still
+    /// names its tile: the declaration is recorded, and nothing takes it
+    /// back.
+    pub fn opponent_all_last_dama(&self) -> Vec<u8> {
+        match self.opponent_owing() {
+            Some(seat) if !self.pending_reach_for(seat) => last_hand::dama_codes(&self.hand, seat),
+            _ => last_hand::dama_absent(),
+        }
+    }
+
+    /// The decline-last code of the opponent owing a decision
+    /// (`last_hand::decline_code`), or 0 when nobody owes one. In a claim
+    /// window it is asked of the seat asked now, whichever of the seats the
+    /// window asks that is: the window changes nothing until every one has
+    /// answered.
+    pub fn opponent_all_last_decline(&self) -> u8 {
+        self.opponent_owing()
+            .map_or(0, |seat| last_hand::decline_code(&self.hand, seat))
+    }
+
     /// Plays one of Mortal's moves, or, for a reach, notes that the tile it
     /// discards is still to be named.
     ///
@@ -933,6 +1000,17 @@ impl Game {
             .iter()
             .map(|flag| u8::from(*flag))
             .collect()
+    }
+
+    /// The followed seat's all-last dama codes, a byte a tile kind
+    /// (`last_hand::dama_codes`): zeros but at that seat's own move.
+    pub fn agent_all_last_dama(&self) -> Vec<u8> {
+        last_hand::dama_codes(&self.hand, self.seat)
+    }
+
+    /// The followed seat's decline-last code (`last_hand::decline_code`).
+    pub fn agent_all_last_decline(&self) -> u8 {
+        last_hand::decline_code(&self.hand, self.seat)
     }
 
     /// Our move that one of Mortal's means for the followed seat, or -1
@@ -1523,6 +1601,28 @@ impl Game {
             .iter()
             .map(|flag| u8::from(*flag))
             .collect())
+    }
+
+    /// The all-last dama codes of that decision, a byte a tile kind
+    /// (`last_hand::dama_codes`): what `agent_all_last_dama` answered then,
+    /// read from the hand the decision was made in. Zeros but at the
+    /// player's own move.
+    pub fn review_all_last_dama(&self, index: usize) -> Result<Vec<u8>, JsValue> {
+        let decision = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        Ok(last_hand::dama_codes(&decision.position, decision.seat))
+    }
+
+    /// The decline-last code of that decision (`last_hand::decline_code`),
+    /// as `agent_all_last_decline` answered it then.
+    pub fn review_all_last_decline(&self, index: usize) -> Result<u8, JsValue> {
+        let decision = self
+            .decisions
+            .get(index)
+            .ok_or_else(|| JsValue::from_str("No recorded decision at this index"))?;
+        Ok(last_hand::decline_code(&decision.position, decision.seat))
     }
 
     /// Our move that one of Mortal's meant at that decision, or -1.
@@ -2402,7 +2502,7 @@ mod ui_review_tests {
 
     /// East, a trained opponent, to act holding `hand`, which includes the
     /// tile it has just drawn, `drawn`, with nothing declared.
-    fn east_to_act(hand: &str, drawn: &str) -> Game {
+    pub(super) fn east_to_act(hand: &str, drawn: &str) -> Game {
         let mut game = Game::new(81.0, Some("neural".into()));
         game.player = 3;
         game.seat = Wind::North;
@@ -3760,7 +3860,7 @@ mod renamed_game_tests {
     /// A trained opponent's answer here, in Mortal's moves: a reach whenever
     /// one is open, then the first tile it may name, and otherwise the move
     /// its built-in player would make.
-    fn trained_answer(game: &mut Game) -> usize {
+    pub(super) fn trained_answer(game: &mut Game) -> usize {
         let seat = game.opponent_owing().expect("an opponent owes a move");
         let mask = game.opponent_mask_mortal();
         if game.pending_reach_for(seat) {
@@ -3791,7 +3891,7 @@ mod renamed_game_tests {
     }
 
     /// The player's move: what its own built-in player would do.
-    fn players_move(game: &mut Game) -> ActionView {
+    pub(super) fn players_move(game: &mut Game) -> ActionView {
         let (seat, player) = (game.seat, game.player);
         match game.hand.phase {
             Phase::Act => describe_action(game.bots[player].act(&game.hand)),
@@ -3918,5 +4018,530 @@ mod renamed_game_tests {
         assert!(compared.player_reaches > 0, "{compared:?}");
         assert_eq!(compared.reviewed, compared.player, "{compared:?}");
         assert!(compared.lookahead_renamed_otherwise > 0, "{compared:?}");
+    }
+}
+
+/// The last hand's codes as a game hands them to the page (`last_hand`): the
+/// opponent owing a decision, the followed seat and a recorded decision, each
+/// asked about its own seat alone, and the opponent's reach previewed before
+/// anything is played. The built tables are the core's own
+/// (`last_hand::tests`), each person sitting in the seat of their number.
+#[cfg(test)]
+mod last_hand_tests {
+    use super::*;
+    use crate::last_hand::dama_absent;
+    use crate::last_hand::tests::{claim, position, probe, ron, tile, tsumo};
+    use crate::renamed_game_tests::{players_move, trained_answer};
+    use crate::ui_review_tests::east_to_act;
+    use riichi_core::all_last::{Dama, Decline};
+    use riichi_core::hand::{ClaimedFrom, Meld, MeldKind};
+
+    /// The core's dama codes for the turn player, a byte a kind, as the
+    /// bindings hand them over.
+    fn core_dama(hand: &Hand) -> Vec<u8> {
+        hand.all_last_dama()
+            .iter()
+            .map(|code| *code as u8)
+            .collect()
+    }
+
+    /// A game at `hand` with the person playing in `player`'s seat and the
+    /// other three Trained, each of the four sitting in the seat of their
+    /// own number.
+    fn seated(hand: Hand, player: Wind) -> Game {
+        let mut game = Game::new(81.0, Some("neural".into()));
+        game.player = player.index();
+        game.seat = player;
+        game.hand_seating = [0, 1, 2, 3];
+        game.hand = hand;
+        game
+    }
+
+    /// `hand`, a turn player's table, with the log a deal of that turn would
+    /// have written: the tiles each seat holds, the turn player's without the
+    /// tile it has just drawn, and then that draw. A built table keeps the
+    /// log of the deal it changed, and Mortal's states, which are told the
+    /// log, must hold what the table holds before a plane is read.
+    fn told(mut hand: Hand) -> Hand {
+        let drawn = hand.drawn.expect("the turn player has drawn");
+        let hands = std::array::from_fn(|index| {
+            let mut held = hand.players[index].hand;
+            if Wind::ALL[index] == hand.turn {
+                held.remove(drawn);
+            }
+            held.tiles().collect()
+        });
+        hand.log = vec![
+            riichi_core::mjai::Event::StartKyoku {
+                round: hand.round,
+                kyoku: hand.kyoku,
+                honba: hand.counters,
+                kyotaku: hand.riichi_sticks,
+                indicator: hand.wall.dora_indicators()[0],
+                scores: hand.scores(),
+                hands,
+            },
+            riichi_core::mjai::Event::Tsumo {
+                actor: hand.turn,
+                tile: drawn,
+            },
+        ];
+        hand
+    }
+
+    /// The owing opponent's reach previewed before anything is played,
+    /// against the pending reach that `play_opponent_mortal(37)` leaves,
+    /// from which the page asked the reach's tile until now: the planes,
+    /// the renamed game's planes and the mask must be the same. Plays the
+    /// reach.
+    fn preview_is_the_pending_reach(game: &mut Game, at: &str) {
+        let preview = (
+            game.opponent_observation_after_reach(),
+            game.opponent_observation_after_reach_renamed(),
+            game.opponent_mask_after_reach(),
+        );
+        assert!(
+            game.play_opponent_mortal(MORTAL_REACH)
+                .expect("a reach is open"),
+            "{at}: a reach asks for its tile"
+        );
+        let pending = (
+            game.opponent_observation_mortal(),
+            game.opponent_observation_mortal_renamed(),
+            game.opponent_mask_mortal(),
+        );
+        // Compared whole rather than with assert_eq, which would print
+        // thirty-four thousand planes.
+        assert!(preview.0 == pending.0, "{at}: the planes differ");
+        assert!(preview.1 == pending.1, "{at}: the renamed planes differ");
+        assert_eq!(preview.2, pending.2, "{at}: the masks differ");
+    }
+
+    /// Dama codes that are not all zero code exactly the tiles a riichi may
+    /// throw, `reach` (Mortal's mask after a reach), 1 to 4, and every other
+    /// kind `seat` holds 5, as `neural/tests/test_all_last.py` holds
+    /// Python's to.
+    fn coded_as_the_mask(codes: &[u8], hand: &Hand, seat: Wind, reach: &[u8], at: &str) {
+        if codes.iter().all(|code| *code == Dama::Absent as u8) {
+            return;
+        }
+        let held = hand.players[seat.index()].hand;
+        for kind in Tile::all() {
+            let code = codes[kind.idx()];
+            if reach[kind.idx()] != 0 {
+                assert!(
+                    (1..=4).contains(&code),
+                    "{at}: riichi may throw {kind}, coded {code}"
+                );
+            } else if held.count(kind) > 0 {
+                assert_eq!(code, Dama::NotWaiting as u8, "{at}: {kind}");
+            } else {
+                assert_eq!(code, Dama::Absent as u8, "{at}: {kind} is not held");
+            }
+        }
+    }
+
+    /// The opponent owing a decision is asked at its own turn what the core
+    /// answers for the turn player, in a claim window about its own ron
+    /// alone, and about no dama while a reach it has declared still names
+    /// its tile.
+    #[test]
+    fn the_opponent_owing_a_decision_is_asked_what_the_core_answers_for_it() {
+        for hand in [probe(0), probe(1_500), tsumo(11_900), tsumo(12_000)] {
+            let want = (core_dama(&hand), hand.all_last_decline(Wind::North) as u8);
+            let game = seated(hand, Wind::South);
+            assert_eq!(game.opponent_owing(), Some(Wind::North));
+            assert_eq!(
+                (
+                    game.opponent_all_last_dama(),
+                    game.opponent_all_last_decline()
+                ),
+                want
+            );
+        }
+        let game = seated(probe(0), Wind::South);
+        assert_eq!(
+            game.opponent_all_last_dama()[tile("9p").idx()],
+            Dama::KeepsFirst as u8
+        );
+        let game = seated(tsumo(12_000), Wind::South);
+        assert_eq!(game.opponent_all_last_decline(), Decline::Last as u8);
+
+        // West's 1m, which North alone may claim: East and South hold
+        // nothing that takes it.
+        let mut window = ron(12_100);
+        window.players[Wind::East.index()].hand = "1112223334445z".parse().unwrap();
+        window.players[Wind::South.index()].hand = "5556667778889p".parse().unwrap();
+        let mut game = seated(window, Wind::South);
+        game.play_on().unwrap();
+        assert_eq!(game.asking, [Wind::North]);
+        assert_eq!(game.opponent_all_last_dama(), dama_absent());
+        assert_eq!(
+            game.opponent_all_last_decline(),
+            game.hand.all_last_decline(Wind::North) as u8
+        );
+        assert_eq!(game.opponent_all_last_decline(), Decline::Last as u8);
+
+        let mut game = seated(probe(0), Wind::South);
+        assert!(game.play_opponent_mortal(MORTAL_REACH).unwrap());
+        assert!(game.pending_reach_for(Wind::North));
+        assert_eq!(game.opponent_all_last_dama(), dama_absent());
+    }
+
+    /// The followed seat is asked at its own move, and at another seat's
+    /// turn about no dama, whatever the core answers for the turn player.
+    #[test]
+    fn the_followed_seat_is_asked_about_its_own_move_alone() {
+        for hand in [probe(0), tsumo(12_000)] {
+            let want = (core_dama(&hand), hand.all_last_decline(Wind::North) as u8);
+            let mine = seated(hand.clone(), Wind::North);
+            assert_eq!(
+                (mine.agent_all_last_dama(), mine.agent_all_last_decline()),
+                want
+            );
+            assert_eq!(mine.opponent_owing(), None);
+            assert_eq!(mine.opponent_all_last_dama(), dama_absent());
+            let theirs = seated(hand, Wind::South);
+            assert_eq!(theirs.agent_all_last_dama(), dama_absent());
+            assert_eq!(theirs.agent_all_last_decline(), 0);
+            assert_eq!(theirs.opponent_all_last_dama(), want.0);
+        }
+    }
+
+    /// South 4: West, a Trained opponent, extends its pon of 4m to a quad,
+    /// and North, Trained too, waiting on 1m and 4m, may rob it: robbing
+    /// and pinfu, 2,000 from West, which leaves North on 7,000 alone in
+    /// last. The window is the quad's, and only the win and the pass are
+    /// open; decline reads the quad's tile, dama nothing, and the pass lets
+    /// the quad stand.
+    #[test]
+    fn a_robbed_quad_is_asked_about_and_passed() {
+        let mut hand = position(
+            Wind::South,
+            4,
+            Wind::West,
+            "4567m123p789s1z",
+            "1z",
+            [35_000, 30_000, 30_000, 5_000],
+        );
+        hand.players[Wind::West.index()].melds = vec![Meld::pon(tile("4m"), ClaimedFrom::Left)];
+        hand.players[Wind::North.index()].hand = "23m456p678s789s33s".parse().unwrap();
+        hand.players[Wind::East.index()].hand = "1112223335556z".parse().unwrap();
+        hand.players[Wind::South.index()].hand = "5556667778889p".parse().unwrap();
+        let mut game = seated(hand, Wind::South);
+        assert_eq!(game.opponent_owing(), Some(Wind::West));
+        assert!(!game.play_opponent_mortal(MORTAL_KAN).unwrap());
+        assert_eq!(game.hand.phase, Phase::CallWindow);
+        assert_eq!(game.hand.robbable_quad, Some(tile("4m")));
+        game.play_on().unwrap();
+        assert_eq!(game.asking, [Wind::North]);
+        let mask = game.opponent_mask_mortal();
+        let open: Vec<usize> = (0..MORTAL_ACTIONS)
+            .filter(|action| mask[*action] != 0)
+            .collect();
+        assert_eq!(open, [MORTAL_AGARI, MORTAL_PASS]);
+        assert_eq!(game.hand.all_last_decline(Wind::North), Decline::Last);
+        assert_eq!(game.opponent_all_last_decline(), Decline::Last as u8);
+        assert_eq!(game.opponent_all_last_dama(), dama_absent());
+
+        assert!(!game.play_opponent_mortal(MORTAL_PASS).unwrap());
+        assert_eq!(game.hand.robbable_quad, None);
+        assert_eq!(game.hand.outcome, None);
+        assert_eq!((game.hand.phase, game.hand.turn), (Phase::Act, Wind::West));
+        assert!(game.hand.players[Wind::West.index()]
+            .melds
+            .iter()
+            .any(|meld| meld.kind == MeldKind::ExtendedKan && meld.tile == tile("4m")));
+    }
+
+    /// South 4: East, the dealer, has just thrown a 1m that South and North,
+    /// both Trained, may ron, each for pinfu, 1,000 from East. North, on
+    /// 5,000, would be left alone in last; South, on 40,000, would pass
+    /// East. With `west_wins` West, the person playing, may ron it too, and
+    /// would stay above North; otherwise West holds honours alone and East
+    /// is the person playing.
+    fn two_claimants(west_wins: bool) -> Game {
+        let mut hand = claim(
+            Wind::South,
+            4,
+            Wind::East,
+            "1m",
+            Wind::North,
+            "23456m456p678s33s",
+            [40_000, 40_000, 15_000, 5_000],
+        );
+        hand.players[Wind::South.index()].hand = "23456m789p345s55s".parse().unwrap();
+        hand.players[Wind::West.index()].hand = if west_wins {
+            "23m456p789p678s99s"
+        } else {
+            "1112223334445z"
+        }
+        .parse()
+        .unwrap();
+        seated(hand, if west_wins { Wind::West } else { Wind::East })
+    }
+
+    /// The window asks South and North in turn, each about its own ron on
+    /// the hand as it stands: South's pass changes nothing until North has
+    /// answered too. A binding that read the first seat `legal_calls` names,
+    /// South, or the turn's seat, East, would answer North wrongly.
+    fn each_claimant_in_turn(game: &mut Game) {
+        assert_eq!(game.asking, [Wind::South, Wind::North]);
+        let before = game.hand.clone();
+        for seat in [Wind::South, Wind::North] {
+            assert_eq!(game.opponent_owing(), Some(seat));
+            assert_eq!(game.hand, before);
+            assert_eq!(
+                game.opponent_all_last_decline(),
+                before.all_last_decline(seat) as u8,
+                "{seat:?}"
+            );
+            assert_eq!(game.opponent_all_last_dama(), dama_absent());
+            if seat == Wind::South {
+                assert_eq!(game.opponent_all_last_decline(), Decline::NotLast as u8);
+                assert!(!game.play_opponent_mortal(MORTAL_PASS).unwrap());
+            }
+        }
+        assert_eq!(game.opponent_all_last_decline(), Decline::Last as u8);
+    }
+
+    #[test]
+    fn two_trained_claimants_are_each_asked_about_their_own_ron() {
+        let mut game = two_claimants(false);
+        game.play_on().unwrap();
+        each_claimant_in_turn(&mut game);
+    }
+
+    /// As above, with the person playing offered the ron too: the window
+    /// asks them first, and gathers the Trained answers once they have
+    /// passed.
+    #[test]
+    fn the_person_playing_answers_first_and_the_claimants_are_asked_after() {
+        let mut game = two_claimants(true);
+        game.play_on().unwrap();
+        assert!(!game.needs_opponent_move());
+        assert!(game.asking.is_empty());
+        let mine = game.hand.all_last_decline(Wind::West) as u8;
+        assert_eq!(mine, Decline::NotLast as u8);
+        assert_eq!(
+            (game.agent_all_last_dama(), game.agent_all_last_decline()),
+            (dama_absent(), mine)
+        );
+        game.choose("pass", None).unwrap();
+        assert_eq!(
+            (
+                game.review_all_last_dama(0).unwrap(),
+                game.review_all_last_decline(0).unwrap()
+            ),
+            (dama_absent(), mine)
+        );
+        each_claimant_in_turn(&mut game);
+    }
+
+    /// The table on which the page plays both rules in turn for a Trained
+    /// opponent: North's self-draw would leave it alone in last, and riichi
+    /// is open beside it, so the page strikes the win and judges the reach
+    /// by dama. North's dama codes are the core's: every tile it holds may
+    /// be thrown with riichi, and on 10,000 every win leaves it short of
+    /// first, a wait no ron has a yaku on being one on the tile thrown,
+    /// which leaves the hand furiten and the self-draw's menzen tsumo to
+    /// count. So dama keeps the reach. The preview is the pending reach.
+    #[test]
+    fn a_declined_self_draw_beside_a_reach_is_coded_as_the_core_codes_it() {
+        let hand = told(tsumo(12_000));
+        let codes = core_dama(&hand);
+        let mut game = seated(hand, Wind::South);
+        assert_eq!(game.opponent_all_last_decline(), Decline::Last as u8);
+        let mask = game.opponent_mask_mortal();
+        assert_eq!((mask[MORTAL_AGARI], mask[MORTAL_REACH]), (1, 1));
+        let dama = game.opponent_all_last_dama();
+        assert_eq!(dama, codes);
+        let reach = game.opponent_mask_after_reach();
+        coded_as_the_mask(&dama, &game.hand, Wind::North, &reach, "the tsumo table");
+        let held = game.hand.players[Wind::North.index()].hand;
+        for kind in Tile::all() {
+            let want = if held.count(kind) > 0 {
+                Dama::Short
+            } else {
+                Dama::Absent
+            };
+            assert_eq!(dama[kind.idx()], want as u8, "{kind}");
+        }
+        preview_is_the_pending_reach(&mut game, "the tsumo table");
+    }
+
+    /// The seeds of the whole games below, the fewest from the first that
+    /// meet both: a win that leaves the player alone in last comes in game
+    /// 1, and a tile that keeps first in game 3.
+    const WHOLE_GAMES: std::ops::Range<u64> = 1..4;
+
+    /// Whole games against three Trained opponents, played as the page plays
+    /// them: an opponent takes every win and declares every reach
+    /// (`trained_answer`), and the person playing plays its built-in player.
+    /// At every decision the codes are the core's under the gate the Python
+    /// arena reads them through (`riichi-py`'s `all_last_codes` and
+    /// `deciding`): dama for the seat owing the decision at its own turn,
+    /// decline for the seat deciding now; dama codes that are not all zero
+    /// code the riichi tiles 1 to 4; every reach an opponent declares is
+    /// previewed first and is the pending reach; and once the hand is over
+    /// the review gives each of the player's decisions the codes taken live.
+    /// The seats move with the hands, so the opponents' bindings are read
+    /// through the hand's seating, which the built tables cannot test.
+    #[test]
+    fn whole_games_are_asked_what_the_core_answers_at_every_decision() {
+        /// How many decisions were asked, of opponents and of the player;
+        /// how many opponents' were read through a seating that is not the
+        /// identity; how many had dama codes, and a tile that keeps first;
+        /// how many a decline code, and Last; how many reaches were
+        /// previewed; and how many of the player's decisions reviewed.
+        #[derive(Default, Debug)]
+        struct Asked {
+            opponents: usize,
+            reseated: usize,
+            players: usize,
+            dama: usize,
+            keeps_first: usize,
+            declines: usize,
+            last: usize,
+            previews: usize,
+            reviewed: usize,
+        }
+        impl Asked {
+            fn tally(&mut self, dama: &[u8], decline: u8) {
+                if dama.iter().any(|code| *code != Dama::Absent as u8) {
+                    self.dama += 1;
+                    self.keeps_first += usize::from(dama.contains(&(Dama::KeepsFirst as u8)));
+                }
+                if decline != Decline::Absent as u8 {
+                    self.declines += 1;
+                    self.last += usize::from(decline == Decline::Last as u8);
+                }
+            }
+        }
+        let began = std::time::Instant::now();
+        let mut asked = Asked::default();
+        for seed in WHOLE_GAMES {
+            let mut game = Game::new(seed as f64, Some("neural".into()));
+            // What the player's decisions of the hand were answered live.
+            let mut live: Vec<(Vec<u8>, u8)> = Vec::new();
+            let mut questions = 0;
+            while !game.table.finished {
+                questions += 1;
+                assert!(questions < 20_000, "seed {seed}: the game did not end");
+                game.play_on().expect("the table plays on");
+                let hand = game.table.hands_played + 1;
+                if game.needs_opponent_move() {
+                    let seat = game.opponent_owing().expect("an opponent owes a move");
+                    let at = format!("seed {seed}, hand {hand}, {seat:?}");
+                    let at_turn = game.asking.is_empty();
+                    let want = (
+                        if at_turn && !game.pending_reach_for(seat) {
+                            core_dama(&game.hand)
+                        } else {
+                            dama_absent()
+                        },
+                        game.hand.all_last_decline(seat) as u8,
+                    );
+                    let dama = game.opponent_all_last_dama();
+                    let decline = game.opponent_all_last_decline();
+                    assert_eq!((&dama, decline), (&want.0, want.1), "{at}");
+                    let reach = game.opponent_mask_after_reach();
+                    coded_as_the_mask(&dama, &game.hand, seat, &reach, &at);
+                    asked.tally(&dama, decline);
+                    asked.opponents += 1;
+                    asked.reseated += usize::from(game.hand_seating[seat.index()] != seat.index());
+                    if !game.pending_reach_for(seat)
+                        && game.opponent_mask_mortal()[MORTAL_REACH] != 0
+                    {
+                        preview_is_the_pending_reach(&mut game, &at);
+                        asked.previews += 1;
+                        continue;
+                    }
+                    let action = trained_answer(&mut game);
+                    game.play_opponent_mortal(action)
+                        .expect("the opponent's move is legal");
+                    continue;
+                }
+                if game.hand_is_over() {
+                    for (index, answered) in live.drain(..).enumerate() {
+                        let reviewed = (
+                            game.review_all_last_dama(index).unwrap(),
+                            game.review_all_last_decline(index).unwrap(),
+                        );
+                        assert_eq!(
+                            reviewed, answered,
+                            "seed {seed}, hand {hand}, decision {index}"
+                        );
+                        asked.reviewed += 1;
+                    }
+                    game.next_hand().expect("the next hand is dealt");
+                    continue;
+                }
+                let (seat, at) = (game.seat, format!("seed {seed}, hand {hand}, the player"));
+                let want = (
+                    if game.hand.phase == Phase::Act {
+                        core_dama(&game.hand)
+                    } else {
+                        dama_absent()
+                    },
+                    game.hand.all_last_decline(seat) as u8,
+                );
+                let answered = (game.agent_all_last_dama(), game.agent_all_last_decline());
+                assert_eq!(answered, want, "{at}");
+                let reach = game.agent_mask_after_reach();
+                coded_as_the_mask(&answered.0, &game.hand, seat, &reach, &at);
+                asked.tally(&answered.0, answered.1);
+                asked.players += 1;
+                assert_eq!(live.len(), game.decisions.len(), "{at}");
+                live.push(answered);
+                let choice = players_move(&mut game);
+                game.choose(&choice.kind, choice.tile)
+                    .expect("the player's move is legal");
+            }
+        }
+        println!("{asked:?} in {:.1} s", began.elapsed().as_secs_f64());
+        let missing: Vec<&str> = [
+            (asked.keeps_first, "a tile that keeps first"),
+            (asked.last, "a win that leaves the player last"),
+        ]
+        .into_iter()
+        .filter(|(count, _)| *count == 0)
+        .map(|(_, what)| what)
+        .collect();
+        assert!(
+            missing.is_empty(),
+            "no game of seeds {WHOLE_GAMES:?} met {missing:?}: {asked:?}"
+        );
+        assert_eq!(asked.reviewed, asked.players, "{asked:?}");
+        assert!(asked.reseated > 0 && asked.previews > 0, "{asked:?}");
+    }
+
+    /// A reach's two commands, played back to back, leave the game the page
+    /// left when it advanced between them, as it did until now: what
+    /// `advance` plays (`play_on`) has nothing to play while a Trained
+    /// opponent owes the tile its reach discards.
+    #[test]
+    fn a_reach_and_its_tile_need_no_advance_between_them() {
+        let pair = |between: bool| {
+            let mut game = east_to_act("123m123p123s11122z", "2z");
+            assert!(game.play_opponent_mortal(MORTAL_REACH).unwrap());
+            if between {
+                game.play_on().unwrap();
+            }
+            let tile = game.opponent_mask_mortal()[..34]
+                .iter()
+                .position(|open| *open != 0)
+                .expect("a reach names a tile");
+            assert!(!game.play_opponent_mortal(tile).unwrap());
+            game
+        };
+        let (apart, together) = (pair(true), pair(false));
+        assert!(together.hand.players[Wind::East.index()].has_riichi());
+        assert_eq!(together.hand, apart.hand);
+        assert_eq!(together.log, apart.log);
+        assert_eq!(
+            serde_json::to_value(together.table_view()).unwrap(),
+            serde_json::to_value(apart.table_view()).unwrap()
+        );
     }
 }
