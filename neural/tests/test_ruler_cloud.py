@@ -607,7 +607,7 @@ class SeriesTests(unittest.TestCase):
         kept = json.loads((series.folder / "series.json").read_text(encoding="utf-8"))
         self.assertEqual((kept["late_rule"], kept["app"]), ("decline-last", "mahjong-rules"))
         with self.assertRaisesRegex(SystemExit, "late_rule"):
-            series.register({**LATE, "late_rule": "wide-dama"}, rule)
+            series.register({key: value for key, value in LATE.items() if key != "late_rule"}, rule)
         self.assertIsNone(ruler_cloud.asking_problem(LATE))
         self.assertIsNone(ruler_cloud.asking_problem({**LATE, "average_suits": "both"}))
         for changed, why in (({"app": ""}, "--app"), ({"all_last_dama": "first"}, "two rules of the last hand"),
@@ -636,8 +636,8 @@ class SeriesTests(unittest.TestCase):
              "neither table"),
             ("judged nothing", {"account": {**LATE_ACCOUNT, "judged": 0, "fired": 0, "tables": [], "hands": 0}},
              "the first challenger's decline-last rule judged nothing"),
-            ("another rule", {"account": {**LATE_ACCOUNT, "rule": "dealer-noten"}},
-             "the first challenger was to follow decline-last, and its report says it followed dealer-noten"),
+            ("another rule", {"account": {**LATE_ACCOUNT, "rule": "blind-dama"}},
+             "the first challenger was to follow decline-last, and its report says it followed blind-dama"),
             ("plain ruled", {"plain": LATE_ACCOUNT}, "the second challenger was to play plain"),
             ("unchecked", {"check": None}, "it says nothing of the late rule's check"),
         ):
@@ -1078,7 +1078,7 @@ class CommandLineTests(unittest.TestCase):
                                account={**LATE_ACCOUNT, "rule": arguments["late_rule"]})
 
         fixed = ["--questions", "fixed", "--preview-reach"]
-        for rule in ("wide-dama", "decline-last", "dealer-noten"):
+        for rule in looks.LATE:
             modal = Modal(answer)
             with self.subTest(rule=rule), tempfile.TemporaryDirectory() as folder, \
                     patch.object(ruler_cloud.time, "sleep"):
@@ -1098,13 +1098,13 @@ class CommandLineTests(unittest.TestCase):
                       "--local", folder)
             fixed = ["--questions", "fixed", "--preview-reach"]
             for extra, why in (
-                (["--late-rule", "wide-dama", *fixed], "--app"),
-                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-train"], "--app"),
-                (["--late-rule", "wide-dama", "--app", "mahjong-rules"], "--questions fixed and --preview-reach"),
-                (["--late-rule", "wide-dama", "--questions", "fixed", "--app", "mahjong-rules"], "--preview-reach"),
-                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-rules", "--average-suits", "first"],
+                (["--late-rule", "decline-last", *fixed], "--app"),
+                (["--late-rule", "decline-last", *fixed, "--app", "mahjong-train"], "--app"),
+                (["--late-rule", "decline-last", "--app", "mahjong-rules"], "--questions fixed and --preview-reach"),
+                (["--late-rule", "decline-last", "--questions", "fixed", "--app", "mahjong-rules"], "--preview-reach"),
+                (["--late-rule", "decline-last", *fixed, "--app", "mahjong-rules", "--average-suits", "first"],
                  "--average-suits first averages one of them"),
-                (["--late-rule", "wide-dama", *fixed, "--app", "mahjong-rules", "--all-last-dama", "first"],
+                (["--late-rule", "decline-last", *fixed, "--app", "mahjong-rules", "--all-last-dama", "first"],
                  "two rules of the last hand"),
                 (["--late-rule", "blind-dama", *fixed, "--app", "mahjong-rules"], "invalid choice"),
             ):

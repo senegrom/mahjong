@@ -39,7 +39,7 @@ use std::collections::VecDeque;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use riichi_core::all_last::{Dama, DealerNoten, Decline, WideDama};
+use riichi_core::all_last::{Dama, Decline};
 use riichi_core::bot::Bot;
 use riichi_core::encoding::{
     self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
@@ -390,14 +390,6 @@ fn check_rows(seats: &[Seat], rows: &[(usize, usize)]) -> Result<(), String> {
 }
 
 /// The seat `player` holds in the game of `seat`, if that player owes the
-/// game's decision at their own turn: no claim is being asked and the game
-/// is not finished.
-fn at_turn(seat: &Seat, player: usize) -> Option<Wind> {
-    let wind = seat.table.seat_of(player);
-    (seat.asking.is_empty() && seat.pending() == Some(wind)).then_some(wind)
-}
-
-/// The seat `player` holds in the game of `seat`, if that player owes the
 /// game a decision: at their own turn, or, in a claim window, now or later
 /// in the same window, which asks its seats one at a time and changes
 /// nothing until every one has answered.
@@ -411,27 +403,6 @@ fn deciding(seat: &Seat, player: usize) -> Option<Wind> {
     } else {
         seat.asking.contains(&wind).then_some(wind)
     }
-}
-
-/// The last hand's wide dama codes of each of `rows` (see
-/// `riichi_core::all_last::WideDama`), `KINDS` bytes a row in the order
-/// named: for a player who owes their game's decision at their own turn,
-/// what the rules engine answers; zeros for any other. Checked first, and
-/// spread across the cores, as `all_last_codes` is.
-fn wide_dama_codes(seats: &[Seat], rows: &[(usize, usize)]) -> Result<Vec<u8>, String> {
-    use rayon::prelude::*;
-    check_rows(seats, rows)?;
-    let codes: Vec<[WideDama; KINDS]> = rows
-        .par_iter()
-        .map(|&(game, player)| {
-            let seat = &seats[game];
-            match at_turn(seat, player) {
-                Some(_) => seat.hand.all_last_wide_dama(),
-                None => [WideDama::Absent; KINDS],
-            }
-        })
-        .collect();
-    Ok(codes.iter().flatten().map(|code| *code as u8).collect())
 }
 
 /// The last hand's decline codes of each of `rows` (see
@@ -451,27 +422,6 @@ fn decline_codes(seats: &[Seat], rows: &[(usize, usize)]) -> Result<Vec<u8>, Str
                 as u8
         })
         .collect())
-}
-
-/// The last hand's dealer noten codes of each of `rows` (see
-/// `riichi_core::all_last::DealerNoten`), `KINDS` bytes a row in the order
-/// named: for a player who owes their game's decision at their own turn,
-/// what the rules engine answers; zeros for any other. Checked first, and
-/// spread across the cores, as `all_last_codes` is.
-fn dealer_noten_codes(seats: &[Seat], rows: &[(usize, usize)]) -> Result<Vec<u8>, String> {
-    use rayon::prelude::*;
-    check_rows(seats, rows)?;
-    let codes: Vec<[DealerNoten; KINDS]> = rows
-        .par_iter()
-        .map(|&(game, player)| {
-            let seat = &seats[game];
-            match at_turn(seat, player) {
-                Some(_) => seat.hand.all_last_dealer_noten(),
-                None => [DealerNoten::Absent; KINDS],
-            }
-        })
-        .collect();
-    Ok(codes.iter().flatten().map(|code| *code as u8).collect())
 }
 
 /// One row of `width` float32 numbers per game, as the bytes Python reads
@@ -715,29 +665,6 @@ impl Arena {
         Ok(PyBytes::new(py, &codes))
     }
 
-    /// The last hand's wide dama codes of each of `rows`, 34 bytes a row,
-    /// one a tile kind, in the order named, each row a game and a player as
-    /// a ruler names who decides, by place (see `riichi_core::all_last`):
-    /// where that player owes the decision at a non-dealer's own turn in
-    /// South 4 with riichi open, whether declaring riichi with each kind
-    /// held would change the place any win ends the game in, 1 where it
-    /// would change none; zeros for every other row. A game the arena does
-    /// not have, or a player not one of the four, raises `ValueError`. A
-    /// ruler's player that keeps such a riichi undeclared asks it only of
-    /// the rows whose best move is riichi (see `neural.late_rules`).
-    fn all_last_wide_dama<'py>(
-        &self,
-        py: Python<'py>,
-        rows: Vec<(usize, usize)>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        // Without the GIL, as in `step`, whose comment says why that is safe.
-        let seats = &self.seats;
-        let codes = py
-            .detach(|| wide_dama_codes(seats, &rows))
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        Ok(PyBytes::new(py, &codes))
-    }
-
     /// The last hand's decline codes of each of `rows`, a byte a row, in
     /// the order named, each row a game and a player by place (see
     /// `riichi_core::all_last`): where that player owes a decision, at
@@ -757,32 +684,6 @@ impl Arena {
         let seats = &self.seats;
         let codes = py
             .detach(|| decline_codes(seats, &rows))
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        Ok(PyBytes::new(py, &codes))
-    }
-
-    /// The last hand's dealer noten codes of each of `rows`, 34 bytes a row,
-    /// one a tile kind, in the order named, each row a game and a player by
-    /// place (see `riichi_core::all_last`): where that player owes the
-    /// decision as the dealer at their own discard in South 4 with at most
-    /// three tiles left to draw, leading every other player by more than
-    /// 4,000, for each kind they may discard 1 where it leaves the hand
-    /// waiting at the exhaustive draw, 2 where it does not and the tile is
-    /// safe against each of the others (in their own pond, or thrown since
-    /// their riichi), and 3 where it does not and the tile is not; zeros for
-    /// every other row. A game the arena does not have, or a player not one
-    /// of the four, raises `ValueError`. A ruler's player that throws such a
-    /// discard asks it only of the rows whose best move is a discard or a
-    /// riichi (see `neural.late_rules`).
-    fn all_last_dealer_noten<'py>(
-        &self,
-        py: Python<'py>,
-        rows: Vec<(usize, usize)>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        // Without the GIL, as in `step`, whose comment says why that is safe.
-        let seats = &self.seats;
-        let codes = py
-            .detach(|| dealer_noten_codes(seats, &rows))
             .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(PyBytes::new(py, &codes))
     }
@@ -954,12 +855,13 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     // deals no game differently.
     module.add("ARENA_SEEDS_API_VERSION", 1u32)?;
     // Whether `Arena` answers the last hand's dama codes (`all_last_dama`),
-    // a number of its own for the same reason; from 2, the late rules' codes
-    // too (`all_last_wide_dama`, `all_last_decline`, `all_last_dealer_noten`);
-    // from 3, the dealer noten codes asked with up to three tiles left to
-    // draw, 2 only for a discard safe against all three others and 3 for one
-    // that is not, and a riichi win's decline code read at the most its ura
-    // dora could add, never at the real ones.
+    // a number of its own for the same reason; from 2, the decline codes too
+    // (`all_last_decline`); from 3, a riichi win's decline code read at the
+    // most its ura dora could add, never at the real ones. Versions 2 and 3
+    // also answered the codes of two rules measured and dropped, wide dama
+    // and dealer noten (docs/RULER.md), whose bindings went after #215. The
+    // number stayed 3: the codes still answered are answered as at 3, and a
+    // reader asks only that it be at least the version it needs.
     module.add("ALL_LAST_API_VERSION", 3u32)?;
     module.add("PLANES", PLANES)?;
     // Which encoding of those planes `observations` writes; a checkpoint of

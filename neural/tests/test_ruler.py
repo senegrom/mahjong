@@ -566,18 +566,18 @@ class CloudTests(unittest.TestCase):
         self.assertNotIn("--late-rule", calls[0])
         # Both arms averaging over the suits are asked alike.
         _answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
-                                           seed=5, late_rule="dealer-noten", average_suits="both",
+                                           seed=5, late_rule="decline-last", average_suits="both",
                                            questions="fixed", preview_reach=True)
         self.assertEqual([calls[0][calls[0].index(flag) + 1] for flag in ("--late-rule", "--average-suits")],
-                         ["dealer-noten", "both"])
+                         ["decline-last", "both"])
         switched = {"questions": "fixed", "preview_reach": True, "also": "x"}
-        for bad, why in (({"late_rule": "dama", **switched}, "must be one of wide-dama, decline-last, dealer-noten"),
-                         ({"late_rule": "wide-dama", **switched, "all_last_dama": "first"}, "two rules"),
-                         ({"late_rule": "wide-dama", "also": "x"}, "fixed questions"),
-                         ({"late_rule": "wide-dama", "questions": "fixed", "also": "x"}, "preview_reach"),
+        for bad, why in (({"late_rule": "dama", **switched}, "must be one of decline-last"),
+                         ({"late_rule": "decline-last", **switched, "all_last_dama": "first"}, "two rules"),
+                         ({"late_rule": "decline-last", "also": "x"}, "fixed questions"),
+                         ({"late_rule": "decline-last", "questions": "fixed", "also": "x"}, "preview_reach"),
                          # The check holds only of one checkpoint played twice, asked alike.
-                         ({"late_rule": "wide-dama", **switched, "also": ""}, "also must name the challenger"),
-                         ({"late_rule": "wide-dama", **switched, "also": "y"}, "also must name the challenger"),
+                         ({"late_rule": "decline-last", **switched, "also": ""}, "also must name the challenger"),
+                         ({"late_rule": "decline-last", **switched, "also": "y"}, "also must name the challenger"),
                          ({"late_rule": "decline-last", **switched, "average_suits": "first"}, "asked alike")):
             with self.subTest(**bad), self.assertRaisesRegex(ValueError, why):
                 app.ruler(challenger="x", **bad)

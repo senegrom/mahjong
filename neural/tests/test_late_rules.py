@@ -1,26 +1,22 @@
-"""The late rules of the last hand (`neural.late_rules`) and the arena's codes
-they read.
+"""The late rule of the last hand (`neural.late_rules`) and the arena's codes
+it reads.
 
-Each rule asks the arena only about the rows of a first question whose best
-move is its kind (a riichi; a win; a discard or a riichi), each row a game
-and a player by place, and edits only the rows where the engine says it
-fires: wide dama throws the reach's own tile undeclared where riichi buys no
-place; decline passes a ron, or strikes a self-draw from the row and leaves
-the best other move of the same answer, where the win leaves the player alone
-in last; and dealer noten throws the discard the answer rates highest of
-those that leave the hand not waiting on a safe tile, where the leading
-dealer's best move keeps the hand waiting or throws an unsafe tile. Nothing
-else is edited, nobody is told anything the table does not do, a question
-asked afresh is left alone, codes that contradict the legal moves are
-refused, and the account adds up. A rule is seated only asked in fixed rows
-with the reach's tile previewed, outermost, one rule of the last hand a
-player. The arena's codes agree with its legal moves and the hand. A ruler
-whose challenger follows a rule that never fires plays the plain arm's games;
-one that fires wherever it is asked changes a game only where it fired, as
-its check finds; and the arena's own codes, played through the ruler, judge
-and fire each rule at a deal found ahead of time. The command plays a rule
-only on one checkpoint against itself, asked alike, never with the all-last
-dama rule, and seats it when run as a module."""
+The decline rule asks the arena only about the rows of a first question
+whose best move is a win, each row a game and a player by place, and edits
+only the rows where the engine says it fires: it passes a ron, or strikes a
+self-draw from the row and leaves the best other move of the same answer,
+where the win leaves the player alone in last. Nothing else is edited,
+nobody is told anything the table does not do, a question asked afresh is
+left alone, a code that says nothing of a win is refused, and the account
+adds up. A rule is seated only asked in fixed rows with the reach's tile
+previewed, outermost, one rule of the last hand a player. The arena's codes
+agree with its legal moves and the hand. A ruler whose challenger follows a
+rule that never fires plays the plain arm's games; one that fires wherever
+it is asked changes a game only where it fired, as its check finds; and the
+arena's own codes, played through the ruler, judge and fire the rule at a
+deal found ahead of time. The command plays a rule only on one checkpoint
+against itself, asked alike, never with the all-last dama rule, and seats it
+when run as a module."""
 
 import contextlib
 import io
@@ -40,11 +36,11 @@ import riichi_py
 import torch
 
 from neural import all_last, duel, late_rules, ruler, suits, zoo
-from neural.tests.test_all_last import Answers, Told, legal_row, reaches, steer_reaches
+from neural.tests.test_all_last import Answers, Told, legal_row, steer_reaches
 from neural.tests.test_bfloat16_players import checkpoints
 from neural.tests.test_ruler import SEED, Taught, steer, taught
 
-KINDS = late_rules.KINDS
+KINDS = all_last.KINDS
 
 
 def moves(**named: float) -> np.ndarray:
@@ -74,17 +70,14 @@ def turn_row(discards, reaches=(), tsumo: bool = False) -> np.ndarray:
 
 
 class LateCodes:
-    """An arena as the late rules read it: each row's codes, by game and
-    player, as the engine hands them over (a code a tile for the rules of a
-    turn, one a row for the decline), and how many hands each game has
-    finished. Every question it is asked is written down, and every row it
-    is asked about must be a pair of plain integers, as the arena takes
+    """An arena as the late rule reads it: each row's decline code, by game
+    and player, as the engine hands it over, and how many hands each game
+    has finished. Every question it is asked is written down, and every row
+    it is asked about must be a pair of plain integers, as the arena takes
     them."""
 
-    def __init__(self, wide=None, decline=None, noten=None, hands=None) -> None:
-        self.wide = wide or {}
+    def __init__(self, decline=None, hands=None) -> None:
         self.decline = decline or {}
-        self.noten = noten or {}
         self.hands = dict(hands or {})
         self.asked: list[tuple[str, list]] = []
 
@@ -93,27 +86,12 @@ class LateCodes:
             assert type(row) is tuple and len(row) == 2 and all(type(part) is int for part in row), row
         self.asked.append((name, list(rows)))
 
-    def per_tile(self, table: dict, rows) -> bytes:
-        codes = np.zeros((len(rows), KINDS), dtype=np.uint8)
-        for at, row in enumerate(rows):
-            for tile, code in table.get(row, {}).items():
-                codes[at, tile] = code
-        return codes.tobytes()
-
-    def all_last_wide_dama(self, rows):
-        self.note("wide", rows)
-        return self.per_tile(self.wide, rows)
-
-    def all_last_dealer_noten(self, rows):
-        self.note("noten", rows)
-        return self.per_tile(self.noten, rows)
-
     def all_last_decline(self, rows):
         self.note("decline", rows)
         return bytes(self.decline.get(row, 0) for row in rows)
 
     def hands_done(self):
-        games = [game for game, _player in (*self.wide, *self.decline, *self.noten)]
+        games = [game for game, _player in self.decline]
         return [self.hands.get(game, 0) for game in range(1 + max([0, *games, *self.hands]))]
 
 
@@ -135,104 +113,6 @@ def only(tile: int) -> np.ndarray:
     row = np.full(zoo.MORTAL_ACTIONS, -np.inf, dtype=np.float32)
     row[tile] = 0.0
     return row
-
-
-#: Five decisions at once for the wide dama rule, as the all-last dama
-#: rule's tests put them (see `test_all_last.WHO`). Game 0: riichi is best,
-#: its preview throws the 5, whose riichi buys no place, though the best
-#: discard is the 9. Game 1: riichi is best and its preview throws the 9,
-#: whose riichi buys a place. Game 2: a discard is best. Game 3: riichi is
-#: best but it is not the last hand. Game 4: riichi is best with the 20
-#: alone, unpreviewed, and its riichi buys no place.
-WIDE_WHO = [(0, 1), (1, 2), (2, 0), (3, 3), (4, 1)]
-WIDE_LEGAL = np.stack([
-    legal_row([3, 5, 9, 20], [5, 9]),
-    legal_row([3, 5, 9, 20], [5, 9]),
-    legal_row([3, 5, 9, 20], [3]),
-    legal_row([3, 5, 9, 20], [3, 5]),
-    legal_row([3, 20], [20]),
-])
-WIDE_ROWS = {
-    (0, 1): moves(reach=5.0, d9=4.0, d5=1.0),
-    (1, 2): moves(reach=5.0, d9=4.0, d5=1.0),
-    (2, 0): moves(reach=2.0, d3=3.0),
-    (3, 3): moves(reach=5.0, d3=1.0),
-    (4, 1): moves(reach=5.0, d3=4.0),
-}
-WIDE_PREVIEWS = {(0, 1): moves(d5=3.0, d9=1.0), (1, 2): moves(d5=1.0, d9=3.0), (3, 3): moves(d3=1.0, d5=2.0)}
-NOT_WAITING = all_last.NOT_WAITING
-WIDE_CODES = {
-    (0, 1): {3: NOT_WAITING, 5: late_rules.NO_PLACE, 9: late_rules.BUYS_PLACE, 20: NOT_WAITING},
-    (1, 2): {3: NOT_WAITING, 5: late_rules.NO_PLACE, 9: late_rules.BUYS_PLACE, 20: NOT_WAITING},
-    (2, 0): {3: late_rules.NO_PLACE, 5: NOT_WAITING},
-    (4, 1): {3: NOT_WAITING, 20: late_rules.NO_PLACE},
-}
-
-
-class WideDamaTests(unittest.TestCase):
-    def test_it_fires_only_where_riichi_with_the_reachs_tile_buys_no_place(self):
-        account = late_rules.Account("wide-dama")
-        arena = LateCodes(wide=WIDE_CODES, hands={0: 7, 4: 7})
-        got, plain = ask_through("wide-dama", account, Answers(WIDE_ROWS, WIDE_PREVIEWS), arena, WIDE_WHO,
-                                 WIDE_LEGAL, preview=[0, 1, 3])
-        # Asked once, about the rows whose best move is riichi.
-        self.assertEqual(arena.asked, [("wide", [(0, 1), (1, 2), (3, 3), (4, 1)])])
-        for row, tile in ((0, 5), (4, 20)):
-            np.testing.assert_array_equal(got[row], only(tile))
-        for row in (1, 2, 3, 5, 6, 7):
-            np.testing.assert_array_equal(got[row], plain[row])
-        self.assertEqual(account.report(), {"rule": "wide-dama", "judged": 3, "fired": 2, "tables": [0, 4],
-                                            "hands": 2, "kept": {"no_yaku": 0, "buys_a_place": 1, "dead": 0},
-                                            "kept_after_firing": 0})
-
-    def test_the_discard_is_played_and_nobody_is_told_a_reach(self):
-        for codes, want in (
-            (WIDE_CODES, [zoo.DISCARD + 5, zoo.RIICHI_DISCARD + 9, zoo.DISCARD + 3, zoo.RIICHI_DISCARD + 5,
-                          zoo.DISCARD + 20]),
-            ({}, [zoo.RIICHI_DISCARD + 5, zoo.RIICHI_DISCARD + 9, zoo.DISCARD + 3, zoo.RIICHI_DISCARD + 5,
-                  zoo.RIICHI_DISCARD + 20]),
-        ):
-            account = late_rules.Account("wide-dama")
-            views = Told(LateCodes(wide=codes))
-            ask = late_rules.wide_dama(Answers(WIDE_ROWS, WIDE_PREVIEWS), account)
-            rows, players = np.array([game for game, _ in WIDE_WHO]), np.array([player for _, player in WIDE_WHO])
-            with self.subTest(codes=bool(codes)):
-                choice = zoo.choose_in_mortal_space(
-                    lambda who, fresh, allowed, ahead=(): ask(views, who, fresh, allowed, ahead),
-                    views, rows, players, WIDE_LEGAL, skip_forced=True, preview_reach=True)
-                self.assertEqual(choice.tolist(), want)
-                self.assertEqual(views.told, [])
-                self.assertEqual(account.fired, 2 if codes else 0)
-
-    def test_the_account_adds_up_over_hands(self):
-        account = late_rules.Account("wide-dama")
-        arena = LateCodes(wide={(0, 1): {20: late_rules.NO_PLACE}}, hands={0: 5})
-        ask = late_rules.wide_dama(Answers({(0, 1): moves(reach=5.0)}, {}), account)
-        allowed = zoo.translatable(legal_row([3, 20], [20])[None])
-        for code, hand in ((late_rules.NO_PLACE, 5), (late_rules.BUYS_PLACE, 5), (all_last.NO_YAKU, 6),
-                           (all_last.DEAD, 6), (late_rules.NO_PLACE, 6), (all_last.DEAD, 6)):
-            arena.wide[(0, 1)][20] = code
-            arena.hands[0] = hand
-            ask(Told(arena), [(0, 1)], False, allowed.copy())
-        report = account.report()
-        self.assertEqual(report, {"rule": "wide-dama", "judged": 6, "fired": 2, "tables": [0], "hands": 2,
-                                  "kept": {"no_yaku": 1, "buys_a_place": 1, "dead": 2}, "kept_after_firing": 2})
-        self.assertEqual(report["judged"], report["fired"] + sum(report["kept"].values()))
-
-    def test_codes_that_contradict_the_legal_moves_are_refused(self):
-        allowed = zoo.translatable(WIDE_LEGAL)
-        preview = np.zeros((1, zoo.MORTAL_ACTIONS), dtype=bool)
-        preview[0, :KINDS] = WIDE_LEGAL[0, zoo.RIICHI_DISCARD:zoo.TSUMO]
-        for codes, why in (({(0, 1): {5: NOT_WAITING}}, "which no legal riichi has"),
-                           ({(0, 1): {9: late_rules.BUYS_PLACE}}, "which no legal riichi has")):
-            with self.subTest(codes=codes), self.assertRaisesRegex(RuntimeError, why):
-                late_rules.wide_dama(Answers(WIDE_ROWS, WIDE_PREVIEWS), late_rules.Account("wide-dama"))(
-                    Told(LateCodes(wide=codes)), [WIDE_WHO[0]], False, np.concatenate([allowed[[0]], preview]),
-                    [WIDE_WHO[0]])
-        with self.assertRaisesRegex(RuntimeError, "not one: the wide dama rule needs"):
-            late_rules.wide_dama(Answers(WIDE_ROWS, WIDE_PREVIEWS), late_rules.Account("wide-dama"))(
-                Told(LateCodes(wide={(4, 1): {3: late_rules.BUYS_PLACE, 20: late_rules.NO_PLACE}})), [WIDE_WHO[4]],
-                False, allowed[[4]])
 
 
 #: Six decisions for the decline rule. Game 0: a claim window, the win best,
@@ -337,123 +217,6 @@ class DeclineTests(unittest.TestCase):
                 SimpleNamespace(), [DECLINE_WHO[0]], False, zoo.translatable(DECLINE_LEGAL[[0]]))
 
 
-TENPAI, NOTEN, UNSAFE = late_rules.TENPAI, late_rules.NOTEN, late_rules.UNSAFE
-#: Eight decisions for the dealer noten rule. Game 0: the 9 best, which
-#: keeps the hand waiting; the 3 and the 20 leave it not waiting on safe
-#: tiles, the 20 rated higher. Game 1: the 3 best, which leaves it not
-#: waiting on a safe tile. Game 2: the 9 best, and no discard leaves the hand
-#: not waiting on a safe tile. Game 3: the 9 best, not asked. Game 4: a
-#: self-draw best. Game 5: the 20 best, which leaves the hand not waiting on
-#: an unsafe tile, and the 3 safe. Game 6: riichi best, its preview throwing
-#: the 20, and the 3 safe. Game 7: riichi best likewise, and no discard that
-#: leaves the hand not waiting safe.
-NOTEN_WHO = [(0, 3), (1, 3), (2, 3), (3, 0), (4, 3), (5, 3), (6, 3), (7, 3)]
-NOTEN_LEGAL = np.stack([
-    turn_row([3, 9, 20]),
-    turn_row([3, 9, 20]),
-    turn_row([3, 9, 20]),
-    turn_row([3, 9]),
-    turn_row([3, 9], tsumo=True),
-    turn_row([3, 9, 20]),
-    turn_row([3, 9, 20], [9, 20]),
-    turn_row([3, 9, 20], [9, 20]),
-])
-NOTEN_ROWS = {
-    (0, 3): moves(d9=5.0, d20=2.0, d3=1.0),
-    (1, 3): moves(d3=5.0, d9=4.0, d20=1.0),
-    (2, 3): moves(d9=5.0, d3=1.0, d20=0.5),
-    (3, 0): moves(d9=5.0, d3=1.0),
-    (4, 3): moves(agari=5.0, d9=1.0),
-    (5, 3): moves(d20=5.0, d9=4.0, d3=1.0),
-    (6, 3): moves(reach=5.0, d9=4.0, d3=1.0),
-    (7, 3): moves(reach=5.0, d9=4.0, d3=1.0),
-}
-NOTEN_PREVIEWS = {(6, 3): moves(d9=1.0, d20=3.0), (7, 3): moves(d9=1.0, d20=3.0)}
-NOTEN_CODES = {
-    (0, 3): {3: NOTEN, 9: TENPAI, 20: NOTEN},
-    (1, 3): {3: NOTEN, 9: TENPAI, 20: NOTEN},
-    (2, 3): {3: UNSAFE, 9: TENPAI, 20: UNSAFE},
-    (5, 3): {3: NOTEN, 9: TENPAI, 20: UNSAFE},
-    (6, 3): {3: NOTEN, 9: TENPAI, 20: TENPAI},
-    (7, 3): {3: UNSAFE, 9: TENPAI, 20: TENPAI},
-}
-
-
-class DealerNotenTests(unittest.TestCase):
-    def test_it_fires_only_where_the_best_move_waits_or_is_unsafe_and_a_safe_noten_discard_is_open(self):
-        account = late_rules.Account("dealer-noten")
-        arena = LateCodes(noten=NOTEN_CODES, hands={0: 9})
-        got, plain = ask_through("dealer-noten", account, Answers(NOTEN_ROWS, NOTEN_PREVIEWS), arena, NOTEN_WHO,
-                                 NOTEN_LEGAL, preview=[6, 7])
-        # Asked once, about the rows whose best move is a discard or a riichi.
-        self.assertEqual(arena.asked, [("noten", [(0, 3), (1, 3), (2, 3), (3, 0), (5, 3), (6, 3), (7, 3)])])
-        # The 20, the higher rated of the two safe discards that leave the
-        # hand not waiting; the 3 in place of an unsafe one, and of a riichi.
-        for row, tile in ((0, 20), (5, 3), (6, 3)):
-            np.testing.assert_array_equal(got[row], only(tile))
-        # The rest as they came, the previews among them.
-        for row in (1, 2, 3, 4, 7, 8, 9):
-            np.testing.assert_array_equal(got[row], plain[row])
-        self.assertEqual(account.report(), {"rule": "dealer-noten", "judged": 6, "fired": 3, "tables": [0, 5, 6],
-                                            "hands": 3, "kept": {"already_safe_noten": 1, "no_safe_noten": 2},
-                                            "kept_after_firing": 0})
-
-    def test_the_discard_is_played_and_nobody_is_told_a_reach(self):
-        """Through the very choice every player of Mortal's moves makes,
-        with every switch: where the rule fires, the safe discard, a riichi
-        among the moves it replaces; elsewhere the plain choice, a reach
-        with its preview's tile included."""
-        for codes, want in (
-            (NOTEN_CODES, [zoo.DISCARD + 20, zoo.DISCARD + 3, zoo.DISCARD + 9, zoo.DISCARD + 9, zoo.TSUMO,
-                           zoo.DISCARD + 3, zoo.DISCARD + 3, zoo.RIICHI_DISCARD + 20]),
-            ({}, [zoo.DISCARD + 9, zoo.DISCARD + 3, zoo.DISCARD + 9, zoo.DISCARD + 9, zoo.TSUMO, zoo.DISCARD + 20,
-                  zoo.RIICHI_DISCARD + 20, zoo.RIICHI_DISCARD + 20]),
-        ):
-            account = late_rules.Account("dealer-noten")
-            views = Told(LateCodes(noten=codes))
-            ask = late_rules.dealer_noten(Answers(NOTEN_ROWS, NOTEN_PREVIEWS), account)
-            rows = np.array([game for game, _ in NOTEN_WHO])
-            players = np.array([player for _, player in NOTEN_WHO])
-            with self.subTest(codes=bool(codes)):
-                choice = zoo.choose_in_mortal_space(
-                    lambda who, fresh, allowed, ahead=(): ask(views, who, fresh, allowed, ahead),
-                    views, rows, players, NOTEN_LEGAL, skip_forced=True, preview_reach=True)
-                self.assertEqual(choice.tolist(), want)
-                self.assertEqual(views.told, [])
-                self.assertEqual(account.fired, 3 if codes else 0)
-
-    def test_the_account_counts_a_move_kept_later_in_a_hand_it_fired_in(self):
-        """A call can hand the dealer another discard in the same hand,
-        where the rule is asked again."""
-        account = late_rules.Account("dealer-noten")
-        arena = LateCodes(noten={(0, 3): {}}, hands={0: 7})
-        ask = late_rules.dealer_noten(Answers({(0, 3): moves(d9=5.0, d3=1.0)}, {}), account)
-        allowed = zoo.translatable(turn_row([3, 9])[None])
-        for codes, hand in (({3: NOTEN, 9: TENPAI}, 7), ({3: UNSAFE, 9: TENPAI}, 7), ({3: NOTEN, 9: NOTEN}, 8)):
-            arena.noten[(0, 3)] = codes
-            arena.hands[0] = hand
-            ask(Told(arena), [(0, 3)], False, allowed.copy())
-        report = account.report()
-        self.assertEqual(report, {"rule": "dealer-noten", "judged": 3, "fired": 1, "tables": [0], "hands": 1,
-                                  "kept": {"already_safe_noten": 1, "no_safe_noten": 1}, "kept_after_firing": 1})
-        self.assertEqual(report["judged"], report["fired"] + sum(report["kept"].values()))
-
-    def test_codes_on_other_tiles_than_the_legal_discards_are_refused(self):
-        for codes in ({(0, 3): {3: NOTEN, 9: TENPAI}}, {(0, 3): {3: NOTEN, 9: TENPAI, 20: NOTEN, 21: NOTEN}},
-                      {(0, 3): {3: NOTEN, 9: TENPAI, 20: UNSAFE + 1}}):
-            with self.subTest(codes=codes), self.assertRaisesRegex(RuntimeError, "disagree"):
-                ask_through("dealer-noten", late_rules.Account("dealer-noten"), Answers(NOTEN_ROWS, {}),
-                            LateCodes(noten=codes), [NOTEN_WHO[0]], NOTEN_LEGAL[[0]])
-
-    def test_a_question_asked_afresh_is_left_alone(self):
-        account = late_rules.Account("dealer-noten")
-        arena = LateCodes(noten=NOTEN_CODES)
-        got, plain = ask_through("dealer-noten", account, Answers(NOTEN_ROWS, NOTEN_PREVIEWS), arena, NOTEN_WHO,
-                                 NOTEN_LEGAL, fresh=True, preview=[6, 7])
-        np.testing.assert_array_equal(got, plain)
-        self.assertEqual((arena.asked, account.judged), ([], 0))
-
-
 class AccountTests(unittest.TestCase):
     def test_each_rule_keeps_its_own_reasons_and_no_other_rule_is_known(self):
         for rule, kept in late_rules.KEPT.items():
@@ -477,9 +240,7 @@ class SeatingTests(unittest.TestCase):
 
     def test_only_a_player_asked_in_fixed_rows_with_the_reach_previewed_follows_one(self):
         fixed = {"questions": "fixed", "rows": 4, "preview_reach": True}
-        wrapped = {"wide-dama": "riichi_only_where_it_buys_a_place",
-                   "decline-last": "decline_a_win_that_leaves_it_last",
-                   "dealer-noten": "safe_noten_where_the_lead_holds"}
+        wrapped = {"decline-last": "decline_a_win_that_leaves_it_last"}
         for rule in late_rules.RULES:
             for name in ("fused", "reheaded", "mortal"):
                 with self.subTest(rule=rule, player=name):
@@ -487,19 +248,17 @@ class SeatingTests(unittest.TestCase):
                     self.assertEqual(late_rules.account_of(player), late_rules.Account(rule))
                     self.assertEqual(player._ask.__name__, wrapped[rule])
                     self.assertIsNone(all_last.account_of(player))
-                    for again in (lambda: late_rules.follow(player, rule, fixed=True),
-                                  lambda: late_rules.follow(player, "wide-dama", fixed=True)):
-                        with self.assertRaisesRegex(ValueError, "already follows a rule of the last hand"):
-                            again()
+                    with self.assertRaisesRegex(ValueError, "already follows a rule of the last hand"):
+                        late_rules.follow(player, rule, fixed=True)
         # Outside an average over the suits, whose renamed game names no arena.
-        both = ruler.seat(self.paths["fused"], "cpu", **fixed, average_suits=True, late_rule="dealer-noten")
+        both = ruler.seat(self.paths["fused"], "cpu", **fixed, average_suits=True, late_rule="decline-last")
         self.assertIsNotNone(suits.averaging(both))
-        self.assertEqual(both._ask.__name__, "safe_noten_where_the_lead_holds")
+        self.assertEqual(both._ask.__name__, "decline_a_win_that_leaves_it_last")
         for options, why in (({}, "fixed questions"), ({"questions": "fixed"}, "fixed questions"),
                              ({"questions": "fixed", "skip_forced": True}, "previewed"),
                              ({**fixed, "all_last_dama": True}, "one rule of the last hand")):
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, why):
-                ruler.seat(self.paths["fused"], "cpu", **options, late_rule="wide-dama")
+                ruler.seat(self.paths["fused"], "cpu", **options, late_rule="decline-last")
         # Asked of the rule itself, without the seating's own refusals.
         dama = ruler.seat(self.paths["fused"], "cpu", **fixed, all_last_dama=True)
         with self.assertRaisesRegex(ValueError, "already follows a rule of the last hand"):
@@ -507,129 +266,79 @@ class SeatingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no late rule"):
             late_rules.follow(ruler.seat(self.paths["fused"], "cpu", **fixed), "dama", fixed=True)
         with self.assertRaisesRegex(ValueError, "questions fixed"):
-            late_rules.follow(ruler.seat(self.paths["fused"], "cpu", **fixed), "wide-dama")
+            late_rules.follow(ruler.seat(self.paths["fused"], "cpu", **fixed), "decline-last")
         with self.assertRaisesRegex(ValueError, "preview-reach"):
-            late_rules.follow(ruler.seat(self.paths["fused"], "cpu", questions="fixed", rows=4), "wide-dama",
+            late_rules.follow(ruler.seat(self.paths["fused"], "cpu", questions="fixed", rows=4), "decline-last",
                               fixed=True)
         with self.assertRaisesRegex(ValueError, "Mortal's moves"):
             late_rules.follow(ruler.seat(self.paths["ours, our moves"], "cpu", questions="fixed", rows=4),
-                              "wide-dama", fixed=True)
-        # An engine before the late rules' codes, or before the dealer noten
-        # codes told a safe discard from one that is not.
+                              "decline-last", fixed=True)
+        # An engine before the decline codes, or before a riichi win's
+        # decline code was read without its hidden ura dora.
         for engine in (SimpleNamespace(), SimpleNamespace(ALL_LAST_API_VERSION=1),
                        SimpleNamespace(ALL_LAST_API_VERSION=2)):
             with self.subTest(engine=engine), patch.object(late_rules, "riichi_py", engine), \
                     self.assertRaisesRegex(RuntimeError, "Rebuild"):
-                late_rules.follow(ruler.seat(self.paths["fused"], "cpu", **fixed), "wide-dama", fixed=True)
+                late_rules.follow(ruler.seat(self.paths["fused"], "cpu", **fixed), "decline-last", fixed=True)
 
 
 class BindingTests(unittest.TestCase):
-    """`riichi_py.Arena.all_last_wide_dama`, `all_last_decline` and
-    `all_last_dealer_noten`, the engine's own codes."""
+    """`riichi_py.Arena.all_last_decline`, the engine's own codes."""
 
     def test_the_engine_answers_the_codes(self):
         self.assertGreaterEqual(riichi_py.ALL_LAST_API_VERSION, 3)
         arena = riichi_py.Arena(games=3, seed=SEED)
         rows = [(2, 0), (0, 0), (0, 1)]
         # The first hand is East 1's, so nothing is asked.
-        for method, width in ((arena.all_last_wide_dama, KINDS), (arena.all_last_decline, 1),
-                              (arena.all_last_dealer_noten, KINDS)):
-            with self.subTest(method=method.__name__):
-                codes = method(rows)
-                self.assertIsInstance(codes, bytes)
-                self.assertEqual(codes, bytes(len(rows) * width))
-                self.assertEqual(method([]), b"")
-                with self.assertRaisesRegex(ValueError, "no game 3"):
-                    method([(0, 0), (3, 0)])
-                with self.assertRaisesRegex(ValueError, "no player 4"):
-                    method([(0, 4)])
+        codes = arena.all_last_decline(rows)
+        self.assertIsInstance(codes, bytes)
+        self.assertEqual(codes, bytes(len(rows)))
+        self.assertEqual(arena.all_last_decline([]), b"")
+        with self.assertRaisesRegex(ValueError, "no game 3"):
+            arena.all_last_decline([(0, 0), (3, 0)])
+        with self.assertRaisesRegex(ValueError, "no player 4"):
+            arena.all_last_decline([(0, 4)])
 
     def test_the_codes_agree_with_the_legal_moves_and_the_hand(self):
         """Games the heuristic player plays at every seat, asked at every
-        step about the player who owes each game's decision: wide dama codes
-        exactly where the dama codes are, and the same answer wherever the
-        dama code is not short; a decline code exactly where a non-dealer
-        of South 4 may win; and dealer noten codes exactly at the dealer's
-        own turn in South 4 with at most three tiles left to draw and a lead
-        of more than 4,000, on exactly its legal discards, each tile a reach
-        may throw coded as keeping the hand waiting. The hand is read off
-        the arena's own events: the tiles left are the live wall's seventy
-        less every draw, a quad's replacement among them, since each quad
-        hands the dead wall a live tile; the points are the hand's opening
-        points less the riichi bets accepted since. The seed's forty-eight
-        games, the first forty-eight after SEED + 7's to hold one, have six
-        such dealer's discards, one of them with a safe discard that leaves
-        the hand not waiting; SEED + 7's have two, with none. The engine's
-        Club test plays each code through to the table (see
-        `club_games_agree_with_the_real_flow` in all_last.rs)."""
+        step about the player who owes each game's decision: a decline code
+        exactly where a non-dealer of South 4 may win, the hand read off the
+        arena's own events. The engine's Club test plays each code through
+        to the table (see `club_games_agree_with_the_real_flow` in
+        all_last.rs)."""
         games = 48
         arena = riichi_py.Arena(games=games, seed=SEED + 103)
         last = [None] * games
-        draws = [0] * games
-        bets = [[0] * 4 for _ in range(games)]
-        asked = {"wide": 0, "decline": 0, "noten": 0, "safe": 0}
+        asked = 0
         while not arena.all_finished():
             for game, lines in enumerate(arena.mjai_all()):
                 for line in lines:
                     if '"start_kyoku"' in line:
                         last[game] = json.loads(line)
-                        draws[game] = 0
-                        bets[game] = [0] * 4
-                    elif '"type":"tsumo"' in line:
-                        draws[game] += 1
-                    elif '"reach_accepted"' in line:
-                        bets[game][json.loads(line)["actor"]] += 1000
             seats = np.frombuffer(arena.seats(), dtype=np.uint8)
             legal = np.frombuffer(arena.legal_mask(), dtype=np.uint8).reshape(games, riichi_py.ACTIONS).astype(bool)
             players = np.frombuffer(arena.seat_players(), dtype=np.uint8).reshape(games, 4)
             live = np.flatnonzero(seats != 0xFF)
             rows = [(int(game), int(players[game, seats[game]])) for game in live]
-            dama = np.frombuffer(arena.all_last_dama([game for game, _player in rows]),
-                                 dtype=np.uint8).reshape(len(rows), KINDS)
-            wide = np.frombuffer(arena.all_last_wide_dama(rows), dtype=np.uint8).reshape(len(rows), KINDS)
             decline = np.frombuffer(arena.all_last_decline(rows), dtype=np.uint8)
-            noten = np.frombuffer(arena.all_last_dealer_noten(rows), dtype=np.uint8).reshape(len(rows), KINDS)
             for at, (game, player) in enumerate(rows):
                 hand = last[game]
                 south_four = hand["bakaze"] == "S" and hand["kyoku"] == 4
                 dealer = player == hand["oya"]
                 win = legal[game, zoo.TSUMO] or legal[game, zoo.RON]
-                turn = legal[game, :KINDS].any()
-                self.assertEqual(bool(wide[at].any()), bool(dama[at].any()), (game, hand, wide[at]))
-                short = dama[at] == all_last.SHORT
-                np.testing.assert_array_equal(wide[at][~short], dama[at][~short])
-                self.assertTrue(np.isin(wide[at][short], (late_rules.NO_PLACE, late_rules.BUYS_PLACE)).all())
                 self.assertEqual(bool(decline[at]), bool(south_four and not dealer and win), (game, hand, decline[at]))
-                left = 70 - draws[game]
-                points = [score - bet for score, bet in zip(hand["scores"], bets[game])]
-                lead = min(points[player] - points[other] for other in range(4) if other != player)
-                leading = south_four and dealer and turn and left <= 3 and lead > 4000
-                self.assertEqual(bool(noten[at].any()), bool(leading), (game, hand, left, points, noten[at]))
-                if leading:
-                    np.testing.assert_array_equal(noten[at] != 0, legal[game, :KINDS])
-                    self.assertTrue(np.isin(noten[at][legal[game, :KINDS]], (TENPAI, NOTEN, UNSAFE)).all())
-                    self.assertTrue((noten[at][legal[game, zoo.RIICHI_DISCARD:zoo.TSUMO]] == TENPAI).all())
-                    asked["safe"] += int((noten[at] == NOTEN).any())
-                for name, codes in (("wide", wide[at]), ("decline", decline[at:at + 1]), ("noten", noten[at])):
-                    asked[name] += int(codes.any())
+                asked += int(decline[at] != 0)
             taught = np.frombuffer(arena.teacher(), dtype=np.uint8).astype(np.int64)
             taught[taught == 0xFF] = 0
             arena.step(taught.tolist())
-        self.assertGreater(asked["wide"], 5)
-        self.assertGreater(asked["decline"], 5)
-        self.assertGreater(asked["noten"], 0, asked)
-        self.assertGreater(asked["safe"], 0, asked)
+        self.assertGreater(asked, 5)
 
 
 class LateCoded:
-    """An arena whose late rules' codes are stand-ins, at any hand, wherever
-    its legal moves allow the rule's kind of move: for `wide-dama` each tile
-    a reach may throw buys no place or buys one; for `decline-last` a win
-    leaves the player last or does not; for `dealer-noten` every legal
-    discard keeps the hand waiting, and, where the rule is to fire, the
-    lowest-numbered one leaves it not waiting on a safe tile. A stand-in for
-    the engine's, which fires everywhere or nowhere, as the engine's own
-    codes seldom do in a ruler of one deal a seating (see
+    """An arena whose decline codes are stand-ins, at any hand, wherever its
+    legal moves allow a win: the win leaves the player last, or does not. A
+    stand-in for the engine's, which fires everywhere or nowhere, as the
+    engine's own codes seldom do in a ruler of one deal a seating (see
     `RulerTests.test_the_engines_own_codes_judge_and_fire_each_rule` for
     those). Everything else is the arena's own; `riichi_py.Arena` cannot be
     subclassed, so this hands it on. Each table's events are kept as they
@@ -644,24 +353,10 @@ class LateCoded:
         legal = np.frombuffer(self.arena.legal_mask(), dtype=np.uint8).reshape(-1, riichi_py.ACTIONS).astype(bool)
         return legal[[game for game, _player in rows]]
 
-    def all_last_wide_dama(self, rows):
-        codes = np.zeros((len(rows), KINDS), dtype=np.uint8)
-        codes[self.legal(rows)[:, zoo.RIICHI_DISCARD:zoo.TSUMO]] = (late_rules.NO_PLACE if self.fires
-                                                                    else late_rules.BUYS_PLACE)
-        return codes.tobytes()
-
     def all_last_decline(self, rows):
         legal = self.legal(rows)
         win = legal[:, zoo.TSUMO] | legal[:, zoo.RON]
         return np.where(win, late_rules.LAST if self.fires else late_rules.NOT_LAST, 0).astype(np.uint8).tobytes()
-
-    def all_last_dealer_noten(self, rows):
-        discards = self.legal(rows)[:, :KINDS]
-        codes = np.where(discards, TENPAI, 0).astype(np.uint8)
-        if self.fires:
-            some = np.flatnonzero(discards.any(axis=1))
-            codes[some, discards[some].argmax(axis=1)] = NOTEN
-        return codes.tobytes()
 
     def mjai_all(self):
         lines = self.arena.mjai_all()
@@ -721,10 +416,10 @@ def steer_every_reach(player):
 def first_difference(events: list[list[str]], table: int) -> tuple[dict, dict]:
     """Where the ruled arm's table `table` and the plain arm's table of the
     same deal and seat first part, as the events each was handed: the ruled
-    arm's event there, and the plain arm's, with the event after it."""
+    arm's event there, and the plain arm's."""
     ruled, plain = ([json.loads(line) for line in events[at]] for at in (table, table + 4))
     part = next(at for at, (mine, theirs) in enumerate(zip(ruled, plain)) if mine != theirs)
-    return ruled[part], (plain[part], plain[part + 1] if part + 1 < len(plain) else None)
+    return ruled[part], plain[part]
 
 
 class RulerTests(unittest.TestCase):
@@ -780,10 +475,8 @@ class RulerTests(unittest.TestCase):
 
     def test_a_rule_that_fires_wherever_it_is_asked_changes_games_only_where_it_fired(self):
         """And where it fired first, it played its move where the plain arm
-        played the network's: the reach's tile thrown undeclared where the
-        plain arm declared, a pass or another move where the plain arm won,
-        the lowest-numbered tile where the plain arm threw another or
-        declared riichi."""
+        played the network's: a pass or another move where the plain arm
+        won."""
         for rule in late_rules.RULES:
             with self.subTest(rule=rule):
                 got, events = self.paired(rule, fires=True)
@@ -796,29 +489,17 @@ class RulerTests(unittest.TestCase):
                 for table in account["tables"]:
                     if events[table] == events[table + 4]:
                         continue
-                    ruled, (plain, after) = first_difference(events, table)
-                    if rule == "wide-dama":
-                        self.assertEqual(plain, {"type": "reach", "actor": table})
-                        self.assertEqual(ruled, after)
-                    elif rule == "decline-last":
-                        self.assertEqual((plain["type"], plain["actor"]), ("hora", table))
-                        self.assertFalse(ruled["type"] == "hora" and ruled["actor"] == table, ruled)
-                    else:
-                        self.assertIn(plain["type"], ("dahai", "reach"))
-                        self.assertEqual((ruled["type"], ruled["actor"]), ("dahai", table))
-                if rule == "wide-dama":
-                    self.assertEqual(sum(reaches(events[place], place) for place in range(4)), 0)
+                    ruled, plain = first_difference(events, table)
+                    self.assertEqual((plain["type"], plain["actor"]), ("hora", table))
+                    self.assertFalse(ruled["type"] == "hora" and ruled["actor"] == table, ruled)
 
     #: For each rule, a seed and a number of deals at which the arena's own
     #: codes, played through the ruler, judge the rule and fire it: found
     #: once ahead of time, as the engine's Club test finds its games, by
     #: playing the deals from `SEED` on with the first challenger alone.
-    #: Wide dama fired at 7 of the first 16 deals and the decline at one,
-    #: `SEED` + 5; dealer noten, whose question comes only to the
-    #: challenger dealing South 4 at one table in four, judged 6 decisions
-    #: in the first 144 deals and fired at one, `SEED` + 133. About fifteen
-    #: seconds a deal.
-    REAL = {"wide-dama": (SEED, 1), "decline-last": (SEED + 5, 1), "dealer-noten": (SEED + 133, 1)}
+    #: The decline fired at one of the first 16 deals, `SEED` + 5. About
+    #: fifteen seconds a deal.
+    REAL = {"decline-last": (SEED + 5, 1)}
 
     def surely(self, name: str):
         """A player seated as `seated` seats one, every move it makes before
@@ -857,7 +538,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(ruler.dama_check(scores, layout, [fired, None]),
                          {"differing": 2, "violations": [{"deal": 0, "place": 3, "tables": [9, 21]}]})
 
-    def run_main(self, check: dict | None, *extra: str, also: str = "a.pt", rule: str = "wide-dama"):
+    def run_main(self, check: dict | None, *extra: str, also: str = "a.pt", rule: str = "decline-last"):
         """`neural.ruler`'s command with a late rule, its players and its
         play stood in for: what it wrote, what it said, and how it ended."""
         arm = {"placement": 2.5, "standard_error": 0.1, "by_deal": [2.5]}
@@ -911,10 +592,10 @@ class CheckTests(unittest.TestCase):
                     _out, said, code, _seated = self.run_main(None, *extra, also=also)
                     self.assertEqual(code, 2)
                     self.assertIn(why, said)
-        for argv, why in ((["--late-rule", "wide-dama"], "--questions fixed and --preview-reach"),
-                          (["--late-rule", "wide-dama", "--questions", "fixed"], "--preview-reach"),
+        for argv, why in ((["--late-rule", "decline-last"], "--questions fixed and --preview-reach"),
+                          (["--late-rule", "decline-last", "--questions", "fixed"], "--preview-reach"),
                           (["--late-rule", "dama"], "invalid choice"),
-                          (["--late-rule", "wide-dama", "--questions", "fixed", "--preview-reach"], "--also")):
+                          (["--late-rule", "decline-last", "--questions", "fixed", "--preview-reach"], "--also")):
             with self.subTest(argv=argv), patch.object(sys, "argv", ["ruler", "a.pt", "b.pt", *argv]), \
                     contextlib.redirect_stderr(io.StringIO()) as said, self.assertRaises(SystemExit):
                 ruler.main()

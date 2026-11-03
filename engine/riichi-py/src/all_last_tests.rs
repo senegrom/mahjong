@@ -1,15 +1,14 @@
 //! The arena's dama codes for the last hand, game by game: the rules
 //! engine's own answer for a game whose decision is owed at a turn, zeros
 //! for one waiting on a claim or finished, in the order the games are named,
-//! and a game the arena does not have refused. The late rules' codes, row by
+//! and a game the arena does not have refused. The decline codes, row by
 //! row, each a game and a player by place: the engine's own answer for the
-//! seat that player holds where they owe the decision, at their turn or, for
-//! a win's decline, now or later in a claim window; zeros for any other row;
-//! and a game the arena does not have, or a player not one of the four,
-//! refused.
+//! seat that player holds where they owe a decision, at their turn or now or
+//! later in a claim window; zeros for any other row; and a game the arena
+//! does not have, or a player not one of the four, refused.
 
-use super::{all_last_codes, dealer_noten_codes, decline_codes, wide_dama_codes, Seat};
-use riichi_core::all_last::{Dama, DealerNoten, Decline, WideDama};
+use super::{all_last_codes, decline_codes, Seat};
+use riichi_core::all_last::{Dama, Decline};
 use riichi_core::game::{Discard, Phase};
 use riichi_core::tile::{Tile, KINDS};
 use riichi_core::wall::Wall;
@@ -97,7 +96,7 @@ fn a_game_the_arena_lacks_is_refused() {
 }
 
 /// A game moved on to South 4, its table with it, the dealer as player 3:
-/// the rows the late rules are asked about name players by place, which the
+/// the rows the decline rule is asked about name players by place, which the
 /// table maps to seats. As `last_hand`, North to move, 4,000 ahead.
 fn moved_on(seed: u64) -> Seat {
     let mut seat = last_hand(seed);
@@ -112,11 +111,7 @@ fn at(seat: &Seat, wind: Wind) -> usize {
 }
 
 /// Hands that wait on nothing, for the seats whose hands nothing reads.
-const IDLE: [&str; 3] = [
-    "1z1z2z5z6z7z1p4p7p2s5s8s3m",
-    "3z3z4z4z5z6z7z2p5p8p3s6s9s",
-    "1z2z3z4z5z6z7z9s9s3p6p9p2m",
-];
+const IDLE: [&str; 2] = ["1z1z2z5z6z7z1p4p7p2s5s8s3m", "3z3z4z4z5z6z7z2p5p8p3s6s9s"];
 
 /// A game moved on to South 4 in which West has just thrown a 1m that North,
 /// on 23456m 456p 678s 33s, and South, on 23456m 789p 345s 55s, may both
@@ -148,40 +143,6 @@ fn two_rons(seed: u64) -> Seat {
     seat
 }
 
-/// A game moved on to South 4 at the dealer's own discard with two tiles
-/// left to draw, on 23456m 456p 678s 33s with the 9p drawn, 4,100 ahead of
-/// South, after each of the others threw a 4m.
-fn last_discard(seed: u64) -> Seat {
-    let mut seat = moved_on(seed);
-    let hand = &mut seat.hand;
-    for (player, score) in hand
-        .players
-        .iter_mut()
-        .zip([40_100, 36_000, 12_000, 11_900])
-    {
-        player.score = score;
-    }
-    hand.wall = Wall::for_analysis(2, &[tile("2z")], 0).unwrap();
-    hand.players[Wind::East.index()].hand = "23456m456p678s33s9p".parse().unwrap();
-    for (at, wind) in [Wind::South, Wind::West, Wind::North]
-        .into_iter()
-        .enumerate()
-    {
-        hand.players[wind.index()].hand = IDLE[at].parse().unwrap();
-        hand.players[wind.index()].discards.push(Discard {
-            tile: tile("4m"),
-            order: at as u32,
-            drawn: false,
-            riichi: false,
-            claimed: false,
-        });
-    }
-    hand.discards_made = 3;
-    hand.drawn = Some(tile("9p"));
-    hand.turn = Wind::East;
-    seat
-}
-
 #[test]
 fn a_fresh_arena_owes_no_late_rule() {
     let seats: Vec<Seat> = (0..3)
@@ -190,50 +151,16 @@ fn a_fresh_arena_owes_no_late_rule() {
     let rows: Vec<(usize, usize)> = (0..3)
         .flat_map(|game| (0..4).map(move |player| (game, player)))
         .collect();
-    assert_eq!(
-        wide_dama_codes(&seats, &rows),
-        Ok(vec![0; rows.len() * KINDS])
-    );
     assert_eq!(decline_codes(&seats, &rows), Ok(vec![0; rows.len()]));
-    assert_eq!(
-        dealer_noten_codes(&seats, &rows),
-        Ok(vec![0; rows.len() * KINDS])
-    );
-    for answer in [
-        wide_dama_codes(&seats, &[]),
-        decline_codes(&seats, &[]),
-        dealer_noten_codes(&seats, &[]),
-    ] {
-        assert_eq!(answer, Ok(Vec::new()));
-    }
+    assert_eq!(decline_codes(&seats, &[]), Ok(Vec::new()));
 }
 
+/// A player who owes the game no decision at a turn is given zero.
 #[test]
-fn the_wide_codes_are_the_engines_for_the_player_at_their_turn() {
-    let seats = vec![Seat::new(9_100_000, &[]), moved_on(9_100_001)];
-    let north = at(&seats[1], Wind::North);
-    let want: Vec<u8> = seats[1]
-        .hand
-        .all_last_wide_dama()
-        .iter()
-        .map(|code| *code as u8)
-        .collect();
-    assert_eq!(want[tile("9p").idx()], WideDama::NoPlace as u8);
-    assert_eq!(want[tile("2m").idx()], WideDama::NotWaiting as u8);
-    // Named in any order, and more than once.
-    let codes = wide_dama_codes(&seats, &[(1, north), (0, 0), (1, north)])
-        .expect("every row is the arena's");
-    assert_eq!(codes[..KINDS], want[..]);
-    assert_eq!(codes[KINDS..2 * KINDS], [0; KINDS]);
-    assert_eq!(codes[2 * KINDS..], want[..]);
-    // A player who owes the game no decision is given zeros.
+fn a_player_who_owes_no_decision_at_a_turn_is_given_zero() {
+    let seats = vec![moved_on(9_100_001)];
     for wind in [Wind::East, Wind::South, Wind::West] {
-        let rows = [(1, at(&seats[1], wind))];
-        assert_eq!(
-            wide_dama_codes(&seats, &rows),
-            Ok(vec![0; KINDS]),
-            "{wind:?}"
-        );
+        let rows = [(0, at(&seats[0], wind))];
         assert_eq!(decline_codes(&seats, &rows), Ok(vec![0]), "{wind:?}");
     }
 }
@@ -257,15 +184,6 @@ fn a_claim_window_answers_every_seat_it_will_ask() {
     let rows = [(0, north), (0, south), (0, east), (0, west)];
     let want = vec![Decline::Last as u8, Decline::NotLast as u8, 0, 0];
     assert_eq!(decline_codes(std::slice::from_ref(&seat), &rows), Ok(want));
-    // The turn rules owe a claim window nothing.
-    assert_eq!(
-        wide_dama_codes(std::slice::from_ref(&seat), &rows),
-        Ok(vec![0; 4 * KINDS])
-    );
-    assert_eq!(
-        dealer_noten_codes(std::slice::from_ref(&seat), &rows),
-        Ok(vec![0; 4 * KINDS])
-    );
     // South has answered: only North still owes the window an answer.
     seat.asking.pop_front();
     assert_eq!(
@@ -275,51 +193,12 @@ fn a_claim_window_answers_every_seat_it_will_ask() {
 }
 
 #[test]
-fn the_dealer_noten_codes_are_the_engines_for_the_dealer_at_their_turn() {
-    let seat = last_discard(9_100_006);
-    let want: Vec<u8> = seat
-        .hand
-        .all_last_dealer_noten()
-        .iter()
-        .map(|code| *code as u8)
-        .collect();
-    assert_eq!(want[tile("9p").idx()], DealerNoten::Tenpai as u8);
-    assert_eq!(want[tile("4m").idx()], DealerNoten::Noten as u8);
-    assert_eq!(want[tile("3s").idx()], DealerNoten::Unsafe as u8);
-    assert_eq!(want[tile("1z").idx()], DealerNoten::Absent as u8);
-    let seats = std::slice::from_ref(&seat);
-    assert_eq!(
-        dealer_noten_codes(seats, &[(0, at(&seat, Wind::East))]),
-        Ok(want)
-    );
-    for wind in [Wind::South, Wind::West, Wind::North] {
-        assert_eq!(
-            dealer_noten_codes(seats, &[(0, at(&seat, wind))]),
-            Ok(vec![0; KINDS]),
-            "{wind:?}"
-        );
-    }
-}
-
-#[test]
 fn a_finished_game_owes_no_late_rule() {
     let mut finished = two_rons(9_100_007);
     finished.finished = true;
-    let mut over = last_discard(9_100_008);
-    over.finished = true;
-    let seats = vec![finished, over];
-    let rows: Vec<(usize, usize)> = (0..2)
-        .flat_map(|game| (0..4).map(move |player| (game, player)))
-        .collect();
+    let seats = vec![finished];
+    let rows: Vec<(usize, usize)> = (0..4).map(|player| (0, player)).collect();
     assert_eq!(decline_codes(&seats, &rows), Ok(vec![0; rows.len()]));
-    assert_eq!(
-        dealer_noten_codes(&seats, &rows),
-        Ok(vec![0; rows.len() * KINDS])
-    );
-    assert_eq!(
-        wide_dama_codes(&seats, &rows),
-        Ok(vec![0; rows.len() * KINDS])
-    );
 }
 
 #[test]
@@ -329,13 +208,7 @@ fn a_row_the_arena_lacks_is_refused() {
         (vec![(0, 2), (1, 0)], "no game 1"),
         (vec![(0, 2), (0, 4)], "no player 4 in game 0"),
     ] {
-        for refused in [
-            wide_dama_codes(&seats, &rows),
-            decline_codes(&seats, &rows),
-            dealer_noten_codes(&seats, &rows),
-        ] {
-            let refused = refused.expect_err("the row is not the arena's");
-            assert!(refused.contains(why), "{refused}");
-        }
+        let refused = decline_codes(&seats, &rows).expect_err("the row is not the arena's");
+        assert!(refused.contains(why), "{refused}");
     }
 }

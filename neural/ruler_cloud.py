@@ -41,12 +41,12 @@ every such call). Every report of such a series must pass the rule's check
 (see `looks.dama_problem`): the arm with the rule fired, the plain arm said
 nothing of it, and every table the two arms ended differently at is one the
 rule fired at. The first report that fails stops the series, kept, and no
-seed of it is spawned again. A series of the checkpoint with one of the late
-rules of the last hand (see `neural.late_rules`) is registered the same way,
-`--late-rule wide-dama`, `decline-last` or `dealer-noten` in place of
-`--all-last-dama` (one rule of the last hand a series), the first challenger
-following the rule: on an app named with `--app`, one checkpoint asked
-alike, each report held to the rule's check (see `looks.late_problem`).
+seed of it is spawned again. A series of the checkpoint with the late rule
+of the last hand (see `neural.late_rules`) is registered the same way,
+`--late-rule decline-last` in place of `--all-last-dama` (one rule of the
+last hand a series), the first challenger following the rule: on an app
+named with `--app`, one checkpoint asked alike, each report held to the
+rule's check (see `looks.late_problem`).
 
 The app's ruler is looked up before anything is registered, and a call
 that failed on an argument the app's code does not take (an app deployed
@@ -61,7 +61,7 @@ say, in place of four looks of five read at Pocock's bound.
         [--also <second> | --against <tag>] [--expected 0.006] [--graphs]
         [--questions fixed --graphs --skip-forced --preview-reach] [--run fusion-long]
         [--average-suits first|second|both] [--all-last-dama first|second|both --app <app>]
-        [--late-rule wide-dama|decline-last|dealer-noten --app <app>]
+        [--late-rule decline-last --app <app>]
         [--looks <looks> --per-look <seeds> --bound <z>]
     python -m neural.ruler_cloud looks <tag> --local <folder> [--against <tag>]
     python -m neural.ruler_cloud keep <tag> <call file> --local <folder>

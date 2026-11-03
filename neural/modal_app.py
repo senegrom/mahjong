@@ -1231,7 +1231,7 @@ def _keep(folder: Path, name: str, text: str) -> None:
 #: The late rules of the last hand a ruler's first challenger may follow (see
 #: `neural.late_rules`, whose `RULES` these are; the app's image is not
 #: asked to import it to check a name).
-LATE_RULES = ("wide-dama", "decline-last", "dealer-noten")
+LATE_RULES = ("decline-last",)
 
 
 @app.function(
