@@ -187,8 +187,13 @@ test('Trained advice in the last hand asks no rule of the dealer, and reads a fu
   // The probe with the seats turned one place: East, the dealer, decides.
   const dealer = southFour({ seat: 0, hand: '23456m456p678s33s9p', drawn: '9p', scores: [36000, 20000, 36000, 28000] });
   await asking(dealer, async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['riichi', '9p', null]));
-  // North ticked furiten, which play clears at the draw: the same move.
-  const ticked = probe(0);
-  ticked.players[3].furiten = true;
-  await asking(ticked, async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['discard', '9p', [DAMA_RULE]]));
+  // North ticked furiten, which play clears at the draw: the probe's moves
+  // unticked. At a gap of 1,500 only a 1m ron leaves North short: read as it
+  // stands, the tick would bar that ron, and the 9p would be thrown
+  // undeclared.
+  for (const [gap, move] of [[0, ['discard', '9p', [DAMA_RULE]]], [1500, ['riichi', '9p', null]]]) {
+    const ticked = probe(gap);
+    ticked.players[3].furiten = true;
+    await asking(ticked, async engine => assert.deepEqual(advised(await advise(engine, 'full')), move, `a gap of ${gap}`));
+  }
 });
