@@ -504,11 +504,17 @@ left out of every figure.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
-is not decisive flags nothing. The **Flagged** filter's title states the rule
-("Your move under 5%, Trained AI's choice 60% or more"), shown as a tooltip and
-read as the button's description, so it is at hand without taking a paragraph
-of the screen. Riichi is judged in two stages, as the weights are shown
-everywhere: when the player and the network both declared, the tiles are
+is not decisive flags nothing. Where one of the last hand's rules made Trained
+AI's move, whose weight did not choose it, the decision is flagged only where
+decline-last declined a win and the player took it: declining changed the
+place in 65 of 2610's ruled deals, 64 of them for the better. Any other move
+there is listed under Differed only, a riichi the dama rule threw undeclared
+among them: that rule changed 126 deals, 38 of them for the worse. The
+**Flagged** filter's title states the rule ("Your move under 5%, Trained AI's
+choice 60% or more, or a last-hand win that leaves you last"), shown as a
+tooltip and read as the button's description, so it is at hand without taking
+a paragraph of the screen. Riichi is judged in two stages, as the weights are
+shown everywhere: when the player and the network both declared, the tiles are
 compared by the discard weights given riichi; otherwise the move itself is
 compared, the declaration carrying its declaration weight. Flagged decisions
 are not ranked: every list is in the order played, hand by hand, so none is
