@@ -96,6 +96,14 @@ python -m neural.tests.export_worker_fixture /tmp/policy-worker-fixture
 node web/tests/policy-export-parity.mjs /tmp/policy-worker-fixture
 ```
 
+The same job holds the page's last-hand rules (`web/src/lib/trained-move.js`)
+to the Python wrappers they are written from:
+
+```sh
+python -m neural.tests.export_rules_fixture /tmp/rules-fixture
+node web/tests/last-hand-rules-parity.mjs /tmp/rules-fixture
+```
+
 The browser export contract is Mortal version 4: 1,012 observation planes,
 34 tile positions and 46 actions, with named policy, value and hands outputs.
 Engine-plane students and mismatched action heads are rejected before touching

@@ -21,13 +21,13 @@
     "eslint": "10.13.0",
     "globals": "17.13.0",
     "puppeteer-core": "^25.16.0",
-    "svelte": "^5.57.2",
+    "svelte": "^5.57.3",
     "svelte-check": "4.7.7",
     "typescript": "6.0.3",
     "vite": "^8.3.5"
   },
   "dependencies": {
-    "onnxruntime-web": "1.30.0"
+    "onnxruntime-web": "1.31.1"
   },
   "overrides": {
     "minimatch": "^11.0.1"

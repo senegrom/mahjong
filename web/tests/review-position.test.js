@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis } from '../src/wasm/riichi.js';
+import { DAMA, DECLINE } from '../src/lib/trained-move.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 import { renamingFault } from './fixtures/renamed-planes.js';
 
@@ -167,4 +168,32 @@ test('a written position is refused where it names a quad\'s turn its seat never
     refused = true;
   });
   assert.ok(refused);
+});
+
+test('a written position gives the last hand\'s codes the review gives, and the review check\'s game meets no rule', () => {
+  // The review check's game, and two Club-advised games whose South 4 the
+  // rules reach: a riichi whose tile keeps first, and a win that would leave
+  // the player last.
+  const coded = new Map(), kinds = new Set();
+  for (const [game, played] of [['the review check\'s game', snapshot], ['Club seed 7', clubAdvisedGame(Game, 7)], ['Club seed 25', clubAdvisedGame(Game, 25)]]) {
+    coded.set(game, []);
+    eachDecision(Game, played, ({ hand, index, engine, position }) => {
+      const at = `${game}, ${hand.name}, decision ${index + 1}`;
+      const dama = Array.from(engine.review_all_last_dama(index)), decline = engine.review_all_last_decline(index);
+      const analysis = new PhysicalAnalysis(position);
+      try {
+        assert.deepEqual(Array.from(analysis.agent_all_last_dama()), dama, at);
+        assert.equal(analysis.agent_all_last_decline(), decline, at);
+      } finally { analysis.free(); }
+      if (!dama.some(Boolean) && !decline) return;
+      coded.get(game).push(at);
+      if (dama.includes(DAMA.KEEPS_FIRST)) kinds.add('keeps first');
+      if (decline === DECLINE.LAST) kinds.add('last');
+    });
+  }
+  assert.deepEqual([...kinds].sort(), ['keeps first', 'last'], `the Club games' coded decisions: ${[...coded.values()].flat().join('; ')}`);
+  // Its South 4 is hand 8, where neither a riichi nor a win is open to the
+  // player.
+  assert.deepEqual(coded.get('the review check\'s game'), [], 'scripts/game-review-check.mjs works out the review\'s requests itself, '
+    + 'and asks no rule: where its game meets one, it must play the rules as lib/trained-move.js does');
 });

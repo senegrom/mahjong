@@ -190,7 +190,8 @@ test("the filter's buttons say in a word what each keeps, with how many, every d
   assert.deepEqual(options(opening), [['flagged', true, 'Flagged (1)'], ['differed', false, 'Differed (2)'], ['every', false, 'All (7)']]);
   // Where a word is not enough, the button's title says what keeps them.
   const titles = [...opening.matchAll(/<button[^>]*\btitle="([^"]*)"[^>]*\bdata-filter-option="(\w+)"/g)].map(([, title, option]) => [option, title]);
-  assert.deepEqual(titles, [['flagged', "Your move under 5%, Trained AI's choice 60% or more"], ['differed', 'Trained AI chose another move']]);
+  assert.deepEqual(titles, [['flagged', "Your move under 5%, Trained AI's choice 60% or more, or a last-hand win that leaves you last"],
+    ['differed', 'Trained AI chose another move']]);
   // What a choice of filter keeps is said from a line in the page from the start.
   assert.match(opening, /<p class="visually-hidden[^"]*" role="status" data-filter-said=""><\/p>/);
   for (const [filter, label, name] of [['differed', 'Differed (2)', 'decision where Trained AI differed'], ['every', 'All (7)', 'decision']]) {

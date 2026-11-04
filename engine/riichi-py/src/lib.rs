@@ -39,6 +39,7 @@ use std::collections::VecDeque;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
+use riichi_core::all_last::{Dama, Decline};
 use riichi_core::bot::Bot;
 use riichi_core::encoding::{
     self, ACTIONS, HANDS, OBSERVATION, OPPONENTS, ORACLE, ORACLE_PLANES, PASS, PLANES, POSITIONS,
@@ -47,6 +48,7 @@ use riichi_core::game::{Call, Hand, Phase};
 use riichi_core::mjai;
 use riichi_core::rng::Rng;
 use riichi_core::table::Table;
+use riichi_core::tile::KINDS;
 use riichi_core::Wind;
 
 /// One game, and where its next decision sits.
@@ -340,6 +342,88 @@ fn legal_masks(seats: &[Seat], mask: &mut [bool]) {
         });
 }
 
+/// The last hand's dama codes of each game in `games`, `KINDS` bytes a game
+/// in the order named (see `riichi_core::all_last`): for a game whose
+/// decision is owed at a turn, what the rules engine answers for the turn
+/// player; zeros for a game waiting on a claim or finished. A game the arena
+/// does not have is refused before any is answered. The games are spread
+/// across the cores, as the legality masks are.
+fn all_last_codes(seats: &[Seat], games: &[usize]) -> Result<Vec<u8>, String> {
+    use rayon::prelude::*;
+    if let Some(game) = games.iter().find(|game| **game >= seats.len()) {
+        return Err(format!(
+            "no game {game}: the arena has {} games",
+            seats.len()
+        ));
+    }
+    let codes: Vec<[Dama; KINDS]> = games
+        .par_iter()
+        .map(|&game| {
+            let seat = &seats[game];
+            if seat.asking.is_empty() && seat.pending().is_some() {
+                seat.hand.all_last_dama()
+            } else {
+                [Dama::Absent; KINDS]
+            }
+        })
+        .collect();
+    Ok(codes.iter().flatten().map(|code| *code as u8).collect())
+}
+
+/// Refuses `rows`, each a game and a player as a ruler names who decides
+/// (the player by their place at the table, not their seat), before any is
+/// answered, if one names a game the arena does not have or a player who is
+/// not one of the four.
+fn check_rows(seats: &[Seat], rows: &[(usize, usize)]) -> Result<(), String> {
+    if let Some((game, _)) = rows.iter().find(|(game, _)| *game >= seats.len()) {
+        return Err(format!(
+            "no game {game}: the arena has {} games",
+            seats.len()
+        ));
+    }
+    if let Some((game, player)) = rows.iter().find(|(_, player)| *player >= 4) {
+        return Err(format!(
+            "no player {player} in game {game}: the players are 0 to 3"
+        ));
+    }
+    Ok(())
+}
+
+/// The seat `player` holds in the game of `seat`, if that player owes the
+/// game a decision: at their own turn, or, in a claim window, now or later
+/// in the same window, which asks its seats one at a time and changes
+/// nothing until every one has answered.
+fn deciding(seat: &Seat, player: usize) -> Option<Wind> {
+    if seat.finished {
+        return None;
+    }
+    let wind = seat.table.seat_of(player);
+    if seat.asking.is_empty() {
+        (seat.pending() == Some(wind)).then_some(wind)
+    } else {
+        seat.asking.contains(&wind).then_some(wind)
+    }
+}
+
+/// The last hand's decline codes of each of `rows` (see
+/// `riichi_core::all_last::Decline`), a byte a row in the order named: for
+/// a player who owes their game a decision, at their own turn or in a claim
+/// window, what the rules engine answers for their seat; zero for any
+/// other. Checked first, and spread across the cores, as `all_last_codes`
+/// is.
+fn decline_codes(seats: &[Seat], rows: &[(usize, usize)]) -> Result<Vec<u8>, String> {
+    use rayon::prelude::*;
+    check_rows(seats, rows)?;
+    Ok(rows
+        .par_iter()
+        .map(|&(game, player)| {
+            let seat = &seats[game];
+            deciding(seat, player).map_or(Decline::Absent, |wind| seat.hand.all_last_decline(wind))
+                as u8
+        })
+        .collect())
+}
+
 /// One row of `width` float32 numbers per game, as the bytes Python reads
 /// with `numpy.frombuffer`: what `fill` writes for the seat owing the
 /// game's decision, and zeros where the game owes none. Each row is encoded
@@ -558,6 +642,52 @@ impl Arena {
         PyBytes::new(py, &bytes)
     }
 
+    /// The last hand's dama codes of each game in `games`, 34 bytes a game,
+    /// one a tile kind, in the order named (see `riichi_core::all_last`):
+    /// where a game owes the decision at a non-dealer's own turn in South 4
+    /// with riichi open, what declaring riichi with each kind held would
+    /// add over discarding it without declaring, 1 where riichi would add no
+    /// win and every win the hand could make without it leaves that player
+    /// alone in first; zeros for every other game, and for one waiting on a
+    /// claim or finished. A game the arena does not have raises `ValueError`.
+    /// A ruler's player that keeps such a riichi undeclared asks it only of
+    /// the games whose best move is riichi (see `neural.all_last`).
+    fn all_last_dama<'py>(
+        &self,
+        py: Python<'py>,
+        games: Vec<usize>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        // Without the GIL, as in `step`, whose comment says why that is safe.
+        let seats = &self.seats;
+        let codes = py
+            .detach(|| all_last_codes(seats, &games))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyBytes::new(py, &codes))
+    }
+
+    /// The last hand's decline codes of each of `rows`, a byte a row, in
+    /// the order named, each row a game and a player by place (see
+    /// `riichi_core::all_last`): where that player owes a decision, at
+    /// their own turn or now or later in a claim window, as a non-dealer in
+    /// South 4 with a win open, 1 where the win would leave them alone in
+    /// last, a riichi win even at the most its ura dora could add, and 2
+    /// where it would not; zero for every other row. A game the arena does
+    /// not have, or a player not one of the four, raises `ValueError`. A
+    /// ruler's player that declines such a win asks it only of the rows
+    /// whose best move is a win (see `neural.late_rules`).
+    fn all_last_decline<'py>(
+        &self,
+        py: Python<'py>,
+        rows: Vec<(usize, usize)>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        // Without the GIL, as in `step`, whose comment says why that is safe.
+        let seats = &self.seats;
+        let codes = py
+            .detach(|| decline_codes(seats, &rows))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyBytes::new(py, &codes))
+    }
+
     /// What the heuristic player would do in each game, as bytes of the
     /// action index, or 0xFF where no decision is owed. This is the label a
     /// network is taught from before it is left to play on its own.
@@ -724,6 +854,15 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     // would reset every resumed run's benchmark history, for a change that
     // deals no game differently.
     module.add("ARENA_SEEDS_API_VERSION", 1u32)?;
+    // Whether `Arena` answers the last hand's dama codes (`all_last_dama`),
+    // a number of its own for the same reason; from 2, the decline codes too
+    // (`all_last_decline`); from 3, a riichi win's decline code read at the
+    // most its ura dora could add, never at the real ones. Versions 2 and 3
+    // also answered the codes of two rules measured and dropped, wide dama
+    // and dealer noten (docs/RULER.md), whose bindings went after #215. The
+    // number stayed 3: the codes still answered are answered as at 3, and a
+    // reader asks only that it be at least the version it needs.
+    module.add("ALL_LAST_API_VERSION", 3u32)?;
     module.add("PLANES", PLANES)?;
     // Which encoding of those planes `observations` writes; a checkpoint of
     // the engine's kind records it and is refused where it differs.
@@ -743,6 +882,8 @@ fn riichi_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod all_last_tests;
 #[cfg(test)]
 mod legality_tests;
 #[cfg(test)]

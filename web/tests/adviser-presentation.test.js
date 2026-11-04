@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { weightsByChoice, groupPolicyChoices, MORTAL_REACH } from '../src/lib/action-weights.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { MOVES, average, averagedAnswer, swapMoves } from '../src/lib/suits.js';
+import { MOVES, average, swapMoves } from '../src/lib/suits.js';
+import { DAMA, DAMA_RULE, agentTable, trainedMove } from '../src/lib/trained-move.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const weights = entries => Object.freeze(Array.from({ length: 46 }, (_, index) => entries[index] ?? 0));
@@ -19,7 +20,10 @@ const choices = Object.freeze([
   { index: null, kind: 'concealed-kan', tile: '7z', label: 'Extra kan' },
 ].map(Object.freeze));
 
-function engine() {
+/** A seat on 1m, 2m and 3m that may declare riichi on 1m or 2m. Its last
+ * hand's codes are nought unless `dama` names a tile's, and every read of a
+ * code is counted in `reads`. */
+function engine({ dama: codes = {} } = {}) {
   const planes = new Float32Array([1]), after = new Float32Array([2]);
   // The renamed game's planes, other than the game's own.
   const renamed = new Float32Array([11]), afterRenamed = new Float32Array([12]);
@@ -27,12 +31,16 @@ function engine() {
   const afterMask = Array.from({ length: 46 }, (_, index) => [0, 1].includes(index));
   const from = (action, reached) => reached ? ([0, 1].includes(action) ? action + 34 : -1)
     : ([0, 1, 2].includes(action) ? action : -1);
+  const reads = { dama: 0, decline: 0 };
+  const dama = () => { reads.dama++; return Uint8Array.from({ length: 34 }, (_, tile) => codes[tile] ?? 0); };
+  const decline = () => { reads.decline++; return 0; };
   return {
-    planes, after, renamed, afterRenamed, mask, afterMask,
+    planes, after, renamed, afterRenamed, mask, afterMask, reads,
     agent_choices: () => choices,
     agent_observation_mortal: () => planes, agent_mask_mortal: () => mask,
     agent_observation_after_reach: () => after, agent_mask_after_reach: () => afterMask,
     agent_observation_mortal_renamed: () => renamed, agent_observation_after_reach_renamed: () => afterRenamed,
+    agent_all_last_dama: dama, agent_all_last_decline: decline,
     agent_action_from_mortal: from,
     mortal_action_of: index => [34, 35].includes(index) ? MORTAL_REACH : index,
     review_choices: () => choices,
@@ -40,6 +48,7 @@ function engine() {
     review_observation_after_reach: () => after, review_mask_after_reach: () => afterMask,
     review_observation_mortal_renamed: () => renamed, review_observation_after_reach_renamed: () => afterRenamed,
     review_action_from_mortal: (_index, action, reached) => from(action, reached),
+    review_all_last_dama: dama, review_all_last_decline: decline,
   };
 }
 /** A declaration and its tile, each hesitant, with the renamed game's
@@ -62,7 +71,7 @@ function analyzer(responses) {
   } };
 }
 const evaluator = analyzePolicy => loadModule('agents.js', {
-  analyzePolicy, averagedAnswer, weightsByChoice, MORTAL_REACH,
+  analyzePolicy, agentTable, trainedMove, weightsByChoice,
   readValue: value => value ?? null, readBeliefs: () => null,
 }, ['evaluateAgent']).evaluateAgent;
 const note = choice => ({ turn: 1, played: choice.label, played_kind: choice.kind, played_tile: choice.tile });
@@ -72,6 +81,7 @@ test('one declaration row has separate conditional discards; neither distributio
   const a = analyzer(sequence(declared));
   const result = await evaluator(a.analyze)(e, 'full', signal);
   assert.strictEqual(result.choice, choices[4], 'second-stage action, not first matching riichi row');
+  assert.equal(result.ruled, null, 'codes all nought: no rule made the move');
   assert.equal(result.value, -1.25, 'keep the original position value, not the post-declaration value');
   // Each question as the engine writes it, then, Trained AI hesitating, the
   // renamed game's, its moves renamed.
@@ -109,6 +119,28 @@ test('a lower joint probability cannot override the policy\'s two-stage choice',
   groupPolicyChoices(result.choices);
   assert.strictEqual(result.choice, choices[4]);
   assert.equal(a.calls.length, 4);
+});
+
+test('a riichi whose tile keeps first is advised as that tile\'s plain discard, and the riichi\'s tiles are still weighed', async () => {
+  // The riichi and its tile as above, each hesitant; thrown undeclared, its
+  // tile, the 2m, keeps first. The best other move would be the 3m.
+  const e = engine({ dama: { 0: DAMA.SHORT, 1: DAMA.KEEPS_FIRST, 2: DAMA.NOT_WAITING } }), a = analyzer(sequence(declared));
+  const result = await evaluator(a.analyze)(e, 'full');
+  assert.strictEqual(result.choice, choices[1], 'Discard 2m');
+  assert.deepEqual(result.ruled.rules, [DAMA_RULE]);
+  assert.deepEqual(e.reads, { dama: 1, decline: 0 });
+  // The same four questions as a riichi that stands.
+  assert.deepEqual(a.calls.map(([planes, mask]) => [planes, Array.from(mask)]),
+    [[e.planes, e.mask], [e.renamed, swapMoves(e.mask)], [e.after, e.afterMask], [e.afterRenamed, swapMoves(e.afterMask)]]);
+  // The weights shown are the network's: the riichi's, with its tiles', and
+  // the move advised its own.
+  const declaration = average(declared.first.weights, declared.firstRenamed.weights, e.mask).weights;
+  const tile = average(declared.second.weights, declared.secondRenamed.weights, e.afterMask).weights;
+  const group = groupPolicyChoices(result.choices).find(row => row.choices);
+  assert.equal(group.weight, declaration[37]);
+  assert.deepEqual(group.choices.map(choice => choice.conditionalWeight), [tile[1], tile[0]]);
+  assert.equal(result.choice.index, 1);
+  assert.equal(result.choices.find(choice => choice.index === 1).weight, declaration[1]);
 });
 
 test('riichi not chosen stays unevaluated, not zero or an invented conditional distribution', async () => {
@@ -153,6 +185,7 @@ test('built-in advisers keep their sampled choice and make no network requests',
   assert.strictEqual(result.choice, choices[1]);
   assert.equal(result.choices[0].weight, 1);
   assert.equal(picks, 1); assert.equal(a.calls.length, 0);
+  assert.deepEqual(e.reads, { dama: 0, decline: 0 }, 'nor are the last hand\'s rules asked');
 });
 
 test('historical riichi review keeps declaration and conditional weights separate for both tiles', async () => {
@@ -168,6 +201,18 @@ test('historical riichi review keeps declaration and conditional weights separat
   assert.equal(result.played_conditional_weight, tile[0]);
   assert.deepEqual(a.calls.map(([planes, mask]) => [planes, Array.from(mask)]),
     [[e.planes, e.mask], [e.renamed, swapMoves(e.mask)], [e.after, e.afterMask], [e.afterRenamed, swapMoves(e.afterMask)]]);
+});
+
+test('a review note where the riichi\'s tile keeps first advises that tile\'s plain discard, by rule, the riichi\'s tiles still weighed', async () => {
+  const e = engine({ dama: { 0: DAMA.SHORT, 1: DAMA.KEEPS_FIRST, 2: DAMA.NOT_WAITING } }), a = analyzer(sequence(declared));
+  const [result] = await reviewWithStrong(e, [note(choices[3])], a.analyze);
+  assert.deepEqual([result.advised_kind, result.advised_tile, result.agreed], ['discard', '2m', false]);
+  assert.deepEqual(result.ruled, { rules: [DAMA_RULE] });
+  assert.deepEqual(e.reads, { dama: 1, decline: 0 });
+  assert.equal(a.calls.length, 4);
+  const tile = average(declared.second.weights, declared.secondRenamed.weights, e.afterMask).weights;
+  assert.equal(result.played_conditional_weight, tile[0]);
+  assert.equal(result.preferred_conditional_weight, null);
 });
 
 test('historical riichi that was played but not advised does not trigger another inference', async () => {

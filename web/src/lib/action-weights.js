@@ -4,7 +4,8 @@
  * fives: they are never opened, so they carry no mass. A reach remains a
  * declaration probability shared by its candidate discards; the second-stage
  * conditional tile probabilities are not independent first-stage moves.
- * Selection still uses the network's original best action, as in training.
+ * The move played is Trained AI's: the network's best action, as in training,
+ * by the last hand's rules where they apply (trained-move.js).
  */
 export const MORTAL_REACH = 37;
 

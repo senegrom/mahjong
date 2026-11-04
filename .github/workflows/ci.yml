@@ -189,7 +189,8 @@ jobs:
 
   # The one check of the production policy.worker.js with real numbers: tiny
   # exported graphs run through it and the reduced WASM runtime, and must
-  # match the Python reference outputs.
+  # match the Python reference outputs. It also holds the page's last-hand
+  # rules to the Python wrappers they are written from.
   worker:
     name: browser worker parity
     runs-on: ubuntu-latest
@@ -217,14 +218,22 @@ jobs:
           cache-dependency-path: web/package-lock.json
       # Pinned export tools, then both engines built and installed as wheels.
       - name: Install the export tools and the real Python engines
+        id: engines
         uses: ./.github/actions/python-engines
       - name: Install web dependencies
+        id: webdeps
         working-directory: web
         run: npm ci
       - name: Test exported policies through the worker and reduced WASM runtime
         run: |
           python -m neural.tests.export_worker_fixture "$RUNNER_TEMP/policy-fixture"
           node web/tests/policy-export-parity.mjs "$RUNNER_TEMP/policy-fixture"
+      # Its own step, so that a failure of either does not hide the other.
+      - name: Test the last hand's rules against the Python wrappers
+        if: ${{ !cancelled() && steps.engines.outcome == 'success' && steps.webdeps.outcome == 'success' }}
+        run: |
+          python -m neural.tests.export_rules_fixture "$RUNNER_TEMP/rules-fixture"
+          node web/tests/last-hand-rules-parity.mjs "$RUNNER_TEMP/rules-fixture"
 
   # Publishes once every job above has passed, each web shard among them.
   deploy:

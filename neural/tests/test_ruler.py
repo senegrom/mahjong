@@ -6,7 +6,10 @@ asked in fixed rows on the card, a row's answer is its own, so the switches
 that change a question's size change no game and two challengers that are
 one network play the same games; a second challenger is read deal by deal
 against the first; a timed duel plays the same games; and the cloud keeps
-every report on the volume."""
+every report on the volume, and tells its child which challengers average
+over the suits or leave the last hand's riichi undeclared, and which late
+rule of the last hand the first follows, the last two only for one
+checkpoint against itself, both arms asked alike, one rule at a time."""
 
 import contextlib
 from functools import partial
@@ -24,7 +27,7 @@ import numpy as np
 import riichi_py
 import torch
 
-from neural import cloud_runs, duel, observe, ruler, zoo
+from neural import cloud_runs, duel, late_rules, observe, ruler, zoo
 from neural.checkpoints import atomic_save
 from neural.tests.test_bfloat16_players import checkpoints
 from neural.tests.test_cloud_isolation import child, controller
@@ -507,6 +510,76 @@ class CloudTests(unittest.TestCase):
         app = controller()
         for bad in ({"average_suits": "third"}, {"average_suits": "second"}, {"average_suits": "both"}):
             with self.subTest(**bad), self.assertRaises(ValueError):
+                app.ruler(challenger="x", **bad)
+
+    def test_a_challenger_that_leaves_the_last_hands_riichi_undeclared_is_named_to_the_child(self):
+        report = {"seed": 5, "arms": [{"challenger": "x", "by_deal": [2.4], "all_last": {"fired": 3}},
+                                      {"challenger": "y", "by_deal": [2.5]}]}
+        answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
+                                          seed=5, all_last_dama="first", questions="fixed", graphs=True,
+                                          preview_reach=True)
+        (command,) = calls
+        self.assertEqual(command[command.index("--all-last-dama") + 1], "first")
+        self.assertIn("--preview-reach", command)
+        self.assertEqual(json.loads(answer)["arms"][0]["all_last"], {"fired": 3})
+        # Asked for nothing of the kind, the child is told nothing of it.
+        _answer, calls, _texts = self.call({"seed": 5, "by_deal": [2.5]}, challenger="history/gen-00810", seed=5)
+        self.assertNotIn("--all-last-dama", calls[0])
+        # Both arms averaging over the suits are asked alike.
+        _answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
+                                           seed=5, all_last_dama="second", average_suits="both", questions="fixed",
+                                           preview_reach=True)
+        self.assertEqual([calls[0][calls[0].index(flag) + 1] for flag in ("--all-last-dama", "--average-suits")],
+                         ["second", "both"])
+        app = controller()
+        switched = {"questions": "fixed", "preview_reach": True, "also": "x"}
+        for bad, why in (({"all_last_dama": "third", **switched}, "must name"),
+                         ({"all_last_dama": "second", **switched, "also": ""}, "names a second challenger"),
+                         ({"all_last_dama": "both", **switched, "also": ""}, "names a second challenger"),
+                         ({"all_last_dama": "first", "also": "x"}, "fixed questions"),
+                         ({"all_last_dama": "first", "questions": "fixed", "also": "x"}, "preview_reach"),
+                         # The check holds only of one checkpoint played twice, asked alike.
+                         ({"all_last_dama": "first", **switched, "also": ""}, "also must name the challenger"),
+                         ({"all_last_dama": "first", **switched, "also": "y"}, "also must name the challenger"),
+                         ({"all_last_dama": "first", **switched, "average_suits": "first"}, "asked alike"),
+                         ({"all_last_dama": "both", **switched, "average_suits": "second"}, "asked alike")):
+            with self.subTest(**bad), self.assertRaisesRegex(ValueError, why):
+                app.ruler(challenger="x", **bad)
+
+    def test_the_late_rule_the_first_challenger_follows_is_named_to_the_child(self):
+        report = {"seed": 5, "arms": [{"challenger": "x", "by_deal": [2.4], "late_rule": {"rule": "decline-last"}},
+                                      {"challenger": "y", "by_deal": [2.5]}],
+                  "late_rule_check": {"differing": 0, "violations": []}}
+        app = controller()
+        self.assertEqual(app.LATE_RULES, late_rules.RULES)
+        for rule in late_rules.RULES:
+            with self.subTest(rule=rule):
+                answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
+                                                  seed=5, late_rule=rule, questions="fixed", graphs=True,
+                                                  preview_reach=True)
+                (command,) = calls
+                self.assertEqual(command[command.index("--late-rule") + 1], rule)
+                self.assertNotIn("--all-last-dama", command)
+                self.assertEqual(json.loads(answer)["late_rule_check"], {"differing": 0, "violations": []})
+        # Asked for nothing of the kind, the child is told nothing of it.
+        _answer, calls, _texts = self.call({"seed": 5, "by_deal": [2.5]}, challenger="history/gen-00810", seed=5)
+        self.assertNotIn("--late-rule", calls[0])
+        # Both arms averaging over the suits are asked alike.
+        _answer, calls, _texts = self.call(report, challenger="history/gen-00810", also="history/gen-00810",
+                                           seed=5, late_rule="decline-last", average_suits="both",
+                                           questions="fixed", preview_reach=True)
+        self.assertEqual([calls[0][calls[0].index(flag) + 1] for flag in ("--late-rule", "--average-suits")],
+                         ["decline-last", "both"])
+        switched = {"questions": "fixed", "preview_reach": True, "also": "x"}
+        for bad, why in (({"late_rule": "dama", **switched}, "must be one of decline-last"),
+                         ({"late_rule": "decline-last", **switched, "all_last_dama": "first"}, "two rules"),
+                         ({"late_rule": "decline-last", "also": "x"}, "fixed questions"),
+                         ({"late_rule": "decline-last", "questions": "fixed", "also": "x"}, "preview_reach"),
+                         # The check holds only of one checkpoint played twice, asked alike.
+                         ({"late_rule": "decline-last", **switched, "also": ""}, "also must name the challenger"),
+                         ({"late_rule": "decline-last", **switched, "also": "y"}, "also must name the challenger"),
+                         ({"late_rule": "decline-last", **switched, "average_suits": "first"}, "asked alike")):
+            with self.subTest(**bad), self.assertRaisesRegex(ValueError, why):
                 app.ruler(challenger="x", **bad)
 
     def test_a_failed_child_raises(self):

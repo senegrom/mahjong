@@ -155,6 +155,7 @@ fn furiten_unshown(hand: &Hand, who: Wind, player: &Player) -> bool {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::last_hand::{dama_codes, decline_code};
     use crate::renamed_rows::not_renamed;
     use crate::{
         describe_action, may_reach_from, mortal_mask_of, planes_of, Game, RecordedDecision,
@@ -588,6 +589,35 @@ pub(super) mod tests {
         assert!(reached.claims_after_a_replacement > 0, "{reached:?}");
         assert!(reached.renamed > 150, "{reached:?}");
         assert!(reached.lookahead_renamed_otherwise > 0, "{reached:?}");
+    }
+
+    /// The last hand's codes of every decision of a whole game, written as a
+    /// typed-in table and read back, are the codes of the decision's own
+    /// hand, which the review reads: what `PhysicalAnalysis` answers for an
+    /// edited table starts from what the game answered. The club player of
+    /// game 7 against club players, the first of these games to come to the
+    /// last hand's questions, meets a riichi question and a win there, where
+    /// the codes are not zero.
+    #[test]
+    fn a_written_decision_is_coded_as_its_own_hand() {
+        let (mut decisions, mut dama, mut decline) = (0, 0, 0);
+        whole_game(7.0, "club", Plays::Club, |game| {
+            for (index, decision) in game.decisions.iter().enumerate() {
+                let at = format!("hand {}, decision {index}", game.table.hands_played);
+                let (hand, seat, _) = read_back(game, index);
+                let own = (&decision.position, decision.seat);
+                let want = (dama_codes(own.0, own.1), decline_code(own.0, own.1));
+                let got = (dama_codes(&hand, seat), decline_code(&hand, seat));
+                assert_eq!(got, want, "{at}");
+                decisions += 1;
+                dama += usize::from(want.0.iter().any(|code| *code != 0));
+                decline += usize::from(want.1 != 0);
+            }
+        });
+        let counted =
+            format!("{decisions} decisions, {dama} with dama codes, {decline} with a decline code");
+        println!("{counted}");
+        assert!(dama > 0 && decline > 0, "{counted}");
     }
 
     /// The position is the table as the deciding seat saw it: its own tiles

@@ -26,11 +26,21 @@ results as `design.json`):
   would. The side `z` points to is then the stronger. No crossing by the
   last look reads level.
 
+That is the usual rule. Given `looks`, `per_look` or `bound`, `design`
+registers another (`neural.ruler_cloud series --looks --per-look --bound`):
+one look of twenty seeds read at |z| above 2.0, say, about 4.6% two-sided.
+`design.json` keeps it, and `describe` names a bound other than Pocock's for
+the looks "the bound registered".
+
 The difference read is the first player's edge less the second's, positive
 when the first is the stronger: a paired call's two challengers (see
 `neural.ruler`), two series of single rulers on the same seeds read deal by
 deal, or one ruler's challenger against its incumbent, 2.5 less its
-placement.
+placement. A series of one checkpoint with the all-last dama rule and
+without it (see `neural.all_last`) is read only while every report passes
+the rule's check (`dama_problem`), and one with a late rule and without it
+(see `neural.late_rules`) only while every report passes its own
+(`late_problem`); a folder with one that fails is refused.
 
     python -m neural.looks results/<tag>
     python -m neural.looks results/g910-vs-mortal --against results/g810-vs-mortal
@@ -56,6 +66,20 @@ SMALL_EFFECT = 0.006
 #: What follows the name of a challenger that averaged its moves over
 #: characters and circles, wherever a series names its players.
 AVERAGED = " averaged over the suits"
+#: What follows the name of a challenger that left the last hand's riichi
+#: undeclared where its tile kept it first through every win (see
+#: `neural.all_last`).
+RULED = " with all-last dama"
+#: What follows the name of a challenger that followed a late rule of the
+#: last hand (see `neural.late_rules`), by the rule. A rule not named here,
+#: such as either of the two measured and dropped, whose series are kept, is
+#: named by its own name (see `late_named`).
+LATE = {"decline-last": " declining last-place wins"}
+#: What every report of a late rule's series must show its account did at
+#: least once, by the rule: the decline finds something to change in any
+#: call of a thousand deals, so it must have fired. A rule not named here is
+#: held to having judged one.
+LATE_FLOOR = {"decline-last": "fired"}
 
 
 def _density(x: float) -> float:
@@ -175,14 +199,18 @@ class Design:
         return cls(**json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def design(expected: float | None = None, what: str = "", first_seed: int = FIRST_SEED) -> Design:
+def design(expected: float | None = None, what: str = "", first_seed: int = FIRST_SEED,
+           looks: int | None = None, per_look: int | None = None, bound: float = 0.0) -> Design:
     """The rule for a comparison expected to differ by `expected` placement:
     five seeds a look, four looks, twenty seeds; ten a look, forty seeds,
     when the effect looked for is 0.006 or less, where twenty seeds (an
     error about 0.0034 on the difference of two rulers of one lineage)
-    would find it about half the time. None designs for the usual 20."""
+    would find it about half the time. None designs for the usual 20.
+    `looks`, `per_look` and `bound` register another rule in their place,
+    a bound of nought being Pocock's for the looks."""
     small = expected is not None and abs(expected) <= SMALL_EFFECT
-    return Design(first_seed=first_seed, per_look=10 if small else 5, looks=4, expected=expected, what=what)
+    return Design(first_seed=first_seed, per_look=per_look or (10 if small else 5), looks=looks or 4,
+                  bound=bound, expected=expected, what=what)
 
 
 def differences(report: dict) -> list[float]:
@@ -279,13 +307,134 @@ def averaged(report: dict) -> str:
     return AVERAGED if "suits" in report else ""
 
 
+def ruled(report: dict) -> str:
+    """What a challenger's name is followed by when it left the last hand's
+    riichi undeclared where its tile kept it first through every win (its
+    report says so under `all_last`, see `neural.all_last`), or followed a
+    late rule (under `late_rule`, see `neural.late_rules`), so one
+    checkpoint played both ways reads as two."""
+    if "all_last" in report:
+        return RULED
+    if "late_rule" in report:
+        return late_named(report["late_rule"].get("rule", ""))
+    return ""
+
+
+def late_named(rule: str) -> str:
+    """What a challenger's name is followed by when it followed the late
+    rule `rule`; nothing for no rule."""
+    if not rule:
+        return ""
+    return LATE.get(rule, f" with the late rule {rule}")
+
+
+def dama_problem(report: dict, following: list[bool] | None = None) -> str | None:
+    """Why a call's report fails the all-last dama rule's check, if it does
+    (see `neural.all_last` and `neural.ruler.dama_check`): `following` says
+    which of its two challengers were to follow the rule, or, None, those
+    whose report says they did. A challenger that follows it must have fired
+    at least once, one that plays plain must say nothing of it, and every
+    table whose game the two arms ended differently must be one the rule
+    fired at. A report with no challenger that follows it, and none meant
+    to, has nothing to fail."""
+    arms = report.get("arms") or [report]
+    if following is None:
+        following = ["all_last" in arm for arm in arms]
+    if not any(following) and not any("all_last" in arm for arm in arms):
+        return None
+    if len(arms) != 2 or len(following) != 2:
+        return "the rule is checked only in a paired call of one checkpoint with it and without it"
+    for which, arm, follows in zip(("first", "second"), arms, following):
+        account = arm.get("all_last")
+        if follows and account is None:
+            return f"the {which} challenger was to follow the rule, and its report says nothing of it"
+        if follows and not account.get("fired"):
+            return f"the {which} challenger's rule never fired ({account.get('riichi', 0)} riichi judged)"
+        if not follows and account is not None:
+            return f"the {which} challenger was to play plain, and its report has an account of the rule"
+    check = report.get("all_last_check")
+    if check is None:
+        return "it says nothing of the check"
+    if check.get("violations"):
+        return (f"at {len(check['violations'])} of the {check.get('differing')} deals and seats whose tables ended "
+                "differently in the two arms, the rule fired at neither table")
+    return None
+
+
+def late_problem(report: dict, following: list[str] | None = None) -> str | None:
+    """Why a call's report fails a late rule's check, if it does (see
+    `neural.late_rules` and `neural.ruler.dama_check`): `following` names the
+    rule each of its two challengers was to follow, "" for none, or, None,
+    the rule each report names. A challenger that follows one must have
+    followed that very rule and met its floor (`LATE_FLOOR`): fired at least
+    once by the decline, and judged at least one decision by any rule. One
+    that plays plain must say nothing of any rule, and every table whose game
+    the two arms ended differently must be one the rule fired at. A report
+    with no challenger that follows one, and none meant to, has nothing to
+    fail."""
+    arms = report.get("arms") or [report]
+    if following is None:
+        following = [arm["late_rule"].get("rule", "") if "late_rule" in arm else "" for arm in arms]
+    if not any(following) and not any("late_rule" in arm for arm in arms):
+        return None
+    if len(arms) != 2 or len(following) != 2:
+        return "a late rule is checked only in a paired call of one checkpoint with it and without it"
+    for which, arm, rule in zip(("first", "second"), arms, following):
+        account = arm.get("late_rule")
+        if rule and account is None:
+            return f"the {which} challenger was to follow {rule}, and its report says nothing of it"
+        if rule and account.get("rule") != rule:
+            return f"the {which} challenger was to follow {rule}, and its report says it followed {account.get('rule')}"
+        if rule and not account.get("judged"):
+            return f"the {which} challenger's {rule} rule judged nothing"
+        if rule and LATE_FLOOR.get(rule) == "fired" and not account.get("fired"):
+            return f"the {which} challenger's {rule} rule never fired ({account.get('judged')} decisions judged)"
+        if not rule and account is not None:
+            return (f"the {which} challenger was to play plain, and its report has an account of "
+                    f"{account.get('rule', 'a late rule')}")
+    check = report.get("late_rule_check")
+    if check is None:
+        return "it says nothing of the late rule's check"
+    if check.get("violations"):
+        return (f"at {len(check['violations'])} of the {check.get('differing')} deals and seats whose tables ended "
+                "differently in the two arms, the rule fired at neither table")
+    return None
+
+
+def failed_check(reports: dict[int, dict], registered: dict | None = None) -> str | None:
+    """The first report of a series, by seed, that fails the all-last dama
+    rule's check (see `dama_problem`) or a late rule's (see
+    `late_problem`), and why: by the challengers the series was registered
+    to rule (`registered`, its `series.json`, see `neural.ruler_cloud`, whose
+    late rule is the first challenger's), or, for a folder never registered,
+    by what each report says. None when every report passes. A series with
+    such a report is not one network played twice but where the rule fired,
+    so no look of it is read."""
+    following = late = None
+    if registered:
+        following = [registered.get("all_last_dama") in (which, "both") for which in ("first", "second")]
+        late = [registered.get("late_rule") or "", ""]
+    for seed in sorted(reports):
+        problem = dama_problem(reports[seed], following)
+        if problem:
+            return f"seed {seed}'s report fails the all-last dama check: {problem}"
+        problem = late_problem(reports[seed], late)
+        if problem:
+            return f"seed {seed}'s report fails the late rule's check: {problem}"
+    return None
+
+
 def describe(rule: Design, looks: list[Look], state: str, names: tuple[str, str]) -> str:
-    """The looks as a table, and what they say, in words."""
+    """The looks as a table, and what they say, in words. A bound other than
+    Pocock's for the rule's looks and error is said to be the one
+    registered."""
     first, second = names
+    pocock = rule.bound == pocock_bound(rule.looks, rule.alpha)
     lines = [
         f"rule: {rule.per_look} seeds a look, {rule.looks} looks ({rule.per_look * rule.looks} seeds from "
         f"{rule.first_seed}, every {rule.step}), stop when |z| > {rule.bound} "
-        f"(Pocock, {rule.alpha:.0%} two-sided over all looks); registered {rule.registered}"
+        + (f"(Pocock, {rule.alpha:.0%} two-sided over all looks)" if pocock else "(the bound registered)")
+        + f"; registered {rule.registered}"
         + (f"; expected {rule.expected:+.4f}" if rule.expected is not None else ""),
     ]
     if rule.what:
@@ -321,17 +470,27 @@ def main() -> None:
         rule = design()
         print(f"no design at {path}: reading by the usual rule, which was not registered for this series")
     reports = load_folder(args.folder)
+    others = load_folder(args.against) if args.against is not None else {}
+    for folder, kept in ((args.folder, reports), (args.against, others)):
+        if folder is None:
+            continue
+        # What the series was registered to play, if `neural.ruler_cloud` registered it.
+        registered = folder / "series.json"
+        problem = failed_check(kept, json.loads(registered.read_text(encoding="utf-8"))
+                               if registered.exists() else None)
+        if problem:
+            raise SystemExit(f"{folder}: {problem}. The series is invalid, and none of its looks is read")
     if args.against is not None:
-        by_seed = against_each(reports, load_folder(args.against))
+        by_seed = against_each(reports, others)
         names = (str(args.folder), str(args.against))
     else:
         by_seed = {seed: differences(report) for seed, report in reports.items()}
         sample = next(iter(reports.values()), {})
         if "arms" in sample:
-            names = tuple(arm.get("challenger", f"challenger {i + 1}") + averaged(arm)
+            names = tuple(arm.get("challenger", f"challenger {i + 1}") + averaged(arm) + ruled(arm)
                           for i, arm in enumerate(sample["arms"][:2]))
         else:
-            names = (sample.get("challenger", "the challenger") + averaged(sample),
+            names = (sample.get("challenger", "the challenger") + averaged(sample) + ruled(sample),
                      sample.get("incumbent", "the incumbent"))
     looks, state = read(rule, by_seed)
     if args.json:

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { render } from 'svelte/server';
 import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
 import { playNetwork } from '../src/lib/trained-network.js';
+import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 import { componentLoader, moduleUrl, svelteModule } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
 
@@ -23,6 +24,14 @@ const discard = { kind: 'discard', tile: '3m', label: 'Discard 3m', weight: .2 }
 const reachA = { kind: 'riichi', tile: '1m', label: 'Riichi 1m', weight: .8, conditionalWeight: .25 };
 const reachB = { kind: 'riichi', tile: '2m', label: 'Riichi 2m', weight: .8, conditionalWeight: .75 };
 const analysis = extra => ({ agent: 'full', kind: 'policy', choice: reachB, choices: [reachA, reachB, discard], ...extra });
+/** What the eye reads of some markup, and what a screen reader hears of it,
+ * each as textContent gives it: without what is visually hidden, or without
+ * what is hidden from a screen reader, neither holding more than text and a
+ * tag of text. */
+const seen = markup => text(markup.replace(/<span class="visually-hidden[^"]*">[^<]*<\/span>/g, ''), { joined: true });
+const heard = markup => text(markup.replace(/<span aria-hidden="true">(?:[^<]|<(span|strong)[^>]*>[^<]*<\/\1>)*<\/span>/g, ''), { joined: true });
+/** The last hand's lines, as the rules' titles and notes give them. */
+const DAMA_LINE = 'Last hand: every win keeps it first, so no riichi', DECLINE_LINE = 'Last hand: this win would leave it last';
 
 test('riichi is rendered once, with separate conditional meters and the actual selected tile', async () => {
   const body = await html('AgentWeights.svelte', { analysis: analysis(), onchoose() {} });
@@ -110,6 +119,33 @@ test('built-in selection does not acquire percentages or a riichi probability gr
   assert.doesNotMatch(body, /<meter |\d\.\d%|Riichi declaration weight|Estimated (training|placement) reward/);
 });
 
+test("a move one of the last hand's rules made says so after the next choice, the rule's line its title and, to a screen reader, said in full", async () => {
+  // The probe: the network put 97% on a riichi on the 9 circles and 1% on
+  // their plain discard, which the rule throws, the tile keeping it first.
+  const plain = { kind: 'discard', tile: '9p', label: 'Discard 9p', weight: .01 };
+  const reach = { kind: 'riichi', tile: '9p', label: 'Riichi 9p', weight: .97, conditionalWeight: 1 };
+  const other = { kind: 'discard', tile: '3s', label: 'Discard 3s', weight: .02 };
+  const advised = ruled => analysis({ choice: plain, choices: [reach, other, plain], ruled });
+  const line = markup => /<div class="recommendation[^"]*">([^]*?)<\/div>/.exec(markup)[1];
+  const body = await html('AgentWeights.svelte', { analysis: advised({ rules: [DAMA_RULE] }), onchoose() {} });
+  assert.match(seen(line(body)), /Next choice: Discard 9p · by rule$/);
+  assert.match(line(body), new RegExp(`<span class="rule[^"]*" title="${DAMA_LINE}">by rule</span>`));
+  assert.match(heard(line(body)), /Next choice: Discard 9p, by rule \(last hand: every win keeps it first, so no riichi\)$/);
+  // The rows keep the network's weights: the riichi it wanted on top, and
+  // the move played ringed with its own small weight.
+  assert.match(body, /class="weight-row[^"]*\bbest\b[^"]*" data-choice="Discard 9p"/);
+  assert.equal((body.match(/class="weight-row[^"]*\bbest\b/g) ?? []).length, 1);
+  assert.match(body, /97\.0%/); assert.match(body, /1\.0%/); assert.match(body, /100\.0%/);
+  // Both rules: decline's line, then dama's.
+  const both = line(await html('AgentWeights.svelte', { analysis: advised({ rules: [DECLINE_RULE, DAMA_RULE] }) }));
+  assert.match(both, new RegExp(`title="${DECLINE_LINE} · ${DAMA_LINE}">by rule<`));
+  assert.match(heard(both), /, by rule \(last hand: this win would leave it last · Last hand: every win keeps it first, so no riichi\)$/);
+  // No rule, and Club, which no rule plays: no tag.
+  assert.doesNotMatch(await html('AgentWeights.svelte', { analysis: advised(null) }), /by rule|visually-hidden/);
+  assert.doesNotMatch(await html('AgentWeights.svelte', { analysis: { agent: 'club', kind: 'selection', choice: plain,
+    choices: [{ ...plain, weight: 1 }, { ...reach, weight: 0 }] } }), /by rule/);
+});
+
 test('trained advice names the network that gave it by version', async () => {
   const body = await html('AgentWeights.svelte', { analysis: analysis() });
   assert.match(body, new RegExp(`<strong>Trained ${MANIFEST.version.replaceAll('.', '\\.')}</strong>`));
@@ -139,6 +175,26 @@ test("the preference line's title says what its percentages are, and at a riichi
     assert.equal(title(await html('ReviewPreference.svelte', { note: { ...discards, ...reach, ...kinds } })),
       `${weights}. Declaring riichi and the discard given riichi are weighed as separate decisions, not as one move.`, JSON.stringify(kinds));
   }
+});
+
+test("the preference line says \"by rule\" in place of the weight of a move one of the last hand's rules made, its line the title and said in full", async () => {
+  // The probe, the player declaring riichi on the tile the rule threw
+  // undeclared: the player's move keeps its weights.
+  const note = { advised_kind: 'discard', advised_tile: '9p', played_kind: 'riichi', played_tile: '9p', agreed: false,
+    preferred_weight: .01, played_weight: .97, preferred_conditional_weight: null, played_conditional_weight: 1, ruled: { rules: [DAMA_RULE] } };
+  const body = await html('ReviewPreference.svelte', { note });
+  assert.equal(seen(body), 'Trained preference: by rule · Your move: 97.0% to declare riichi · Discard given riichi: 100.0%');
+  assert.equal(heard(body), 'Trained preference, by rule (last hand: every win keeps it first, so no riichi) · Your move: 97.0% to declare riichi '
+    + '· Discard given riichi: 100.0%');
+  assert.match(body, new RegExp(`<strong class="rule[^"]*" title="${DAMA_LINE}">by rule</strong>`));
+  assert.doesNotMatch(body, /1\.0%/, "the rule's move is not weighed");
+  // Agreed, the line says the rule alone; both rules give both lines.
+  const agreed = await html('ReviewPreference.svelte', { note: { ...note, played_kind: 'discard', agreed: true, ruled: { rules: [DECLINE_RULE, DAMA_RULE] } } });
+  assert.equal(seen(agreed), 'Trained preference: by rule');
+  assert.match(agreed, new RegExp(`title="${DECLINE_LINE} · ${DAMA_LINE}">by rule<`));
+  // No rule, the weight as ever.
+  assert.equal(seen(await html('ReviewPreference.svelte', { note: { ...note, ruled: null } })),
+    'Trained preference: 1.0% · Your move: 97.0% to declare riichi · Discard given riichi: 100.0%');
 });
 
 test('historical unevaluated riichi and unscored moves never acquire invented percentages', async () => {

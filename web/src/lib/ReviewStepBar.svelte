@@ -4,6 +4,7 @@
   import { decisionInBrief, moveToken, moveWeight, stepSaid } from './game-review.js';
   import { percent, pressedByKeyboard, quadOnOffer } from './ui.js';
   import { SEAT_NAMES } from './tiles.js';
+  import { RULE_WORDS, ruleLine } from './trained-move.js';
 
   /**
    * The review's step bar: Previous and Next, where the review is, and the
@@ -48,7 +49,9 @@
   let said = $derived(stepSaid({ hand, step, decision, hidden: moveHidden, pick }));
   // The weights the line gives where Trained AI was asked and its answer is
   // shown: the player's move beside Trained AI's choice, given riichi where
-  // both declared it, and the move the player picked, if any.
+  // both declared it, and the move the player picked, if any. A move one of
+  // the last hand's rules made is "by rule" in place of its weight, which did
+  // not choose it (moveWeight), the rule's line its title.
   let yours = $derived(decision && !decision.forced && !moveHidden ? moveWeight(decision, frame.played) : null);
   let trained = $derived(brief.ai ? moveWeight(decision, { kind: decision.advised_kind, tile: decision.advised_tile ?? null }) : null);
   let now = $derived(pick && decision && !decision.forced && !moveHidden
@@ -110,10 +113,10 @@
   <p class="place" data-step>{hand.name} · <span class="long">{'decision '}</span>{step + 1} of {hand.frames.length}</p>
   <p class="moves" class:hiding data-move-line>
     {#if brief.offered}<span class="on">On {discarder}'s{robbing ? ' kan' : ''} <Tile tile={brief.offered} size="tiny" />:</span>{/if}
-    <span class="part">You {@render token(brief.you)}{#if yours?.weight != null}{' '}{percent(yours.weight)}{#if yours.given && !brief.ai}, given riichi{/if}{/if}</span>
+    <span class="part">You {@render token(brief.you)}{#if yours?.rule}{' '}{@render byRule()}{:else if yours?.weight != null}{' '}{percent(yours.weight)}{#if yours.given && !brief.ai}, given riichi{/if}{/if}</span>
     {#if now}
       <span class="dot" aria-hidden="true">·</span>
-      <span class="part">Now {@render token(now.token)}{#if now.weight != null}{' '}{percent(now.weight)}{#if now.given && !brief.ai}, given riichi{/if}{/if}</span>
+      <span class="part">Now {@render token(now.token)}{#if now.rule}{' '}{@render byRule()}{:else if now.weight != null}{' '}{percent(now.weight)}{#if now.given && !brief.ai}, given riichi{/if}{/if}</span>
     {/if}
     <span class="dot" aria-hidden="true">·</span>
     <span class="part">
@@ -126,7 +129,7 @@
       {:else if brief.agreed}
         <span class="long">{'Trained '}</span>AI agreed
       {:else}
-        <span class="long">{'Trained '}</span>AI {@render token(brief.ai)}{#if trained?.weight != null}{' '}{percent(trained.weight)}{#if trained.given}, given riichi{/if}{/if}
+        <span class="long">{'Trained '}</span>AI {@render token(brief.ai)}{#if trained?.rule}{' '}{@render byRule()}{:else if trained?.weight != null}{' '}{percent(trained.weight)}{#if trained.given}, given riichi{/if}{/if}
       {/if}
     </span>
     <!-- Where Trained AI's move would be: Show answer turns over what the
@@ -143,6 +146,10 @@
 
 {#snippet token(move)}
   <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span>
+{/snippet}
+
+{#snippet byRule()}
+  <span class="rule" title={ruleLine(decision.ruled)}>{RULE_WORDS.tag}</span>
 {/snippet}
 
 <style>
@@ -178,6 +185,8 @@
   .moves.hiding { min-height: 44px; }
   .on, .part, .token { display: inline-flex; align-items: center; gap: 4px; }
   .dot { opacity: .7; }
+  /* "by rule", its dotted line saying that its title says more. */
+  .rule { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
   .flag { font-weight: 650; color: var(--gold); }
   /* Flush under the game's bar where that stays at the top of the screen
      (AppSettings): on a phone held upright.

@@ -59,24 +59,60 @@ in fixed rows on the card, plays each deal the same at both arms' tables
 until a decision of the averaging arm changes, which is what reads such a
 small effect.
 
+A challenger may leave the last hand's riichi undeclared where its tile keeps
+it first (`--all-last-dama first`, `second` or `both`): in South 4, where its
+best move is riichi and the reach's tile, thrown without declaring, keeps it
+alone in first through every win it could then make, it throws that tile
+and declares nothing (see `all_last`). It asks its network nothing more, and
+a game changes only where it fires, so a paired call of one checkpoint with
+the rule and plain, asked in fixed rows with the reach's tile asked with the
+reach (which the rule needs), plays every table the same at both arms but
+those where the rule fired. The ruler checks exactly that: every table whose
+final scores differ between the two arms must be one at which a
+challenger's rule fired. The check holds only of one network played twice,
+so the rule is played only so, `--also` naming the challenger's own
+checkpoint and both arms asked alike (no `--average-suits`, or `both`), and
+refused otherwise. Its violations are kept in the report
+(`all_last_check`), and the ruler ends as it ends any other: a series'
+launcher stops the series on such a report (see `neural.ruler_cloud`).
+
+The first challenger may instead follow the late rule of the last hand
+(`--late-rule decline-last`, see `late_rules`): a win declined where it would
+leave the player alone in last. One rule of the last hand a ruler: never with
+`--all-last-dama`. It changes a game only where it fires and asks the
+network nothing more, so it is played as the all-last dama rule is, one
+checkpoint with the rule and plain (`--also` naming the challenger's own
+checkpoint, both arms asked alike), in fixed rows with the reach's tile asked
+with the reach, and checked the same way: every table whose final scores
+differ between the arms must be one the rule fired at (`late_rule_check`).
+
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
         --skip-forced --preview-reach --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also a.pt --average-suits first --questions fixed \\
+        --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
+    python -m neural.ruler a.pt incumbent.pt --also a.pt --all-last-dama first --questions fixed \\
+        --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
+    python -m neural.ruler a.pt incumbent.pt --also a.pt --late-rule decline-last --questions fixed \\
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
 
 The report is the duel's, with `play` saying how it played and where the
 time went (see `duel.Split`); with `--also`, one entry a challenger under
 `arms` and their `difference`, positive when the first is the stronger. A
 challenger that averages over the suits says under `suits` how many rows
-it was asked, how many it asked again, and how many the mean changed.
+it was asked, how many it asked again, and how many the mean changed; one
+that follows the all-last dama rule says under `all_last` what the rule did
+(see `all_last.Account`), and one that follows a late rule under
+`late_rule` (see `late_rules.Account`).
 """
 
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import statistics
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,7 +123,7 @@ from torch import nn
 
 import riichi_py
 
-from . import play_graphs, suits, zoo
+from . import all_last, late_rules, play_graphs, suits, zoo
 from .duel import Split, play_record, verdict
 from .outcomes import paired_summary, placements, require_finished, validate_budget, win_shares
 from .training_safety import TRAINING_API_VERSION, require_training_engine
@@ -96,7 +132,8 @@ ACTIONS = riichi_py.ACTIONS
 SEATS = 4
 #: How the networks are asked; see the module's notes.
 QUESTIONS = ("seating", "fixed")
-#: Which challengers may average over the suits (`--average-suits`).
+#: Which challengers may average over the suits (`--average-suits`), and
+#: which may leave the last hand's riichi undeclared (`--all-last-dama`).
 AVERAGING = ("first", "second", "both")
 #: The one size every question is asked at with `--questions fixed`. About
 #: where a joined player's forward on the card stops being bound by its
@@ -291,6 +328,8 @@ def seat(
     skip_forced: bool = False,
     preview_reach: bool = False,
     average_suits: bool = False,
+    all_last_dama: bool = False,
+    late_rule: str | None = None,
 ):
     """A player from a checkpoint, as a ruler seats it: asked only for
     moves, so with no gradients, its convolutions' and linear layers'
@@ -302,8 +341,20 @@ def seat(
     from graphs at their own sizes, which changes no answer either (see
     `ExactGraphs`). With `average_suits`, the questions it hesitates over
     are asked of the renamed game too, each forward as the others are,
-    and the mean of the two answers is played (see `suits.average`)."""
+    and the mean of the two answers is played (see `suits.average`). With
+    `all_last_dama`, which needs the questions fixed and the reach's tile
+    previewed, the last hand's riichi is left undeclared where its tile
+    keeps the player first through every win (see `all_last.dama`), the
+    rule wrapped around everything else the player asks; with `late_rule`,
+    which needs the same, that late rule is followed in its place (see
+    `late_rules.follow`)."""
     validate_questions(questions, rows, graphs, skip_forced, preview_reach)
+    if all_last_dama and late_rule:
+        raise ValueError("a player follows one rule of the last hand: the all-last dama rule or a late rule, not both")
+    if all_last_dama and (questions != "fixed" or not preview_reach):
+        raise ValueError("the all-last dama rule needs fixed questions and the reach's tile previewed")
+    if late_rule and (questions != "fixed" or not preview_reach):
+        raise ValueError(f"the {late_rule} rule needs fixed questions and the reach's tile previewed")
     if str(path) == zoo.CLUB:
         raise ValueError("the heuristic player plays inside the arena and cannot be seated at a ruler")
     player = zoo.load_player(path, device)
@@ -324,6 +375,12 @@ def seat(
         ask_from_exact_graphs(player, device)
     if average_suits:
         suits.average(player)
+    if all_last_dama:
+        # Last, so that the rule is the player's outermost question.
+        all_last.dama(player, fixed=questions == "fixed")
+    if late_rule:
+        # Likewise.
+        late_rules.follow(player, late_rule, fixed=questions == "fixed")
     return player
 
 
@@ -537,6 +594,31 @@ def difference(first: dict, second: dict, scores: np.ndarray | None = None,
     return report
 
 
+def dama_check(scores: np.ndarray, layout: Layout, rules: list) -> dict:
+    """Whether a paired ruler's two arms played the same game at every table
+    a rule of the last hand did not fire at, the arms being one network, one
+    or both of them following the all-last dama rule or one a late rule
+    (`rules`, each arm's `all_last.Account`, `late_rules.Account` or None,
+    of one kind). A game changes only by a decision that differs, and the
+    rule's are the only ones that can, so every table whose final scores
+    differ between the arms must be one at which an arm's rule fired. Not
+    the other way: a table the rule fired at may still end with the same
+    scores. `differing` counts the deals and seats whose tables differ, and
+    `violations` names each that differs with no firing at either arm's
+    table, with the tables' indices in the arena."""
+    fired = [rule.tables if rule is not None else set() for rule in rules]
+    differing, violations = 0, []
+    for place in range(SEATS):
+        first, second = layout.block(0, place), layout.block(1, place)
+        changed = (scores[first] != scores[second]).any(axis=1)
+        for deal in np.flatnonzero(changed).tolist():
+            differing += 1
+            tables = [first.start + deal, second.start + deal]
+            if tables[0] not in fired[0] and tables[1] not in fired[1]:
+                violations.append({"deal": deal, "place": place, "tables": tables})
+    return {"differing": differing, "violations": violations}
+
+
 def difference_verdict(report: dict) -> str:
     """One call's reading of a difference, at two standard errors; a
     series of calls is read by `neural.looks`, by its pre-registered rule."""
@@ -566,19 +648,30 @@ def ruler(
     """Plays a ruler and reports it: as `neural.duel` reports a duel for one
     challenger, and for two, an entry each under `arms` and their
     `difference`; a challenger that averages over the suits says what that
-    did under `suits` (see `suits.Averaging`). With `timing`, a dict, the
-    report says how it played and where the time went, as `play`, with
-    `how` among it."""
+    did under `suits` (see `suits.Averaging`), and one that follows the
+    all-last dama rule under `all_last` (see `all_last.Account`), and a
+    pair with the rule says whether the arms played the same games wherever
+    it did not fire, under `all_last_check` (see `dama_check`); one that
+    follows a late rule says what it did under `late_rule` (see
+    `late_rules.Account`), and the pair's check is `late_rule_check`. With
+    `timing`, a dict, the report says how it played and where the time
+    went, as `play`, with `how` among it."""
     began = time.perf_counter()
     scores = play(challengers, incumbent, deals, seed, device=device, max_steps=max_steps,
                   questions=questions, timing=timing)
     seconds = time.perf_counter() - began
     layout = Layout(len(challengers), deals)
     arms = [arm_report(scores, layout, arm) for arm in range(layout.arms)]
-    for arm, player in zip(arms, challengers):
+    rules = [all_last.account_of(player) for player in challengers]
+    late = [late_rules.account_of(player) for player in challengers]
+    for arm, player, rule, other in zip(arms, challengers, rules, late):
         account = suits.averaging(player)
         if account is not None:
             arm["suits"] = account.report()
+        if rule is not None:
+            arm["all_last"] = rule.report()
+        if other is not None:
+            arm["late_rule"] = other.report()
     result = {"training_api_version": TRAINING_API_VERSION, "seed": seed}
     if len(arms) == 1:
         result.update(arms[0])
@@ -587,9 +680,23 @@ def ruler(
         result["arms"] = arms
         if len(arms) == 2:
             result["difference"] = difference(arms[0], arms[1], scores, layout)
+            if any(rule is not None for rule in rules):
+                result["all_last_check"] = dama_check(scores, layout, rules)
+            if any(other is not None for other in late):
+                result["late_rule_check"] = dama_check(scores, layout, late)
     if timing is not None:
         result["play"] = play_record(timing, seconds, path="ruler", **(how or {}))
     return result
+
+
+def same_checkpoint(first: Path, second: Path) -> bool:
+    """Whether two paths name one checkpoint: one file, or two of the same
+    bytes, as the copies `modal_app.ruler` makes of a checkpoint it is
+    told twice are."""
+    first, second = Path(first), Path(second)
+    if first.resolve() == second.resolve():
+        return True
+    return first.is_file() and second.is_file() and filecmp.cmp(first, second, shallow=False)
 
 
 def main() -> None:
@@ -616,6 +723,14 @@ def main() -> None:
     parser.add_argument("--average-suits", choices=AVERAGING, default=None,
                         help="the challengers that ask each question they hesitate over of the game with "
                              "characters and circles renamed too, and play the mean of the two answers")
+    parser.add_argument("--all-last-dama", choices=AVERAGING, default=None,
+                        help="the challengers that leave the last hand's riichi undeclared where its tile, thrown "
+                             "without declaring, keeps them first through every win; needs --questions fixed, "
+                             "--preview-reach, and --also naming the challenger's own checkpoint")
+    parser.add_argument("--late-rule", choices=late_rules.RULES, default=None,
+                        help="the late rule of the last hand the first challenger follows, the second, its own "
+                             "checkpoint, playing plain (see neural.late_rules); needs --questions fixed and "
+                             "--preview-reach, and not with --all-last-dama")
     parser.add_argument("--timing", action="store_true",
                         help="report how it played and where the time went, as `play`")
     parser.add_argument(
@@ -625,18 +740,51 @@ def main() -> None:
     validate_questions(args.questions, args.rows, args.graphs, args.skip_forced, args.preview_reach)
     if args.average_suits in ("second", "both") and args.also is None:
         parser.error(f"--average-suits {args.average_suits} names a second challenger: name it with --also")
+    if args.all_last_dama in ("second", "both") and args.also is None:
+        parser.error(f"--all-last-dama {args.all_last_dama} names a second challenger: name it with --also")
+    if args.all_last_dama and (args.questions != "fixed" or not args.preview_reach):
+        # Asked by seating, a firing changes the batches the rest of its
+        # seating is asked in; without the preview, a reach is told before
+        # the rule has decided whether there is one.
+        parser.error("--all-last-dama needs --questions fixed and --preview-reach")
+    if args.all_last_dama and (args.also is None or not same_checkpoint(args.challenger, args.also)):
+        # Its check reads every table the arms ended differently at as one
+        # the rule fired at, which holds only of one network played twice.
+        parser.error("--all-last-dama compares a checkpoint with itself: --also must name the challenger's own "
+                     "checkpoint")
+    if args.all_last_dama and args.average_suits not in (None, "both"):
+        parser.error(f"--all-last-dama needs both arms asked alike, and --average-suits {args.average_suits} "
+                     "averages one of them: average both or neither")
+    if args.late_rule and args.all_last_dama:
+        parser.error("--late-rule and --all-last-dama are two rules of the last hand: a ruler plays one")
+    if args.late_rule and (args.questions != "fixed" or not args.preview_reach):
+        # As for --all-last-dama.
+        parser.error("--late-rule needs --questions fixed and --preview-reach")
+    if args.late_rule and (args.also is None or not same_checkpoint(args.challenger, args.also)):
+        parser.error("--late-rule compares a checkpoint with itself: --also must name the challenger's own "
+                     "checkpoint")
+    if args.late_rule and args.average_suits not in (None, "both"):
+        parser.error(f"--late-rule needs both arms asked alike, and --average-suits {args.average_suits} "
+                     "averages one of them: average both or neither")
 
     how = {"questions": args.questions, "graphs": args.graphs}
     if args.questions == "fixed":
         how.update(rows=args.rows, skip_forced=args.skip_forced, preview_reach=args.preview_reach)
     if args.average_suits:
         how["average_suits"] = args.average_suits
+    if args.all_last_dama:
+        how["all_last_dama"] = args.all_last_dama
+    if args.late_rule:
+        how["late_rule"] = args.late_rule
     options = {name: getattr(args, name) for name in ("questions", "rows", "graphs", "skip_forced", "preview_reach")}
     began = time.perf_counter()
     paths = [args.challenger] + ([args.also] if args.also is not None else [])
     averaging = [args.average_suits in (which, "both") for which in ("first", "second")]
-    challengers = [seat(path, args.device, **options, average_suits=averages)
-                   for path, averages in zip(paths, averaging)]
+    ruled = [args.all_last_dama in (which, "both") for which in ("first", "second")]
+    # The first challenger follows the late rule, if one is named.
+    late = [args.late_rule, None]
+    challengers = [seat(path, args.device, **options, average_suits=averages, all_last_dama=rule, late_rule=other)
+                   for path, averages, rule, other in zip(paths, averaging, ruled, late)]
     incumbent = seat(args.incumbent, args.device, **options)
     loaded = time.perf_counter() - began
     timing = {} if args.timing else None
@@ -665,7 +813,29 @@ def main() -> None:
         result["verdict"] = verdict(result)
     result["incumbent"] = str(args.incumbent)
     print(json.dumps(result, indent=1))
+    check = result.get("all_last_check")
+    if check and check["violations"]:
+        # Said, and the report ends as any other: it keeps the violations,
+        # and a series' launcher stops the series on them (see
+        # `neural.ruler_cloud`), where an error would leave the report only
+        # in a call's log and have its seed spawned again.
+        print(f"the all-last dama check failed: at {len(check['violations'])} of the {check['differing']} deals and "
+              "seats whose tables ended differently in the two arms, the rule fired at neither table, so the arms did "
+              "not play one game wherever it did not fire; the report keeps them as all_last_check", file=sys.stderr)
+    check = result.get("late_rule_check")
+    if check and check["violations"]:
+        # As for the all-last dama check.
+        print(f"the {args.late_rule} rule's check failed: at {len(check['violations'])} of the {check['differing']} "
+              "deals and seats whose tables ended differently in the two arms, the rule fired at neither table, so "
+              "the arms did not play one game wherever it did not fire; the report keeps them as late_rule_check",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":
-    main()
+    # Run as `python -m neural.ruler`, this file is `__main__`, a module of
+    # its own beside the `neural.ruler` that the modules it imports import
+    # (`all_last`, say), each with its own classes: the command is the
+    # imported module's, so that there is one of every class.
+    from neural import ruler as imported
+
+    imported.main()

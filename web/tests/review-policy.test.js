@@ -5,6 +5,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { MOVES, average, swapMoves } from '../src/lib/suits.js';
+import { DECLINE, DECLINE_RULE, MORTAL_AGARI, MORTAL_PASS } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -260,4 +261,63 @@ test('a second legal kan is reviewed without inventing a probability for an unsc
   const result = await reviewWithStrong(engine, notes, async () => ({ action: MORTAL_KAN, weights: Array.from({ length: 46 }, (_, i) => Number(i === MORTAL_KAN)) }));
   assert.equal(result[0].played_weight, null); assert.equal(result[0].preferred_weight, 1);
   assert.equal(result[0].agreed, false);
+});
+
+/** The first hand of a game against Club, played as finishHand plays it: seed
+ * 31's opens a riichi at its first decision and a ron at its last, seed 51's
+ * a riichi at its 17th and a self-draw at its 23rd. */
+function wonHand(seed) {
+  const match = new MatchSession(Game, seed, 'club');
+  match.advance(false);
+  finishHand(match);
+  return match;
+}
+
+test('the review reads the last hand\'s codes only where Trained AI\'s move is a riichi or a win, each once', async () => {
+  for (const seed of [31, 51]) {
+    const match = wonHand(seed), engine = match.engine, reads = { dama: [], decline: [] };
+    try {
+      for (const [code, method] of [['dama', 'review_all_last_dama'], ['decline', 'review_all_last_decline']]) {
+        const read = engine[method];
+        engine[method] = index => { reads[code].push(index); return read.call(engine, index); };
+      }
+      const notes = engine.review(), masks = notes.map((_, index) => engine.review_mask_mortal(index));
+      // Trained AI sure of a riichi, else of a win, wherever one is open, and
+      // of the first open move elsewhere, a reach's tile included.
+      const results = await reviewWithStrong(engine, notes, async (planes, mask) => {
+        const action = mask[MORTAL_REACH] ? MORTAL_REACH : mask[MORTAL_AGARI] ? MORTAL_AGARI : open(mask)[0];
+        return { action, weights: Array.from(mask, (_, move) => Number(move === action)) };
+      });
+      const reaches = notes.flatMap((_, index) => (masks[index][MORTAL_REACH] ? [index] : []));
+      const wins = notes.flatMap((_, index) => (!masks[index][MORTAL_REACH] && masks[index][MORTAL_AGARI] ? [index] : []));
+      assert.ok(reaches.length && wins.length, `seed ${seed}: a riichi and a win are open`);
+      assert.deepEqual(reads, { dama: reaches, decline: wins }, `seed ${seed}`);
+      assert.ok(results.every(row => row.ruled === null), 'in East 1 neither rule decides');
+    } finally { match.dispose(); }
+  }
+});
+
+test('a recorded win that would leave the player last is reviewed as the rule plays it: the pass in a claim window, the best other move at a turn', async () => {
+  for (const [seed, kind] of [[31, 'ron'], [51, 'tsumo']]) {
+    const match = wonHand(seed), engine = match.engine;
+    try {
+      const notes = engine.review(), index = notes.findIndex(note => note.played_kind === kind);
+      assert.ok(index >= 0, `seed ${seed}: the player took a ${kind}`);
+      // The win made one that leaves the player last, on the instance: the
+      // core answers nought in East 1.
+      engine.review_all_last_decline = at => (at === index ? DECLINE.LAST : DECLINE.ABSENT);
+      const mask = engine.review_mask_mortal(index), other = open(mask).filter(move => move !== MORTAL_AGARI).at(-1);
+      // Sure of the win, and of the last other move open there after it; sure
+      // of the first open move everywhere else.
+      const results = await reviewWithStrong(engine, notes, async (planes, asked) => {
+        if (!asked[MORTAL_AGARI]) return { action: open(asked)[0], weights: Array.from(asked, (_, move) => Number(move === open(asked)[0])) };
+        return { action: MORTAL_AGARI, weights: Array.from(asked, (_, move) => (move === MORTAL_AGARI ? 0.95 : move === other ? 0.05 : 0)) };
+      });
+      const row = results[index], advised = kind === 'ron' ? MORTAL_PASS : other;
+      const choice = engine.review_choices(index).find(entry => entry.index === engine.review_action_from_mortal(index, advised, false));
+      assert.deepEqual([row.advised_kind, row.advised, row.agreed], [choice.kind, choice.label, false], `seed ${seed}`);
+      assert.equal(row.advised_kind === 'pass', kind === 'ron');
+      assert.deepEqual(row.ruled, { rules: [DECLINE_RULE] });
+    } finally { match.dispose(); }
+  }
 });

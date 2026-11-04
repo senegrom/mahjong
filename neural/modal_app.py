@@ -1228,6 +1228,12 @@ def _keep(folder: Path, name: str, text: str) -> None:
     volume.commit()
 
 
+#: The late rules of the last hand a ruler's first challenger may follow (see
+#: `neural.late_rules`, whose `RULES` these are; the app's image is not
+#: asked to import it to check a name).
+LATE_RULES = ("decline-last",)
+
+
 @app.function(
     gpu="L40S",
     cpu=16.0,
@@ -1255,6 +1261,8 @@ def ruler(
     timing: bool = True,
     run: str = DEFAULT_RUN,
     average_suits: str = "",
+    all_last_dama: str = "",
+    late_rule: str = "",
 ) -> str:
     """A duel played the faster way, with a second challenger if `also`
     names one (see `neural.ruler`): every table of the duel in one arena,
@@ -1266,6 +1274,18 @@ def ruler(
     "first", "second" or "both", names the challengers that ask the
     questions they hesitate over of the game with characters and circles
     renamed too, and play the mean of the two answers (see `neural.suits`).
+    `all_last_dama`, the same way, names the challengers that leave the
+    last hand's riichi undeclared where its tile keeps them first through
+    every win (see `neural.all_last`), which needs fixed questions,
+    `preview_reach`, `also` naming the challenger and both arms averaging
+    alike (`average_suits` "" or "both"); the report says under
+    `all_last_check` whether the arms played one game wherever the rule did
+    not fire, and is kept either way, so that the launcher can stop a
+    series on it (see `neural.ruler_cloud`). `late_rule`, one of
+    `LATE_RULES`, has the first challenger follow that rule of the last hand
+    in place of the all-last dama rule (see `neural.late_rules`), with the
+    same needs, the report saying under `late_rule_check` what it says
+    under `all_last_check`.
 
     The answer is the report, with the checkpoints named as the volume
     names them. With a `tag` it is also kept on the volume, at
@@ -1280,6 +1300,28 @@ def ruler(
         raise ValueError("average_suits must name the first challenger, the second or both")
     if average_suits in ("second", "both") and not also:
         raise ValueError("average_suits names a second challenger, and also names none")
+    if all_last_dama not in ("", "first", "second", "both"):
+        raise ValueError("all_last_dama must name the first challenger, the second or both")
+    if all_last_dama in ("second", "both") and not also:
+        raise ValueError("all_last_dama names a second challenger, and also names none")
+    if all_last_dama and (questions != "fixed" or not preview_reach):
+        raise ValueError("all_last_dama needs fixed questions and preview_reach")
+    if all_last_dama and also != challenger:
+        # Its check holds only of one network played twice (see `neural.ruler`).
+        raise ValueError("all_last_dama compares a checkpoint with itself: also must name the challenger")
+    if all_last_dama and average_suits not in ("", "both"):
+        raise ValueError("all_last_dama needs both arms asked alike: average_suits must be '' or 'both'")
+    if late_rule not in ("", *LATE_RULES):
+        raise ValueError(f"late_rule must be one of {', '.join(LATE_RULES)}")
+    if late_rule and all_last_dama:
+        raise ValueError("late_rule and all_last_dama are two rules of the last hand: a call plays one")
+    if late_rule and (questions != "fixed" or not preview_reach):
+        raise ValueError("late_rule needs fixed questions and preview_reach")
+    if late_rule and also != challenger:
+        # As for all_last_dama.
+        raise ValueError("late_rule compares a checkpoint with itself: also must name the challenger")
+    if late_rule and average_suits not in ("", "both"):
+        raise ValueError("late_rule needs both arms asked alike: average_suits must be '' or 'both'")
     folder = _ruler_folder(tag) if tag else None
     volume.reload()
     names = [challenger, incumbent, *([also] if also else [])]
@@ -1313,6 +1355,10 @@ def ruler(
             command += ["--rows", str(rows)]
         if average_suits:
             command += ["--average-suits", average_suits]
+        if all_last_dama:
+            command += ["--all-last-dama", all_last_dama]
+        if late_rule:
+            command += ["--late-rule", late_rule]
         for flag, wanted in (("--graphs", graphs), ("--skip-forced", skip_forced),
                              ("--preview-reach", preview_reach), ("--timing", timing)):
             if wanted:
