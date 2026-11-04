@@ -5,7 +5,7 @@
 import { normalizeOpponents, opponentPreset, DEFAULT_OPPONENT, OPPONENT_TYPES, OPPONENT_POSITIONS } from './opponents.js';
 import { normalizeTileFace } from './tile-faces.js';
 import { NETWORKS } from './model-manifest.js';
-import { averagedAnswer } from './suits.js';
+import { opponentTable, trainedMove as decide } from './trained-move.js';
 
 export const SAVE_KEY = 'riichi.match.v2';
 export const SETTINGS_KEY = 'riichi.settings.v1';
@@ -235,8 +235,9 @@ export class MatchSession {
         // move it can play.
         const mask = this.engine.opponent_mask_mortal();
         require(Number.isInteger(command.action) && command.action >= 0 && command.action < mask.length && mask[command.action], 'Invalid opponent action');
-        // A declared reach plays nothing yet: the engine asks again which
-        // tile it discards, and the loop above comes round to answer.
+        // A declared reach plays nothing yet: the engine waits for the tile
+        // it discards, the next command. run() applies the two back to back;
+        // where a save stopped between them, run() asks the tile.
         this.engine.play_opponent_mortal(command.action);
         recorded = { type: 'opponent', action: command.action };
         break;
@@ -293,9 +294,10 @@ export class MatchSession {
           require(moves++ < 400, 'The opponent sequence did not settle');
           this.thinking = true;
           this.notify();
-          const action = await this.trainedMove();
+          const actions = await this.trainedMove();
           if (this.closed) return false;
-          this.apply({ type: 'opponent', action });
+          // A riichi and its tile are applied together, and saved once.
+          for (const action of actions) this.apply({ type: 'opponent', action });
           this.advance();
           this.notify();
         }
@@ -314,17 +316,19 @@ export class MatchSession {
     }
   }
 
-  /** The waiting Trained opponent's move, asked through `ai(planes, mask,
-   * signal)`, which answers as analyzePolicy does. Where Trained AI hesitates
-   * the renamed game is asked too, and the move is the mean of the two
-   * answers' (suits.js): its planes are read only then, from the engine as it
-   * still stands, since nothing moves it while the match is busy, and not at
-   * all once the match is closed. */
+  /** The waiting Trained opponent's move, as Mortal's moves to apply in
+   * order: Trained AI's move (trained-move.js), asked through `ai(planes,
+   * mask, signal)`, which answers as analyzePolicy does. A riichi is two, its
+   * declaration and its tile, the tile asked of a preview of the reach before
+   * either is recorded, so that the last hand's rules can throw it undeclared
+   * instead. What else is asked of the engine, the renamed game where Trained
+   * AI hesitates, the preview and the rules' codes, is read only then, from
+   * the engine as it still stands, since nothing moves it while the match is
+   * busy, and not at all once the match is closed. A reach a save stopped
+   * between its two moves is asked its tile of the engine's pending reach,
+   * whose mask opens only tiles, so no rule is asked and the riichi stands. */
   async trainedMove() {
-    const engine = this.engine;
-    const answer = await averagedAnswer(this.ai, { planes: engine.opponent_observation_mortal(), mask: engine.opponent_mask_mortal(),
-      renamed: () => engine.opponent_observation_mortal_renamed() }, this.abort.signal);
-    return answer.action;
+    return (await decide(this.ai, opponentTable(this.engine), this.abort.signal)).moves;
   }
 
   choose(choice) { return this.run({ type: 'choose', kind: choice.kind, tile: choice.tile ?? null }); }

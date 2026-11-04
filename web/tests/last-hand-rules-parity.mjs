@@ -13,11 +13,16 @@
 //    where Python refuses; each asks the renamed game where the plain answer
 //    hesitates, and only there, and the reach's tile only where the move is a
 //    riichi.
+// 2. Play's opponents (session.js), skip_forced off: a match whose Trained
+//    opponent owes the case records the moves Python plays, a riichi and its
+//    tile back to back, asking what the layer asks, and records nothing where
+//    Python refuses.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { MORTAL_REACH } from '../src/lib/action-weights.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
+import { MatchSession } from '../src/lib/session.js';
 import { GATE, MOVES, swapMoves } from '../src/lib/suits.js';
 import { DAMA, DAMA_RULE, DECLINE, DECLINE_RULE, MORTAL_AGARI, MORTAL_PASS, RULE_REFUSED, trainedMove, trainedMoves } from '../src/lib/trained-move.js';
 
@@ -152,6 +157,51 @@ for (const skipForced of SETTINGS) {
   }
 }
 
+/** A Game, as a match makes one, whose one Trained opponent owes case `at`:
+ * its first question, the reach's preview and the codes, as the engine asks
+ * them; once a riichi is played, the reach waits for its tile, and asks the
+ * preview's question with no code, as the engine's pending reach does. */
+const opponentGame = at => class {
+  constructor() { this.item = cases[at]; this.reached = false; this.played = false; }
+  view() { return { reached: this.reached, played: this.played }; }
+  choices() { return []; }
+  advance() { return []; }
+  game_is_over() { return false; }
+  needs_opponent_move() { return !this.played; }
+  opponent_observation_mortal() { return { at, question: this.reached ? 'preview' : 'first' }; }
+  opponent_observation_mortal_renamed() { return { at, question: this.reached ? 'preview renamed' : 'first renamed' }; }
+  opponent_mask_mortal() { return Uint8Array.from(this.reached ? this.item.after_mask : this.item.mask); }
+  opponent_observation_after_reach() { return { at, question: 'preview' }; }
+  opponent_observation_after_reach_renamed() { return { at, question: 'preview renamed' }; }
+  opponent_mask_after_reach() { return Uint8Array.from(this.item.after_mask); }
+  opponent_all_last_dama() { return Uint8Array.from(this.reached ? new Uint8Array(34) : this.item.dama); }
+  opponent_all_last_decline() { return this.reached ? 0 : this.item.decline; }
+  play_opponent_mortal(action) {
+    assert.ok(!this.played, `${this.item.name}: a move after the decision`);
+    if (action === MORTAL_REACH && !this.reached) this.reached = true;
+    else this.played = true;
+  }
+  free() {}
+};
+
+// 2. Each case as Play's opponents ask it, with skip_forced off: the match
+// records Mortal's moves, the riichi and its tile together, and nothing where
+// Python refuses, which it says as the layer says it.
+for (const [at, item] of cases.entries()) {
+  const want = item.expected[0], label = `${item.name}, as Play's opponent`;
+  const { requests, ask } = asker();
+  const match = new MatchSession(opponentGame(at), 0, 'neural', { ai: async (planes, mask) => (await ask([{ planes, mask }]))[0] });
+  try {
+    const ran = await match.run();
+    if (want.refused) assert.deepEqual([ran, match.failure, match.commands], [false, RULE_REFUSED, []], `${label}: refused`);
+    else {
+      assert.equal(ran, true, `${label}: ${match.failure}`);
+      assert.deepEqual(match.commands, want.moves.map(action => ({ type: 'opponent', action })), `${label}: the commands recorded`);
+    }
+    assert.deepEqual(requests, want.asks.map(question => [{ at, question }]), `${label}: the questions asked`);
+  } finally { match.dispose(); }
+}
+
 const said = setting => Object.entries(fixture.counts[setting]).map(([name, count]) => `${name} ${count}`).join(', ');
 console.log(`PASS: ${cases.length} cases of the last hand's rules, played by the page's layer as the composed Python wrappers play them, `
-  + `each alone and in groups of eight. skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);
+  + `each alone and in groups of eight, and by Play's opponents. skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);
