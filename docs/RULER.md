@@ -611,14 +611,13 @@ worse: at seed 10,100,030, deal 928 (table 3928), the dealer ended a place
 lower with the rule than without it.
 
 Each rule was measured alone, 2610 with it against 2610 plain at published
-Mortal's table; the all-last dama rule and `decline-last` were never played
+Mortal's table; the all-last dama rule and `decline-last` were never measured
 together. The project keeps those two, the dama rule (+0.0010) and
 `decline-last` (+0.0009). The training plays both together, decline first, in
 the learner's own self-play when told (`train_combined --last-hand-rules
 all-last-dama decline-last`, see docs/TRAINING_SAFETY.md, "The last hand's
 rules in self-play"), and so does the site's Trained AI
-(`web/src/lib/trained-move.js`, [Agent modes](AGENT_MODES.md)). No series has
-yet measured a network playing both.
+(`web/src/lib/trained-move.js`, [Agent modes](AGENT_MODES.md)).
 `wide-dama` adds nothing measurable over the dama rule (+0.0001 +- 0.0001),
 and `dealer-noten` reads level (-0.00001 +- 0.00001: one deal of 20,000 placed
 worse). So both were dropped.
