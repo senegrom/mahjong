@@ -773,15 +773,15 @@ def preflight(net, args, device: str) -> dict:
             times = []
             for _try in range(2):
                 began = time.perf_counter()
-                _sums, how = placement_pretest.head_gradients(
+                _, how = placement_pretest.head_gradients(
                     net, made, weights, SimpleNamespace(amp=args.amp, chunk=rows), device, fallback=not cuda)
                 synchronised(device)
                 times.append(time.perf_counter() - began)
-            _sums = made = weights = None
+            _ = made = weights = None
             peak = card_peak(device)
         except (RuntimeError, NotImplementedError) as error:
             failed, roomy = repr(error), out_of_memory(error)
-        made = weights = _sums = None
+        made = weights = _ = None
         if failed is None and peak is not None and peak[0] > CARD_SHARE * peak[1]:
             failed = f"its peak held {peak[0] / peak[1]:.0%} of the card"
         if failed is None:
