@@ -77,6 +77,14 @@ forward pass, and a review's batch of renamed positions is never larger
 than the batch before it, so the memory ceilings hold. The worker parity
 job checks the page's mean against `neural.suits` on a small export.
 
+The last hand's two rules live in the page too (`src/lib/trained-move.js`),
+not in the worker: they read the engine's codes and play over the network's
+answers, asking nothing more but the tile of a riichi that a declined
+self-draw leaves. A Trained opponent's riichi tile is now asked of a preview
+of its reach, before anything is recorded, with the same planes as before,
+so the worker sees the same requests. The worker parity job holds the page's
+rules to the Python wrappers as well.
+
 Every stored copy carries the size and SHA-256 its writer verified, as
 `X-Mahjong-SHA256` and `Content-Length` headers, the same record the service
 worker keeps for its own files. Status checks, the foreground availability

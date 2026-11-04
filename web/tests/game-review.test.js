@@ -7,6 +7,7 @@ import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -206,7 +207,8 @@ test('a decision is flagged only where the player had under 5% and the network a
 test("the filters' buttons say in a word what each keeps, and the Flagged and Differed buttons' titles what keeps them", () => {
   assert.deepEqual(FILTERS, ['flagged', 'differed', 'every']);
   assert.deepEqual(FILTER_LABELS, { flagged: 'Flagged', differed: 'Differed', every: 'All' });
-  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more", differed: 'Trained AI chose another move' });
+  assert.deepEqual(FILTER_TITLES, { flagged: "Your move under 5%, Trained AI's choice 60% or more, or a last-hand win that leaves you last",
+    differed: 'Trained AI chose another move' });
 });
 
 test('the flagged decisions are counted, however wide the gap of one that is not, and agreement leaves forced moves out', () => {
@@ -471,6 +473,73 @@ test('a step says in one line where it is, the table, both moves with their weig
   assert.deepEqual(moveWeight(declared, { kind: 'riichi', tile: '6m' }), { weight: 0.9, given: false });
   assert.deepEqual(moveWeight({ ...flagged, weighted: [{ ...discards[0], weight: null }] }, discards[0]), { weight: null, given: false },
     'a move Trained AI gave no weight');
+});
+
+test('a decision a last-hand rule made is staged as the rule\'s, not flagged for a riichi declared or a call made against it, and its move is weighed by the rule', () => {
+  // The probe: the player declared riichi on the 9 circles, which Trained AI
+  // threw undeclared, since the tile keeps the player first through every
+  // win; the network had put 97% on the riichi and 1% on the plain discard.
+  const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
+  const turn = { phase: 'act', wall: 30, pending_discard: null, pending_from: null,
+    seats: [seat('north', { turn: true, drawn: '9p' }), seat('east'), seat('south'), seat('west')] };
+  const choice = (kind, tile, label, weight, conditionalWeight = null) => ({ kind, tile, label, weight, conditionalWeight });
+  const choices = [choice('discard', '9p', 'discards the 9 circles', 0.01), choice('discard', '3s', 'discards the 3 bamboo', 0.02),
+    choice('riichi', '9p', 'declares riichi on the 9 circles', 0.97, 1)];
+  const frame = played => ({ view: turn, choices, played, lines: [] });
+  const row = (played, values = {}) => ({ played_kind: played.kind, played_tile: played.tile, advised_kind: 'discard', advised_tile: '9p',
+    advised: 'discards the 9 circles', agreed: false, forced: false, played_weight: played.weight, preferred_weight: 0.01,
+    played_conditional_weight: null, preferred_conditional_weight: null, weighted: choices, ruled: { rules: [DAMA_RULE] }, ...values });
+  // The weights cannot judge the move: under 5% against 97%.
+  const declared = row(choices[2]);
+  assert.deepEqual(judgement(declared), { stage: 'rule', flagged: false });
+  assert.deepEqual(judgement(row(choices[1])), { stage: 'rule', flagged: false }, 'another tile');
+  assert.equal(judgement(row(choices[0], { agreed: true })), null);
+  // A ron declined for the pass, the player calling a pon.
+  assert.deepEqual(judgement(row({ kind: 'pon', tile: null, weight: 0.03 }, { advised_kind: 'pass', advised_tile: null, advised: 'passes',
+    preferred_weight: 0.001, ruled: { rules: [DECLINE_RULE] } })), { stage: 'rule', flagged: false });
+  // The rule's move is weighed by the rule, the others by their weights.
+  assert.deepEqual(moveWeight(declared, choices[0]), { weight: null, given: false, rule: true });
+  assert.deepEqual(moveWeight(declared, choices[2]), { weight: 0.97, given: false });
+  const hand = { name: 'South 4', frames: [frame({ kind: 'riichi', tile: '9p' })] };
+  const said = (decision, options = {}) => stepSaid({ hand, step: 0, decision: { ...decision, judgement: judgement(decision) }, ...options });
+  const line = 'by rule (last hand: every win keeps it first, so no riichi)';
+  assert.equal(said(declared), 'South 4, decision 1 of 1. Your turn, 30 tiles left. You: declares riichi on the 9 circles, 97.0%. '
+    + `Trained AI: discards the 9 circles, ${line}.`);
+  assert.equal(said(declared, { pick: choices[0] }), 'South 4, decision 1 of 1. Your turn, 30 tiles left. You: declares riichi on the 9 circles, 97.0%. '
+    + `Trained AI: discards the 9 circles, ${line}. Now: discards the 9 circles, ${line}.`);
+  // Agreed, the player's move is the rule's.
+  assert.equal(stepSaid({ hand: { ...hand, frames: [frame({ kind: 'discard', tile: '9p' })] }, step: 0, decision: row(choices[0], { agreed: true }) }),
+    `South 4, decision 1 of 1. Your turn, 30 tiles left. You: discards the 9 circles, ${line}. Trained AI agreed.`);
+});
+
+test('a win that decline-last declined and the player took is flagged, and counted so, and nothing else a last-hand rule decided is', () => {
+  // The self-draw of the core's tsumo table, which leaves the player alone
+  // in last: the network put 99% on it.
+  const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
+  const turn = { phase: 'act', wall: 30, pending_discard: null, pending_from: null,
+    seats: [seat('north', { turn: true, drawn: '1m' }), seat('east'), seat('south'), seat('west')] };
+  const choices = [{ kind: 'tsumo', tile: null, label: 'wins by self-draw', weight: 0.99, conditionalWeight: null },
+    { kind: 'discard', tile: '3s', label: 'discards the 3 bamboo', weight: 0.006, conditionalWeight: null }];
+  const row = (played, values = {}) => ({ played_kind: played, played_tile: null, advised_kind: 'discard', advised_tile: '3s',
+    advised: 'discards the 3 bamboo', agreed: false, forced: false, played_weight: 0.99, preferred_weight: 0.006,
+    played_conditional_weight: null, preferred_conditional_weight: null, weighted: choices, ruled: { rules: [DECLINE_RULE] }, ...values });
+  const tsumo = row('tsumo'), ron = row('ron', { advised_kind: 'pass', advised_tile: null, advised: 'passes' });
+  // Declined, then thrown undeclared: the riichi a declined self-draw left.
+  const both = row('tsumo', { advised_kind: 'discard', advised_tile: '9p', ruled: { rules: [DECLINE_RULE, DAMA_RULE] } });
+  for (const taken of [tsumo, ron, both]) assert.deepEqual(judgement(taken), { stage: 'rule', flagged: true }, taken.advised);
+  // A riichi the dama rule threw undeclared, and a call where the ron was
+  // passed, are listed under Differed only; a pass, the rule's move, agreed.
+  const declared = row('riichi', { played_tile: '9p', advised_tile: '9p', ruled: { rules: [DAMA_RULE] } });
+  const called = row('pon', { advised_kind: 'pass', advised_tile: null, advised: 'passes' });
+  for (const other of [declared, called]) assert.deepEqual(judgement(other), { stage: 'rule', flagged: false }, other.played_kind);
+  assert.equal(judgement(row('pass', { advised_kind: 'pass', advised_tile: null, agreed: true })), null);
+  const decisions = [tsumo, ron, both, declared, called].map(decision => ({ ...decision, judgement: judgement(decision) }));
+  assert.deepEqual(filterCounts(decisions), { flagged: 3, differed: 5, every: 5 });
+  assert.deepEqual(decisions.map(decision => listedIn(decision, 'flagged')), [true, true, true, false, false]);
+  // The step's line says so, after the rule's line.
+  const hand = { name: 'South 4', frames: [{ view: turn, choices, played: { kind: 'tsumo', tile: null }, lines: [] }] };
+  assert.equal(stepSaid({ hand, step: 0, decision: decisions[0] }), 'South 4, decision 1 of 1. Your turn, 30 tiles left. You: wins by self-draw, '
+    + '99.0%. Trained AI: discards the 3 bamboo, by rule (last hand: this win would leave it last). Flagged.');
 });
 
 test("a real review's lists hold what their filters count, in the order played: the flagged among the different moves, and every decision", async () => {

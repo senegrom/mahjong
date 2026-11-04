@@ -5,29 +5,47 @@ import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/
 import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
 import { average, swapMoves } from '../src/lib/suits.js';
+import { DAMA, DECLINE, RULE_REFUSED } from '../src/lib/trained-move.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 /** Weights over Mortal's forty-six moves, nought where none is given. */
 const weightsOf = entries => Array.from({ length: 46 }, (_, move) => entries[move] ?? 0);
 /** An answer as analyzePolicy gives it, sure of its move. */
 const sure = action => ({ action, weights: weightsOf({ [action]: 1 }) });
+/** The commands a Trained opponent's Mortal moves are recorded as. */
+const played = (...actions) => actions.map(action => ({ type: 'opponent', action }));
 class FakeGame {
-  constructor(seed, difficulty) { this.seed = seed; this.external = difficulty === 'neural'; this.pending = this.external; this.moves = 0; this.applied = 0; this.declared = 0; this.awaitingTile = false; this.freed = false; }
+  constructor(seed, difficulty) {
+    this.seed = seed; this.external = difficulty === 'neural'; this.pending = this.external; this.moves = 0; this.applied = 0; this.declared = 0; this.awaitingTile = false; this.freed = false;
+    // The moves the opponent's first question opens, which a test may change;
+    // the last hand's codes, nought unless a test sets them, `dama` by tile;
+    // and how often the questions read only when wanted were read.
+    this.open = [0, 37]; this.dama = {}; this.decline = 0; this.reads = { reachRenamed: 0, dama: 0, decline: 0 };
+  }
   view() { assert.ok(!this.freed); return { phase: 'act', hands_played: 0, seats: [{discards: Array(this.moves).fill('1m'), melds: [], riichi: false}], moves: this.moves, pending: this.pending }; }
   choices() { return this.pending ? [] : [{ kind: 'discard', tile: '1m' }]; }
   advance() { return []; }
   needs_opponent_move() { return this.pending; }
   /** Mortal's forty-six moves, which is what a trained opponent answers in.
    * Move 0 discards; move 37 declares a reach, which plays nothing until a
-   * second answer names the tile it discards. */
-  opponent_mask_mortal() { const mask = new Uint8Array(46); mask[0] = 1; if (!this.awaitingTile) mask[37] = 1; return mask; }
+   * second answer names the tile it discards; a test may open a win (43), a
+   * pon (41) or the pass (45). */
+  opponent_mask_mortal() { const mask = new Uint8Array(46); for (const move of this.awaitingTile ? [0] : this.open) mask[move] = 1; return mask; }
   opponent_observation_mortal() { return new Float32Array([this.awaitingTile ? 1 : 0]); }
   /** The renamed game's planes, other than the game's own. */
   opponent_observation_mortal_renamed() { this.renamedReads = (this.renamedReads ?? 0) + 1; assert.ok(!this.freed); return new Float32Array([this.awaitingTile ? 11 : 10]); }
+  /** The reach's tile, asked before anything is recorded, of a preview that
+   * reads as the pending reach does once its riichi is played. */
+  opponent_observation_after_reach() { assert.ok(!this.freed); return new Float32Array([1]); }
+  opponent_observation_after_reach_renamed() { this.reads.reachRenamed++; assert.ok(!this.freed); return new Float32Array([11]); }
+  opponent_mask_after_reach() { assert.ok(!this.freed); const mask = new Uint8Array(46); mask[0] = 1; return mask; }
+  opponent_all_last_dama() { this.reads.dama++; assert.ok(!this.freed); return Uint8Array.from({ length: 34 }, (_, tile) => this.dama[tile] ?? 0); }
+  opponent_all_last_decline() { this.reads.decline++; assert.ok(!this.freed); return this.decline; }
   play_opponent_mortal(action) {
     assert.ok(!this.freed);
+    assert.ok(this.opponent_mask_mortal()[action], `move ${action} is open`);
     if (action === 37) { this.declared++; this.awaitingTile = true; return true; }
-    assert.equal(action, 0); this.applied++; this.awaitingTile = false; this.pending = false; return false;
+    this.applied++; this.awaitingTile = false; this.pending = false; return false;
   }
   continue_with_club() { this.external = false; this.pending = false; }
   choose() { this.moves++; this.pending = this.external; }
@@ -134,6 +152,135 @@ test('a sure Trained opponent is asked once, and one closed while it was asked r
   answer.resolve({ action: 0, weights: weightsOf({ 0: 0.5, 37: 0.5 }) });
   assert.equal(await run, false);
   assert.deepEqual([engine.applied, engine.renamedReads ?? 0], [0, 0]);
+});
+
+test('a Trained opponent\'s riichi whose tile keeps it first is thrown undeclared: one discard, saved once, restored without asking', async () => {
+  // Riichi is its best move, and the reach's one tile keeps it first.
+  const saves = [], declare = async (_planes, mask) => sure(mask[37] ? 37 : 0);
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: declare, onSave: save => saves.push(save.commands) });
+  match.engine.dama = { 0: DAMA.KEEPS_FIRST };
+  try {
+    assert.equal(await match.run(), true, match.failure);
+    assert.deepEqual(match.commands, played(0));
+    assert.deepEqual([match.engine.declared, match.engine.applied], [0, 1], 'nothing is declared');
+    assert.deepEqual(saves, [[], played(0)], 'saved as the run begins, then once for the move');
+    const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()),
+      { ai() { throw new Error('A saved move must not be put to the network again'); } });
+    try {
+      assert.equal(restored.stateKey(), match.stateKey());
+      assert.deepEqual([restored.engine.declared, restored.engine.applied], [0, 1]);
+      assert.deepEqual(restored.engine.reads, { reachRenamed: 0, dama: 0, decline: 0 }, 'nor are the rules asked');
+    } finally { restored.dispose(); }
+  } finally { match.dispose(); }
+  // Where the codes are nought the riichi stands, and it and its tile are
+  // saved together.
+  saves.length = 0;
+  const reach = new MatchSession(FakeGame, 1, 'neural', { ai: declare, onSave: save => saves.push(save.commands) });
+  try {
+    assert.equal(await reach.run(), true, reach.failure);
+    assert.deepEqual(saves, [[], played(37, 0)]);
+  } finally { reach.dispose(); }
+});
+
+test('a Trained opponent passes a ron that would leave it last, though a pon ranks second', async () => {
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async () => ({ action: 43, weights: weightsOf({ 43: 0.95, 41: 0.04, 45: 0.01 }) }) });
+  Object.assign(match.engine, { open: [41, 43, 45], decline: DECLINE.LAST });
+  try {
+    assert.equal(await match.run(), true, match.failure);
+    assert.deepEqual(match.commands, played(45));
+    assert.deepEqual(match.engine.reads, { reachRenamed: 0, dama: 0, decline: 1 });
+  } finally { match.dispose(); }
+});
+
+test('a Trained opponent declines a self-draw that would leave it last for its best other move, a discard or a riichi and its tile', async () => {
+  for (const [weights, moves] of [[{ 43: 0.95, 0: 0.04, 37: 0.01 }, [0]], [{ 43: 0.95, 37: 0.04, 0: 0.01 }, [37, 0]]]) {
+    const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => (mask[43] ? { action: 43, weights: weightsOf(weights) } : sure(0)) });
+    Object.assign(match.engine, { open: [0, 37, 43], decline: DECLINE.LAST });
+    try {
+      assert.equal(await match.run(), true, match.failure);
+      assert.deepEqual(match.commands, played(...moves));
+    } finally { match.dispose(); }
+  }
+});
+
+test('codes no legal move can have refuse the opponent\'s move: nothing is recorded, and it waits for Retry or Club', async () => {
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => sure(mask[37] ? 37 : 0) });
+  // The reach's one tile coded as one whose riichi is not legal.
+  match.engine.dama = { 0: DAMA.NOT_WAITING };
+  try {
+    assert.equal(await match.run(), false);
+    assert.equal(match.failure, RULE_REFUSED);
+    assert.deepEqual(match.commands, []);
+    assert.equal(match.needsRecovery, true);
+  } finally { match.dispose(); }
+});
+
+test('a save stopped between a riichi and its tile restores, and asks only the tile, of the pending reach, reading no code', async () => {
+  // As the page saved before the rules, after every command: the riichi
+  // recorded, its tile not yet.
+  const half = new MatchSession(FakeGame, 1, 'neural');
+  half.apply({ type: 'opponent', action: 37 });
+  half.advance(false);
+  const saved = JSON.stringify(half.snapshot());
+  half.dispose();
+  const asked = [];
+  const restored = MatchSession.restore(FakeGame, saved, { ai: async (planes, mask) => {
+    asked.push({ planes: Array.from(planes), mask: Array.from(mask) });
+    return sure(0);
+  } });
+  try {
+    // The codes would throw the tile undeclared, were they asked.
+    restored.engine.dama = { 0: DAMA.KEEPS_FIRST };
+    assert.equal(await restored.run(), true, restored.failure);
+    assert.deepEqual(asked, [{ planes: [1], mask: Array.from(weightsOf({ 0: 1 })) }]);
+    assert.deepEqual(restored.engine.reads, { reachRenamed: 0, dama: 0, decline: 0 });
+    assert.deepEqual(restored.commands, played(37, 0));
+    assert.deepEqual([restored.engine.declared, restored.engine.applied], [1, 1]);
+  } finally { restored.dispose(); }
+});
+
+test('a riichi whose tile fails once recorded is left alone: Retry saves it, then asks the tile of the pending reach', async () => {
+  /** An engine that refuses the first tile played. */
+  class Refusing extends FakeGame {
+    play_opponent_mortal(action) {
+      if (action !== 37 && !this.refused) { this.refused = true; throw new Error('The tile was refused'); }
+      return super.play_opponent_mortal(action);
+    }
+  }
+  const saves = [], asked = [];
+  const match = new MatchSession(Refusing, 1, 'neural', { onSave: save => saves.push(save.commands), ai: async (planes, mask) => {
+    asked.push(Array.from(planes));
+    return sure(mask[37] ? 37 : 0);
+  } });
+  try {
+    assert.equal(await match.run(), false);
+    assert.equal(match.failure, 'The tile was refused');
+    assert.deepEqual(match.commands, played(37));
+    assert.deepEqual(saves, [[]], 'nothing is saved after the riichi');
+    assert.equal(match.needsRecovery, true);
+    assert.equal(await match.retry(), true, match.failure);
+    assert.deepEqual(saves, [[], played(37), played(37, 0)]);
+    assert.deepEqual(asked, [[0], [1], [1]], 'the riichi, its tile previewed, then its tile of the pending reach');
+    assert.deepEqual(match.engine.reads, { reachRenamed: 0, dama: 1, decline: 0 }, 'the codes are read for the first answer only');
+  } finally { match.dispose(); }
+});
+
+test('a match closed while its opponent\'s riichi tile is asked reads nothing more of its engine', async () => {
+  const tile = deferred(), tileAsked = deferred();
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async (_planes, mask) => {
+    if (mask[37]) return sure(37);
+    tileAsked.resolve();
+    return tile.promise;
+  } });
+  const run = match.run(), engine = match.engine;
+  await tileAsked.promise;
+  match.dispose();
+  // Hesitant: asked on, it would read the renamed preview, then the codes.
+  tile.resolve({ action: 0, weights: weightsOf({ 0: 0.5 }) });
+  assert.equal(await run, false);
+  assert.equal(match.failure, '');
+  assert.deepEqual(engine.reads, { reachRenamed: 0, dama: 0, decline: 0 });
+  assert.deepEqual([engine.declared, engine.applied], [0, 0]);
 });
 
 test('restoration rejects invalid versions, illegal commands and changed state', async () => {

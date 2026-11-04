@@ -294,6 +294,12 @@ test("the tile guide says what Trained AI's percentages are: how strongly it pre
   assert.match(await tileGuide(), /<dt[^>]*>Trained AI's percentages<\/dt>\s*<dd[^>]*>How strongly it prefers each move, not a chance of winning\. Declaring riichi and the discard given riichi are weighed separately\.<\/dd>/);
 });
 
+test('the tile guide says, after the percentages, what "by rule" stands for: the last hand\'s two rules, in South 4', async () => {
+  // "by rule" stands where a ruled move's weight would be, its line a title
+  // that shows only under a mouse: the guide is where a finger finds it.
+  assert.match(await tileGuide(), /<dd[^>]*>How strongly it prefers each move[^<]*<\/dd>\s*<dt[^>]*>by rule<\/dt>\s*<dd[^>]*>In South 4, the last hand, Trained AI skips riichi where every win keeps it first, and declines a win that would leave it last\.<\/dd>/);
+});
+
 test("the tile guide says the blue ring is Trained AI's choice in a review, as it is the agent's in Agent watch and Guided play, and gives the review's keys and where each kind works", async () => {
   const guide = await tileGuide();
   /** What the guide says of a term, its swatch passed over. */

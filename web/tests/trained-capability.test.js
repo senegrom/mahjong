@@ -6,9 +6,10 @@ import { emptyPosition, parseTiles } from '../src/lib/physical-position.js';
 import { emptyGuided, editGuided, guidedEvent } from '../src/lib/guided-game.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
-import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
-import { averagedAnswer } from '../src/lib/suits.js';
+import { weightsByChoice } from '../src/lib/action-weights.js';
+import { DAMA, DAMA_RULE, DECLINE_RULE, agentTable, trainedMove } from '../src/lib/trained-move.js';
 import { loadModule } from './fixtures/load-module.js';
+import { probe, ron, southFour, tsumo } from './fixtures/last-hand-tables.js';
 
 // agents.js loads the policy client, whose offline storage resolves the
 // page's folder as it loads. Nothing here constructs a worker or downloads
@@ -31,9 +32,11 @@ function adviserWith(logits) {
     // What policy.worker.js answers with, by the same arithmetic.
     return { ...policyWeights(logits, mask), value: 0.25, hands: new Float32Array(102) };
   };
-  return loadModule('agents.js', { analyzePolicy, averagedAnswer, readBeliefs, readValue, weightsByChoice, MORTAL_REACH },
+  return loadModule('agents.js', { analyzePolicy, agentTable, trainedMove, readBeliefs, readValue, weightsByChoice },
     ['evaluateAgent']).evaluateAgent;
 }
+/** Raw preferences over Mortal's moves: those named, nought elsewhere. */
+const logitsOf = named => Float32Array.from({ length: 46 }, (_, move) => named[move] ?? 0);
 
 test('a physical position builds the trained observation and keeps its legal choices', async () => {
   const position = emptyPosition();
@@ -138,4 +141,59 @@ test('trained advice answers an opponent discard the player cannot claim', async
     assert.deepEqual(answer.beliefs.map(belief => belief.held), [13, 13, 13]);
     assert.ok(answer.beliefs.every(belief => Math.abs(belief.expected.reduce((a, b) => a + b, 0) - 13) < 1e-9));
   } finally { engine.free(); }
+});
+
+// The last hand: the tables of riichi_core::all_last's tests, typed in.
+/** The move advised, as kind and tile, and the rules that made it, if any. */
+const advised = answer => [answer.choice.kind, answer.choice.tile ?? null, answer.ruled?.rules ?? null];
+
+test('Trained advice in the last hand throws undeclared a riichi whose tile keeps it first, and declares one whose tile does not', async () => {
+  const advise = adviserWith(logitsOf({ 37: 8 }));
+  await asking(probe(0), async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['discard', '9p', [DAMA_RULE]]));
+  await asking(probe(1500), async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['riichi', '9p', null]));
+});
+
+test('Trained advice in the last hand declines a self-draw that leaves it last for its best other move, a riichi judged as any', async () => {
+  // The 3s second, a discard.
+  await asking(tsumo(12000), async engine => assert.deepEqual(advised(await adviserWith(logitsOf({ 43: 12, 20: 9, 37: 5 }))(engine, 'full')),
+    ['discard', '3s', [DECLINE_RULE]]));
+  // Riichi second: its tile, the 3s, is asked of a preview of the reach, and
+  // judged, short, so the riichi stands.
+  await asking(tsumo(12000), async engine => {
+    const reads = { dama: 0, decline: 0 };
+    const counted = Object.assign(Object.create(engine), {
+      agent_all_last_dama: () => { reads.dama++; return engine.agent_all_last_dama(); },
+      agent_all_last_decline: () => { reads.decline++; return engine.agent_all_last_decline(); },
+    });
+    const answer = await adviserWith(logitsOf({ 43: 12, 37: 9, 20: 5 }))(counted, 'full');
+    assert.deepEqual(advised(answer), ['riichi', '3s', [DECLINE_RULE]]);
+    assert.deepEqual(reads, { dama: 1, decline: 1 });
+    assert.equal(engine.agent_all_last_dama()[20], DAMA.SHORT);
+    assert.ok(answer.choices.some(choice => choice.kind === 'riichi' && choice.conditionalWeight > 0), 'its tiles are weighed');
+  });
+  // West on 11,900: the tsumo would leave North level, and stands.
+  await asking(tsumo(11900), async engine => assert.deepEqual(advised(await adviserWith(logitsOf({ 43: 12, 20: 9 }))(engine, 'full')),
+    ['tsumo', null, null]));
+});
+
+test('Trained advice in the last hand passes a ron that leaves it last, though a chii ranks second', async () => {
+  const advise = adviserWith(logitsOf({ 43: 12, 38: 9 }));
+  await asking(ron(12100), async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['pass', null, [DECLINE_RULE]]));
+  await asking(ron(12000), async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['ron', null, null]));
+});
+
+test('Trained advice in the last hand asks no rule of the dealer, and reads a furiten tick as play leaves the hand', async () => {
+  const advise = adviserWith(logitsOf({ 37: 8 }));
+  // The probe with the seats turned one place: East, the dealer, decides.
+  const dealer = southFour({ seat: 0, hand: '23456m456p678s33s9p', drawn: '9p', scores: [36000, 20000, 36000, 28000] });
+  await asking(dealer, async engine => assert.deepEqual(advised(await advise(engine, 'full')), ['riichi', '9p', null]));
+  // North ticked furiten, which play clears at the draw: the probe's moves
+  // unticked. At a gap of 1,500 only a 1m ron leaves North short: read as it
+  // stands, the tick would bar that ron, and the 9p would be thrown
+  // undeclared.
+  for (const [gap, move] of [[0, ['discard', '9p', [DAMA_RULE]]], [1500, ['riichi', '9p', null]]]) {
+    const ticked = probe(gap);
+    ticked.players[3].furiten = true;
+    await asking(ticked, async engine => assert.deepEqual(advised(await advise(engine, 'full')), move, `a gap of ${gap}`));
+  }
 });

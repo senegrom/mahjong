@@ -258,7 +258,13 @@ decisions, not as one move. A tooltip shows only under a mouse, so the tile
 guide in the settings says both, for a keyboard or a finger too, under
 "Trained AI's percentages": "How strongly it prefers each move, not a chance
 of winning. Declaring riichi and the discard given riichi are weighed
-separately."
+separately." Where one of the last hand's rules made Trained AI's move, whose
+weight did not choose it, the line says "Trained preference: by rule", the
+rule's line its title ("Last hand: every win keeps it first, so no riichi"),
+which a screen reader hears in full; the player's move keeps its weight. The
+tile guide says what the rules do, under "by rule": "In South 4, the last
+hand, Trained AI skips riichi where every win keeps it first, and declines a
+win that would leave it last."
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
@@ -495,20 +501,27 @@ hand still being played, is refused too ("A hand is still being played"),
 though a review opens only at a result. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
 a forward pass, fewer on a slow device: Mortal's planes for each decision as it
-was made, then, where the network declares riichi, which tile it would
-discard. The questions Trained AI hesitates over are asked again of the game
-with characters and circles renamed, in a forward pass of their own, and
-judged by the mean of the two answers' logits ([Agent modes](AGENT_MODES.md)). A move
+was made, then, where the move is a riichi, the network's or one decline-last
+left, which tile it would discard. The questions Trained AI hesitates over are
+asked again of the game with characters and circles renamed, in a forward pass
+of their own, and judged by the mean of the two answers' logits, and the last
+hand's rules are played over that ([Agent modes](AGENT_MODES.md)). A move
 with one legal choice, such as the discard after riichi, is not asked and is
 left out of every figure.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
-is not decisive flags nothing. The **Flagged** filter's title states the rule
-("Your move under 5%, Trained AI's choice 60% or more"), shown as a tooltip and
-read as the button's description, so it is at hand without taking a paragraph
-of the screen. Riichi is judged in two stages, as the weights are shown
-everywhere: when the player and the network both declared, the tiles are
+is not decisive flags nothing. Where one of the last hand's rules made Trained
+AI's move, whose weight did not choose it, the decision is flagged only where
+decline-last declined a win and the player took it: declining changed the
+place in 65 of 2610's ruled deals, 64 of them for the better. Any other move
+there is listed under Differed only, a riichi the dama rule threw undeclared
+among them: that rule changed 126 deals, 38 of them for the worse. The
+**Flagged** filter's title states the rule ("Your move under 5%, Trained AI's
+choice 60% or more, or a last-hand win that leaves you last"), shown as a
+tooltip and read as the button's description, so it is at hand without taking
+a paragraph of the screen. Riichi is judged in two stages, as the weights are
+shown everywhere: when the player and the network both declared, the tiles are
 compared by the discard weights given riichi; otherwise the move itself is
 compared, the declaration carrying its declaration weight. Flagged decisions
 are not ranked: every list is in the order played, hand by hand, so none is
@@ -653,36 +666,49 @@ Trained AI agreed", "You [5s] · Only move", "On South's [7p]: You Pass 0.3% ·
 Trained AI Pon 99.0%" ("On South's kan [7p]:" where the player could rob a
 quad), "You [8p] · Trained AI …" in a hand not reviewed yet, and, where both
 declared riichi, "You Riichi [3s] 2.0% · Trained AI Riichi [6m] 90.0%, given
-riichi". Up to 480 pixels wide "AI" stands for "Trained AI". A status line, in
+riichi". Where one of the last hand's rules made Trained AI's move, whose
+weight did not choose it, "by rule" stands in that move's weight's place, the
+rule's line its title: "You Riichi [9p] 97.0% · Trained AI [9p] by rule", and
+"You [9p] by rule · Trained AI agreed" where the player made the rule's move
+too. Up to 480 pixels wide "AI" stands for "Trained AI". A status line, in
 the page from the start, says the step in one line as it changes ("East 4,
 decision 12 of 15. Your turn, 36 tiles left. You: discards the red dragon,
 2.0%. Trained AI: discards the 8 bamboo, 95.5%. Flagged."), the table in the
-words the table itself uses for the wall and a riichi. In the hand, "You"
-stands over the tile the player threw and "AI" over Trained AI's, which is
-ringed in blue as Agent watch and Guided play ring the agent's choice, as the
-tile guide's blue ring says ("You · AI" where they agreed); a screen reader
-hears them after the tile's name ("your move", "Trained AI's choice"). Every
-tile keeps the line for them, and none lifts, so nothing in the hand moves
-between steps. Trained AI's view, at every
-decision put to it, lists every move by its weight, each as its tile or a word
-and its tiles, the riichi discards under their declaration, tagged as the hand
-is ("AI", "You"); a screen reader hears each in the engine's words ("discards
-the 8 bamboo, 95.5%, Trained AI's choice"). Where both declared riichi it says
-once that the tiles are compared given riichi. It leads with the five heaviest
-moves and those it tags; **Show 3 more moves** shows the rest and stays, as
-**Show fewer moves**, so focus stays on it. The tile guide in the settings says
-what the weights are, under "Trained AI's percentages": how strongly Trained AI
-prefers each move, not a chance of winning, and that declaring riichi and the
-discard given riichi are weighed separately. For a turn, "What each move
-leaves", folded until it is opened, sets out what each of the two moves leaves,
-a column each ("You", "Trained AI") where the review measured it, counted as
-the hand review counts it: the hand left, the unseen tiles that improve it,
-whether the tile could deal into a declared riichi, and its worth as dora (the
-engine's `review_measure`). It stays open or folded as the player leaves it.
-Nothing is played on from any decision, and the saved match is never touched.
+words the table itself uses for the wall and a riichi, and a rule's line in
+full ("Trained AI: discards the 9 circles, by rule (last hand: every win keeps
+it first, so no riichi)."). In the hand, "You" stands over the tile the player
+threw and "AI" over Trained AI's, which is ringed in blue as Agent watch and
+Guided play ring the agent's choice, as the tile guide's blue ring says ("You
+· AI" where they agreed); a screen reader hears them after the tile's name
+("your move", "Trained AI's choice"). Every tile keeps the line for them, and
+none lifts, so nothing in the hand moves between steps. Trained AI's view, at
+every decision put to it, lists every move by its weight, each as its tile or
+a word and its tiles, the riichi discards under their declaration, tagged as
+the hand is ("AI", "You"); a screen reader hears each in the engine's words
+("discards the 8 bamboo, 95.5%, Trained AI's choice"). Where both declared
+riichi it says once that the tiles are compared given riichi; where one of the
+last hand's rules made Trained AI's move, agreed or not, it gives the rule's
+line instead ("Last hand: every win keeps it first, so no riichi."), over
+weights that stay the network's. It leads with the five heaviest moves and
+those it tags; **Show 3 more moves** shows the rest and stays, as **Show fewer
+moves**, so focus stays on it. The tile guide in the settings says what the
+weights are, under "Trained AI's percentages": how strongly Trained AI prefers
+each move, not a chance of winning, and that declaring riichi and the discard
+given riichi are weighed separately; and, under "by rule", what the last
+hand's rules do. For a turn, "What each move leaves", folded until it is
+opened, sets out what each of the two moves leaves, a column each ("You",
+"Trained AI") where the review measured it, counted as the hand review counts
+it: the hand left, the unseen tiles that improve it, whether the tile could
+deal into a declared riichi, and its worth as dora (the engine's
+`review_measure`). A move that throws the tile of a column before it, a
+riichi beside the plain discard of its tile, has no column, since its numbers
+would be the same, and the table, needing two, is then not shown. It stays
+open or folded as the player leaves it. Nothing is played on from any
+decision, and the saved match is never touched.
 
 **Why, and what would change its mind.** Where the player threw one tile and
-Trained AI chose to throw another, its view ends with the review's reasoning
+Trained AI chose to throw another, and no last-hand rule made its move, whose
+weights then did not choose it, its view ends with the review's reasoning
 about the two (`review-insight.js`), which App keeps for the match beside the
 review (`MatchInsight`). First the Why line: the engine's fact that separates
 the two tiles, with its verdict. **Why** where Trained AI puts 95% or more on
@@ -724,7 +750,11 @@ your white dragon had been a 2 circles (your hand a step closer to waiting
 and one safe tile fewer): your west wind 99.6%, the 7 characters 0.2%."), and
 what moved nothing ("Not moved by the score (±16,000) or the round."); or the
 pair that does ("No single change does it. Two together: …"); or "Nothing
-asked makes it throw your west wind." with the nearest change. A status line
+asked makes it throw your west wind." with the nearest change. The search
+judges a changed table by the network's own answer, so one where a last-hand
+rule would decide, a riichi any of whose tiles would keep the player first or
+a win that would leave them last, is not judged at all, and its kind of
+change is left out of what moved nothing. A status line
 says the search began and, unless focus went to it, what it found. The button
 and Cancel take each other's place, so Enter held down on either presses it
 once, and the second press of a double click or tap, which lands on the one

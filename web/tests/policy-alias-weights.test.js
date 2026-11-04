@@ -2,17 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
-import { weightsByChoice, MORTAL_REACH } from '../src/lib/action-weights.js';
+import { weightsByChoice } from '../src/lib/action-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { MOVES, averagedAnswer, swapMoves } from '../src/lib/suits.js';
+import { MOVES, swapMoves } from '../src/lib/suits.js';
+import { agentTable, trainedMove } from '../src/lib/trained-move.js';
 import { loadModule } from './fixtures/load-module.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 // Exercise the actual evaluator with only its worker call replaced. The same
 // real weight mapper and actual WASM action translation run in both paths.
 const evaluator = analyze => loadModule('agents.js', {
-  analyzePolicy: analyze, averagedAnswer, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
+  analyzePolicy: analyze, agentTable, trainedMove, weightsByChoice, readBeliefs, readValue,
 }, ['evaluateAgent']).evaluateAgent;
 
 test('Mortal\'s red-five actions are never opened at a table without red fives', () => {

@@ -133,7 +133,9 @@ try {
     answer.weights.forEach((weight, move) => assert.ok(Math.abs(weight - question.weights[move]) <= 1e-4,
       `${question.stage}, ${how}, move ${move}: ${weight} against the player's ${question.weights[move]}`));
   };
-  // One at a time, as an opponent, the adviser and the hand's notes ask.
+  // One at a time, as an opponent, the adviser and the hand's notes ask:
+  // through trained-move.js, a request of one position, as averagedAnswer
+  // sends it.
   for (const [at, question] of questions.entries()) {
     runs = [];
     const answer = await averagedAnswer(async (planes, mask) => {

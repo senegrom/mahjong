@@ -690,6 +690,19 @@ impl PhysicalAnalysis {
     pub fn concealed_counts(&self) -> Vec<u32> {
         concealed_counts(&self.hand, self.seat)
     }
+
+    /// This seat's all-last dama codes, a byte a tile kind
+    /// (`last_hand::dama_codes`): zeros but at the seat's own move, and read
+    /// as play would leave a furiten tick there, cleared.
+    pub fn agent_all_last_dama(&self) -> Vec<u8> {
+        super::last_hand::dama_codes(&self.hand, self.seat)
+    }
+
+    /// This seat's decline-last code (`last_hand::decline_code`), a furiten
+    /// tick read as it stands.
+    pub fn agent_all_last_decline(&self) -> u8 {
+        super::last_hand::decline_code(&self.hand, self.seat)
+    }
 }
 
 impl PhysicalAnalysis {
