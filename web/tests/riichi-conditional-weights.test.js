@@ -5,7 +5,7 @@ import init, { Game } from '../src/wasm/riichi.js';
 import { weightsByChoice, groupPolicyChoices, MORTAL_REACH } from '../src/lib/action-weights.js';
 import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { averagedAnswer } from '../src/lib/suits.js';
+import { agentTable, trainedMove } from '../src/lib/trained-move.js';
 import { loadModule } from './fixtures/load-module.js';
 import { renamingFault } from './fixtures/renamed-planes.js';
 import { riichiPosition } from './fixtures/riichi-position.js';
@@ -32,7 +32,7 @@ test('real WASM live riichi weights retain both stages and the original selected
       return answer;
     };
     const { evaluateAgent } = loadModule('agents.js', {
-      analyzePolicy, averagedAnswer, weightsByChoice, MORTAL_REACH, readBeliefs, readValue,
+      analyzePolicy, agentTable, trainedMove, weightsByChoice, readBeliefs, readValue,
     }, ['evaluateAgent']);
     const result = await evaluateAgent(engine, 'full', signal);
     assert.equal(calls, 4);

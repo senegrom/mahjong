@@ -17,14 +17,20 @@
 //    opponent owes the case records the moves Python plays, a riichi and its
 //    tile back to back, asking what the layer asks, and records nothing where
 //    Python refuses.
+// 3. The adviser (agents.js), skip_forced off: the move advised is the one
+//    Python plays, translated as a riichi only where it is one, asking what
+//    the layer asks, and the advice is refused where Python refuses.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { MORTAL_REACH } from '../src/lib/action-weights.js';
+import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MatchSession } from '../src/lib/session.js';
 import { GATE, MOVES, swapMoves } from '../src/lib/suits.js';
-import { DAMA, DAMA_RULE, DECLINE, DECLINE_RULE, MORTAL_AGARI, MORTAL_PASS, RULE_REFUSED, trainedMove, trainedMoves } from '../src/lib/trained-move.js';
+import {
+  DAMA, DAMA_RULE, DECLINE, DECLINE_RULE, MORTAL_AGARI, MORTAL_PASS, RULE_REFUSED, agentTable, trainedMove, trainedMoves,
+} from '../src/lib/trained-move.js';
+import { loadModule } from './fixtures/load-module.js';
 
 const folder = resolve(process.argv[2]);
 const fixture = JSON.parse(await readFile(resolve(folder, 'rules.json'), 'utf8'));
@@ -202,6 +208,63 @@ for (const [at, item] of cases.entries()) {
   } finally { match.dispose(); }
 }
 
+/** Mortal's move for each of our moves, as the cases' maps give them: a
+ * riichi on any tile is Mortal's 37, and every other move one move of
+ * Mortal's, the same in every case (zoo.first_meaning). */
+const MORTAL_OF = new Map();
+for (const item of cases) {
+  item.meaning.forEach((ours, move) => {
+    if (ours < 0) return;
+    assert.equal(MORTAL_OF.get(ours) ?? move, move, `our move ${ours} is one of Mortal's`);
+    MORTAL_OF.set(ours, move);
+  });
+  for (const ours of item.riichi.filter(ours => ours >= 0)) {
+    assert.equal(MORTAL_OF.get(ours) ?? MORTAL_REACH, MORTAL_REACH, `our move ${ours} is a riichi`);
+    MORTAL_OF.set(ours, MORTAL_REACH);
+  }
+}
+
+/** Case `at` as an engine puts a seat's decision to the adviser (agentTable):
+ * its choices our moves, named by their numbers, and Mortal's moves
+ * translated to ours by the case's maps. */
+function adviserEngine(at) {
+  const item = cases[at];
+  const choices = [...item.meaning, ...item.riichi].filter(ours => ours >= 0)
+    .map(index => ({ index, kind: MORTAL_OF.get(index) === MORTAL_REACH ? 'riichi' : 'move', tile: String(index), label: `move ${index}` }));
+  return {
+    agent_choices: () => choices,
+    agent_observation_mortal: () => ({ at, question: 'first' }),
+    agent_mask_mortal: () => Uint8Array.from(item.mask),
+    agent_observation_mortal_renamed: () => ({ at, question: 'first renamed' }),
+    agent_observation_after_reach: () => ({ at, question: 'preview' }),
+    agent_mask_after_reach: () => Uint8Array.from(item.after_mask),
+    agent_observation_after_reach_renamed: () => ({ at, question: 'preview renamed' }),
+    agent_all_last_dama: () => Uint8Array.from(item.dama),
+    agent_all_last_decline: () => item.decline,
+    agent_action_from_mortal: (action, afterReach) => (afterReach ? item.riichi : item.meaning)[action] ?? -1,
+    mortal_action_of: index => MORTAL_OF.get(index) ?? -1,
+  };
+}
+
+// 3. Each case as the adviser asks it, with skip_forced off: the move advised
+// is the one Python plays, and a refusal is the layer's.
+let adviserAsks = null;
+const { evaluateAgent } = loadModule('agents.js', { analyzePolicy: (...question) => adviserAsks(...question), agentTable, trainedMove,
+  weightsByChoice, readValue: () => null, readBeliefs: () => null }, ['evaluateAgent']);
+for (const [at, item] of cases.entries()) {
+  const want = item.expected[0], label = `${item.name}, as the adviser`;
+  const { requests, ask } = asker();
+  adviserAsks = async (planes, mask) => (await ask([{ planes, mask }]))[0];
+  const advising = evaluateAgent(adviserEngine(at), 'full');
+  if (want.refused) await assert.rejects(advising, error => error.message === RULE_REFUSED && error.cause?.rule === want.refused, `${label}: refused`);
+  else {
+    const analysis = await advising;
+    assert.equal(analysis.choice.index, want.move, `${label}: the move advised`);
+    assert.deepEqual(analysis.ruled?.rules ?? [], want.rules, `${label}: the rules that fired`);
+  }
+  assert.deepEqual(requests, want.asks.map(question => [{ at, question }]), `${label}: the questions asked`);
+}
+
 const said = setting => Object.entries(fixture.counts[setting]).map(([name, count]) => `${name} ${count}`).join(', ');
 console.log(`PASS: ${cases.length} cases of the last hand's rules, played by the page's layer as the composed Python wrappers play them, `
-  + `each alone and in groups of eight, and by Play's opponents. skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);
+  + `each alone and in groups of eight, by Play's opponents and by the adviser. skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);
