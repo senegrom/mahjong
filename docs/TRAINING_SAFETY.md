@@ -325,7 +325,7 @@ with the others, while one run still never trains in two containers.
 
 Registered on 30 October 2026, before any spawn, for one call on a005's
 generation 2820: `python -m neural.noise_pretest`, on Modal the function
-`noise_pretest` of an app of its own, mahjong-noise, which writes only
+`noise_pretest` deployed as its own app, mahjong-noise, which writes only
 `noise-pretest/<name>` on the volume. It plays one round of 4,096 games at
 a005's own tables (published Mortal, mortal-run's generation 30 and the
 Club, seated by player at a half; seed 9,700,000, whose round seats every
@@ -445,6 +445,11 @@ decision's baselines and a report are written before the gradient pass,
 each file under a hidden name renamed into place once whole, and the cloud
 function copies whatever the child wrote to the volume whether or not it
 succeeded.
+
+**Result.** Run once on 30 October 2026, about $1.2: oracle **kill**, the
+weighted information cut 0.0005 ± 0.0005 and N(oracle) / N(own)
+0.999 ± 0.0035; duplicates **stop**, the twin ceiling 10.1% game by game,
+under the 20% registered.
 
 ## Replay validation and completed learning rounds
 
