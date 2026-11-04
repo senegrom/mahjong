@@ -356,23 +356,30 @@ the net. The project keeps the rule, though nothing but a ruler plays it yet.
 The plateau diagnosis of 30 October found the policy settled: 81% of its
 decisions with more than one move open sit above 0.999, and policy gradient
 does not move a settled habit. An exact rule, measured by a paired ruler,
-can. Three more rules of the last hand (`neural.late_rules`), each measured by
-a series of its own with `--late-rule`, one rule a series and never beside
-`--all-last-dama`, are played as the all-last dama rule is: the first
-challenger follows the rule and the second, the same checkpoint, plays plain;
-in fixed rows with the reach's tile asked with the reach (`--preview-reach`),
-both arms averaging alike; checked the same way, every table whose final
-scores differ between the arms being one the rule fired at
-(`late_rule_check`); and only on an app named with `--app`. Each rule asks the
-engine (engine/riichi-core/src/all_last.rs) about the rows whose best move is
-its kind, each row a game and a player by place, and the engine works the
-answer out on copies of the hand with its own legal moves, scoring,
-settlement, tenpai predicate and the tiles the table shows safe. Each answers
-on what the table shows, never on another player's hidden hand or the tiles
-under the dora indicators, so that it could be played as it is at a real
-table. Where a rule fires, the move it plays becomes the row's only finite
-answer, or, for a declined self-draw, the win is struck from the row, so the
-player plays it and no follower is told anything the table does not do.
+can. Three more rules of the last hand, each measured by a series of its own
+with `--late-rule`, one rule a series and never beside `--all-last-dama`, were
+played as the all-last dama rule is: the first challenger follows the rule and
+the second, the same checkpoint, plays plain; in fixed rows with the reach's
+tile asked with the reach (`--preview-reach`), both arms averaging alike;
+checked the same way, every table whose final scores differ between the arms
+being one the rule fired at (`late_rule_check`); and only on an app named with
+`--app`. Each rule asked the engine (engine/riichi-core/src/all_last.rs) about
+the rows whose best move is its kind, each row a game and a player by place,
+and the engine worked the answer out on copies of the hand with its own legal
+moves, scoring, settlement, tenpai predicate and the tiles the table shows
+safe. Each answered on what the table shows, never on another player's hidden
+hand or the tiles under the dora indicators, so that it could be played as it
+is at a real table. Where a rule fired, the move it played became the row's
+only finite answer, or, for a declined self-draw, the win was struck from the
+row, so the player played it and no follower was told anything the table does
+not do.
+
+The project keeps one of the three, `decline-last` (`neural.late_rules`),
+still played as above, and dropped the other two, `wide-dama` and
+`dealer-noten` (see the series below). Their code, the engine's questions and
+bindings, the players and their tests, was removed after #215, the pull
+request that holds it. Their sections below keep what each rule was, and the
+series what each measured; nothing in this repository plays either now.
 
 The arm says under `late_rule` what the rule did: `rule`; `judged`, the
 decisions the engine judged; `fired`, those the rule changed; `tables` and
@@ -381,34 +388,41 @@ decisions the engine judged; `fired`, those the rule changed; `tables` and
 report of a series must say the rule it was registered with, meet the rule's
 floor, keep the plain arm plain and pass the check; the first that does not
 stops the series as invalid, as for the all-last dama rule. The floor is
-`fired` at least once for `wide-dama` and `decline-last`, which find something
-to change in any call of a thousand deals, and only `judged` at least once for
-`dealer-noten`, whose question comes to the challenger only as the dealer of
-South 4 near the end of the wall, and may find no move to change in a call.
+`fired` at least once for `decline-last`, which finds something to change in
+any call of a thousand deals. The series of 31 October held `wide-dama` to the
+same floor, and `dealer-noten`, whose question comes to the challenger only as
+the dealer of South 4 near the end of the wall and may find no move to change
+in a call, only to `judged` at least once. A rule the code no longer names is
+held to `judged` alone, so the two dropped rules' kept series still read: the
+`comparing` line names the first arm as registered ("with wide dama"), a
+verdict by the rule ("with the late rule wide-dama").
 
-### Riichi that buys no place: `wide-dama`
+### Riichi that buys no place: `wide-dama` (dropped)
+
+Dropped: it adds nothing measurable over the all-last dama rule (see the
+series below).
 
 2610 and 2820 declare riichi in South 4 whatever the places would be. The
 all-last dama rule leaves a riichi undeclared only where the player keeps
 first through every win; this one wherever riichi would change no place. The
-engine (`riichi_py.Arena.all_last_wide_dama`) takes the dama question's wins,
-every live wait won without riichi by ron off each other player, unless
-furiten, and by tsumo, and wins each again with riichi declared on the same
-tile: the thousand points paid and the bet in the pool, from which the winner
-takes it back as a real win does, a double riichi in the player's first turn
-with the first set of turns unbroken. What riichi adds is not known when it
-is declared, so the riichi win is scored at the least riichi adds, riichi
-alone, and at the most, riichi, the one-shot, and under each dora indicator
-an ura indicator of the kind the winning hand holds most copies of. A place
-is how many others end ahead of the player and how many level, since a tie
-shares the uma (EMA 2025 section 3.7.1). Riichi buys no place (code 1) where
-every win's place is the plain win's at both bounds; a larger win only moves
-the winner up and the payers down, so the two bounds cover every riichi win
-between them. Otherwise the code says why the reach stands: a live wait with
-no yaku without riichi (2), a win riichi would end in a better place (3), or
-no live wait (4). A tile that keeps first is always one whose riichi buys no
-place. Not counted, with riichi and without alike: a win on the last tile, on
-a quad's replacement or by robbing a quad, and a new kan dora, any of which
+engine (`riichi_py.Arena.all_last_wide_dama`, in #215) takes the dama
+question's wins, every live wait won without riichi by ron off each other
+player, unless furiten, and by tsumo, and wins each again with riichi declared
+on the same tile: the thousand points paid and the bet in the pool, from which
+the winner takes it back as a real win does, a double riichi in the player's
+first turn with the first set of turns unbroken. What riichi adds is not known
+when it is declared, so the riichi win is scored at the least riichi adds,
+riichi alone, and at the most, riichi, the one-shot, and under each dora
+indicator an ura indicator of the kind the winning hand holds most copies of.
+A place is how many others end ahead of the player and how many level, since a
+tie shares the uma (EMA 2025 section 3.7.1). Riichi buys no place (code 1)
+where every win's place is the plain win's at both bounds; a larger win only
+moves the winner up and the payers down, so the two bounds cover every riichi
+win between them. Otherwise the code says why the reach stands: a live wait
+with no yaku without riichi (2), a win riichi would end in a better place (3),
+or no live wait (4). A tile that keeps first is always one whose riichi buys
+no place. Not counted, with riichi and without alike: a win on the last tile,
+on a quad's replacement or by robbing a quad, and a new kan dora, any of which
 could carry one of the two over a line and not the other; and two winners on
 one discard. And unlike the all-last dama code, which holds for the rest of the
 hand, this one holds at the moment of the decision: a riichi bet another
@@ -434,23 +448,24 @@ of a riichi declared with the very tile won on, which goes back to its owner
 where the player ends alone in last, 2 where they do not. A riichi winner's
 ura dora are turned only once the win is declared, so the engine never reads
 them: it plays a riichi win at the most they could add, under each dora
-indicator an ura indicator of the kind the winning hand holds most copies of,
-as for `wide-dama`. A larger win only lifts the winner and lowers the payers,
-so code 1 means alone in last whatever lies under the indicators. The dealer
-is never asked: a dealer's win keeps the deal. A declined ron is the pass; a
-declined self-draw is the best other move of the same answer, a reach among
-them, whose tile is then the preview's. The code is the player's win alone.
-Another player may win on the same discard (EMA 2025 section 3.3.1), and the
-rule cannot see it: whether another hand can win on the tile is hidden, and
-at a real table the answers to a discard are given at once, so a rule that
-read either could not be played honestly. With a second winner, declining can
-cost: a dealer who wins too keeps the deal, and the declined ron only loses
-its points; a second non-dealer has the discarder pay twice, which can lift
-the player off last. Rare, and not modelled. `kept` counts `not_last`;
-`kept_after_firing` counts the wins taken later in a hand the rule declined
-one in.
+indicator an ura indicator of the kind the winning hand holds most copies of.
+A larger win only lifts the winner and lowers the payers, so code 1 means
+alone in last whatever lies under the indicators. The dealer is never asked: a
+dealer's win keeps the deal. A declined ron is the pass; a declined self-draw
+is the best other move of the same answer, a reach among them, whose tile is
+then the preview's. The code is the player's win alone. Another player may win
+on the same discard (EMA 2025 section 3.3.1), and the rule cannot see it:
+whether another hand can win on the tile is hidden, and at a real table the
+answers to a discard are given at once, so a rule that read either could not
+be played honestly. With a second winner, declining can cost: a dealer who
+wins too keeps the deal, and the declined ron only loses its points; a second
+non-dealer has the discarder pay twice, which can lift the player off last.
+Rare, and not modelled. `kept` counts `not_last`; `kept_after_firing` counts
+the wins taken later in a hand the rule declined one in.
 
-### The leading dealer's last discard: `dealer-noten`
+### The leading dealer's last discard: `dealer-noten` (dropped)
+
+Dropped: it reads level (see the series below).
 
 In a probe of 31 October, 2610 as the South 4 dealer kept its hand waiting on
 its last discard at every lead tried, 3,000, 5,000, 8,000 and 12,000, in
@@ -461,22 +476,22 @@ completely safe, every other copy of each being in sight. A dealer waiting at
 the exhaustive draw keeps the deal and South 4 is played again; one not
 waiting passes it, and the game ends.
 
-The engine (`riichi_py.Arena.all_last_dealer_noten`) answers at the dealer's
-own discard in South 4 with at most three tiles left to draw: South, West and
-North draw them in turn and the dealer draws no more, so the hand the discard
-leaves is the hand the draw finds. A call that hands the dealer another turn
-(with three tiles left, South claiming the dealer's discard lets the dealer
-draw the last) meets the question again at that turn's discard. It answers
-only for a dealer more than 4,000 ahead of every other player: for each legal
-discard, 1 where it leaves the hand waiting by the very predicate the draw is
-settled by; 2 where it leaves it not waiting and the tile is safe against
-each of the three others, as the table shows it (in their own pond, which
-makes them furiten on it, or thrown since their riichi and not won on); 3
-where it leaves it not waiting and the tile is not. Any waiting player who is
-not furiten may win on the dealer's discard (on the last discard of all, even
-without another yaku), and a ron could cost the dealer first: in a reviewer's
-example a dealer on 40,100 threw a 5p that left it not waiting, South, on
-36,000 and waiting on 2p-5p, won on it, and the dealer ended second.
+The engine (`riichi_py.Arena.all_last_dealer_noten`, in #215) answers at the
+dealer's own discard in South 4 with at most three tiles left to draw: South,
+West and North draw them in turn and the dealer draws no more, so the hand the
+discard leaves is the hand the draw finds. A call that hands the dealer
+another turn (with three tiles left, South claiming the dealer's discard lets
+the dealer draw the last) meets the question again at that turn's discard. It
+answers only for a dealer more than 4,000 ahead of every other player: for
+each legal discard, 1 where it leaves the hand waiting by the very predicate
+the draw is settled by; 2 where it leaves it not waiting and the tile is safe
+against each of the three others, as the table shows it (in their own pond,
+which makes them furiten on it, or thrown since their riichi and not won on);
+3 where it leaves it not waiting and the tile is not. Any waiting player who
+is not furiten may win on the dealer's discard (on the last discard of all,
+even without another yaku), and a ron could cost the dealer first: in a
+reviewer's example a dealer on 40,100 threw a 5p that left it not waiting,
+South, on 36,000 and waiting on 2p-5p, won on it, and the dealer ended second.
 
 If nobody wins, the lead outlasts the hand. Nobody's points rise but by a win:
 a riichi another player declares (legal while a tile is left to draw) costs
@@ -513,50 +528,51 @@ the same hand, which only a call brings.
 
 ### The series: 2610 with each rule against 2610 plain
 
-As for the all-last dama rule, on an app deployed from a checkout that holds
-the rules, named with `--app`, never `mahjong-train`, with the Modal client's
-Python from the repository root, one series a rule. Deploy `mahjong-rules`
-from the checkout being measured before every series. One deployed before the
-late rules takes no `late_rule` and fails every call: the series stops at its
-first seeds, which are never spawned again, and the tag is used up and must
-be registered anew. One deployed from an earlier version of the rules plays
-that version without any error.
+Each series was played as the all-last dama rule's was, on an app deployed
+from a checkout that held the rules, `mahjong-rules`, never `mahjong-train`,
+one series a rule, under the tags `late-wide-g2610`, `late-decline-g2610` and
+`late-noten-g2610`. Every call played 2610 with the rule and 2610 plain
+against published Mortal on the same 1,000 deals.
+
+A series of the kept rule is registered as `late-decline-g2610` was, with the
+Modal client's Python from the repository root. Deploy `mahjong-rules` from
+the checkout being measured before every series. One deployed before the late
+rules takes no `late_rule` and fails every call: the series stops at its first
+seeds, which are never spawned again, and the tag is used up and must be
+registered anew. One deployed from an earlier version of the rules plays that
+version without any error.
 
 ```sh
-python -m neural.ruler_cloud series late-wide-g2610 history/gen-02610 zoo/mortal_298k \
-    --also history/gen-02610 --late-rule wide-dama --run fusion-place-a005 \
+python -m neural.ruler_cloud series late-decline-g2610 history/gen-02610 zoo/mortal_298k \
+    --also history/gen-02610 --late-rule decline-last --run fusion-place-a005 \
     --questions fixed --graphs --skip-forced --preview-reach \
     --looks 1 --per-look 20 --bound 2.0 --app mahjong-rules \
     --local E:/tmp-claude/mahjong/rulers
 ```
 
-and the same with `--late-rule decline-last` (tag `late-decline-g2610`) and
-`--late-rule dealer-noten` (tag `late-noten-g2610`). Every call plays 2610
-with the rule and 2610 plain against published Mortal on the same 1,000
-deals. `looks late-wide-g2610` names the first arm "with wide dama", the
-others "declining last-place wins" and "with dealer noten". A pilot of one
-call on the desktop, before anything is spent:
+`looks late-decline-g2610` names the first arm "declining last-place wins". A
+pilot of one call on the desktop, before anything is spent:
 
 ```sh
-python -m neural.ruler <2610.pt> <mortal_298k.pt> --also <2610.pt> --late-rule wide-dama \
+python -m neural.ruler <2610.pt> <mortal_298k.pt> --also <2610.pt> --late-rule decline-last \
     --games 500 --seed 6600000 --questions fixed --graphs --skip-forced --preview-reach --timing
 ```
 
-The engine's tests play every win, declination and discard through the real
-flow and the table, and check the codes at every decision of Club games
-(`cargo test --release -p riichi-core club_games_counted -- --ignored
---nocapture` counts 20,000 of them, in half an hour or more). In those 20,000
-games, 19.2% of the 28,719 last-hand riichi decisions had a tile whose riichi
-buys no place (14.7% one that keeps first); 2,012 of the 18,623 wins open to a
+The engine's tests play every win and declination through the real flow and
+the table, and check the codes at every decision of Club games (`cargo test
+--release -p riichi-core club_games_counted -- --ignored --nocapture` counts
+20,000 of them). In those 20,000 games, 2,012 of the 18,623 wins open to a
 non-dealer in South 4 would have left the player alone in last, and 868 more,
-riichi wins, only with the ura dora as dealt, which the rule never reads; and
-a leading dealer's own discard with at most three tiles left came 1,052 times,
-230 of them with a safe discard that leaves the hand not waiting (51 with one
-that keeps it waiting as well). Of their 7,007 legal discards, 795 keep the
-hand waiting, 322 leave it not waiting on a safe tile and 5,890 on an unsafe
-one, 537 of which another player could have won on when played. They are the
-Club players' figures, not a network's: how often each rule fires for 2610 is
-the series' to say.
+riichi wins, only with the ura dora as dealt, which the rule never reads.
+Before the dropped rules' code was removed, the same count found that 19.2% of
+the 28,719 last-hand riichi decisions had a tile whose riichi buys no place
+(14.7% one that keeps first), and that a leading dealer's own discard with at
+most three tiles left came 1,052 times, 230 of them with a safe discard that
+leaves the hand not waiting (51 with one that keeps it waiting as well); of
+their 7,007 legal discards, 795 keep the hand waiting, 322 leave it not
+waiting on a safe tile and 5,890 on an unsafe one, 537 of which another player
+could have won on when played. They are the Club players' figures, not a
+network's: how often each rule fires for 2610 is the series' to say.
 
 The series of 31 October, each one look after twenty seeds of 1,000 deals,
 read at z above 2.0:
@@ -596,7 +612,7 @@ together. The project keeps those two, the dama rule (+0.0010) and
 `decline-last` (+0.0009), though nothing but a ruler plays either yet.
 `wide-dama` adds nothing measurable over the dama rule (+0.0001 +- 0.0001),
 and `dealer-noten` reads level (-0.00001 +- 0.00001: one deal of 20,000 placed
-worse).
+worse). So both were dropped.
 
 ## Reading a series: `neural.looks`
 

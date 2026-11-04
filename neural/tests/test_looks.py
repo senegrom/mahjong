@@ -4,8 +4,8 @@ the first seed and read in its own order, another rule registered as asked
 and read at its own bound, a look that waits for every seed it covers, the
 difference oriented as the reports' players are named, and no look read of
 a series a report of which fails the all-last dama rule's check or a late
-rule's, a late rule held to its own floor (fired for wide dama and the
-decline, judged for dealer noten), each ruled arm named by its rule."""
+rule's, a late rule held to its own floor (fired for the decline, judged for
+a rule not named), each ruled arm named by its rule."""
 
 import contextlib
 import io
@@ -344,8 +344,7 @@ class CommandLineTests(unittest.TestCase):
     def test_one_checkpoint_with_a_late_rule_and_plain_reads_as_two(self):
         """Each ruled arm is named by its rule, the plain arm as the
         checkpoint, and a series of one dama rule still reads as it did."""
-        names = {"wide-dama": "with wide dama", "decline-last": "declining last-place wins",
-                 "dealer-noten": "with dealer noten"}
+        names = {"decline-last": "declining last-place wins"}
         self.assertEqual(set(looks.LATE), set(names))
         for rule, name in names.items():
             with self.subTest(rule=rule), tempfile.TemporaryDirectory() as folder:
@@ -363,11 +362,11 @@ class CommandLineTests(unittest.TestCase):
     def test_a_series_with_a_report_that_fails_a_late_rules_check_is_refused(self):
         """By the rule the series was registered to follow, if it was, or
         else by what each report says: the arms played otherwise where the
-        rule did not fire, the ruled arm fell short of its rule's floor
-        (wide dama or the decline never fired, dealer noten judged nothing),
-        it followed another rule, the plain arm followed one, or the report
-        says nothing of the check. Dealer noten judging but never firing is
-        no fault: its question may find no move to change in a call."""
+        rule did not fire, the ruled arm fell short of its rule's floor (the
+        decline never fired, or judged nothing), it followed another rule,
+        the plain arm followed one, or the report says nothing of the check.
+        A rule not named in the floors is held only to having judged, so
+        judging but never firing is no fault there."""
         violation = {"deal": 7, "place": 2, "tables": [2007, 6007]}
         never = {"fired": 0, "tables": [], "hands": 0}
         seeds = looks.design().seeds[:2]
@@ -383,12 +382,8 @@ class CommandLineTests(unittest.TestCase):
              "the first challenger's decline-last rule never fired (4 decisions judged)"),
             ("declined nothing, never registered", {"first": {**LATE, **never}}, None, 1,
              "the first challenger's decline-last rule never fired"),
-            ("left no riichi undeclared", {"first": {**LATE, "rule": "wide-dama", **never}}, "wide-dama", 1,
-             "the first challenger's wide-dama rule never fired (4 decisions judged)"),
-            ("judged no dealer's discard", {"first": {**LATE, "rule": "dealer-noten", "judged": 0, "fired": 0}},
-             "dealer-noten", 1, "the first challenger's dealer-noten rule judged nothing"),
-            ("another rule", {"first": {**LATE, "rule": "wide-dama"}}, "decline-last", 1,
-             "the first challenger was to follow decline-last, and its report says it followed wide-dama"),
+            ("another rule", {"first": {**LATE, "rule": "blind-dama"}}, "decline-last", 1,
+             "the first challenger was to follow decline-last, and its report says it followed blind-dama"),
             ("plain arm ruled", {"second": LATE}, "decline-last", 1, "the second challenger was to play plain"),
             ("unchecked", {"late_rule_check": None}, "decline-last", 1, "it says nothing of the late rule's check"),
             # Every report fails a registration that follows no late rule.
@@ -413,10 +408,10 @@ class CommandLineTests(unittest.TestCase):
                 self.assertIn(f"seed {seeds[at]}'s report fails the late rule's check: {why}",
                               str(stop.exception.code))
                 self.assertIn("The series is invalid, and none of its looks is read", str(stop.exception.code))
-        # Judged without firing, the arms the same: no fault in dealer noten
-        # alone, by registration or by what the report says.
-        for rule, problem in (("dealer-noten", None), ("decline-last", "rule never fired"),
-                              ("wide-dama", "rule never fired")):
+        # Judged without firing, the arms the same: no fault in a rule not
+        # named in the floors alone, by registration or by what the report
+        # says.
+        for rule, problem in (("blind-dama", None), ("decline-last", "rule never fired")):
             quiet = late(seeds[0], rule)
             quiet["arms"][0]["late_rule"] = {**LATE, "rule": rule, **never}
             quiet["late_rule_check"] = {"differing": 0, "violations": []}
@@ -432,7 +427,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertIsNone(looks.failed_check({seeds[0]: late(seeds[0])}, {"late_rule": "decline-last"}))
         self.assertIsNone(looks.failed_check({seeds[0]: ruled(seeds[0])}, {"all_last_dama": "first"}))
         self.assertIn("the first challenger was to play plain",
-                      looks.failed_check({seeds[0]: ruled(seeds[0])}, {"late_rule": "wide-dama"}))
+                      looks.failed_check({seeds[0]: ruled(seeds[0])}, {"late_rule": "decline-last"}))
 
     def test_two_series_of_single_rulers_are_read_deal_by_deal(self):
         with tempfile.TemporaryDirectory() as folder:

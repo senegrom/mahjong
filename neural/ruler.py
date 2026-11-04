@@ -76,18 +76,15 @@ refused otherwise. Its violations are kept in the report
 (`all_last_check`), and the ruler ends as it ends any other: a series'
 launcher stops the series on such a report (see `neural.ruler_cloud`).
 
-The first challenger may instead follow one of the late rules of the last
-hand (`--late-rule wide-dama`, `decline-last` or `dealer-noten`, see
-`late_rules`): riichi left undeclared where it would change no win's place,
-a win declined where it would leave the player alone in last, or the leading
-dealer's last discard thrown to leave the hand not waiting. One rule of the
-last hand a ruler: never with `--all-last-dama`. Each changes a game only
-where it fires and asks the network nothing more, so it is played as the
-all-last dama rule is, one checkpoint with the rule and plain (`--also`
-naming the challenger's own checkpoint, both arms asked alike), in fixed rows
-with the reach's tile asked with the reach, and checked the same way: every
-table whose final scores differ between the arms must be one the rule fired
-at (`late_rule_check`).
+The first challenger may instead follow the late rule of the last hand
+(`--late-rule decline-last`, see `late_rules`): a win declined where it would
+leave the player alone in last. One rule of the last hand a ruler: never with
+`--all-last-dama`. It changes a game only where it fires and asks the
+network nothing more, so it is played as the all-last dama rule is, one
+checkpoint with the rule and plain (`--also` naming the challenger's own
+checkpoint, both arms asked alike), in fixed rows with the reach's tile asked
+with the reach, and checked the same way: every table whose final scores
+differ between the arms must be one the rule fired at (`late_rule_check`).
 
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
@@ -96,7 +93,7 @@ at (`late_rule_check`).
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also a.pt --all-last-dama first --questions fixed \\
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
-    python -m neural.ruler a.pt incumbent.pt --also a.pt --late-rule wide-dama --questions fixed \\
+    python -m neural.ruler a.pt incumbent.pt --also a.pt --late-rule decline-last --questions fixed \\
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
 
 The report is the duel's, with `play` saying how it played and where the

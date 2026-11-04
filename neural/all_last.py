@@ -110,21 +110,19 @@ def account_of(player) -> Account | None:
     return getattr(player, "all_last", None)
 
 
-def reach_tile(row: int, code: np.ndarray, values: np.ndarray, allowed: np.ndarray, preview: int | None,
-               rule: str = "the all-last dama rule") -> int:
+def reach_tile(row: int, code: np.ndarray, values: np.ndarray, allowed: np.ndarray, preview: int | None) -> int:
     """The tile the reach of `row` would throw, as `zoo.choose_in_mortal_space`
     picks it: the best of the legal riichi tiles in the reach's own answer,
     row `preview` of the question, or, where the reach went unpreviewed
     because only one tile keeps it ready, that tile, the one tile whose
-    code says its riichi is legal. `rule` names the rule asking, should
-    the codes name another number of tiles (`late_rules` asks too, with
-    codes numbered as these are)."""
+    code says its riichi is legal."""
     if preview is not None:
         return int(np.where(allowed[preview, :KINDS], values[preview, :KINDS], -np.inf).argmax())
     ready = np.flatnonzero((code >= KEEPS_FIRST) & (code <= DEAD))
     if len(ready) != 1:
         raise RuntimeError(f"row {row}'s reach was not previewed, and its codes name {len(ready)} riichi tiles, "
-                           f"not one: {rule} needs the reach's tile asked with the reach (preview_reach)")
+                           "not one: the all-last dama rule needs the reach's tile asked with the reach "
+                           "(preview_reach)")
     return int(ready[0])
 
 

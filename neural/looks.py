@@ -71,16 +71,15 @@ AVERAGED = " averaged over the suits"
 #: `neural.all_last`).
 RULED = " with all-last dama"
 #: What follows the name of a challenger that followed a late rule of the
-#: last hand (see `neural.late_rules`), by the rule.
-LATE = {"wide-dama": " with wide dama", "decline-last": " declining last-place wins",
-        "dealer-noten": " with dealer noten"}
+#: last hand (see `neural.late_rules`), by the rule. A rule not named here,
+#: such as either of the two measured and dropped, whose series are kept, is
+#: named by its own name (see `late_named`).
+LATE = {"decline-last": " declining last-place wins"}
 #: What every report of a late rule's series must show its account did at
-#: least once, by the rule: wide dama and the decline find something to
-#: change in any call of a thousand deals, while the leading dealer's last
-#: discard may come seldom enough that a call holds none the rule would
-#: change, so that rule need only have judged one. A rule not named here is
+#: least once, by the rule: the decline finds something to change in any
+#: call of a thousand deals, so it must have fired. A rule not named here is
 #: held to having judged one.
-LATE_FLOOR = {"wide-dama": "fired", "decline-last": "fired", "dealer-noten": "judged"}
+LATE_FLOOR = {"decline-last": "fired"}
 
 
 def _density(x: float) -> float:
@@ -368,11 +367,10 @@ def late_problem(report: dict, following: list[str] | None = None) -> str | None
     rule each of its two challengers was to follow, "" for none, or, None,
     the rule each report names. A challenger that follows one must have
     followed that very rule and met its floor (`LATE_FLOOR`): fired at least
-    once by wide dama or the decline, judged at least one decision by dealer
-    noten, whose question a call may put without a move to change. One that
-    plays plain must say nothing of any rule, and every table whose game the
-    two arms ended differently must be one the rule fired at. A report with
-    no challenger that follows one, and none meant to, has nothing to
+    once by the decline, and judged at least one decision by any rule. One
+    that plays plain must say nothing of any rule, and every table whose game
+    the two arms ended differently must be one the rule fired at. A report
+    with no challenger that follows one, and none meant to, has nothing to
     fail."""
     arms = report.get("arms") or [report]
     if following is None:

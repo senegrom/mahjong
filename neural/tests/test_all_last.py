@@ -307,15 +307,11 @@ class SeatingTests(unittest.TestCase):
         # Nor a player that follows a late rule of the last hand (see
         # `neural.late_rules`): one rule of the last hand a player, refused
         # by the rule itself as by the late rule's seating.
-        for rule in ("wide-dama", "decline-last", "dealer-noten"):
-            with self.subTest(late_rule=rule):
-                late = ruler.seat(self.paths["fused"], "cpu", **fixed, late_rule=rule)
-                with self.assertRaisesRegex(ValueError, "already follows a late rule of the last hand"):
-                    all_last.dama(late, fixed=True)
-                self.assertIsNone(all_last.account_of(late))
-                self.assertEqual(late._ask.__name__, {"wide-dama": "riichi_only_where_it_buys_a_place",
-                                                      "decline-last": "decline_a_win_that_leaves_it_last",
-                                                      "dealer-noten": "safe_noten_where_the_lead_holds"}[rule])
+        late = ruler.seat(self.paths["fused"], "cpu", **fixed, late_rule="decline-last")
+        with self.assertRaisesRegex(ValueError, "already follows a late rule of the last hand"):
+            all_last.dama(late, fixed=True)
+        self.assertIsNone(all_last.account_of(late))
+        self.assertEqual(late._ask.__name__, "decline_a_win_that_leaves_it_last")
 
 
 class BindingTests(unittest.TestCase):
