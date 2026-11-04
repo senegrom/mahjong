@@ -80,8 +80,8 @@ function written(PhysicalAnalysis, position) {
   try {
     analysis = new PhysicalAnalysis(position);
     const planes = analysis.agent_observation_mortal(), mask = analysis.agent_mask_mortal(), choices = analysis.agent_choices();
-    // What the reading needs of the engine, kept, since the analysis is freed
-    // before the answer is read.
+    // What the reading needs of the engine's moves, copied; the rules' codes
+    // it asks of the analysis itself, which is held until free().
     const actions = new Map(choices.map(choice => [choice.index, analysis.mortal_action_of(choice.index)]));
     const owners = Array.from(mask, (open, action) => (open && action !== MORTAL_REACH ? analysis.agent_action_from_mortal(action, false) : -1));
     const engine = { mortal_action_of: index => actions.get(index) ?? -1 };

@@ -916,10 +916,11 @@ impl Game {
     /// Plays one of Mortal's moves, or, for a reach, notes that the tile it
     /// discards is still to be named.
     ///
-    /// Answers whether a second question is owed: after a reach the page
-    /// must ask the network again, from the observation this call leaves
-    /// behind, and hand back the discard as one of Mortal's first
-    /// thirty-four moves.
+    /// Answers whether that tile is still owed, as the next move, one of
+    /// Mortal's first thirty-four. The page asks the network for it before
+    /// the reach is played, of `opponent_observation_after_reach`, and plays
+    /// the two back to back; for a reach a save holds without its tile, it
+    /// asks from the observation this call leaves behind.
     pub fn play_opponent_mortal(&mut self, action: usize) -> Result<bool, JsValue> {
         let seat = self
             .opponent_owing()
