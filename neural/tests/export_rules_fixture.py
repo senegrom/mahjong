@@ -37,8 +37,8 @@ The learner is played by the rules too (the `rules` of
 `mortal_learner.decide_in_mortal_space`, `neural.selfplay_rules`), so every
 case is played a second way: on the plain answers, the learner never
 averaging, by its greedy play with both rules, against the composed wrappers
-with the average off; the moves, both rules' firings and the reaches dama
-left undeclared after a declined self-draw must agree.
+with the average off; the moves, both rules' firings, the reaches dama left
+undeclared after a declined self-draw and the rule that refuses must agree.
 
 Run by CI's worker job, which publishing waits on:
 `python -m neural.tests.export_rules_fixture <folder>`. Written for Python
@@ -208,21 +208,25 @@ def hesitates(logits: np.ndarray, allowed: np.ndarray) -> bool:
     return bool(suits.top_weight(np.where(allowed, logits, -np.inf)[None])[0] < suits.GATE)
 
 
+def refusing(case: Case, skip_forced: bool, gate: float = suits.GATE) -> str:
+    """The rule that refuses `case`'s codes, where the composed wrappers
+    refuse them: decline's where its wrapper alone refuses them, else
+    dama's."""
+    try:
+        choose(case, skip_forced, gate, dama_too=False)
+    except RuntimeError:
+        return DECLINE_RULE
+    return DAMA_RULE
+
+
 def played(case: Case, skip_forced: bool) -> dict:
     """What the page must do at `case` with `skip_forced` as given: our move,
     its moves in Mortal's space and the rules that fired, in order; or the
-    rule that refused, which is decline's where its wrapper alone refuses
-    the codes, else dama's; and the questions it asks."""
+    rule that refused (`refusing`); and the questions it asks."""
     try:
         choice, dama, decline = choose(case, skip_forced)
     except RuntimeError:
-        try:
-            choose(case, skip_forced, dama_too=False)
-        except RuntimeError:
-            refused = DECLINE_RULE
-        else:
-            refused = DAMA_RULE
-        result = {"move": None, "moves": None, "rules": [], "refused": refused}
+        result = {"move": None, "moves": None, "rules": [], "refused": refusing(case, skip_forced)}
     else:
         rules = [DECLINE_RULE] * decline.fired + [DAMA_RULE] * dama.fired
         result = {"move": choice, "moves": mortal_moves(choice), "rules": rules, "refused": None}
@@ -558,8 +562,10 @@ class Followed:
 
 def learned(case: Case):
     """`case` played by the learner's greedy deciding with both rules, on the
-    plain answers: our engine's move, or None where it refused, and the
-    rules' account."""
+    plain answers: our engine's move, or None where a rule refused the codes
+    (`selfplay_rules.RuleCheckFailed`, and no other error); the rule that
+    refused, dama's where dama was asked, which is only once decline has
+    played, else decline's; and the rules' account."""
 
     def score(_planes, mask):
         allowed = mask.numpy()
@@ -571,26 +577,30 @@ def learned(case: Case):
         choice, _records = mortal_learner.decide_in_mortal_space(
             score, Followed(Codes(case.dama, case.decline)), np.array([0]), np.array([case.player]),
             case.legal[None], greedy=True, device="cpu", timing={}, preview_reach=True, rules=account)
-    except RuntimeError:
-        return None, account
-    return int(choice[0]), account
+    except selfplay_rules.RuleCheckFailed:
+        return None, DAMA_RULE if account.dama_calls else DECLINE_RULE, account
+    return int(choice[0]), None, account
 
 
 def compared(cases: list[Case]) -> dict[str, int]:
     """Every case played by the learner's greedy deciding and by the composed
     wrappers with the average off, on the same plain answers and codes: the
     moves, both rules' firings and the reaches dama left undeclared after a
-    declined self-draw agree, and so do the refusals. What was compared."""
+    declined self-draw agree, and so do the refusals, by the rule that
+    refused. What was compared."""
     assert (selfplay_rules.DAMA, selfplay_rules.DECLINE) == (DAMA_RULE, DECLINE_RULE)
     counts = {"cases": 0, "dama fired": 0, "decline fired": 0, "both": 0, "refused": 0}
     for case in cases:
-        got, account = learned(case)
+        got, refused, account = learned(case)
         try:
             want, dama, decline = choose(case, skip_forced=False, gate=0.0)
         except RuntimeError:
-            assert got is None, f"{case.name}: the wrappers refuse the codes, and the learner plays {got}"
+            rule = refusing(case, skip_forced=False, gate=0.0)
+            assert refused == rule, (f"{case.name}: {rule} refuses the codes in the wrappers, {refused} in the "
+                                     f"learner, which plays {got}")
             counts["refused"] += 1
         else:
+            assert refused is None, f"{case.name}: {refused} refuses the codes in the learner, the wrappers play {want}"
             assert got == want, f"{case.name}: the learner plays {got}, the wrappers {want}"
             fired = (account.dama.fired, account.decline.fired, account.both)
             assert fired == (dama.fired, decline.fired, int(dama.fired and decline.fired)), (
