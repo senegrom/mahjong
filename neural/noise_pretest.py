@@ -5,12 +5,13 @@ how much of the noise in a generation's step could either take away?
         --seat-share 0.5 --games 4096 --out noise/
 
 It plays one round of the checkpoint as its run plays one, at the same
-tables and paid the reward its checkpoint carries (the placement reward,
-settled by the checkpoint's own U; a checkpoint paid anything else is
-refused), and keeps, for every decision the learner records, what the
-deciding seat could not see: the oracle's planes, the three opponents'
-concealed tiles, the next sixteen draws and the ura indicators
-(`selfplay.play`'s `keep_oracle`). Then:
+tables, by the last hand's rules its run plays by, if any
+(`carried_rules`), and paid the reward its checkpoint carries (the
+placement reward, settled by the checkpoint's own U; a checkpoint paid
+anything else is refused), and keeps, for every decision the learner
+records, what the deciding seat could not see: the oracle's planes, the
+three opponents' concealed tiles, the next sixteen draws and the ura
+indicators (`selfplay.play`'s `keep_oracle`). Then:
 
 1. Every decision's return is measured against four baselines, none of
    them taught the deal it is asked about. `own` is the checkpoint's
@@ -277,6 +278,16 @@ def carried_reward(payload: dict) -> place_model.PlacementReward:
         raise SystemExit("the checkpoint says it is paid the placement reward but carries no U to settle it by")
     return place_model.PlacementReward(place_model.PlaceModel.from_state(payload["place_model"]),
                                        float(record["alpha"]))
+
+
+def carried_rules(payload: dict) -> tuple[str, ...]:
+    """The last hand's rules the checkpoint's run plays its rounds by, as its
+    `training_controls` name them (`train_combined --last-hand-rules`), or
+    none: the round is played by them too. A rule's move is recorded alone,
+    at a probability of one (`selfplay.Batch.ruled`), so it weighs nothing
+    in the weighted readings, carries no gradient and never differs between
+    two draws."""
+    return tuple((payload.get("training_controls") or {}).get("last_hand_rules") or ())
 
 
 def deal_draws(games: int, groups: int, check_share: float, seed: int) -> tuple[np.ndarray, ...]:
@@ -994,7 +1005,11 @@ def main(argv=None) -> dict:
     generation = payload.get("generation")
     saved = payload.get("optimizer_state")
     reward = carried_reward(payload)
+    rules = carried_rules(payload)
     payload = None
+    if rules and not args.preview_reach:
+        raise SystemExit(f"the checkpoint's run plays the last hand's rules ({', '.join(rules)}), which need the "
+                         "reach's tile asked with the reach: leave out --no-preview-reach")
     net.eval()
     roster, seated = placement_pretest.seat_others(args, device)
     members = tuple(member.name for member in roster.members)
@@ -1012,7 +1027,7 @@ def main(argv=None) -> dict:
                          f"{args.max_minutes} (see the preflight's budget): stopped before anything was played")
 
     batch = placement_pretest.play_round(net, args, roster, seated, device, keep_oracle=True,
-                                         preview_reach=args.preview_reach)
+                                         preview_reach=args.preview_reach, last_hand_rules=rules)
     seated = None
     selfplay.settle_placement(batch, reward)
     ledger = batch.ledger
@@ -1027,6 +1042,8 @@ def main(argv=None) -> dict:
         "oracle_seconds_a_step": round(batch.oracle_seconds / max(batch.steps, 1), 5),
         "gradient_minutes": round(math.ceil(batch.decisions / args.gradient_chunk) * flight["seconds_a_chunk"]
                                   / 60, 1),
+        # The rules' account of the round (`selfplay_rules.Played.report`).
+        **({"last_hand_rules": batch.rules} if rules else {}),
     }
     print(json.dumps({"round": played}), flush=True)
     rollout = ppo_loop.on_device(batch, device, card=False)
@@ -1098,6 +1115,7 @@ def main(argv=None) -> dict:
         "members": list(members),
         "reward": {"kind": "placement", "alpha": reward.alpha},
         "preview_reach": args.preview_reach,
+        "last_hand_rules": list(rules),
         "round": played,
         "preflight": flight,
         "own_mse": number(float(((paid - answers["own"]) ** 2).mean())),

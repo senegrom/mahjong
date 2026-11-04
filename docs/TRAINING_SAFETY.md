@@ -695,10 +695,11 @@ undeclared) is at most `to_riichi`, which is at most `at_turn`, and
 `ruled_records` is the two `fired` less `both`; `calls` are the engine's
 questions and `seconds` the time the rules' own work took inside deciding.
 The checkpoint's `training_controls` gains `"last_hand_rules"`, so whoever
-ships the network knows it was trained on games played by them; nothing but
-the tests reads `training_controls`, so such a checkpoint loads wherever a
-checkpoint of the trainer does (`zoo.load_player`, a ruler, the cloud's
-copies).
+ships the network knows it was trained on games played by them, and the
+noise pre-test plays such a checkpoint's round by them
+(`noise_pretest.carried_rules`). Nothing else reads `training_controls` but
+the tests, so such a checkpoint loads wherever a checkpoint of the trainer
+does (`zoo.load_player`, a ruler, the cloud's copies).
 
 **What it costs.** No forward more: the reach's tile comes from the preview
 the recipe already asks for. At most one question to the engine for each

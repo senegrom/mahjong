@@ -1,7 +1,7 @@
 """The noise pre-test: the oracle's term and its control, its readings of
 the residual and of the gradient's noise, the twin ceiling, the verdicts,
-the reward it refuses, its cloud launch, and one small run of the whole of
-it, end to end, on the processor.
+the reward it refuses, the last hand's rules it plays by, its cloud launch,
+and one small run of the whole of it, end to end, on the processor.
 
     python -m unittest neural.tests.test_noise_pretest -v
 """
@@ -261,6 +261,65 @@ class Reward(unittest.TestCase):
                                                "place_model": u})
         self.assertEqual(reward.alpha, 0.05)
         self.assertEqual(reward.model.members, ("zoo/mortal_298k", "club"))
+
+
+class Rules(unittest.TestCase):
+    """The last hand's rules a checkpoint's run plays by, as its
+    `training_controls` name them, play the round too."""
+
+    BOTH = ("all-last-dama", "decline-last")
+
+    def test_the_rules_are_read_from_the_checkpoints_controls(self):
+        for payload in ({}, {"training_controls": None}, {"training_controls": {"target_kl": 0.01}},
+                        {"training_controls": {"last_hand_rules": []}}):
+            with self.subTest(payload=payload):
+                self.assertEqual(noise_pretest.carried_rules(payload), ())
+        payload = {"training_controls": {"target_kl": 0.01, "last_hand_rules": list(self.BOTH)}}
+        self.assertEqual(noise_pretest.carried_rules(payload), self.BOTH)
+
+    def test_the_round_is_asked_for_by_them_and_refused_without_the_preview(self):
+        """The network, the others and the preflight stood in for, and the run
+        stopped where its round is asked for: a plain run's round is asked
+        for by no rules, a ruled run's by its rules, each with the reach's
+        preview and the oracle's planes; a ruled run's asked for without the
+        preview is refused before anything is played."""
+
+        class Stopped(Exception):
+            pass
+
+        asked = []
+
+        def play_round(_net, _args, _roster, _seated, _device, **more):
+            asked.append(more)
+            raise Stopped
+
+        net = SimpleNamespace(eval=lambda: None)
+        u = place_model.PlaceModel(("club",), hidden=8).state()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            for name, rules, options in (("plain", (), []), ("ruled", self.BOTH, []),
+                                         ("unpreviewed", self.BOTH, ["--no-preview-reach"])):
+                controls = {"target_kl": 0.01, **({"last_hand_rules": list(rules)} if rules else {})}
+                payload = {"generation": 3, "optimizer_state": None, "training_controls": controls,
+                           "reward": {"kind": "placement", "alpha": 0.05}, "place_model": u}
+                argv = [str(Path(folder) / "checkpoint.pt"), "--device", "cpu", "--out", str(Path(folder) / name),
+                        *options]
+                asked.clear()
+                with self.subTest(name), \
+                        patch.object(noise_pretest.combined, "load", return_value=(net, payload)), \
+                        patch.object(noise_pretest.placement_pretest, "seat_others",
+                                     return_value=(SimpleNamespace(members=[]), [])), \
+                        patch.object(noise_pretest, "preflight", return_value={"projected_minutes": 0.0}), \
+                        patch.object(noise_pretest.placement_pretest, "play_round", side_effect=play_round), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    if options:
+                        with self.assertRaisesRegex(SystemExit, "leave out --no-preview-reach"):
+                            noise_pretest.main(argv)
+                        self.assertEqual(asked, [])
+                    else:
+                        with self.assertRaises(Stopped):
+                            noise_pretest.main(argv)
+                        self.assertEqual(asked, [{"keep_oracle": True, "preview_reach": True,
+                                                  "last_hand_rules": rules}])
 
 
 #: How the card says it has no room: PyTorch's own error, and the plain
@@ -783,6 +842,9 @@ class SmallRun(unittest.TestCase):
         self.assertGreater(report["round"]["oracle_seconds"], 0.0)
         self.assertEqual(report["members"], ["zoo/mortal_298k", "club"])
         self.assertEqual(report["reward"], {"kind": "placement", "alpha": 0.05})
+        # A run without the last hand's rules plays by none.
+        self.assertEqual(report["last_hand_rules"], [])
+        self.assertNotIn("last_hand_rules", report["round"])
         for name in ("returns", *noise_pretest.BASELINES, "log_probs", "differ", "stage", "tiles_left", "group"):
             with self.subTest(array=name):
                 self.assertEqual(len(arrays[name]), decisions)

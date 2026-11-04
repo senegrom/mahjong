@@ -143,7 +143,8 @@ def play_round(net, args, roster, seated, device: str, **more) -> selfplay.Batch
     """One round of the checkpoint as its run plays one: sampled moves,
     the others seated as the run seats them, the ledger kept. `more` goes
     to `selfplay.play` as it is: the noise pre-test asks for the oracle's
-    planes and the reach's preview."""
+    planes, the reach's preview and the last hand's rules its run plays
+    by."""
     amp = args.amp and device == "cuda"
     player = policy_inference.precast(copy.deepcopy(net)).requires_grad_(False) if amp else net
     batch = selfplay.play(
