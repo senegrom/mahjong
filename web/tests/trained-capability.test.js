@@ -9,6 +9,7 @@ import { readBeliefs, readValue } from '../src/lib/beliefs.js';
 import { weightsByChoice } from '../src/lib/action-weights.js';
 import { DAMA, DAMA_RULE, DECLINE_RULE, agentTable, trainedMove } from '../src/lib/trained-move.js';
 import { loadModule } from './fixtures/load-module.js';
+import { probe, ron, southFour, tsumo } from './fixtures/last-hand-tables.js';
 
 // agents.js loads the policy client, whose offline storage resolves the
 // page's folder as it loads. Nothing here constructs a worker or downloads
@@ -142,34 +143,8 @@ test('trained advice answers an opponent discard the player cannot claim', async
   } finally { engine.free(); }
 });
 
-// The last hand's tables of riichi_core::all_last's tests, typed in: South 4,
-// thirty tiles left, the south wind the indicator, nothing thrown before, and
-// nobody's tiles but the deciding seat's.
-function southFour({ seat = 3, hand, drawn = null, scores }) {
-  const position = emptyPosition();
-  Object.assign(position, { seat, turn: seat, round: 1, kyoku: 4, wall: 30, indicators: ['2z'], drawn, first_turns: false });
-  position.players.forEach((player, at) => { player.score = scores[at]; });
-  position.players[seat].hand = parseTiles(hand);
-  return position;
-}
-/** North to move on 23456m 456p 678s 33s with the 9p drawn, the 9p its one
- * riichi tile; East on 20,000, South on 36,000 + `gap`, West on 28,000 -
- * `gap` and North on 36,000. Thrown undeclared, the 9p keeps North first
- * through every win while `gap` is under 1,000. */
-const probe = gap => southFour({ hand: '23456m456p678s33s9p', drawn: '9p', scores: [20000, 36000 + gap, 28000 - gap, 36000] });
-/** North to move on 123456m 456p 678s 33s with the 1m drawn, which wins:
- * pinfu and menzen tsumo, which leaves North alone in last while West holds
- * 12,000 or more. Every tile is a riichi tile, and short. */
-const tsumo = west => southFour({ hand: '123456m456p678s33s', drawn: '1m', scores: [52000 - west, 38000, west, 10000] });
-/** West has just thrown the 1m, which North, on 23456m 456p 678s 33s, may
- * chii or ron: pinfu, which leaves North alone in last while West holds more
- * than 12,000. */
-function ron(west) {
-  const position = southFour({ hand: '23456m456p678s33s', scores: [52000 - west, 38000, west, 10000] });
-  Object.assign(position, { turn: 2, phase: 'call', pending: '1m' });
-  position.players[2].discards.push(thrown('1m', 0));
-  return position;
-}
+// The last hand: the tables of riichi_core::all_last's tests, typed in.
+/** The move advised, as kind and tile, and the rules that made it, if any. */
 const advised = answer => [answer.choice.kind, answer.choice.tile ?? null, answer.ruled?.rules ?? null];
 
 test('Trained advice in the last hand throws undeclared a riichi whose tile keeps it first, and declares one whose tile does not', async () => {

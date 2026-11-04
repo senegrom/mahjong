@@ -6,7 +6,10 @@
  * to the worker through analyzeBatch, and each answer is read back into the
  * engine's moves as the review reads its own (weightsByChoice), so that the
  * unedited table's answer can be set beside the review's weights move for
- * move.
+ * move. The reasoning explains the network's own weights, which are Trained
+ * AI's move only where neither of the last hand's rules decides the table: an
+ * answer whose best move is a riichi or a win a rule would overrule there
+ * (ruleDecides) is answered as refused, and marked `ruled`.
  *
  * The worker answers its requests one at a time, in turn, and runs one it has
  * begun to its end, whatever is cancelled; a request's deadline runs from when
@@ -49,6 +52,7 @@ import { batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 import { averagedAnswers } from './suits.js';
+import { bestOpen, ruleDecides } from './trained-move.js';
 
 const stopped = () => new DOMException('Asking stopped', 'AbortError');
 
@@ -59,13 +63,18 @@ const stopped = () => new DOMException('Asking stopped', 'AbortError');
  * are sized by it, and a search's time said (searchTime). */
 export const FORWARDS_A_TABLE = 1.43;
 
+/** Why a table is not judged where one of the last hand's rules decides it. */
+export const RULE_DECIDES = 'A last-hand rule decides this table';
+
 /** A table as the worker is asked it: Mortal's planes and mask, the renamed
  * game's planes, read only once they are wanted (suits.js), and how to read
- * an answer into the engine's moves, as the review reads its own
- * (weightsByChoice): Mortal has one kan, which the engine gives to the first
- * kan open, so a second kan open at once weighs nothing on either side. The
- * engine's table is kept for the renamed planes until `free()`. Or why the
- * rules refused the table. */
+ * an answer, `read(weights)`: into the engine's moves, as the review reads
+ * its own (weightsByChoice), `{ moves }`, or, where one of the last hand's
+ * rules would overrule the answer's best move, refused and marked `ruled`.
+ * Mortal has one kan, which the engine gives to the first kan open, so a
+ * second kan open at once weighs nothing on either side. The engine's table
+ * is kept for the renamed planes and the rules' codes until `free()`. Or why
+ * the rules of the game refused the table. */
 function written(PhysicalAnalysis, position) {
   let analysis;
   try {
@@ -78,8 +87,9 @@ function written(PhysicalAnalysis, position) {
     const engine = { mortal_action_of: index => actions.get(index) ?? -1 };
     let held = analysis;
     analysis = null;
-    return { planes, mask, read: weights => movesOf(weightsByChoice(engine, choices, weights, action => owners[action])),
-      renamed: () => held.agent_observation_mortal_renamed(), free: () => { held?.free(); held = null; } };
+    const read = weights => (ruleDecides(bestOpen(weights, mask), held) ? { refused: RULE_DECIDES, ruled: true }
+      : { moves: movesOf(weightsByChoice(engine, choices, weights, action => owners[action])) });
+    return { planes, mask, read, renamed: () => held.agent_observation_mortal_renamed(), free: () => { held?.free(); held = null; } };
   } catch (error) {
     return { refused: String(error?.message ?? error) };
   } finally { analysis?.free(); }
@@ -151,7 +161,7 @@ export function trainedAsk({ PhysicalAnalysis, analyzeBatch, gate = () => null, 
         const asked = tables.filter(table => !table.refused);
         const replies = asked.length ? await askBoth(request, asked, signal) : [];
         let next = 0;
-        for (const table of tables) answers.push(table.refused ? { refused: table.refused } : { moves: table.read(replies[next++].weights) });
+        for (const table of tables) answers.push(table.refused ? { refused: table.refused } : table.read(replies[next++].weights));
       } finally {
         for (const table of tables) table.free?.();
       }
@@ -266,9 +276,10 @@ function afterDrawing() {
  * where the player threw a tile and Trained AI chose to throw another. A
  * call, a riichi declared or not, a win, an only move and a decision Trained
  * AI agreed with have no Why line and no search; nor has a decision not yet
- * reviewed (null). */
+ * reviewed (null), nor one where a last-hand rule made Trained AI's move,
+ * whose weights did not choose it (`ruled`). */
 export function reasonedAbout(decision) {
-  return Boolean(decision) && !decision.forced && decision.played_kind === 'discard' && decision.advised_kind === 'discard'
+  return Boolean(decision) && !decision.forced && !decision.ruled && decision.played_kind === 'discard' && decision.advised_kind === 'discard'
     && (decision.played_tile ?? null) !== (decision.advised_tile ?? null);
 }
 

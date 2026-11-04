@@ -1,15 +1,16 @@
-import { weightsByChoice, MORTAL_REACH } from './action-weights.js';
-import { averagedAnswers } from './suits.js';
+import { weightsByChoice } from './action-weights.js';
+import { reviewTable, trainedMoves } from './trained-move.js';
 
 /** Review captured decisions in order, sharing the ordinary bounded AI worker.
  *
  * The network reads Mortal's planes and answers in Mortal's forty-six moves,
  * so each recorded decision is rebuilt by replaying the events that had
  * happened by then, and the answer is turned back into a move the review can
- * name. A reach is asked in two steps here as everywhere else: the
- * declaration first, then which tile it discards. Each question Trained AI
- * hesitates over is asked again of the renamed game, as everywhere else, and
- * judged by the mean of the two answers (suits.js).
+ * name. Each decision is judged by Trained AI's move, built as everywhere
+ * else (trained-move.js): each question Trained AI hesitates over asked again
+ * of the renamed game and judged by the mean of the two answers (suits.js); a
+ * reach asked in two steps, the declaration first, then which tile it
+ * discards; and the last hand's rules over that.
  *
  * A hand's review asks one position at a time. A whole-game review passes
  * `batch`, `{ size(), analyze(positions, signal) }`, and asks as many
@@ -24,28 +25,16 @@ const aborted = signal => {
   if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
 };
 
-/** The answer the network would give a position with one legal move. */
-function forcedAnswer(mask) {
-  const legal = Array.from(mask, allowed => (allowed ? 1 : 0));
-  return legal.reduce((sum, value) => sum + value, 0) === 1
-    ? { action: legal.indexOf(1), weights: legal } : null;
-}
-
 export async function reviewWithStrong(engine, notes, analyze, { signal, onProgress = () => {}, batch = null, skipForced = false } = {}) {
   aborted(signal);
   // Copy the small observations before awaiting anything. The engine calls
   // that follow an await, for a reach's second question, for the renamed
-  // game of a question Trained AI hesitates over and to translate the
-  // answers back, are guarded only by the abort signal checked after each
-  // await, so the caller must abort the review when the hand moves on or the
-  // engine is freed. Each input is released as it is consumed; no engine
-  // positions are cloned or retained.
-  const inputs = notes.map((_, index) => ({
-    planes: engine.review_observation_mortal(index),
-    mask: engine.review_mask_mortal(index),
-    choices: engine.review_choices(index),
-    renamed: () => engine.review_observation_mortal_renamed(index),
-  }));
+  // game of a question Trained AI hesitates over, for the last hand's codes
+  // and to translate the answers back, are guarded only by the abort signal
+  // checked after each await, so the caller must abort the review when the
+  // hand moves on or the engine is freed. Each input is released as it is
+  // consumed; no engine positions are cloned or retained.
+  const inputs = notes.map((_, index) => ({ ...reviewTable(engine, index), choices: engine.review_choices(index) }));
   // Positions in one request, or one position without a batch.
   const request = async positions => {
     const replies = batch ? await batch.analyze(positions, signal)
@@ -55,18 +44,6 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
       throw new Error('The trained network returned the wrong number of answers');
     }
     return replies;
-  };
-  // A group's positions in one request, or one request each, in order, and
-  // those Trained AI hesitates over again, renamed (averagedAnswers).
-  const ask = async positions => {
-    const answers = positions.map(position => (skipForced ? forcedAnswer(position.mask) : null));
-    const asked = positions.filter((_, index) => !answers[index]);
-    if (asked.length) {
-      const replies = await averagedAnswers(request, asked, signal);
-      let next = 0;
-      for (let index = 0; index < answers.length; index++) answers[index] ??= replies[next++];
-    }
-    return answers;
   };
   const reviewed = [];
   for (let start = 0, size; start < notes.length; start += size) {
@@ -78,28 +55,25 @@ export async function reviewWithStrong(engine, notes, analyze, { signal, onProgr
       inputs[index] = null;
     }
     onProgress(start, notes.length);
-    const firsts = await ask(group);
-    // A declaration is asked again which tile it discards, from the position
-    // the declaration leaves behind.
-    const reaching = group.filter((_, slot) => firsts[slot].action === MORTAL_REACH);
-    const seconds = reaching.length ? await ask(reaching.map(({ index }) => ({
-      planes: engine.review_observation_after_reach(index), mask: engine.review_mask_after_reach(index),
-      renamed: () => engine.review_observation_after_reach_renamed(index),
-    }))) : [];
-    group.forEach(({ index, mask, choices }, slot) => {
-      const first = firsts[slot], second = first.action === MORTAL_REACH ? seconds[reaching.findIndex(entry => entry.index === index)] : null;
-      reviewed.push(reviewedNote(engine, index, notes[index], choices, mask, first, second));
-    });
+    // Trained AI's moves at the group's decisions: its first questions in one
+    // request, those it hesitates over again, renamed, in another, and the
+    // tile of each declaration among them, from the position the declaration
+    // would leave behind, the same way, in two more at most.
+    const moves = await trainedMoves(request, group, { signal, skipForced });
+    aborted(signal);
+    group.forEach(({ index, mask, choices }, slot) => reviewed.push(reviewedNote(engine, index, notes[index], choices, mask, moves[slot])));
     onProgress(Math.min(notes.length, start + size), notes.length);
   }
   return reviewed;
 }
 
-/** One decision judged from the network's answers: the first question's, and
- * the second's where it declared a reach. */
-function reviewedNote(engine, index, note, choices, mask, first, second) {
-  const action = second ? second.action : first.action;
-  const chosen = engine.review_action_from_mortal(index, action, Boolean(second));
+/** One decision judged by Trained AI's move there (trainedMoves): weighed by
+ * the first question's answer, and the second's where it asked which tile a
+ * reach discards. */
+function reviewedNote(engine, index, note, choices, mask, { first, second, final, ruled }) {
+  // A riichi only where the move is one: a riichi the last hand's rules threw
+  // undeclared is the plain discard of its tile.
+  const chosen = engine.review_action_from_mortal(index, final.action, final.afterReach);
   const weighted = weightsByChoice(engine, choices, first.weights,
     action => engine.review_action_from_mortal(index, action, false),
     second?.weights ? { weights: second.weights, fromMortal: action => engine.review_action_from_mortal(index, action, true) } : null);
@@ -129,5 +103,8 @@ function reviewedNote(engine, index, note, choices, mask, first, second) {
     // all, which a forced move, such as a discard after riichi, is not.
     weighted,
     forced: Array.from(mask).filter(Boolean).length === 1,
+    // Which of the last hand's rules made Trained AI's move, if any did: its
+    // weight then did not choose it (game-review.js, judgement).
+    ruled: ruled ? { rules: ruled.rules } : null,
   };
 }

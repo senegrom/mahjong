@@ -7,6 +7,7 @@ import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -471,6 +472,43 @@ test('a step says in one line where it is, the table, both moves with their weig
   assert.deepEqual(moveWeight(declared, { kind: 'riichi', tile: '6m' }), { weight: 0.9, given: false });
   assert.deepEqual(moveWeight({ ...flagged, weighted: [{ ...discards[0], weight: null }] }, discards[0]), { weight: null, given: false },
     'a move Trained AI gave no weight');
+});
+
+test('a decision a last-hand rule made is staged as the rule\'s, never flagged, and its move is weighed by the rule', () => {
+  // The probe: the player declared riichi on the 9 circles, which Trained AI
+  // threw undeclared, since the tile keeps the player first through every
+  // win; the network had put 97% on the riichi and 1% on the plain discard.
+  const seat = (wind, values = {}) => ({ seat: wind, turn: false, riichi: false, hand: [], drawn: null, ...values });
+  const turn = { phase: 'act', wall: 30, pending_discard: null, pending_from: null,
+    seats: [seat('north', { turn: true, drawn: '9p' }), seat('east'), seat('south'), seat('west')] };
+  const choice = (kind, tile, label, weight, conditionalWeight = null) => ({ kind, tile, label, weight, conditionalWeight });
+  const choices = [choice('discard', '9p', 'discards the 9 circles', 0.01), choice('discard', '3s', 'discards the 3 bamboo', 0.02),
+    choice('riichi', '9p', 'declares riichi on the 9 circles', 0.97, 1)];
+  const frame = played => ({ view: turn, choices, played, lines: [] });
+  const row = (played, values = {}) => ({ played_kind: played.kind, played_tile: played.tile, advised_kind: 'discard', advised_tile: '9p',
+    advised: 'discards the 9 circles', agreed: false, forced: false, played_weight: played.weight, preferred_weight: 0.01,
+    played_conditional_weight: null, preferred_conditional_weight: null, weighted: choices, ruled: { rules: [DAMA_RULE] }, ...values });
+  // The weights cannot judge the move: under 5% against 97%.
+  const declared = row(choices[2]);
+  assert.deepEqual(judgement(declared), { stage: 'rule', flagged: false });
+  assert.deepEqual(judgement(row(choices[1])), { stage: 'rule', flagged: false }, 'another tile');
+  assert.equal(judgement(row(choices[0], { agreed: true })), null);
+  // A ron declined for the pass, the player calling a pon.
+  assert.deepEqual(judgement(row({ kind: 'pon', tile: null, weight: 0.03 }, { advised_kind: 'pass', advised_tile: null, advised: 'passes',
+    preferred_weight: 0.001, ruled: { rules: [DECLINE_RULE] } })), { stage: 'rule', flagged: false });
+  // The rule's move is weighed by the rule, the others by their weights.
+  assert.deepEqual(moveWeight(declared, choices[0]), { weight: null, given: false, rule: true });
+  assert.deepEqual(moveWeight(declared, choices[2]), { weight: 0.97, given: false });
+  const hand = { name: 'South 4', frames: [frame({ kind: 'riichi', tile: '9p' })] };
+  const said = (decision, options = {}) => stepSaid({ hand, step: 0, decision: { ...decision, judgement: judgement(decision) }, ...options });
+  const line = 'by rule (last hand: every win keeps it first, so no riichi)';
+  assert.equal(said(declared), 'South 4, decision 1 of 1. Your turn, 30 tiles left. You: declares riichi on the 9 circles, 97.0%. '
+    + `Trained AI: discards the 9 circles, ${line}.`);
+  assert.equal(said(declared, { pick: choices[0] }), 'South 4, decision 1 of 1. Your turn, 30 tiles left. You: declares riichi on the 9 circles, 97.0%. '
+    + `Trained AI: discards the 9 circles, ${line}. Now: discards the 9 circles, ${line}.`);
+  // Agreed, the player's move is the rule's.
+  assert.equal(stepSaid({ hand: { ...hand, frames: [frame({ kind: 'discard', tile: '9p' })] }, step: 0, decision: row(choices[0], { agreed: true }) }),
+    `South 4, decision 1 of 1. Your turn, 30 tiles left. You: discards the 9 circles, ${line}. Trained AI agreed.`);
 });
 
 test("a real review's lists hold what their filters count, in the order played: the flagged among the different moves, and every decision", async () => {

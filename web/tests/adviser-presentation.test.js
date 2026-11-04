@@ -23,7 +23,7 @@ const choices = Object.freeze([
 /** A seat on 1m, 2m and 3m that may declare riichi on 1m or 2m. Its last
  * hand's codes are nought unless `dama` names a tile's, and every read of a
  * code is counted in `reads`. */
-function engine({ dama = {} } = {}) {
+function engine({ dama: codes = {} } = {}) {
   const planes = new Float32Array([1]), after = new Float32Array([2]);
   // The renamed game's planes, other than the game's own.
   const renamed = new Float32Array([11]), afterRenamed = new Float32Array([12]);
@@ -32,14 +32,15 @@ function engine({ dama = {} } = {}) {
   const from = (action, reached) => reached ? ([0, 1].includes(action) ? action + 34 : -1)
     : ([0, 1, 2].includes(action) ? action : -1);
   const reads = { dama: 0, decline: 0 };
+  const dama = () => { reads.dama++; return Uint8Array.from({ length: 34 }, (_, tile) => codes[tile] ?? 0); };
+  const decline = () => { reads.decline++; return 0; };
   return {
     planes, after, renamed, afterRenamed, mask, afterMask, reads,
     agent_choices: () => choices,
     agent_observation_mortal: () => planes, agent_mask_mortal: () => mask,
     agent_observation_after_reach: () => after, agent_mask_after_reach: () => afterMask,
     agent_observation_mortal_renamed: () => renamed, agent_observation_after_reach_renamed: () => afterRenamed,
-    agent_all_last_dama: () => { reads.dama++; return Uint8Array.from({ length: 34 }, (_, tile) => dama[tile] ?? 0); },
-    agent_all_last_decline: () => { reads.decline++; return 0; },
+    agent_all_last_dama: dama, agent_all_last_decline: decline,
     agent_action_from_mortal: from,
     mortal_action_of: index => [34, 35].includes(index) ? MORTAL_REACH : index,
     review_choices: () => choices,
@@ -47,6 +48,7 @@ function engine({ dama = {} } = {}) {
     review_observation_after_reach: () => after, review_mask_after_reach: () => afterMask,
     review_observation_mortal_renamed: () => renamed, review_observation_after_reach_renamed: () => afterRenamed,
     review_action_from_mortal: (_index, action, reached) => from(action, reached),
+    review_all_last_dama: dama, review_all_last_decline: decline,
   };
 }
 /** A declaration and its tile, each hesitant, with the renamed game's
@@ -199,6 +201,18 @@ test('historical riichi review keeps declaration and conditional weights separat
   assert.equal(result.played_conditional_weight, tile[0]);
   assert.deepEqual(a.calls.map(([planes, mask]) => [planes, Array.from(mask)]),
     [[e.planes, e.mask], [e.renamed, swapMoves(e.mask)], [e.after, e.afterMask], [e.afterRenamed, swapMoves(e.afterMask)]]);
+});
+
+test('a review note where the riichi\'s tile keeps first advises that tile\'s plain discard, by rule, the riichi\'s tiles still weighed', async () => {
+  const e = engine({ dama: { 0: DAMA.SHORT, 1: DAMA.KEEPS_FIRST, 2: DAMA.NOT_WAITING } }), a = analyzer(sequence(declared));
+  const [result] = await reviewWithStrong(e, [note(choices[3])], a.analyze);
+  assert.deepEqual([result.advised_kind, result.advised_tile, result.agreed], ['discard', '2m', false]);
+  assert.deepEqual(result.ruled, { rules: [DAMA_RULE] });
+  assert.deepEqual(e.reads, { dama: 1, decline: 0 });
+  assert.equal(a.calls.length, 4);
+  const tile = average(declared.second.weights, declared.secondRenamed.weights, e.afterMask).weights;
+  assert.equal(result.played_conditional_weight, tile[0]);
+  assert.equal(result.preferred_conditional_weight, null);
 });
 
 test('historical riichi that was played but not advised does not trigger another inference', async () => {

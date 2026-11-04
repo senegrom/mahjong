@@ -20,11 +20,16 @@
 // 3. The adviser (agents.js), skip_forced off: the move advised is the one
 //    Python plays, translated as a riichi only where it is one, asking what
 //    the layer asks, and the advice is refused where Python refuses.
+// 4. The review (review-policy.js): the game's review, in batches of eight
+//    with skip_forced on, and the hand's notes, a decision at a time with it
+//    off, advise the move Python plays with the rules that fired, asking what
+//    the layer asks, and stop where Python refuses.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
+import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { MatchSession } from '../src/lib/session.js';
 import { GATE, MOVES, swapMoves } from '../src/lib/suits.js';
 import {
@@ -265,6 +270,58 @@ for (const [at, item] of cases.entries()) {
   assert.deepEqual(requests, want.asks.map(question => [{ at, question }]), `${label}: the questions asked`);
 }
 
+/** The decisions of `group`, case numbers, as a hand's engine keeps them for
+ * its review (reviewTable): each as the adviser is asked it. */
+function reviewEngine(group) {
+  const engines = group.map(adviserEngine);
+  const asked = name => (index, ...rest) => {
+    if (!(index < engines.length)) throw new Error('No recorded decision at this index');
+    return engines[index][`agent_${name}`](...rest);
+  };
+  return Object.assign(Object.fromEntries(['choices', 'observation_mortal', 'mask_mortal', 'observation_mortal_renamed',
+    'observation_after_reach', 'mask_after_reach', 'observation_after_reach_renamed', 'all_last_dama', 'all_last_decline',
+    'action_from_mortal'].map(name => [`review_${name}`, asked(name)])), { mortal_action_of: index => MORTAL_OF.get(index) ?? -1 });
+}
+/** Case `at` recorded as a decision the player made: its first choice. */
+function noteOf(at) {
+  const [choice] = adviserEngine(at).agent_choices();
+  return { turn: 0, played: choice.label, played_kind: choice.kind, played_tile: choice.tile };
+}
+
+// 4. Each case as the review asks it: with skip_forced on, as the game's
+// review asks, in batches of eight, their requests as the layer's groups'
+// above; with it off, as the hand's notes ask, a decision at a time. A
+// refusal stops a review, as it stops a batch in Python, so the cases Python
+// refuses are reviewed alone.
+for (const skipForced of SETTINGS) {
+  const setting = Number(skipForced), how = skipForced ? 'in the game\'s review' : 'in the hand\'s notes';
+  const review = (group, ask) => reviewWithStrong(reviewEngine(group), group.map(noteOf),
+    async (planes, mask) => (await ask([{ planes, mask }]))[0], skipForced ? { skipForced, batch: { size: () => 8, analyze: ask } } : {});
+  const played = cases.flatMap((item, at) => (item.expected[setting].refused ? [] : [at]));
+  const { requests, ask } = asker();
+  const rows = await review(played, ask);
+  for (const [index, at] of played.entries()) {
+    const item = cases[at], want = item.expected[setting], row = rows[index], label = `${item.name}, ${how}`;
+    assert.equal(Number(row.advised_tile), want.move, `${label}: the move advised`);
+    assert.equal(row.advised_kind === 'riichi', want.moves.length === 2, `${label}: advised as a riichi only where it is one`);
+    assert.deepEqual(row.ruled?.rules ?? [], want.rules, `${label}: the rules that fired`);
+  }
+  const asks = at => cases[at].expected[setting].asks;
+  const groups = skipForced ? Array.from({ length: Math.ceil(played.length / 8) }, (_, group) => played.slice(8 * group, 8 * group + 8))
+    : played.map(at => [at]);
+  assert.deepEqual(requests, groups.flatMap(group => fixture.questions.map(question => group.filter(at => asks(at).includes(question))
+    .map(at => ({ at, question }))).filter(request => request.length)), `${how}: the requests`);
+  for (const [at, item] of cases.entries()) {
+    const want = item.expected[setting];
+    if (!want.refused) continue;
+    const alone = asker();
+    await assert.rejects(review([at], alone.ask), error => error.message === RULE_REFUSED && error.cause?.rule === want.refused,
+      `${item.name}, ${how}: refused`);
+    assert.deepEqual(alone.requests, asks(at).map(question => [{ at, question }]), `${item.name}, ${how}: the questions asked`);
+  }
+}
+
 const said = setting => Object.entries(fixture.counts[setting]).map(([name, count]) => `${name} ${count}`).join(', ');
 console.log(`PASS: ${cases.length} cases of the last hand's rules, played by the page's layer as the composed Python wrappers play them, `
-  + `each alone and in groups of eight, by Play's opponents and by the adviser. skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);
+  + `each alone and in groups of eight, by Play's opponents, by the adviser and by the review. `
+  + `skip_forced off: ${said(0)}. skip_forced on: ${said(1)}`);

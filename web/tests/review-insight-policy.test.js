@@ -5,13 +5,15 @@ import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.j
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { FORWARDS_A_TABLE, MatchInsight, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight, searchTime,
-  trainedAsk } from '../src/lib/review-insight-policy.js';
+import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight,
+  searchTime, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { MatchSession } from '../src/lib/session.js';
 import { MOVES, average, swapMoves } from '../src/lib/suits.js';
+import { DAMA_RULE, MORTAL_AGARI } from '../src/lib/trained-move.js';
 import { saidLines } from './fixtures/insight-panel.js';
+import { probe, tsumo } from './fixtures/last-hand-tables.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
 
@@ -365,7 +367,31 @@ test('the reasoning speaks only of a discard where Trained AI threw another tile
   assert.equal(reasonedAbout(own), true);
   for (const [what, decision] of [['not reviewed yet', null], ['agreed', { ...own, advised_tile: own.played_tile }], ['an only move', { ...own, forced: true }],
     ['a call', { ...own, played_kind: 'pon', played_tile: null }], ['a riichi declared', { ...own, played_kind: 'riichi' }],
-    ['a riichi advised', { ...own, advised_kind: 'riichi', advised_tile: null }]]) assert.equal(reasonedAbout(decision), false, what);
+    ['a riichi advised', { ...own, advised_kind: 'riichi', advised_tile: null }],
+    ['a tile a last-hand rule threw', { ...own, ruled: { rules: [DAMA_RULE] } }]]) assert.equal(reasonedAbout(decision), false, what);
+});
+
+test('a table where a last-hand rule would overrule the answer\'s best move is answered as refused, marked, without asking more', async () => {
+  // Every table answered sure of its riichi, or of its win.
+  const answer = async (position, best) => {
+    const [answered] = await trainedAsk({ PhysicalAnalysis, analyzeBatch: async positions => positions.map(({ mask }) =>
+      policyWeights(Array.from({ length: 46 }, (_, move) => (move === best ? 8 : 0)), mask)) })([position]);
+    return answered;
+  };
+  const ruled = { refused: RULE_DECIDES, ruled: true };
+  // A riichi whose tile keeps the player first, which the rule throws
+  // undeclared; at a gap of 1,500 the tile is short, and the riichi stands.
+  assert.deepEqual(await answer(probe(0), MORTAL_REACH), ruled);
+  const declared = await answer(probe(1500), MORTAL_REACH);
+  assert.equal(declared.moves.find(move => move.weight > 0.99)?.kind, 'riichi');
+  // A self-draw that would leave the player alone in last, which the rule
+  // declines; with West on 11,900 it would leave them level, and stands.
+  assert.deepEqual(await answer(tsumo(12000), MORTAL_AGARI), ruled);
+  const won = await answer(tsumo(11900), MORTAL_AGARI);
+  assert.equal(won.moves.find(move => move.weight > 0.99)?.kind, 'tsumo');
+  // Any other best move is read as before, whatever a rule would say of a
+  // riichi or a win there.
+  assert.ok((await answer(probe(0), 17)).moves.length);
 });
 
 test("a match's reasoning writes a hand's tables once, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {

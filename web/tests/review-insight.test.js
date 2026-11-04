@@ -5,7 +5,7 @@ import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.j
 import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, notChecked, scoreEdit, searchOffered,
   singleEdits, tablesAtMost, tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
-import { trainedAsk } from '../src/lib/review-insight-policy.js';
+import { RULE_DECIDES, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { mirroringNetwork } from './fixtures/renamed-planes.js';
@@ -489,6 +489,22 @@ test('at East 1 with counters, the scores are changed only as far as the dealer\
   const asking = standInQuestion(position, P, A);
   const { said } = await whatWouldChangeItsMind({ ...asking, facts, ask: standInAsk(asking, facts) });
   assert.equal(said.still, 'Not moved by the score or the round.');
+});
+
+test('a family one of whose tables a last-hand rule would decide is not said to move nothing', async () => {
+  // The table above, where neither the score nor the round moves Trained AI,
+  // stood in for, but made South 4, the last hand, a rule would overrule its
+  // answer there: the page answers that table refused, and marked
+  // (trainedAsk).
+  const position = structuredClone(reviewCheck.get('East 1 #1').position);
+  Object.assign(position, { counters: 2 });
+  [43500, 31500, 16500, 28500].forEach((score, seat) => { position.players[seat].score = score; });
+  const [P, A] = reviewCheck.get('East 1 #1').discards, asking = standInQuestion(position, P, A), standing = standInAsk(asking, facts);
+  const ask = async positions => (await standing(positions)).map((answer, at) => (answer.moves && positions[at].round === 1 && positions[at].kyoku === 4
+    ? { refused: RULE_DECIDES, ruled: true } : answer));
+  const { said, singles } = await whatWouldChangeItsMind({ ...asking, facts, ask });
+  assert.deepEqual(singles.filter(change => change.ruled).map(change => change.words), ['this had been South 4, the last hand']);
+  assert.equal(said.still, 'Not moved by the score.');
 });
 
 test('everyone is made level only where the points on the table share out in hundreds, and then has one score', () => {

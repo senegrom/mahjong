@@ -14,6 +14,7 @@
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
+import { ruleSaid } from './trained-move.js';
 import { callTiles, percent, quadOnOffer } from './ui.js';
 
 /** A decision is flagged when the player's move had under this weight... */
@@ -146,9 +147,13 @@ class Replay {
  * Riichi is two questions, as everywhere the network advises: whether to
  * declare, then, given the declaration, which tile. When the player and the
  * network both declared, they are judged on the tile; otherwise on the move.
- * Null where there was no choice, or nothing to compare. */
+ * Where one of the last hand's rules made Trained AI's move (`ruled`), the
+ * weights cannot judge it: the move a rule made often has under 5%, and the
+ * one it replaced 90% or more. Such a decision is staged 'rule', and never
+ * flagged. Null where there was no choice, or nothing to compare. */
 export function judgement(row) {
   if (row.agreed || row.forced) return null;
+  if (row.ruled) return { stage: 'rule', flagged: false };
   const tile = row.played_kind === 'riichi' && row.advised_kind === 'riichi';
   const played = tile ? row.played_conditional_weight : row.played_weight;
   const preferred = tile ? row.preferred_conditional_weight : row.preferred_weight;
@@ -714,8 +719,11 @@ export function moveToken(kind, tile) {
  * riichi, a decision is judged on the tile (`judgement`), so a riichi there
  * is weighed by its tile given the declaration; otherwise every move by its
  * own weight, a riichi by the declaration's. The weight is null where
- * Trained AI gave the move none. */
+ * Trained AI gave the move none, and where one of the last hand's rules made
+ * the move Trained AI chose, which is then `rule`: its weight did not choose
+ * it. */
 export function moveWeight(decision, move) {
+  if (decision.ruled && sameMove(move, decision.advised_kind, decision.advised_tile)) return { weight: null, given: false, rule: true };
   const given = move.kind === 'riichi' && decision.played_kind === 'riichi' && decision.advised_kind === 'riichi';
   const choice = decision.weighted?.find(entry => sameMove(entry, move.kind, move.tile));
   const weight = given ? choice?.conditionalWeight : choice?.weight;
@@ -724,8 +732,9 @@ export function moveWeight(decision, move) {
 
 /** What a step of the review says as it is reached, in the one line a screen
  * reader hears: where it is, the table (tableSaid), the player's move and
- * Trained AI's, each with its weight, a move the player picked there, and
- * whether the decision is flagged. In place of Trained AI's half it says
+ * Trained AI's, each with its weight, or, for a move one of the last hand's
+ * rules made, the rule's line (ruleSaid), a move the player picked there,
+ * and whether the decision is flagged. In place of Trained AI's half it says
  * that Trained AI agreed, that the move was the only one, that its move is
  * `hidden`, or that the hand is not reviewed yet. A hidden move hides the
  * player's weight too, which would give the answer away, but not the flag:
@@ -734,7 +743,8 @@ export function stepSaid({ hand, step, decision = null, hidden = false, pick = n
   const frame = hand.frames[step], played = frame.played;
   const weighed = move => {
     if (!decision || decision.forced || hidden) return '';
-    const { weight, given } = moveWeight(decision, move);
+    const { weight, given, rule } = moveWeight(decision, move);
+    if (rule) return ruleSaid(decision.ruled);
     return weight === null ? '' : `, ${percent(weight)}${given ? ' given riichi' : ''}`;
   };
   const you = `You: ${moveWords(frame, played)}${weighed(played)}.`;

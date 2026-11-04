@@ -12,9 +12,10 @@
  * change that is true but not the reason is said with what it really
  * changed. Nothing here asks the network: `ask(positions, signal)` answers
  * each position with Trained AI's weights, `{ moves: [{ kind, tile, weight }] }`,
- * or with why the engine refused it, `{ refused }`, and `facts(position)` is
- * review_facts. The page asks the policy worker (review-insight-policy.js);
- * the tests answer from a recorded run.
+ * or with why the engine refused it, `{ refused }`, marked `ruled` where one
+ * of the last hand's rules, not the weights, would decide Trained AI's move
+ * there, and `facts(position)` is review_facts. The page asks the policy
+ * worker (review-insight-policy.js); the tests answer from a recorded run.
  *
  * Version 1 keeps to what the prototype measured (insight/recommendation.md):
  * only the player's own discard against Trained AI's is explained; a table is
@@ -535,12 +536,13 @@ function asker({ ask, signal, size, onProgress }) {
   };
 }
 
-/** Changes judged from their answers, each with what it did to the facts. */
+/** Changes judged from their answers, each with what it did to the facts. A
+ * change refused where a last-hand rule would decide keeps that mark. */
 function judged(edits, answers, { base, played, preferred, F0, facts, withFacts = true }) {
   return edits.map((edit, index) => {
     const { apply: _apply, parts: _parts, ...said } = edit, answer = answers[index];
     const verdict = answer.refused ? answer : judge(answer.moves, played, preferred);
-    if (verdict.refused) return { ...said, refused: verdict.refused };
+    if (verdict.refused) return { ...said, refused: verdict.refused, ...(verdict.ruled ? { ruled: true } : {}) };
     const change = { ...said, edit, ...verdict };
     if (withFacts) {
       const position = applyEdits(base, ...(edit.parts ?? [edit]));
@@ -759,8 +761,11 @@ function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
       said.detail = near ? `Nearest: if ${near.words}: ${weightsAfter(near, A, P)}.` : '';
     }
   }
+  // A family one of whose changes a last-hand rule would decide is not said
+  // to move nothing: there Trained AI's move is not the network's.
   const tried = changes.filter(change => !change.refused);
-  const still = ['scores', 'round'].filter(family => tried.some(change => change.family === family) && !tried.some(change => change.family === family && change.flips));
+  const still = ['scores', 'round'].filter(family => tried.some(change => change.family === family)
+    && !tried.some(change => change.family === family && change.flips) && !changes.some(change => change.family === family && change.ruled));
   // The score's reach is said where both of its largest steps were asked; at
   // East 1 a step its hands cannot have given is not (firstHandGives).
   const reach = [16000, -16000].every(step => tried.some(change => change.family === 'scores' && change.param === step)) ? ` (±${points(16000)})` : '';
