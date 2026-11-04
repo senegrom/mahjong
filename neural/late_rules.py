@@ -53,8 +53,9 @@ It is off unless asked for: only a ruler seats a player that follows one.
 Self-play decides through `Combined.decide`, never `_ask`, so a rule reaches
 training only through `selfplay_rules`, which plays the learner's own drawn
 wins by `decline-last` when the trainer is told (`train_combined
---last-hand-rules`); the other two never. What a rule did is kept as the
-player's `late_rule` (`Account`).
+--last-hand-rules`). The site's Trained AI plays `decline-last` too
+(web/src/lib/trained-move.js). What a rule did is kept as the player's
+`late_rule` (`Account`).
 """
 
 from __future__ import annotations

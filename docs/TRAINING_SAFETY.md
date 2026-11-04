@@ -465,7 +465,10 @@ engine says that tile keeps the player first, its discard is played instead.
 Decline comes first because a declined self-draw can leave a riichi, which
 dama then judges. Neither rule reads anything hidden: dama reads the
 player's own hand, the scores and what the player has seen, and decline
-reads a riichi win at the most its ura dora could add.
+reads a riichi win at the most its ura dora could add. CI's worker job holds
+the learner's greedy play by both rules to the ruler's wrappers composed in
+this order, the average over the suits off, on the cases it holds the site's
+Trained AI to (`neural/tests/export_rules_fixture.py`).
 
 **Why the best other move and not a draw.** It is the ruler's own choice
 (`late_rules.decline_last`), and a move drawn from the moves that remain
@@ -501,8 +504,9 @@ the position, and returns come per hand and player from the ledger: a rule's
 consequence, a game that goes on after a declined win or a win without the
 reach's thousand, reaches every decision of that hand. The policy is not
 taught the rules. They stay play-time rules, which must be played wherever
-the network plays to deliver their gain; what training gets is games, values
-and credit consistent with rule-following play.
+the network plays to deliver their gain, as a ruler and the site's Trained AI
+play them (`web/src/lib/trained-move.js`); what training gets is games,
+values and credit consistent with rule-following play.
 
 **Checks.** Each raises `selfplay_rules.RuleCheckFailed`:
 
