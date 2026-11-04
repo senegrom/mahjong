@@ -240,6 +240,9 @@
       <dt>Trained AI's percentages</dt>
       <dd>How strongly it prefers each move, not a chance of winning. Declaring riichi and the discard given riichi are weighed separately.</dd>
 
+      <dt>by rule</dt>
+      <dd>In South 4, the last hand, Trained AI skips riichi where every win keeps it first, and declines a win that would leave it last.</dd>
+
       <dt>Keys</dt>
       <dd>
         Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows

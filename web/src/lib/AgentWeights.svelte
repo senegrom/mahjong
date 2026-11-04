@@ -5,6 +5,7 @@
   import { groupPolicyChoices } from './action-weights.js';
   import { percent } from './ui.js';
   import { valueWords } from './trained-network.js';
+  import { RULE_WORDS, ruleLine, ruleSaid } from './trained-move.js';
   let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
   // A signed estimate of the reward the network learned from, which differs
   // between networks: the words name it and say what it pays.
@@ -22,7 +23,12 @@
 
 {#if analysis}
   <section class="weights" aria-label="Agent decision weights">
-    <div class="recommendation"><strong>{agentName(analysis.agent)}</strong><span>Next choice: {analysis.choice.label}</span>
+    <!-- A move one of the last hand's rules made says "by rule" after it,
+         the rule's line its title, which a screen reader hears in the tag's
+         place: the move's own weight, in the list, did not choose it. -->
+    <div class="recommendation"><strong>{agentName(analysis.agent)}</strong><span>Next choice: {analysis.choice.label}{#if analysis.ruled}<span
+      aria-hidden="true">{' '}· <span class="rule" title={ruleLine(analysis.ruled)}>{RULE_WORDS.tag}</span></span><span
+      class="visually-hidden">{ruleSaid(analysis.ruled)}</span>{/if}</span>
       {#if analysis.value != null}<span class="worth" title={words.title}>{words.label} {worth(analysis.value)}</span>{/if}
     </div>
     {#if analysis.value != null}<p class="reward-help">{words.help}</p>{/if}
@@ -82,6 +88,8 @@
   .weights { padding: 14px; border: 1px solid #d8a12a66; border-radius: 12px; background: #0003; min-width: 0; }
   .recommendation { display: flex; flex-wrap: wrap; gap: 6px 16px; }
   .recommendation > span { color: var(--gold); }
+  /* "by rule", its dotted line saying that its title says more. */
+  .rule { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
   p { font-size: .78rem; line-height: 1.45; opacity: .8; margin: 8px 0 12px; }
   .weight-list { max-height: 360px; overflow-y: auto; }
   .weight-row { position: relative; flex-wrap: wrap; display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 2px solid transparent; border-top-color: #ffffff15; border-radius: 8px; font-size: .82rem; margin-bottom: 4px; }

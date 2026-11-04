@@ -8,6 +8,7 @@
   import { decisionInBrief, decisionKey, moveToken, sameMove, seatNotes } from './game-review.js';
   import { TAG_SAID, callLabel, callTiles, percent, pressedByKeyboard, quadOnOffer } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
+  import { ruleLine } from './trained-move.js';
 
   /**
    * The decision the review is on, `step` of `hand`: the table as it stood
@@ -35,12 +36,17 @@
    * With the other players' tiles kept back (`tilesHidden`) the opponents'
    * hands lie face down in their racks.
    *
-   * Where the player threw one tile and Trained AI another, the view ends
-   * with why Trained AI chose its own and what would have changed its mind
-   * (ReviewInsight), from the match's reasoning (`insight`), its search timed
-   * by the review's own time a position (`positionMs`) and offered while
-   * Trained AI can be reached (`trainedAvailable`). Being part of the view,
-   * it waits with it while Trained AI's move is kept back.
+   * Where one of the last hand's rules made Trained AI's move, the view says
+   * so in the rule's own line, over weights that stay the network's: they did
+   * not choose the move, which often has little of them.
+   *
+   * Where the player threw one tile and Trained AI another, no rule making
+   * its move, the view ends with why Trained AI chose its own and what would
+   * have changed its mind (ReviewInsight), from the match's reasoning
+   * (`insight`), its search timed by the review's own time a position
+   * (`positionMs`) and offered while Trained AI can be reached
+   * (`trainedAvailable`). Being part of the view, it waits with it while
+   * Trained AI's move is kept back.
    */
   let { hand, step, hints = true, moveHidden = false, tilesHidden = false, pick = null, onpick = () => {}, insight = null, positionMs = null,
     trainedAvailable = true } = $props();
@@ -151,13 +157,19 @@
   // The moves the numbers compare, each once and only where the review
   // measured it: the player's, the one they picked and Trained AI's. A pick
   // the review did not measure, as it measures every move only where the
-  // decision is flagged, has no column, and the others keep theirs.
+  // decision is flagged, has no column, and the others keep theirs. Nor has
+  // a move that throws the tile of a column before it, a riichi beside the
+  // plain discard of its tile, as where a rule threw undeclared the tile the
+  // player declared riichi on: the review measures the tile thrown, so the
+  // column would repeat the other's numbers.
+  const thrown = move => (['discard', 'riichi'].includes(move.kind) ? move.tile : null);
   let compared = $derived(!shown ? [] : [
     { move: played, title: 'You' },
     ...(now && !sameMove(now, played.kind, played.tile) && !sameMove(now, advised.kind, advised.tile) ? [{ move: now, title: 'Now' }] : []),
     ...(!sameMove(advised, played.kind, played.tile) ? [{ move: advised, title: 'Trained AI' }] : []),
   ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null }))
-    .filter(entry => entry.measure));
+    .filter(entry => entry.measure)
+    .filter((entry, at, kept) => !thrown(entry.move) || !kept.slice(0, at).some(other => thrown(other.move) === thrown(entry.move))));
 
   function marked(choice) {
     return [advised, played, now].some(move => move && sameMove(choice, move.kind, move.tile));
@@ -204,10 +216,12 @@
   {#if shown}
     <!-- Trained AI's view of the move made at the step, which the review
          holds for every decision it was asked about: each move open there by
-         its weight, tagged as the hand tags its tiles. -->
+         its weight, tagged as the hand tags its tiles, and the line of the
+         rule that made Trained AI's move, where one did, agreed or not. -->
     <section class="view" aria-labelledby="view-title" data-view>
       <h3 id="view-title">Trained AI's view</h3>
-      {#if stage === 'tile'}<p class="note">Both declared riichi: tiles compared given riichi.</p>{/if}
+      {#if shown.ruled}<p class="note" data-rule>{ruleLine(shown.ruled)}.</p>
+      {:else if stage === 'tile'}<p class="note">Both declared riichi: tiles compared given riichi.</p>{/if}
 
       <div class="weights" role="list" aria-label="Trained AI's weight for each move">
         {#each rows as row, index (index)}

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'svelte/server';
 import { stepSaid } from '../src/lib/game-review.js';
+import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
 
@@ -131,6 +132,33 @@ test("a move the player picked before the answer was shown is given as Now, with
   assert.equal(line(bar({ step: 0, decision: decision(0, calls[0]), pick: { kind: 'pon', tile: null } })).said,
     "On South's : You Pass 0.3% · Now Pon 99.0% · Trained AI Pon 99.0%");
   assert.doesNotMatch(html, /data-reveal/, 'picking showed the answer');
+});
+
+test("a move one of the last hand's rules made is given \"by rule\" in place of its weight, the rule's line its title, the player's move and their pick too where they are that move", () => {
+  // South 4: the player declared riichi on the 9 circles, which Trained AI
+  // threw undeclared, the tile keeping it first through every win.
+  const view = { ...turn, wall: 30, seats: [seat('north', { turn: true, drawn: '9p' }), seat('east'), seat('south'), seat('west')] };
+  const choices = [choice('discard', '9p', 'discards the 9 circles', 0.01), choice('discard', '3s', 'discards the 3 bamboo', 0.02),
+    choice('riichi', '9p', 'declares riichi on the 9 circles', 0.97, 1)];
+  const last = { index: 7, name: 'South 4', frames: [frame(view, choices, 'riichi', '9p'), frame(view, choices, 'discard', '9p')] };
+  const ruled = (step, values = {}) => ({ played_kind: last.frames[step].played.kind, played_tile: last.frames[step].played.tile,
+    advised_kind: 'discard', advised_tile: '9p', advised: 'discards the 9 circles', agreed: false, forced: false,
+    judgement: { stage: 'rule', flagged: false }, weighted: choices, ruled: { rules: [DAMA_RULE] }, ...values });
+  const at = (step, decision, values = {}) => render(ReviewStepBar, { props: { hand: last, step, decision, previous: null, next: null,
+    onstep() {}, ...values } }).body;
+  const html = at(0, ruled(0));
+  assert.deepEqual(line(html), { said: 'You Riichi 97.0% · Trained AI by rule', tiles: ['9 circles', '9 circles'] });
+  assert.match(html, /<span class="rule[^"]*" title="Last hand: every win keeps it first, so no riichi">by rule<\/span>/);
+  assert.ok(html.includes(`role="status" data-step-said="">${stepSaid({ hand: last, step: 0, decision: ruled(0) })}</p>`));
+  // Agreed, the player's move is the rule's.
+  assert.deepEqual(line(at(1, ruled(1, { agreed: true, judgement: null }))), { said: 'You by rule · Trained AI agreed', tiles: ['9 circles'] });
+  // A pick of the rule's move is too; where both rules made it, the title
+  // gives both lines, decline's first.
+  const picked = at(0, ruled(0, { ruled: { rules: [DECLINE_RULE, DAMA_RULE] } }), { pick: { kind: 'discard', tile: '9p' } });
+  assert.equal(line(picked).said, 'You Riichi 97.0% · Now by rule · Trained AI by rule');
+  assert.equal((picked.match(/title="Last hand: this win would leave it last · Last hand: every win keeps it first, so no riichi">by rule</g) ?? []).length, 2);
+  // Trained AI's move kept back: neither its weight nor its rule.
+  assert.deepEqual(line(at(0, ruled(0), { moveHidden: true })), { said: 'You Riichi · Trained AI ? Show answer', tiles: ['9 circles'] });
 });
 
 test('Next, waiting for the answers of the hand on show, says it is disabled but is not disabled outright, so that it keeps its focus', () => {

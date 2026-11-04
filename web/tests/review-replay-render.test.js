@@ -8,6 +8,7 @@ import { text } from './fixtures/markup-text.js';
 import { MatchReview, filterCounts, moveToken, moveWeight, sameMove, stepSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
+import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 import { callLabel, percent, quadOnOffer } from '../src/lib/ui.js';
 import { componentLoader } from './fixtures/load-component.js';
 
@@ -355,6 +356,46 @@ test("Trained AI's view gives each move as its tile or word, tagged as the hand 
     }
   }
   assert.ok(tables > 0, 'some decision compares what each move leaves');
+});
+
+test("where one of the last hand's rules made Trained AI's move, its view says so in the rule's line, and no column of What each move leaves repeats another's tile", () => {
+  // The game's player calls every set, so never declares riichi: a turn of
+  // theirs is made over as a riichi on the tile they threw, which a rule
+  // would have thrown undeclared, Trained AI's move the plain discard.
+  const at = everyDecision.find(({ frame, decision }) => frame.view.phase === 'act' && frame.played.kind === 'discard' && !decision.forced
+    && decision.weighted.some(choice => choice.kind === 'discard' && choice.tile !== frame.played.tile));
+  assert.ok(at, 'a turn with a choice of tiles');
+  const tile = at.frame.played.tile, plain = at.decision.weighted.find(choice => sameMove(choice, 'discard', tile));
+  const other = at.decision.weighted.find(choice => choice.kind === 'discard' && choice.tile !== tile);
+  // The review measures the tile thrown, so a riichi and the plain discard
+  // of its tile have the same numbers.
+  const numbers = { shanten: 0, acceptance: 4, danger: 'quiet', dora: 0 };
+  const ruled = (advised, values = {}) => ({ ...at.decision, played_kind: 'riichi', played_tile: tile, advised_kind: advised.kind,
+    advised_tile: advised.tile, advised: advised.label, agreed: false, ruled: { rules: [DAMA_RULE] }, judgement: { stage: 'rule', flagged: false },
+    measures: [{ kind: 'riichi', tile, ...numbers }, { kind: advised.kind, tile: advised.tile, ...numbers }], ...values });
+  const view = decision => {
+    const entry = { ...at.entry, frames: at.entry.frames.map((each, step) => (step === at.step ? { ...each, played: { kind: decision.played_kind, tile } } : each)),
+      decisions: at.entry.decisions.map((each, step) => (step === at.step ? decision : each)) };
+    return /<section class="view[^"]*"[^>]*data-view="">([^]*?)<\/section>/.exec(render(DecisionReplay, { props: { hand: entry, step: at.step } }).body)[1];
+  };
+  const note = markup => /<p class="note[^"]*" data-rule="">([^<]*)<\/p>/.exec(markup)?.[1] ?? null;
+  const thrown = view(ruled(plain));
+  assert.equal(note(thrown), 'Last hand: every win keeps it first, so no riichi.');
+  assert.doesNotMatch(thrown, /Both declared riichi/);
+  // One column left, the player's, so no table.
+  assert.doesNotMatch(thrown, /What each move leaves/);
+  // Another tile has a column of its own.
+  const heads = markup => [...(/<details class="numbers[^"]*"[^>]*>([^]*?)<\/details>/.exec(markup)?.[1] ?? '')
+    .matchAll(/<th scope="col"[^>]*>([^<]*)/g)].map(match => match[1]).filter(Boolean);
+  assert.deepEqual(heads(view(ruled(other))), ['You', 'Trained AI']);
+  // Both rules, decline's line first; agreed, the line all the same.
+  assert.equal(note(view(ruled(plain, { ruled: { rules: [DECLINE_RULE, DAMA_RULE] } }))),
+    'Last hand: this win would leave it last · Last hand: every win keeps it first, so no riichi.');
+  assert.equal(note(view(ruled(plain, { played_kind: 'discard', agreed: true, judgement: null }))),
+    'Last hand: every win keeps it first, so no riichi.');
+  // No rule, no line.
+  assert.equal(note(view(at.decision)), null);
+  assert.doesNotMatch(view(at.decision), /Last hand/);
 });
 
 test("the list gives each decision of a reviewed hand a line with the player's move and Trained AI's, its name saying both in words", () => {
