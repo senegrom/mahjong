@@ -300,6 +300,19 @@ class CloudLaunchTests(unittest.TestCase):
                 self.assertNotIn("--seat-share", command)
                 self.assertEqual((self.manifest["opponent_share"], self.manifest["seat_share"]), (0.25, 0.0))
 
+    def test_the_last_hand_rules_are_passed_on_only_when_asked(self):
+        """The joined player's launch names the rules of the last hand its
+        learner's self-play is played by only when asked, in their own
+        order, beside the reach's preview they need."""
+        command = self.launch("train_combined", preview_reach=True)
+        self.assertNotIn("--last-hand-rules", command)
+        command = self.launch("train_combined", preview_reach=True,
+                              last_hand_rules=["decline-last", "all-last-dama"])
+        at = command.index("--last-hand-rules")
+        self.assertEqual(command[at + 1:at + 3], ["all-last-dama", "decline-last"])
+        self.assertTrue(command[at + 3].startswith("--"))
+        self.assertIn("--preview-reach", command)
+
 
 class Seated:
     """What the trainers load for a seated other; never asked to play here."""

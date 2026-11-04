@@ -38,9 +38,13 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from . import block_convolution, combined, host, place_model, play_graphs, policy_inference, ppo_loop, selfplay
+from . import (
+    block_convolution, combined, host, place_model, play_graphs, policy_inference, ppo_loop, selfplay,
+    selfplay_rules,
+)
 from .behavior import validate_exploration
 from .checkpoints import atomic_save
+from .cloud_requests import LAST_HAND_RULES, RULE_CHECK_EXIT, RULE_CHECK_FILE
 from .observe import pad_rows
 from .population import Population
 from .ppo_control import PolicyDrift, StepGuard, add_training_controls, baseline_batch_size
@@ -208,7 +212,9 @@ def value_round(passing, rollout: ppo_loop.Round, batch, rows: int, args: argpar
     (see `ppo_loop.baseline_of`). For a round played ahead (`lagged`), which
     always gets the pass, the pass also reads the probability the learner
     as it stands gives each move made, which the drift guard counts from
-    (`begun`, see `ppo_epochs`).
+    (`begun`, see `ppo_epochs`); and so it does for a round played by the
+    last hand's rules (`batch.ruled`), played ahead or not, whose rules'
+    moves `check_ruled` reads there.
 
     With `keep`, the pass keeps Mortal's vector of each decision as it
     works it out: in a generation that holds Mortal still, the vector the
@@ -219,10 +225,15 @@ def value_round(passing, rollout: ppo_loop.Round, batch, rows: int, args: argpar
     None, having no room for them.
 
     Answers the baseline, the seconds it took, what the record says of it,
-    `begun`, None for a round the learner played itself, and the vectors
-    kept, None where none were. A function of its own, apart from `main`,
-    so that a test can run the trainer's own pass on a card."""
-    begun = torch.empty(rollout.decisions, device=rollout.device) if lagged else None
+    the log-probabilities the pass read, None for a round the learner
+    played itself without the rules or one valued from play, which gets no
+    pass, and the vectors kept, None where none were. A function of its
+    own, apart from `main`, so that a test can run the trainer's own pass
+    on a card."""
+    read = (torch.empty(rollout.decisions, device=rollout.device)
+            if lagged or getattr(batch, "ruled", None) is not None else None)
+    # Whether the pass ran: a round valued from play gets none.
+    passed: list[bool] = []
     # The vectors' tensor once the first chunk has asked for it, or None
     # where there was no room for it.
     kept: list[torch.Tensor | None] = []
@@ -232,10 +243,11 @@ def value_round(passing, rollout: ppo_loop.Round, batch, rows: int, args: argpar
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
             logits, value, phi = passing(planes, mask)
         taken = rollout.actions[chunk]
-        if begun is not None:
-            begun[chunk] = torch.distributions.Categorical(
+        if read is not None:
+            read[chunk] = torch.distributions.Categorical(
                 logits=logits[: len(taken)].float(), validate_args=False
             ).log_prob(taken)
+        passed.append(True)
         if keep is not None:
             if not kept:
                 kept.append(keep((rollout.decisions, *phi.shape[1:]), phi.dtype))
@@ -258,7 +270,7 @@ def value_round(passing, rollout: ppo_loop.Round, batch, rows: int, args: argpar
         from_play=args.baseline_from_play and not lagged,
         check=args.check_baseline, dtype=dtype,
     )
-    return guess, valued, said, begun, (kept[0] if kept else None)
+    return guess, valued, said, (read if passed else None), (kept[0] if kept else None)
 
 
 def optimiser_groups(net: combined.Combined, args) -> list[dict]:
@@ -519,6 +531,83 @@ def placement_fields(place, ledger, returns: torch.Tensor, guess: torch.Tensor, 
     return fields
 
 
+#: How far from certain, in nats, the baseline pass may read a decision a
+#: rule of the last hand made (`check_ruled`): its forward, compiled in
+#: bfloat16 on the card, could give back a one-move row's log-probability a
+#: hair from nought. The gradient through such a row is exactly nought
+#: either way: its learning forward has one finite logit.
+RULED_BEGUN_TOLERANCE = 1e-6
+
+
+def check_rules_played(batch, rules: tuple[str, ...]) -> None:
+    """A round of a run played by the last hand's `rules`, refused unless it
+    says it was played by exactly those: a round that lost them, as one from
+    an app deployed without them would, or was played by others, is never
+    learned as though it had them."""
+    report = getattr(batch, "rules", None)
+    if report is None or getattr(batch, "ruled", None) is None:
+        raise selfplay_rules.RuleCheckFailed(
+            f"the round was played without the last hand's rules, and the run is played by {', '.join(rules)}")
+    if list(report.get("rules") or []) != list(rules):
+        raise selfplay_rules.RuleCheckFailed(
+            f"the round was played by the last hand's rules {report.get('rules')}, and the run by {list(rules)}")
+
+
+def check_ruled(batch, rollout: ppo_loop.Round, begun: torch.Tensor | None) -> float | None:
+    """Before a round is learned, every decision a rule of the last hand made
+    (`batch.ruled`), read by the learner as a move of probability one: its
+    mask holds exactly one move, its action, and its recorded log-probability
+    is exactly nought, so the learning forward, which has one finite logit
+    there, gives it probability one whatever the weights, and it adds nothing
+    to the policy's gradient, its entropy, the drift guard or the clipped
+    fraction. The baseline pass's log-probability of each (`begun`, which
+    `value_round` reads for every round played by the rules that gets the
+    pass, played ahead or not) is within `RULED_BEGUN_TOLERANCE` of nought
+    too. Answers the largest distance the pass read, nought where there was
+    no pass to read (a round valued from play, `--baseline-from-play`), or
+    None for a round played without the rules; refuses the round with
+    `selfplay_rules.RuleCheckFailed` otherwise."""
+    ruled = getattr(batch, "ruled", None)
+    if ruled is None:
+        return None
+    if len(ruled) != rollout.decisions:
+        raise selfplay_rules.RuleCheckFailed(
+            f"the round flagged {len(ruled)} decisions as a rule's or not, and holds {rollout.decisions}")
+    flagged = ruled.to(device=rollout.device, dtype=torch.bool)
+    count = int(flagged.sum())
+    if not count:
+        return 0.0
+    legal = rollout.legal[flagged]
+    taken = rollout.actions[flagged]
+    alone = (legal.sum(dim=1) == 1) & legal.gather(1, taken.unsqueeze(1)).squeeze(1)
+    certain = rollout.old_log_probs[flagged] == 0
+    largest = float(begun[flagged].abs().max()) if begun is not None else 0.0
+    problems = []
+    if not bool(alone.all()):
+        problems.append(f"{int((~alone).sum())} whose mask holds other moves than its action")
+    if not bool(certain.all()):
+        problems.append(f"{int((~certain).sum())} recorded at a log-probability other than nought")
+    if not largest <= RULED_BEGUN_TOLERANCE:
+        problems.append(f"one the baseline pass reads {largest} nats from certain")
+    if problems:
+        raise selfplay_rules.RuleCheckFailed(
+            f"of the round's {count} decisions a rule of the last hand made, " + "; ".join(problems)
+            + ": the policy would learn from a move it did not choose")
+    return largest
+
+
+def stop_on_rule_check(out: Path, failure: Exception) -> None:
+    """Ends the trainer on a failed check of the last hand's rules, the round
+    it failed on neither learned nor saved: why, written to the workspace
+    (`cloud_requests.RULE_CHECK_FILE`) and printed, and the exit code the
+    cloud's trainer runner takes for it (`RULE_CHECK_EXIT`), which ends the
+    call rather than have Modal retry the same round to the same end."""
+    message = str(failure) or type(failure).__name__
+    (out / RULE_CHECK_FILE).write_text(message + "\n", encoding="utf-8")
+    print(f"stopped: rule check failed: {message}", flush=True)
+    raise SystemExit(RULE_CHECK_EXIT)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ours", type=Path, default=None, help="our checkpoint to start from")
@@ -608,6 +697,15 @@ def parse_args() -> argparse.Namespace:
         "instead of telling the follower the reach and asking again: one forward where there "
         "were two. The same questions from the same states; the answers come from a larger "
         "batch, which in bfloat16 can move them in their last bits. Off by default",
+    )
+    parser.add_argument(
+        "--last-hand-rules", nargs="*", choices=LAST_HAND_RULES, default=[],
+        help="play the joined player's own self-play, in every seat it holds, by these rules of the "
+        "last hand, each reading the move drawn: decline-last declines a win that would leave it alone "
+        "in last, then all-last-dama throws undeclared a reach's tile that keeps it first. Each move a "
+        "rule plays is recorded alone, at probability one, so the policy learns nothing from it and the "
+        "critic still learns its position (see neural/selfplay_rules.py). Needs --preview-reach. The "
+        "seated others and the measurement play plain. None by default",
     )
     parser.add_argument(
         "--baseline-from-play", action="store_true",
@@ -738,6 +836,15 @@ def parse_args() -> argparse.Namespace:
         # of a single row would have them compiled again, where play asks.
         parser.error("--compile-play compiles play's bigger questions beside the graphs that answer "
                      "its small ones, in bfloat16: it needs --play-graphs and --amp")
+    if args.last_hand_rules:
+        if len(set(args.last_hand_rules)) != len(args.last_hand_rules):
+            parser.error("--last-hand-rules names a rule twice")
+        if not args.preview_reach:
+            # Without the preview a reach is told to the follower before its
+            # tile is drawn, and the rules decide after the tile.
+            parser.error("--last-hand-rules needs --preview-reach, so that nothing of a reach is told "
+                         "before the rules decide")
+        args.last_hand_rules = [name for name in LAST_HAND_RULES if name in args.last_hand_rules]
     check_placement_options(parser, args)
     return args
 
@@ -773,6 +880,14 @@ def check_placement_options(parser: argparse.ArgumentParser, args: argparse.Name
 
 def main() -> None:
     args = parse_args()
+    # The last hand's rules, when the learner's self-play is played by them:
+    # their names and the engine that answers their codes checked before
+    # anything is built.
+    rules = tuple(args.last_hand_rules)
+    if rules:
+        rules = selfplay_rules.require(rules)
+        print(f"self-play by the last hand's rules {', '.join(rules)}, the engine's ALL_LAST_API_VERSION "
+              f"{selfplay_rules.engine_version()}", flush=True)
     device, amp_enabled, log_path = ppo_loop.setup(
         args, lambda options: validate_exploration(options.explore)
     )
@@ -950,7 +1065,10 @@ def main() -> None:
             "training_api_version": TRAINING_API_VERSION,
             "training_controls": {"target_kl": args.target_kl, "baseline_batch": args.baseline_batch,
                                   "explore": args.explore, "ppo_reference": "unforced_policy_rows",
-                                  "seat_share": args.seat_share},
+                                  "seat_share": args.seat_share,
+                                  # Whoever ships the network knows it was
+                                  # trained on games played by these rules.
+                                  **({"last_hand_rules": list(rules)} if rules else {})},
             "smoothed": benchmark.smoothed,
             "best_placement": benchmark.best,
             "optimizer_state": optimiser.state_dict(),
@@ -973,9 +1091,12 @@ def main() -> None:
     def play(player, generation: int, **options):
         """Round `generation`, played by `player`: see `selfplay.play`,
         which `options` are handed on to. A round of a run paid the
-        placement reward keeps the ledger it is settled from."""
+        placement reward keeps the ledger it is settled from, and one of a
+        run played by the last hand's rules is played by them."""
         if place is not None:
             options["ledger"] = True
+        if rules:
+            options["last_hand_rules"] = rules
         return selfplay.play(
             player,
             games=args.games,
@@ -1042,6 +1163,8 @@ def main() -> None:
             # The learning begins: with --play-ahead, beside the next round
             # until that round is done (see `ppo_loop.LearningClock`).
             learning = ppo_loop.LearningClock()
+            if rules:
+                check_rules_played(batch, rules)
             require_trainable_round(batch.decisions, args.batch, args.epochs)
             # A run paid the placement reward settles the round now, by the U
             # it has as the round is learned, and keeps the round's hand
@@ -1067,9 +1190,10 @@ def main() -> None:
             # (see `value_round`). For a round played ahead, the pass also
             # reads the probability the learner as it stands gives each move
             # made (`begun`), which the drift guard counts from (see
-            # `ppo_epochs`).
+            # `ppo_epochs`); for a round played by the last hand's rules,
+            # played ahead or not, too, for `check_ruled`.
             rows = baseline_batch_size(batch.decisions, args.batch, args.baseline_batch)
-            guess, valued, baseline_said, begun, played_phi = value_round(
+            guess, valued, baseline_said, read, played_phi = value_round(
                 passing, rollout, batch, rows, args, planes_dtype, amp_enabled, lagged=lagged,
                 # Mortal's vectors on the card beside the step, or not at
                 # all: gathered from the host every minibatch they would
@@ -1079,6 +1203,11 @@ def main() -> None:
                                        spare=None if ahead is None else ahead.spare())
                 if reusing else None,
             )
+            begun = read if lagged else None
+            # Every decision a rule of the last hand made, read by the learner
+            # as a move of probability one before anything is learned (see
+            # `check_ruled`); None for a round played without the rules.
+            ruled_begun = check_ruled(batch, rollout, read)
             value_error = float(((rollout.returns - guess) ** 2).mean())
             advantages, spread = ppo_loop.standardised(rollout.returns, guess)
 
@@ -1211,8 +1340,18 @@ def main() -> None:
                 # own recent past while losing to the fine-tuned Mortal is
                 # specialisation, and an average is what hides it.
                 matchups=getattr(batch, "matchups", None),
+                # The last hand's rules, when the round was played by them:
+                # what each judged and fired at, and the seconds they took.
+                **({"last_hand_rules": selfplay_rules.recorded(batch.rules, ruled_begun or 0.0)}
+                   if getattr(batch, "rules", None) is not None else {}),
             )
             ppo_loop.finish(args, generation, entry, measure, checkpoint_payload, benchmark, log_path)
+    except selfplay_rules.RuleCheckFailed as failure:
+        # A check of the last hand's rules refused the round, here or on the
+        # worker that played it ahead, whose error the round's `take`
+        # raises as it was: nothing of it is learned or saved, and the
+        # trainer ends saying why (see `stop_on_rule_check`).
+        stop_on_rule_check(args.out, failure)
     finally:
         if ahead is not None:
             # A round still being played here is one the learning failed

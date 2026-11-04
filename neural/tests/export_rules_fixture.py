@@ -33,13 +33,12 @@ space, a win above 0.999 struck from a row whose other moves hesitate is not
 such a tie. Each kind of firing must be met often enough (`MINIMUM`), so that
 a fixture that exercises nothing fails.
 
-Where the learner can be played by the rules (the `rules` of
-`mortal_learner.decide_in_mortal_space`, from feature/train-with-rules), every
-case is played a second way: on the plain answers, the learner never averaging,
-by its greedy play with both rules, against the composed wrappers with the
-average off; the moves, both rules' firings and the reaches dama left
-undeclared after a declined self-draw must agree. Without it, that
-comparison is skipped, and said to be.
+The learner is played by the rules too (the `rules` of
+`mortal_learner.decide_in_mortal_space`, `neural.selfplay_rules`), so every
+case is played a second way: on the plain answers, the learner never
+averaging, by its greedy play with both rules, against the composed wrappers
+with the average off; the moves, both rules' firings, the reaches dama left
+undeclared after a declined self-draw and the rule that refuses must agree.
 
 Run by CI's worker job, which publishing waits on:
 `python -m neural.tests.export_rules_fixture <folder>`. Written for Python
@@ -49,8 +48,6 @@ Run by CI's worker job, which publishing waits on:
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
-import inspect
 import json
 from pathlib import Path
 import sys
@@ -58,8 +55,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import riichi_py
+import torch
 
-from neural import all_last, late_rules, suits, zoo
+from neural import all_last, late_rules, mortal_learner, selfplay_rules, suits, zoo
+from neural.observe import Planes
 
 #: The random cases' seed, and how many of them are kept.
 SEED = 20261103
@@ -209,21 +208,25 @@ def hesitates(logits: np.ndarray, allowed: np.ndarray) -> bool:
     return bool(suits.top_weight(np.where(allowed, logits, -np.inf)[None])[0] < suits.GATE)
 
 
+def refusing(case: Case, skip_forced: bool, gate: float = suits.GATE) -> str:
+    """The rule that refuses `case`'s codes, where the composed wrappers
+    refuse them: decline's where its wrapper alone refuses them, else
+    dama's."""
+    try:
+        choose(case, skip_forced, gate, dama_too=False)
+    except RuntimeError:
+        return DECLINE_RULE
+    return DAMA_RULE
+
+
 def played(case: Case, skip_forced: bool) -> dict:
     """What the page must do at `case` with `skip_forced` as given: our move,
     its moves in Mortal's space and the rules that fired, in order; or the
-    rule that refused, which is decline's where its wrapper alone refuses
-    the codes, else dama's; and the questions it asks."""
+    rule that refused (`refusing`); and the questions it asks."""
     try:
         choice, dama, decline = choose(case, skip_forced)
     except RuntimeError:
-        try:
-            choose(case, skip_forced, dama_too=False)
-        except RuntimeError:
-            refused = DECLINE_RULE
-        else:
-            refused = DAMA_RULE
-        result = {"move": None, "moves": None, "rules": [], "refused": refused}
+        result = {"move": None, "moves": None, "rules": [], "refused": refusing(case, skip_forced)}
     else:
         rules = [DECLINE_RULE] * decline.fired + [DAMA_RULE] * dama.fired
         result = {"move": choice, "moves": mortal_moves(choice), "rules": rules, "refused": None}
@@ -392,8 +395,7 @@ def hand_written() -> list[Case]:
 def random_rows(rng, n: int) -> np.ndarray:
     """`n` rows of our engine's moves, each a claim window with a ron or a
     turn, with discards, often reaches among them, often a self-draw and now
-    and then a quad. As feature/train-with-rules's
-    neural/tests/test_selfplay_rules.py makes them."""
+    and then a quad. As neural/tests/test_selfplay_rules.py makes them."""
     legal = np.zeros((n, riichi_py.ACTIONS), dtype=bool)
     for row in range(n):
         if rng.random() < 0.35:
@@ -413,8 +415,7 @@ def random_rows(rng, n: int) -> np.ndarray:
 def random_question(rng, legal: np.ndarray):
     """Values for each row and each possible preview, a win and a riichi
     often best, and codes for every reach's tiles and every win. As
-    feature/train-with-rules's neural/tests/test_selfplay_rules.py makes
-    them."""
+    neural/tests/test_selfplay_rules.py makes them."""
     n = len(legal)
     first = rng.normal(size=(n, zoo.MORTAL_ACTIONS)).astype(np.float32)
     first[:, zoo.MORTAL_AGARI] += 2.0 * (rng.random(n) < 0.6)
@@ -541,19 +542,6 @@ def counted(cases: list[Case], results: list[dict]) -> dict[str, int]:
     return {name: int(count) for name, count in counts.items()}
 
 
-def learner():
-    """The learner's own deciding with the last hand's rules, the `rules` of
-    `mortal_learner.decide_in_mortal_space`, and `selfplay_rules`, where this
-    checkout has them, else None."""
-    if importlib.util.find_spec("neural.selfplay_rules") is None:
-        return None
-    from neural import mortal_learner, selfplay_rules
-
-    if "rules" not in inspect.signature(mortal_learner.decide_in_mortal_space).parameters:
-        return None
-    return mortal_learner, selfplay_rules
-
-
 class Followed:
     """Views as the learner's deciding reads them, of `arena`: empty planes
     for whoever is asked, as they stand or with a reach previewed, and a
@@ -567,18 +555,17 @@ class Followed:
         raise AssertionError("a reach is never told: its tile is previewed")
 
     def sparse_and_masks(self, rows, players, fresh=False, after_reach=False):
-        from neural.observe import Planes
-
         n = len(rows)
         return (Planes(np.zeros(n + 1, dtype=np.int64), np.zeros(0, dtype=np.uint16), np.zeros(0, dtype=np.float16)),
                 np.ones((n, MOVES), dtype=bool))
 
 
-def learned(case: Case, mortal_learner, selfplay_rules):
+def learned(case: Case):
     """`case` played by the learner's greedy deciding with both rules, on the
-    plain answers: our engine's move, or None where it refused, and the
-    rules' account."""
-    import torch
+    plain answers: our engine's move, or None where a rule refused the codes
+    (`selfplay_rules.RuleCheckFailed`, and no other error); the rule that
+    refused, dama's where dama was asked, which is only once decline has
+    played, else decline's; and the rules' account."""
 
     def score(_planes, mask):
         allowed = mask.numpy()
@@ -590,26 +577,30 @@ def learned(case: Case, mortal_learner, selfplay_rules):
         choice, _records = mortal_learner.decide_in_mortal_space(
             score, Followed(Codes(case.dama, case.decline)), np.array([0]), np.array([case.player]),
             case.legal[None], greedy=True, device="cpu", timing={}, preview_reach=True, rules=account)
-    except RuntimeError:
-        return None, account
-    return int(choice[0]), account
+    except selfplay_rules.RuleCheckFailed:
+        return None, DAMA_RULE if account.dama_calls else DECLINE_RULE, account
+    return int(choice[0]), None, account
 
 
-def compared(cases: list[Case], mortal_learner, selfplay_rules) -> dict[str, int]:
+def compared(cases: list[Case]) -> dict[str, int]:
     """Every case played by the learner's greedy deciding and by the composed
     wrappers with the average off, on the same plain answers and codes: the
     moves, both rules' firings and the reaches dama left undeclared after a
-    declined self-draw agree, and so do the refusals. What was compared."""
+    declined self-draw agree, and so do the refusals, by the rule that
+    refused. What was compared."""
     assert (selfplay_rules.DAMA, selfplay_rules.DECLINE) == (DAMA_RULE, DECLINE_RULE)
     counts = {"cases": 0, "dama fired": 0, "decline fired": 0, "both": 0, "refused": 0}
     for case in cases:
-        got, account = learned(case, mortal_learner, selfplay_rules)
+        got, refused, account = learned(case)
         try:
             want, dama, decline = choose(case, skip_forced=False, gate=0.0)
         except RuntimeError:
-            assert got is None, f"{case.name}: the wrappers refuse the codes, and the learner plays {got}"
+            rule = refusing(case, skip_forced=False, gate=0.0)
+            assert refused == rule, (f"{case.name}: {rule} refuses the codes in the wrappers, {refused} in the "
+                                     f"learner, which plays {got}")
             counts["refused"] += 1
         else:
+            assert refused is None, f"{case.name}: {refused} refuses the codes in the learner, the wrappers play {want}"
             assert got == want, f"{case.name}: the learner plays {got}, the wrappers {want}"
             fired = (account.dama.fired, account.decline.fired, account.both)
             assert fired == (dama.fired, decline.fired, int(dama.fired and decline.fired)), (
@@ -682,13 +673,8 @@ def main(folder: Path) -> None:
     print(f"Created {len(cases)} cases of the last hand's rules ({len(written_cases)} written by hand, "
           f"{RANDOM_CASES} random, {SURE_WINS} random with a sure win, {arenas} from arenas), each played by the "
           f"composed Python wrappers with skip_forced off and on: {counts[0]} and {counts[1]}")
-    found = learner()
-    if found is None:
-        print("Skipped the comparison with the learner's greedy play: this checkout's "
-              "mortal_learner.decide_in_mortal_space plays no rules (feature/train-with-rules has not merged)")
-    else:
-        print(f"The learner's greedy play by both rules agrees with the composed wrappers, the average off: "
-              f"{compared(cases, *found)}")
+    print(f"The learner's greedy play by both rules agrees with the composed wrappers, the average off: "
+          f"{compared(cases)}")
 
 
 if __name__ == "__main__":

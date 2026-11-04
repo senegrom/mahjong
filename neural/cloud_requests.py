@@ -12,6 +12,43 @@ from numbers import Real
 from pathlib import Path
 from typing import Callable, Sequence
 
+#: The last hand's rules the learner's self-play can be played by
+#: (`train_combined --last-hand-rules`, see `neural/selfplay_rules.py`), in
+#: the order every command line and every record names them.
+LAST_HAND_RULES = ("all-last-dama", "decline-last")
+#: How `train_combined` exits when a check of those rules refused a round:
+#: it learns and saves nothing of the round, and writes why to this file in
+#: its workspace (`--out`). The cloud's trainer runner then ends the call
+#: instead of failing it, so that Modal does not retry the same round (see
+#: `modal_app._run_trainer`).
+RULE_CHECK_EXIT = 75
+RULE_CHECK_FILE = "rule-check-failed.txt"
+
+
+def rule_arguments(rules: Sequence[str] | None, preview_reach: bool) -> list[str]:
+    """`train_combined`'s `--last-hand-rules` as a launch asks for them:
+    nothing for None or none named, so a launch that asks for none runs the
+    command line it always did; otherwise the names in `LAST_HAND_RULES`
+    order. Refused before anything is staged: anything but a list of those
+    names, a name given twice, and any rule without `preview_reach`, which
+    the rules need so that nothing of a reach is told before they decide."""
+    if rules is None:
+        return []
+    if not isinstance(rules, (list, tuple)) or any(not isinstance(name, str) for name in rules):
+        raise ValueError(f"last_hand_rules must be a list of names from {', '.join(LAST_HAND_RULES)}")
+    if not rules:
+        return []
+    unknown = [name for name in rules if name not in LAST_HAND_RULES]
+    if unknown:
+        raise ValueError(f"{', '.join(map(repr, unknown))}: no rule of the last hand the learner can be "
+                         f"played by; they are {', '.join(LAST_HAND_RULES)}")
+    if len(set(rules)) != len(rules):
+        raise ValueError("last_hand_rules names a rule twice")
+    if not preview_reach:
+        raise ValueError("the last hand's rules need preview_reach: without it a reach is told to the "
+                         "follower before its tile is drawn, and the rules decide after the tile")
+    return ["--last-hand-rules", *[name for name in LAST_HAND_RULES if name in rules]]
+
 
 def round_arguments(generations: int, until: int) -> list[str]:
     """A trainer's `--rounds` and `--generations`: `generations` more from

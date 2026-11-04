@@ -69,6 +69,15 @@ class HandStarts:
         self.games = games
         self.count = np.zeros(games, dtype=np.int64)
         self.rows: list[list[int]] = []
+        #: The hand each game is playing now, by game: its stage, East 1 (0)
+        #: to South 4 (7) as `Ledger.stages` numbers them, and its dealer (a
+        #: player), each -1 before the game's first hand has begun; and
+        #: whether any game has begun South 4 yet. What the last hand's
+        #: rules in self-play read to ask the engine only about decisions it
+        #: can answer (see `selfplay_rules.last_hand`).
+        self.stage = np.full(games, -1, dtype=np.int8)
+        self.dealer = np.full(games, -1, dtype=np.int8)
+        self.reached_last = False
 
     def read(self, lines_by_game) -> None:
         for game, lines in enumerate(lines_by_game):
@@ -88,6 +97,9 @@ class HandStarts:
         self.rows.append([game, int(self.count[game]), wind, int(event["kyoku"]), int(event["honba"]),
                           int(event["kyotaku"]), int(event["oya"]), *scores])
         self.count[game] += 1
+        stage = wind * 4 + int(event["kyoku"]) - 1
+        self.stage[game], self.dealer[game] = stage, int(event["oya"])
+        self.reached_last = self.reached_last or stage == STAGES - 1
 
     def current(self, games: np.ndarray) -> np.ndarray:
         """The hand each of `games` is playing now: the last one begun."""

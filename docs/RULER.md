@@ -349,7 +349,11 @@ than the plain arm's, every one a table the rule fired at, and 126 deals were
 placed otherwise, 88 better and 38 worse. The rule weighs only the player's
 own wins: not declaring also changes how the others play, who see no reach,
 and leaves the player free to change its hand later, so the series measures
-the net. The project keeps the rule, though nothing but a ruler plays it yet.
+the net. The project keeps the rule. The training plays it too, in the
+learner's own self-play, at the tile each reach draws, when told
+(`train_combined --last-hand-rules`, see docs/TRAINING_SAFETY.md, "The last
+hand's rules in self-play"), and so does the site's Trained AI
+(`web/src/lib/trained-move.js`, [Agent modes](AGENT_MODES.md)).
 
 ## Late-game rules
 
@@ -607,9 +611,13 @@ worse: at seed 10,100,030, deal 928 (table 3928), the dealer ended a place
 lower with the rule than without it.
 
 Each rule was measured alone, 2610 with it against 2610 plain at published
-Mortal's table; the all-last dama rule and `decline-last` were never played
+Mortal's table; the all-last dama rule and `decline-last` were never measured
 together. The project keeps those two, the dama rule (+0.0010) and
-`decline-last` (+0.0009), though nothing but a ruler plays either yet.
+`decline-last` (+0.0009). The training plays both together, decline first, in
+the learner's own self-play when told (`train_combined --last-hand-rules
+all-last-dama decline-last`, see docs/TRAINING_SAFETY.md, "The last hand's
+rules in self-play"), and so does the site's Trained AI
+(`web/src/lib/trained-move.js`, [Agent modes](AGENT_MODES.md)).
 `wide-dama` adds nothing measurable over the dama rule (+0.0001 +- 0.0001),
 and `dealer-noten` reads level (-0.00001 +- 0.00001: one deal of 20,000 placed
 worse). So both were dropped.
