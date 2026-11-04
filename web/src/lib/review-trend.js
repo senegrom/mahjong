@@ -13,7 +13,13 @@
  * (`suits`), and a game judged so differs from one judged plain as another
  * version's would, if less: so it too is entered beside a plain entry of the
  * same game, and compared only with games judged alike. A game entered before
- * then says nothing, and counts as judged plain. */
+ * then says nothing, and counts as judged plain.
+ *
+ * The last hand's rules (trained-move.js) are not marked so. Averaging changed
+ * 3.2 moves a game; the rules make about one decision in 32 of a player's
+ * games, by 2610's own series, and change at most that decision's agreement.
+ * A mark would set every game judged before them apart, dropping a returning
+ * player's history from the figure, for a difference it could not show. */
 export const TREND_KEY = 'riichi.review-trend.v1';
 const VERSION = 1;
 /** The games kept, the newest last. */

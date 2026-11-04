@@ -23,7 +23,10 @@
  * (average). Every place the page asks Trained AI asks so, so that it is one
  * player everywhere: the opponents, the adviser, the hand's notes, the game's
  * review and its reasoning. Its value and its belief about the other hands
- * stay the plain answer's. */
+ * stay the plain answer's. All but the reasoning ask through trained-move.js,
+ * the layer around this one, which plays the last hand's rules over the
+ * averaged answer; the reasoning explains the network's own weights, and
+ * leaves out a table where a rule would decide. */
 
 /** The plain answer's top weight below which a question is asked of the
  * renamed game too: neural/suits.py's GATE. */

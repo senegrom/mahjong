@@ -83,18 +83,37 @@ logits (the square root of each move's two weights multiplied, normalised),
 each question on its own answer, a riichi's tile included. Play's opponents,
 Watch's trained seats, the adviser in Watch, guided and physical play, the
 hand's notes, the game's review and its reasoning all ask so, so Trained AI is
-one player everywhere; the value and the belief stay the first answer's. About
+one player everywhere, but for the last hand's rules, which the reasoning
+leaves out (below); the value and the belief stay the first answer's. About
 one question in six is asked twice. Saves, replays and the exported log are
 unchanged: a save keeps the move played, which the plain mask allows.
+
+In South 4, the last hand, Trained AI then plays the two rules the ruler kept
+for 2610 over its averaged answer, in the training's order, greedily, as the
+ruler plays them: decline-last, which declines a win that would leave it
+alone in last, a ron for the pass and a self-draw for its best other move
+([Ruler](RULER.md#declining-a-win-that-leaves-the-player-last-decline-last));
+then all-last dama, which throws a riichi's tile undeclared where that tile
+keeps it first through every win ([Ruler](RULER.md#all-last-dama)). The
+engine says which wins do; the page plays the rules in one place
+(`lib/trained-move.js`), for every place above but the reasoning, whichever
+network it plays. A move whose codes no legal move could have would be the
+engine's fault, and is refused: "A last-hand rule could not be applied". The
+adviser's **Next choice** says **by rule** where a rule made the move, the
+rule's line its title; the weights shown stay the network's. The reasoning
+explains the network's own weights: it is not offered at a decision a rule
+made, and its search leaves out an edited table where a rule would decide.
+Saves record the move played, a riichi thrown undeclared as a plain discard.
 
 Riichi is one row for the declaration, carrying the network's weight for
 declaring, with its candidate discards beneath it. Each candidate's
 `conditionalWeight` is the answer to the second question a declaration asks,
-which is put only when the network chose riichi; otherwise the candidates show
-as not evaluated, never as zero, and no extra request is made to score them.
-The two stages are never multiplied into one weight, and the network's own
-answer stays the advice whatever the rows show. The declaration row is not a
-button: a discard must still be chosen and confirmed.
+which is put only where the move is a riichi, the network's or one
+decline-last left; otherwise the candidates show as not evaluated, never as
+zero, and no extra request is made to score them. The two stages are never
+multiplied into one weight, and Trained AI's move stays the advice whatever
+the rows show. The declaration row is not a button: a discard must still be
+chosen and confirmed.
 
 The value is the network's estimate of the reward it learned from, which the
 model manifest records for each network as its trainer was given it, so it is

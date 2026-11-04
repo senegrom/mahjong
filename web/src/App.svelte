@@ -313,9 +313,10 @@
   });
 
   const callbacks = {
-    // Greedy: the opponent plays its best move, not a sample of them. Its
-    // weights say whether it hesitates, and the renamed game is then asked
-    // too (MatchSession.trainedMove).
+    // Greedy: the opponent plays its best move, by the last hand's rules
+    // where they apply, not a sample of them. Its weights say whether it
+    // hesitates, and the renamed game is then asked too
+    // (MatchSession.trainedMove).
     ai: (planes, mask, signal) => analyzePolicy(planes, mask, signal),
     onChange: update,
     onSave: (snapshot) => matchStore.save(snapshot),

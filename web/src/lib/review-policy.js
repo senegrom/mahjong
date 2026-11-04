@@ -16,11 +16,12 @@ import { reviewTable, trainedMoves } from './trained-move.js';
  * `batch`, `{ size(), analyze(positions, signal) }`, and asks as many
  * positions as `size()` says in one forward pass, asked again before each,
  * since the review sizes its passes by the speed it measures as it goes;
- * then those it hesitates over, renamed, in another; then the second
- * question of every declaration among them, and those of these it hesitates
- * over, the same way. Either way each decision is judged the same. With
- * `skipForced`, a decision with one legal move is answered without the
- * network: the weights over one move are that move's whole. */
+ * then those it hesitates over, renamed, in another; then the tile of every
+ * riichi among their moves, the network's or one decline-last left, and
+ * those of these it hesitates over, the same way. Either way each decision
+ * is judged the same. With `skipForced`, a decision with one legal move is
+ * answered without the network: the weights over one move are that move's
+ * whole. */
 const aborted = signal => {
   if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
 };
