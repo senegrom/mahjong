@@ -158,6 +158,34 @@ class FirstLegalDecider(FirstLegal):
         return chosen, records
 
 
+class TwiceRecordingDecider(FirstLegalDecider):
+    """FirstLegalDecider recording every step's first row twice, as a
+    riichi is recorded: two decisions from one row, the reach and the tile
+    it throws. `sizes` keeps how many records each step made, so a test can
+    find each pair: a step's first record and its last; and `games` the
+    game of each step's rows, so a test can tell a step whose slots no
+    longer name its games, once a game has finished."""
+
+    def __init__(self):
+        self.sizes = []
+        self.games = []
+
+    def decide(self, views, rows, players, legal, greedy=False, **_exploration):
+        from neural.observe import Planes
+
+        chosen, records = super().decide(views, rows, players, legal, greedy)
+        n = len(rows)
+        records.planes = Planes(np.zeros(n + 2, dtype=np.int64), np.zeros(0, dtype=np.uint16),
+                                np.zeros(0, dtype=np.float16))
+        records.masks = np.concatenate([records.masks, records.masks[:1]])
+        records.actions = np.concatenate([records.actions, records.actions[:1]])
+        records.log_probs = np.zeros(n + 1, dtype=np.float32)
+        records.slots = np.concatenate([np.arange(n), [0]])
+        self.sizes.append(n + 1)
+        self.games.append(np.asarray(rows).copy())
+        return chosen, records
+
+
 NATIVE_ARENA = riichi_py.Arena
 
 
@@ -202,6 +230,19 @@ class LabelsAreReadOnlyWhenWanted(unittest.TestCase):
             batch = selfplay.play(net, games=2, seed=SEED, device="cpu", **kwargs)
         return batch, made[0].calls
 
+    def assert_hidden_hands_are_held(self, batch):
+        """The oracle's first twelve planes, each opponent's concealed tiles
+        as four planes of a copy each, say what `held` says each opponent
+        held, as shares of their hand, record by record: both were taken
+        from the game that owed the record's decision."""
+        oracle = batch.oracle.numpy().astype(np.float64)
+        counts = oracle[:, :12].reshape(len(oracle), riichi_py.OPPONENTS, 4, riichi_py.POSITIONS).sum(axis=2)
+        totals = counts.sum(axis=2, keepdims=True)
+        held = batch.held.numpy()
+        self.assertEqual(held.shape, counts.shape)
+        self.assertTrue((totals > 0).all())
+        np.testing.assert_allclose(held, counts / totals, rtol=0, atol=1e-6)
+
     def test_a_learner_that_decides_for_itself_gets_what_it_asks_for(self):
         plain, calls = self.play(FirstLegalDecider())
         self.assertEqual(calls["oracle"], 0)
@@ -222,6 +263,69 @@ class LabelsAreReadOnlyWhenWanted(unittest.TestCase):
         self.assertGreater(calls["opponent_hands"], 0)
         for name in ("held", "oracle"):
             self.assertEqual(len(getattr(batch, name)), batch.decisions, name)
+
+    def test_a_learner_that_decides_for_itself_keeps_the_oracle_when_asked(self):
+        """`keep_oracle` gives such a learner a row of the oracle's planes
+        for every decision, in bytes of nought and one, and changes no move,
+        no reward and no score. Kept beside what the opponents held, the
+        two agree row by row."""
+        import torch
+
+        plain, calls = self.play(FirstLegalDecider(), want_held=False)
+        kept, asked = self.play(FirstLegalDecider(), want_held=False, keep_oracle=True)
+        self.assertEqual(calls["oracle"], 0)
+        self.assertGreater(asked["oracle"], 0)
+        self.assertEqual(plain.oracle.numel(), 0)
+        self.assertEqual(tuple(kept.oracle.shape),
+                         (kept.decisions, riichi_py.ORACLE_PLANES, riichi_py.POSITIONS))
+        self.assertEqual(kept.oracle.dtype, torch.uint8)
+        self.assertLessEqual(set(np.unique(kept.oracle.numpy()).tolist()), {0, 1})
+        # The three opponents hold a concealed tile each at the least, in
+        # the first twelve planes, four a player.
+        self.assertTrue(bool((kept.oracle[:, :12].sum(dim=(1, 2)) >= 3).all()))
+        for name in ("actions", "log_probs", "returns", "legal"):
+            self.assertTrue(np.array_equal(getattr(plain, name).numpy(), getattr(kept, name).numpy()), name)
+        self.assertEqual(plain.final_scores.tolist(), kept.final_scores.tolist())
+        self.assertEqual(plain.steps, kept.steps)
+        self.assertGreater(kept.steps, 0)
+        self.assertEqual(plain.oracle_seconds, 0.0)
+        self.assertGreater(kept.oracle_seconds, 0.0)
+        both, _calls = self.play(FirstLegalDecider(), keep_oracle=True)
+        self.assertTrue(torch.equal(both.oracle, kept.oracle))
+        self.assertEqual(len(both.held), both.decisions)
+        self.assert_hidden_hands_are_held(both)
+
+    def test_a_riichis_two_records_share_their_rows_oracle(self):
+        """Two records from one row, as a riichi makes, get that row's
+        planes both; and the rows are not all the same planes. Each is the
+        planes of the record's own game, not of the game its slot would
+        name: they agree with what the opponents held, record by record,
+        through steps after a game has finished, where the two differ."""
+        learner = TwiceRecordingDecider()
+        batch, _calls = self.play(learner, keep_oracle=True)
+        oracle = batch.oracle.numpy()
+        self.assertEqual(len(oracle), batch.decisions)
+        self.assertEqual(sum(learner.sizes), batch.decisions)
+        at = 0
+        for size in learner.sizes:
+            self.assertTrue(np.array_equal(oracle[at], oracle[at + size - 1]))
+            at += size
+        self.assertGreater(len(np.unique(oracle.reshape(len(oracle), -1), axis=0)), 1)
+        self.assert_hidden_hands_are_held(batch)
+        # Some step's first row is not game 0's, game 0 having finished: a
+        # record read by its slot would have had game 0's planes there, all
+        # nought, and would not have agreed.
+        self.assertTrue(any(games[0] != 0 for games in learner.games))
+
+    def test_a_learner_told_to_keep_no_oracle_is_never_asked_for_it(self):
+        """`keep_oracle=False` leaves the oracle's planes out even for the
+        network `train.py` trains: never copied out of the engine, never
+        read, the other labels kept as before."""
+        batch, calls = self.play(FirstLegal(), keep_oracle=False)
+        self.assertEqual(calls["oracle"], 0)
+        self.assertGreater(calls["opponent_hands"], 0)
+        self.assertEqual(batch.oracle.numel(), 0)
+        self.assertEqual(len(batch.held), batch.decisions)
 
 
 if __name__ == "__main__":

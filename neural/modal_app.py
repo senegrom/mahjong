@@ -1156,6 +1156,109 @@ def placement_pretest(
         return answer + f"\nwrote {target}"
 
 
+#: Where the noise pre-test writes on the volume, and the only place: one
+#: folder a call, named by the caller.
+NOISE_RUN = "noise-pretest"
+
+
+def _keep_outputs(out: Path, target: Path, failed: bool) -> None:
+    """Every file a child wrote to `out` copied to `target` on the volume,
+    and the volume committed. Called whether the child succeeded or not, so
+    one that fails late still leaves what it wrote; when it failed, a copy
+    that fails too is said and its own error left to stand. A hidden copy
+    that a child stopped while writing left behind (`staging_file`'s) is
+    not kept: the file it was to become is there as it was before, or not
+    at all."""
+    try:
+        written = sorted(path for path in out.iterdir()
+                         if path.is_file() and not fnmatch.fnmatch(path.name, ".*.partial")) if out.is_dir() else []
+        if written:
+            target.mkdir(parents=True, exist_ok=True)
+            for path in written:
+                shutil.copyfile(path, target / path.name)
+            volume.commit()
+        print(f"kept {[path.name for path in written]} in {target}", flush=True)
+    except Exception as error:
+        if not failed:
+            raise
+        print(f"what the child wrote could not be kept in {target}: {error!r}", file=sys.stderr, flush=True)
+
+
+@app.function(
+    # As the placement pre-test: the round, its planes, the oracle's and
+    # every decision's features are held at once, as a trainer's are.
+    gpu="L40S",
+    cpu=TRAINER_CPUS,
+    memory=98304,
+    timeout=4 * 60 * 60,
+    volumes={str(VOLUME): volume},
+    max_containers=1,
+)
+def noise_pretest(
+    checkpoint: str,
+    name: str = "",
+    games: int = 4096,
+    opponents: list[str] | None = None,
+    seat_share: float = 0.5,
+    seed: int = 9_700_000,
+    groups: int = 20,
+    gradient_chunk: int = 512,
+    critic_epochs: int = 10,
+    preview_reach: bool = True,
+    max_minutes: float = 75.0,
+) -> str:
+    """The noise pre-test (see `neural/noise_pretest.py`) on `checkpoint`,
+    named by its path from the volume's root, such as
+    `fusion-place-a005/history/gen-02820`, with `opponents` seated by player
+    at `seat_share` as its run seats them: one round of `games` paid the
+    reward the checkpoint carries, the oracle's term and its control taught
+    for at most `critic_epochs`, and the gradient's noise summed over
+    `groups` groups of deals, `gradient_chunk` rows at a time. A pre-test
+    whose preflight projects more than `max_minutes` stops before it plays.
+
+    It writes only `noise-pretest/<name>` on the volume, `g<generation>`
+    when `name` is empty: whatever the child wrote, its report, the round's
+    ledger, the baselines and the Gram matrices, copied whether or not the
+    child succeeded, so a child that fails in its last pass, the gradient's,
+    still leaves the round's readings and the report it wrote before it. A
+    folder there that already holds anything is refused before the child
+    starts. The answer is the child's output, ending with its verdict."""
+    validate_cloud_request(1, opponents, 0.0, seat_share)
+    if name:
+        validate_run(name)
+    with workspace(NOISE_RUN) as where:
+        volume.reload()
+        source = _checkpoint(NOISE_RUN, checkpoint)
+        if not source.exists():
+            raise FileNotFoundError(f"no checkpoint at {source}")
+        local = where / "checkpoint.pt"
+        generation = copy_checkpoint(source, local)
+        target = VOLUME / NOISE_RUN / (name or f"g{generation}")
+        if target.exists() and any(target.iterdir()):
+            # One folder a call: an earlier call's files beside this one's
+            # would be read as this one's.
+            raise FileExistsError(f"{target} already holds an earlier call's files; name this call afresh")
+        print(f"noise pre-test of {source}, generation {generation}", flush=True)
+        out = where / "out"
+        command = [
+            sys.executable, "-m", "neural.noise_pretest", str(local),
+            "--games", str(games), "--seed", str(seed), "--groups", str(groups),
+            "--gradient-chunk", str(gradient_chunk), "--critic-epochs", str(critic_epochs),
+            "--max-minutes", str(max_minutes), "--amp", "--out", str(out),
+            *stage_opponents(where, opponents, 0.0, lambda found: _checkpoint(NOISE_RUN, found),
+                             seat_share=seat_share),
+        ]
+        if not preview_reach:
+            command.append("--no-preview-reach")
+        failed = True
+        try:
+            answer = _run_child(command, tail=6000)
+            failed = False
+        finally:
+            _keep_outputs(out, target, failed)
+        return answer + f"\nwrote {target}"
+
+
 @app.function(
     gpu="L40S",
     cpu=16.0,

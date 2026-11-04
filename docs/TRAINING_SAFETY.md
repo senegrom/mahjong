@@ -321,6 +321,136 @@ with the others, while one run still never trains in two containers.
   the old duel, 2.15 times as fast) and read `--against g1010`, fusion-long's
   ruler of 1010 kept as a series, by the usual rule of up to 20 seeds.
 
+## The noise pre-test: an oracle critic and twin deals
+
+Registered on 30 October 2026, before any spawn, for one call on a005's
+generation 2820: `python -m neural.noise_pretest`, on Modal the function
+`noise_pretest` deployed as its own app, mahjong-noise, which writes only
+`noise-pretest/<name>` on the volume. It plays one round of 4,096 games at
+a005's own tables (published Mortal, mortal-run's generation 30 and the
+Club, seated by player at a half; seed 9,700,000, whose round seats every
+member; the reach's tile previewed, as a005 plays), paid the reward the
+checkpoint carries: the placement reward at its alpha, settled by its own
+U. A checkpoint without a placement reward and a U is refused, and so is
+one whose U does not know a member the round seats. The round keeps, for
+every decision the learner records, the oracle's 32 planes: the
+opponents' concealed tiles, the next sixteen draws and the ura indicators
+(`selfplay.play(..., keep_oracle=True)`; a riichi's two records share their
+row's). No move and no reward reads them, and without `keep_oracle` a round
+is played and recorded exactly as before.
+
+**Baselines**, each cross-fitted by deal: the games, each a deal of its own,
+are split into halves, and whatever is taught one half is asked only about
+the other.
+
+- `own`: the checkpoint's judge, the run's own baseline, which never saw
+  the round.
+- `warm`: the judge taught one half's returns as the reward's warm-up
+  teaches it (two epochs at 1e-4).
+- `oracle`: own's judge held still, plus a term that starts at nought: our
+  pooled features beside a tower shaped as our network's untrained oracle
+  critic (`ours.oracle_*`: a convolution of the 1,012 planes and the oracle's
+  32 to 128 channels, four residual blocks, pooled over the line), read by
+  two layers whose last starts at nought. Taught on three quarters of a
+  half's deals (AdamW at 1e-3 falling on a cosine to 1e-5, batch 2,048, the
+  warm-up's loss and clip, at most ten epochs), it is kept at the epoch that
+  read the half's fourth quarter best, the start counted as epoch nought
+  (the term at nought: own), and stops after two epochs without a better
+  reading.
+- `control`: the same term from the same seed, taught on the same
+  minibatches, fed noughts for the oracle's planes: the same capacity,
+  nothing hidden.
+
+**Readings**, every decision against baselines that never saw its deal: V =
+Var(G − b), plain and weighted by (1 − π(a))² from the probabilities play
+recorded, over every decision, by stage and by tiles left in tens, each
+with a delete-a-group jackknife error over 20 random groups of deals. The
+critics are not taught again without the group, so the error is a lower
+bound. The **information cut** is 1 − V_w(oracle) / min(V_w(control),
+V_w(own)), what the oracle's planes add over the better of the two
+baselines that see nothing hidden, the minimum taken again with each group
+left out; the **capacity cut** 1 − V_w(control) / V_w(own), what the term's
+capacity adds. The oracle's cuts against the control alone and against own
+alone are reported beside them.
+
+**The gradient's noise**: one pass of the head's gradient
+(`placement_pretest.head_gradients`) summed over each group's decisions for
+own, the control and the oracle, 60 vectors, each on the return less the
+baseline, centred over the round and not standardised. Only their Gram
+matrices are kept: K, and K′ with every sum divided by the checkpoint's
+AdamW √v̂ + ε. N(arm) = (tr K − 1ᵀK1/20) / 19 over the arm's 20 sums, the
+spread of the sums: every baseline here leaves the gradient's expectation
+where it was, so it can only spread them less. N(oracle) / N(own) and
+N(oracle) / N(control) are read from K and from K′, each with a jackknife
+error over the groups.
+
+**The twin ceiling**, from this plain round: with q = Σπ² over the legal
+moves at each learner decision, the chance two independent draws agree,
+twin copies of a deal stay one game only until a draw of any of its
+learner seats differs. Over the game's learner decisions, every seat's in
+one sequence, in the order made, they part at decision i with chance
+Π_{j<i} q_j · (1 − q_i). Only that parting pairs two draws from one state:
+after it no seat of the game has two draws from one state. The ceiling is
+the expected partings over Σ (1 − q), the round's gradient-carrying draws
+(1 − q is also what a draw carries of the gradient on average,
+Σ_a π_a |e_a − π|²), read game by game. Even that is a ceiling: a differing
+answer to a call that a ron or a pon overrides does not part the copies.
+The same read seat by seat, each seat's decisions a sequence of their own,
+is reported beside it and not read: where each seat's own draws would all
+but surely part the copies, it counts a game's parting about once for each
+of its learner seats (2.06 a game at a seat share of a half), and so reads
+near twice the share a twin round could pair.
+
+Registered:
+
+- **Gate.** The fit worked when V_w(control) ≤ 1.02 × V_w(own) over every
+  decision. The slack is there because the control is kept at the epoch
+  that read its own half's check deals best and is then read on the other
+  half, where it can come out a little above own by chance though it fit;
+  the information cut, read against the better of the two, gains nothing
+  by it. When the gate fails, or when any of the four fits (the oracle's
+  term and the control, each half) ran all its epochs with its best its
+  last, still more than 0.2% below the epoch before, the oracle's reading is
+  **unread**, and the owner decides whether to run again.
+- **Oracle: go** only if both hold: the weighted information cut over every
+  decision, 1 − V_w(oracle) / min(V_w(control), V_w(own)), is at least 0.30,
+  and N(oracle) / N(own) from K is at most 0.8, with its value plus two of
+  its errors below 0.9. Otherwise **kill**. The readings from K′, the cuts
+  against the control alone and against own alone, and N against the
+  control are reported, not registered.
+- **Duplicates: build a twin round next** only if the twin ceiling, read
+  game by game, is at least 20%; otherwise **stop**. The reading seat by
+  seat is reported, not registered.
+
+The output's last line is `VERDICT {"oracle": ..., "duplicates": ...}`. The
+network is loaded first and the gradient pass tried on one chunk of
+`--gradient-chunk` made-up rows with all 60 vectors before anything is
+played. A chunk the card has no room for, or whose peak
+(`torch.cuda.max_memory_allocated`, the network and the seated others
+included) is above 80% of the card, is halved for the whole pass, down to
+32 rows. No room is PyTorch's out-of-memory error, or a RuntimeError that
+names out of memory, CUDNN_STATUS_ALLOC_FAILED,
+CUDNN_STATUS_EXECUTION_FAILED or CUBLAS_STATUS_ALLOC_FAILED: cuDNN's and
+cuBLAS's allocations fail that way. Products that cannot be taken batched
+for any other reason end the run there. The chunk's time is projected over
+the round and added to the minutes spent and to what the other phases are
+known to cost at 4,096 games on the L40S, 27 minutes (play 14, the critics'
+inputs 3, the warm-up 1, the oracle's term and its control 8, the readings
+1); a run whose total is over `--max-minutes`, 75 for this call, stops
+before it plays. In the pass, a chunk without room is taken again at half
+its rows and the rest of the pass read at that size. `--out` must be empty
+or absent, and the cloud function refuses a `noise-pretest/<name>` that
+already holds anything before its child starts. The round's ledger, every
+decision's baselines and a report are written before the gradient pass,
+each file under a hidden name renamed into place once whole, and the cloud
+function copies whatever the child wrote to the volume whether or not it
+succeeded.
+
+**Result.** Run once on 30 October 2026, about $1.2: oracle **kill**, the
+weighted information cut 0.0005 ± 0.0005 and N(oracle) / N(own)
+0.999 ± 0.0035; duplicates **stop**, the twin ceiling 10.1% game by game,
+under the 20% registered.
+
 ## Replay validation and completed learning rounds
 
 Sparse planes require native int64 offsets, uint16 columns, native floating
@@ -570,10 +700,11 @@ undeclared) is at most `to_riichi`, which is at most `at_turn`, and
 `ruled_records` is the two `fired` less `both`; `calls` are the engine's
 questions and `seconds` the time the rules' own work took inside deciding.
 The checkpoint's `training_controls` gains `"last_hand_rules"`, so whoever
-ships the network knows it was trained on games played by them; nothing but
-the tests reads `training_controls`, so such a checkpoint loads wherever a
-checkpoint of the trainer does (`zoo.load_player`, a ruler, the cloud's
-copies).
+ships the network knows it was trained on games played by them, and the
+noise pre-test plays such a checkpoint's round by them
+(`noise_pretest.carried_rules`). Nothing else reads `training_controls` but
+the tests, so such a checkpoint loads wherever a checkpoint of the trainer
+does (`zoo.load_player`, a ruler, the cloud's copies).
 
 **What it costs.** No forward more: the reach's tile comes from the preview
 the recipe already asks for. At most one question to the engine for each

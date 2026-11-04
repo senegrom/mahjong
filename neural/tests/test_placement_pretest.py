@@ -123,6 +123,45 @@ class Gradients(unittest.TestCase):
         split = sums[0] - sums[1]
         self.assertLess(float((alone[0] - split).norm() / alone[0].norm()), 1e-3)
 
+    def test_a_batched_product_that_fails_falls_back_only_when_allowed(self):
+        """Where the batched products cannot be taken, the sums are taken
+        one at a time, the same sums; told not to fall back, it raises
+        instead, as the noise pre-test asks of it on the card."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from neural import combined
+        from neural.observe import PLANES, POSITIONS, Planes
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            torch.manual_seed(19)
+            options = flags(train_combined, Path(folder), resume=False)
+            net = combined.build(options[1], options[3], "cpu").eval()
+        rng = np.random.default_rng(4)
+        n, per_row = 64, 200
+        indices = np.sort(rng.choice(PLANES * POSITIONS, size=(n, per_row)), axis=1).astype(np.uint16)
+        planes = Planes(np.arange(n + 1, dtype=np.int64) * per_row, indices.reshape(-1),
+                        rng.random(n * per_row).astype(np.float16))
+        legal = torch.ones(n, 46, dtype=torch.bool)
+        actions = torch.from_numpy(rng.integers(0, 46, size=n))
+        rollout = SimpleNamespace(observations=planes, legal=legal, actions=actions, decisions=n)
+        weights = torch.from_numpy(rng.standard_normal((3, n)).astype(np.float32))
+        args = SimpleNamespace(amp=False, chunk=32)
+        batched, _how = placement_pretest.head_gradients(net, rollout, weights, args, "cpu")
+        grad = torch.autograd.grad
+
+        def unbatched(*arguments, **options):
+            if options.get("is_grads_batched"):
+                raise RuntimeError("no batched rule for this graph")
+            return grad(*arguments, **options)
+
+        with patch.object(torch.autograd, "grad", side_effect=unbatched):
+            sums, how = placement_pretest.head_gradients(net, rollout, weights, args, "cpu")
+            self.assertEqual(how, "one at a time")
+            with self.assertRaisesRegex(RuntimeError, "no batched rule"):
+                placement_pretest.head_gradients(net, rollout, weights, args, "cpu", fallback=False)
+        self.assertLess(float((sums - batched).norm() / batched.norm()), 1e-3)
+
 
 class Seeds(unittest.TestCase):
     def test_a_seed_that_sits_a_member_out_is_refused_first(self):
