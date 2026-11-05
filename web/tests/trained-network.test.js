@@ -167,6 +167,7 @@ test('the opponent\'s worker names an address, and is held to the network listed
   // The worker's own request: an address and the page's folder, no identity.
   await s.api.networkBytes({ url: networkUrl(older), scope: 'https://test.invalid/mahjong/' });
   assert.equal(s.transfers[0].expect, older);
+  assert.equal(s.transfers[0].url, networkUrl(older));
   // An address no listed network has is refused before anything is fetched.
   await assert.rejects(s.api.networkBytes({ url: `${MANIFEST.origin}/models/g36/${'0'.repeat(64)}` }),
     /not one of the trained networks this page can play/);
@@ -175,6 +176,12 @@ test('the opponent\'s worker names an address, and is held to the network listed
   const next = { url: 'https://model.invalid/models/g900/next', bytes: 5, sha256: '9'.repeat(64) };
   await s.api.networkBytes({ url: next.url, expect: next });
   assert.equal(s.transfers[1].expect, next);
+  assert.equal(s.transfers[1].url, next.url);
+  // An identity is fetched from its own address only: named with another, it is refused.
+  for (const [url, expect] of [['https://elsewhere.invalid/next', next], [networkUrl(older), next], [next.url, older]]) {
+    await assert.rejects(s.api.networkBytes({ url, expect }), /not one of the trained networks this page can play/);
+  }
+  assert.equal(s.transfers.length, 2);
 });
 
 test('the worker\'s word that a network is stored counts only for the network this page plays', async () => {
