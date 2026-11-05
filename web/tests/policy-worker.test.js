@@ -56,7 +56,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
       return { memoryBudget };
     },
   }, [], { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)' });
-  const send = (id, url = MODEL, extra = {}) => self.onmessage({ data: {
+  const send = (id, url = MODEL, extra = {}, event = {}) => self.onmessage({ ...event, data: {
     id, url, runtimeBase: 'https://test.invalid/ort/0123abcd/', scope: 'https://test.invalid/',
     planes: new Float32Array(34), mask: [1, 1], details: true, ...extra,
   } });
@@ -108,6 +108,15 @@ test('a request naming another network releases the one held before loading it',
   assert.deepEqual(h.releases, [MODEL]);
   assert.deepEqual(h.runs, [MODEL, 'fusion.onnx', 'fusion.onnx']);
   assert.equal(h.messages.some(message => message.error), false);
+});
+
+test('only the page that started the worker is answered: a message naming its sender is ignored', async () => {
+  const h = harness();
+  // The page's messages come through the worker's own port, which names no sender.
+  await h.send(1, MODEL, {}, { source: {} });
+  assert.deepEqual([h.loads, h.messages], [[], []]);
+  await h.send(2);
+  assert.equal(h.messages.find(message => message.analysis)?.id, 2);
 });
 
 test('a cancelled queued decision is dropped before it reaches the network', async () => {
