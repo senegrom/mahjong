@@ -19,7 +19,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
   assert.deepEqual(VAN_GOGH_APPROVED, approved);
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   assert.deepEqual(set.tiles.map(tile => tile.tile), approved);
-  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Roof Garden C', 'Characters C', 'Flutes B', 'Sunlit Garden B', 'Seven C', 'Bamboo Raft', 'Copper Sunset', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppy Hillside B', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
+  assert.deepEqual(set.tiles.map(tile => tile.candidate), ['A', 'B', 'Vase A', 'Characters A', 'Painter C', 'G', 'H', 'Disks C', 'Six B (green)', 'Almond Blossom C', 'East A', 'Winter B', 'Roof Garden C', 'Characters C', 'Flutes B', 'Sunlit Garden B', 'Seven C', 'Bamboo Raft', 'Copper Sunset Standalone B', 'Wind Chime A', 'Lanterns B', 'Vineyard A', 'Scarlet Loom C', 'Irises C', 'Oranges A', 'Starry Olive Grove', 'Kitchen B', 'Seven Apples (corrected)', 'Poppy Hillside B', 'Eight Lemons', 'Vineyard Dragon C', 'Red Sail C', 'South A', 'West B (cloud strokes)']);
   assert.deepEqual(set.rejected.map(tile => tile.candidate), ['K']);
   assert.equal(tileImage('1z', 'van-gogh'), 'tiles/van-gogh/approved/Ton.svg');
   assert.equal(set.tiles.find(tile => tile.tile === '1z').source,
@@ -57,7 +57,7 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
       assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
     } else {
       assert.equal(hash(svg), entry.svgSha256);
-      assert.equal(entry.rasterMimeType, ['2m', '2s', '3s', '4s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
+      assert.equal(entry.rasterMimeType, ['5s', '2m', '2s', '3s', '4s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
       assert.ok(svg.includes(`data:${entry.rasterMimeType};base64,`));
       const embedded = svg.match(/href="data:image\/(?:webp|avif);base64,([A-Za-z0-9+/=]+)"/);
       assert.ok(embedded);
@@ -350,15 +350,18 @@ test('Van Gogh Seven with Irises C is the approved seven bamboo', () => {
     '553840fd892b8e4ffe15528ace354965f7b8910b8c26743aaabb9bf66f8a3825');
 });
 
-test('Van Gogh 5 bamboo uses the approved copper-centred sunset, not the green draft', () => {
+test('Van Gogh five bamboo uses confirmed Standalone B and preserves the original copper study', () => {
   const set = JSON.parse(readFileSync(new URL('tiles/van-gogh/manifest.json', publicRoot), 'utf8'));
   const entry = set.tiles.find(tile => tile.tile === '5s');
   assert.ok(entry);
-  assert.equal(entry.candidate, 'Copper Sunset');
+  assert.equal(entry.candidate, 'Copper Sunset Standalone B');
   assert.equal(entry.name, 'Sou5');
-  assert.equal(entry.source, 'docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp');
+  assert.equal(entry.source, 'docs/design/van-gogh/studies/38-five-bamboo-standalone-b-approved.svg');
+  const previous = set.superseded.find(tile => tile.tile === '5s' && tile.candidate === 'Copper Sunset');
+  assert.equal(previous.activeCandidate, 'Copper Sunset Standalone B');
+  assert.equal(previous.source, 'docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp');
   assert.deepEqual(entry.crop, { x: 0, y: 0, width: 300, height: 400 });
-  const source = readFileSync(new URL(`../../${entry.source}`, import.meta.url));
+  const source = readFileSync(new URL(`../../${previous.source}`, import.meta.url));
   assert.equal(createHash('sha256').update(source).digest('hex'),
     '16552f26fc7e7090adbc13cf659afcdb9b2549cd1a543441b93eed7d5f742d81');
   const provenance = JSON.parse(readFileSync(new URL('../../docs/design/van-gogh/five-bamboo-copper.json', import.meta.url), 'utf8'));

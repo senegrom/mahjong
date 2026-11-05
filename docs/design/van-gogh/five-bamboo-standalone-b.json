@@ -1,0 +1,47 @@
+{
+  "tile": "5s",
+  "name": "Sou5",
+  "candidate": "Copper Sunset Standalone B",
+  "title": "Copper Sunset — Confirmed Standalone Middle Painting",
+  "source": "docs/design/van-gogh/studies/38-five-bamboo-standalone-b-approved.svg",
+  "runtime": "web/public/tiles/van-gogh/approved/Sou5.svg",
+  "approval": "Carl confirmed this original standalone middle candidate after rejecting the later triptych crop. Identifying features are the large lower-left rock, four staggered green stalks, a tall copper-red centre with leaves, sunset over water and the village on the right. Deploy this exact painting only.",
+  "originalFilename": "impasto_bamboo_at_sunset.png",
+  "originalSha256": "41e71c3517d1ba0418625b7830e2c497b2c5d114e7bdf6d5218c6f01a230793b",
+  "originalDimensions": [
+    1086,
+    1448
+  ],
+  "originalCrop": {
+    "x": 0,
+    "y": 0,
+    "width": 1086,
+    "height": 1448
+  },
+  "originalRetention": "The untouched full-resolution PNG is retained in the approval conversation and accompanying archive. The repository contains the optimized approved artwork and this provenance, not the full-resolution PNG.",
+  "processing": "Uniform Pillow Lanczos downsample of the full RGB painting to 300 x 400; AVIF quality 70, speed 0, 4:2:0. No cropping, stretching, repainting or recolouring. The standard face-fit helper changes only the image box from the shared study box to 0,0,300,400 with zero extra bleed. Only standard rounded corners (radius 26) are clipped.",
+  "rasterDimensions": [
+    300,
+    400
+  ],
+  "rasterMimeType": "image/avif",
+  "rasterBytes": 40596,
+  "rasterSha256": "ab4b1ec91ef46b24773d53bf03bb5971c8054aa3900902ab2964476dc7038553",
+  "sourceSha256": "d4e9942f0d1b70ca6e56e1c9bd4aab525062dc9a5fb102d2d397bdb681ca2d64",
+  "svgSha256": "b1cac0b498e2ac98717b8ba6a770eff207f3a0fa48b700a5e660466381747054",
+  "fit": {
+    "painting": [
+      1086,
+      1448
+    ],
+    "stretch": 0,
+    "anchor": 0.5,
+    "bleedPixels": 0
+  },
+  "supersededCandidate": "Copper Sunset",
+  "supersededSource": "docs/design/van-gogh/studies/15-five-bamboo-copper-sunset.webp",
+  "archivedSvg": "docs/design/van-gogh/superseded/five-bamboo-original-copper-sunset-Sou5.svg",
+  "archivedSvgSha256": "b698dc152fa7ecb8ec5df5e71a1efb4912d79669e4e4e3e614712366a830d895",
+  "archivedPng": "docs/design/van-gogh/superseded/five-bamboo-original-copper-sunset-Sou5.png",
+  "archivedPngSha256": "84a457f7666ec7b2099cb2b65498e3791298fd1e1c65df87f54a86055b5840db"
+}
