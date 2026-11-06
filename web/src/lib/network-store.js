@@ -25,9 +25,10 @@ export function networkIsStored(url = networkUrl(playedNetwork()), expect = play
  * address no listed network has is refused rather than fetched, as is one
  * that is not its identity's own. */
 export function networkBytes({ url = networkUrl(playedNetwork()), expect = networkAt(url), scope = pageScope(), ...options } = {}) {
+  if (!expect) return Promise.reject(new Error('That address is not one of the trained networks this page can play.'));
   // Fetched from the identity's own address: the listed network's, or the
   // one a waiting update's worker names with its network.
-  const address = expect && (expect.url ?? networkUrl(expect));
-  if (address !== url) return Promise.reject(new Error('That address is not one of the trained networks this page can play.'));
+  const address = expect.url ?? networkUrl(expect);
+  if (address !== url) return Promise.reject(new Error('That network is not served from that address.'));
   return verifiedNetworkBytes({ url: address, expect, scope, ...options });
 }
