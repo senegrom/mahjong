@@ -199,18 +199,18 @@ try {
     const page = await openTrained(31);
     // The table as it stands: the wall, the discards and whether a hand's
     // result is up, one of which every press changes.
-    const table = () => [document.querySelector('.watch-round span')?.textContent, document.querySelectorAll('.watch-table .pool .tile').length,
-      Boolean(document.querySelector('.agent-watch .screen'))].join('|');
+    const table = await page.evaluateHandle(() => () => [document.querySelector('.watch-round span')?.textContent,
+      document.querySelectorAll('.watch-table .pool .tile').length, Boolean(document.querySelector('.agent-watch .screen'))].join('|'));
     let seen = await renamedRequests(page);
     for (let step = 0; step < 40 && seen.checked < 3; step++) {
-      const before = await page.evaluate(table);
+      const before = await table.evaluate(table => table());
       await page.click('.watch-controls > button');
       // Until the table has moved and the followed agent is advised again,
       // or the hand's result is up; or a failure is said.
-      await page.waitForFunction(`(() => { const table = ${table}, before = ${JSON.stringify(before)};
-        return Boolean(document.querySelector('[role="alert"]')) || (table() !== before && !document.querySelector('.watch-controls > button').disabled
-          && Boolean(document.querySelector('.weight-row.best .choice-action:not(:disabled)') || document.querySelector('.agent-watch .screen'))); })()`,
-      { timeout: 60000 });
+      await page.waitForFunction((table, before) =>
+        Boolean(document.querySelector('[role="alert"]')) || (table() !== before && !document.querySelector('.watch-controls > button').disabled
+          && Boolean(document.querySelector('.weight-row.best .choice-action:not(:disabled)') || document.querySelector('.agent-watch .screen'))),
+      { timeout: 60000 }, table, before);
       assert.equal(await page.$eval('[role="alert"]', el => el.textContent).catch(() => null), null, 'the watch goes on');
       seen = await renamedRequests(page);
     }

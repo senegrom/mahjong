@@ -152,6 +152,7 @@ self.addEventListener('activate', event => {
   })());
 });
 self.addEventListener('message', event => {
+  if (event.origin !== scope.origin) return;
   const port = event.ports[0];
   const groupOf = { MAHJONG_PREPARE_AI: 'ai', MAHJONG_PREPARE_CORE: 'core' };
   if (!port || !['MAHJONG_STATUS', 'MAHJONG_NETWORK_SAVED', ...Object.keys(groupOf)].includes(event.data?.type)) return;

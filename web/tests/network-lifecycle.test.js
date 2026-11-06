@@ -45,7 +45,7 @@ function worker(caches, generation, { broken = false } = {}) {
   async function event(name) { let pending; events[name]({ waitUntil(value) { pending = value; } }); await pending; }
   async function message(type) {
     let pending, reply;
-    events.message({ data: { type }, ports: [{ postMessage(value) { if (!value.progress) reply = value; } }], waitUntil(value) { pending = value; } });
+    events.message({ origin: new URL(scope).origin, data: { type }, ports: [{ postMessage(value) { if (!value.progress) reply = value; } }], waitUntil(value) { pending = value; } });
     await pending;
     if (reply.error) throw new Error(reply.error);
     return reply.value;

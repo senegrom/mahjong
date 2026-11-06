@@ -988,7 +988,7 @@ function whySaid({ verdict, fact, mass, probe, voided, diffs, A, P, unseen }) {
     if (yours.length) said += ` On your side: ${yours.join('; ')}.`;
     const check = [];
     if (!probe && voided) {
-      const others = deltaWords(voided.delta, A, P, unseen).filter(words => !/^your hand |improve/.test(words));
+      const others = deltaWords(voided.delta, A, P, unseen).filter(words => !/^(?:your hand |\d+ more tiles that improve )/.test(words));
       check.push(`The check that takes it away (${voided.words}) also ${others.length ? `leaves ${list(others)}` : 'changes another fact of the two tiles'}, so it cannot say which counts.`);
     }
     if (probe && !probe.halved) check.push('Taking it away did not halve Trained AI\'s lead.');

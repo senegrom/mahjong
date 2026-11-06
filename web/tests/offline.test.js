@@ -119,13 +119,13 @@ function worker({ files = bodies, caches = storage(), config = manifest(files), 
       return new Response(files[name], { status: name in files ? 200 : 404 });
     },
   });
-  return { caches, counts, config,
+  return { caches, counts, config, events,
     async install() { let work; events.install({ waitUntil(p) { work = p; } }); await work; },
     async activate() { let work; events.activate({ waitUntil(p) { work = p; } }); await work; },
     // version is the one the asking page's player picked, as offline.js names it.
     async message(type, version) {
       let work, reply;
-      events.message({ data: { type, version }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
+      events.message({ origin: new URL(base).origin, data: { type, version }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
       await work;
       if (reply.error) throw new Error(reply.error);
       return reply.value;
@@ -253,6 +253,16 @@ test('cache eviction is detected and unrelated apps and unknown assets are untou
   assert.equal(await (await other.match(base + 'sentinel')).text(), 'keep');
   assert.equal(await w.get('../plateloader/'), undefined);
   assert.equal(await w.get('missing.wasm'), undefined);
+});
+test('a message from another origin is not answered and changes nothing', async () => {
+  const w = worker(); await w.install();
+  const answers = [];
+  w.events.message({ origin: 'https://elsewhere.invalid', data: { type: 'MAHJONG_PREPARE_AI' },
+    ports: [{ postMessage: data => answers.push(data) }], waitUntil: work => answers.push(work) });
+  await setImmediate();
+  assert.deepEqual(answers, []);
+  assert.equal([...w.counts.keys()].some(name => name.startsWith('ort/')), false, 'no runtime fetched');
+  assert.equal((await status(w)).aiRequested, false);
 });
 test('a file that keeps arriving is saved however long it takes; one that stops for a minute ends', async () => {
   // At 10 s a byte the white dragon takes 170 s: longer than the fixed 90 s

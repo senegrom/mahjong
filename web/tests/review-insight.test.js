@@ -111,6 +111,21 @@ test('a Why line that is only partly or not explained carries the check\'s worki
   });
 });
 
+test('a check that also changes another fact names it for the tooltip, but not what it did to the player\'s hand', async () => {
+  // East 3 #5's check leaves the 7 characters no longer safe. No check moves
+  // the hand, so the engine's facts about its table are made to say it did.
+  const entry = question('e3-5'), unedited = JSON.stringify(entry.position);
+  const leaves = async (change, others) => {
+    const why = await explainWhy({ ...entry, ask: recordedAsk(entry).ask,
+      facts: table => (JSON.stringify(table) === unedited ? facts(table) : change(facts(table))) });
+    assert.equal(why.check, `The check that takes it away (your fourth discard had been a 2 circles, not the 7 characters) also leaves ${others}, so it cannot say which counts. Explained needs 95% or more of its weight on those tiles.`);
+  };
+  const yours = edit => said => ({ ...said, discards: said.discards.map(discard => (discard.tile === '3z' ? { ...discard, ...edit(discard) } : discard)) });
+  await leaves(yours(discard => ({ shanten: discard.shanten - 1 })), 'the 7 characters no longer safe');
+  await leaves(yours(discard => ({ acceptance: discard.acceptance + 12 })), 'the 7 characters no longer safe');
+  await leaves(said => ({ ...said, dora_held: said.dora_held + 2 }), '2 more dora in your hand and the 7 characters no longer safe');
+});
+
 test('a pass is no longer than the review\'s own batch', () => {
   assert.equal(PASS, BATCH);
 });

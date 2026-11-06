@@ -145,7 +145,10 @@ async function drain() {
   } finally { running = false; }
 }
 
-self.onmessage = ({ data }) => {
+self.onmessage = ({ data, source }) => {
+  // Only the page that started this worker posts to it, through the worker's
+  // own port, which names no sender.
+  if (source != null) return;
   if (data.cancel != null) { queued.delete(data.cancel); return; }
   // Kept apart from its request, which may yet be cancelled.
   const { network, ...request } = data;
