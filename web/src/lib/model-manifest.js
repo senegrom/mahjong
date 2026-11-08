@@ -10,6 +10,21 @@
  */
 export const NETWORKS = Object.freeze([
   {
+    "version": "0.1.3000",
+    "source": "fusion-place-ruled/history/gen-03000",
+    "generation": 3000,
+    "reward": {
+      "kind": "placement",
+      "alpha": 0.05
+    },
+    "precision": "float32",
+    "bytes": 116633861,
+    "storedBytes": 107861778,
+    "origin": "https://mahjong-model.connect4-chaos.workers.dev",
+    "object": "models/g3000/3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5",
+    "sha256": "3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5"
+  },
+  {
     "version": "0.1.2610",
     "source": "fusion-place-a005/history/gen-02610",
     "generation": 2610,

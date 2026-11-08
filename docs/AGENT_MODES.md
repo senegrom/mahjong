@@ -8,20 +8,22 @@ opening a direct Watch/Physical/Guided link does not overwrite a regular match.
 
 Beginner and Club are built-in agents. Trained plays one of the networks
 the model manifest lists, picked by version under **Game settings → Trained
-network**: 0.1.2610, the default, or 0.1.1410, 0.1.1110, 0.1.810 or 0.1.410,
-which the site played before it. 2610 and 1410 are generations 2610 and 1410
-of the placement fork that pays the hand's points at alpha 0.05
-(fusion-place-a005), and 1110 generation 1110 of the one that pays placement
-alone (fusion-place-a0), all trained on the placement reward from
-fusion-long's generation 1010; 810 and 410 are fusion-long's own, trained on
-the hybrid reward (see the value, below). The section's title names the
-network the page plays, and so does every place that names Trained as an
-opponent, adviser or watched agent: the opponents menu and custom table, each
-opponent's badge, the watch lineup, the guided and physical advisers and the
-decision weights say **Trained 0.1.2610**, or the version picked, and the
-review adviser and the offline panel **Trained AI 0.1.2610**. Saved game logs
-say Trained alone, since a restored match may have been played by another
-network.
+network**: 0.1.3000, the default, or 0.1.2610, 0.1.1410, 0.1.1110, 0.1.810 or
+0.1.410, which the site played before it. 3000 is generation 3000 of
+fusion-place-ruled, which went on from 2610 with the same reward at half its
+learning rates, the last hand's two rules (below) played in its self-play
+games; 2610 and 1410 are generations 2610 and 1410 of the placement fork that
+pays the hand's points at alpha 0.05 (fusion-place-a005), and 1110 generation
+1110 of the one that pays placement alone (fusion-place-a0), all trained on
+the placement reward from fusion-long's generation 1010; 810 and 410 are
+fusion-long's own, trained on the hybrid reward (see the value, below). The
+section's title names the network the page plays, and so does every place that
+names Trained as an opponent, adviser or watched agent: the opponents menu and
+custom table, each opponent's badge, the watch lineup, the guided and physical
+advisers and the decision weights say **Trained 0.1.3000**, or the version
+picked, and the review adviser and the offline panel **Trained AI 0.1.3000**.
+Saved game logs say Trained alone, since a restored match may have been played
+by another network.
 
 Picking another version asks first, then reloads the page with the other
 network, in the mode it was in: a match, a guided game and a physical
@@ -37,7 +39,8 @@ written only when a player picks a version other than the default. When
 generation 1110 became the default, every pick saved until then was dropped
 once, at the owner's word, so that every player met 1110 on their next visit
 whatever they had picked (settings record version 3). The releases that
-made 1410 and 2610 the default followed that example (versions 4 and 5).
+made 1410, 2610 and 3000 the default followed that example (versions 4, 5
+and 6).
 Everything else in the record was kept, and so was a saved match, which goes
 on against the new default. A pick made since is kept until it is changed.
 
@@ -121,12 +124,13 @@ named and explained by the network the page plays. 0.1.810 and 0.1.410 show
 **Estimated training reward**, the hybrid reward: the hand's point change
 divided by 4,000, plus the game's final placement bonus (+1.5 for first, +0.5
 for second, −0.5 for third and −1.5 for fourth). It is not a predicted
-finishing place or a win probability. 0.1.2610, 0.1.1410 and 0.1.1110 show
-**Estimated placement reward**: the placement bonus the scoreboard promises
-when the hand ends, or after the game's last hand the bonus itself. 2610's and
-1410's add 0.05 × the hand's point change ÷ 4,000, as their tooltips say too,
-so that a place is worth 80,000 points; 1110's adds nothing, so points count
-only through the places they win. None is a win probability.
+finishing place or a win probability. 0.1.3000, 0.1.2610, 0.1.1410 and
+0.1.1110 show **Estimated placement reward**: the placement bonus the
+scoreboard promises when the hand ends, or after the game's last hand the
+bonus itself. 3000's, 2610's and 1410's add 0.05 × the hand's point change ÷
+4,000, as their tooltips say too, so that a place is worth 80,000 points;
+1110's adds nothing, so points count only through the places they win. None
+is a win probability.
 
 ## Custom tables
 
