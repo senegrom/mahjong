@@ -890,6 +890,28 @@ class AgainstTests(unittest.TestCase):
         self.assertIn("asked fixed", problem(other=fixed))
         self.assertIsNone(problem({**AGAINST, "questions": "fixed"}, other=fixed))
 
+    def test_a_series_with_the_rules_at_every_seat_is_read_only_against_one_with_them(self):
+        """Its incumbent plays other games than the same checkpoint plain:
+        the kept old ruler played plain, a folder never registered says by
+        its reports that its players followed the rules, and a registered
+        series is taken at its word."""
+        rule = looks.design()
+        ruled = {**AGAINST, "last_hand_rules": True}
+        self.assertIn("its players do not follow the rules of the last hand and this series' do",
+                      ruler_cloud.against_problem(ruled, rule, self.kept))
+        kept_ruled = ruler_cloud.Series(self.root / "g910-ruled")
+        for seed in rule.seeds:
+            kept_ruled.keep({**old_ruler(seed), **RULES_ACCOUNT, "incumbent_rules": dict(RULES_ACCOUNT)})
+        self.assertIsNone(ruler_cloud.against_problem(ruled, rule, kept_ruled))
+        self.assertIn("its players follow the rules of the last hand and this series' do not",
+                      ruler_cloud.against_problem(AGAINST, rule, kept_ruled))
+        registered = ruler_cloud.Series(self.root / "g910-registered")
+        registered.register({**ruled, "against": ""}, rule)
+        for seed in rule.seeds:
+            registered.keep(old_ruler(seed))
+        self.assertIsNone(ruler_cloud.against_problem(ruled, rule, registered))
+        self.assertIn("this series' do not", ruler_cloud.against_problem(AGAINST, rule, registered))
+
 
 class QueueTests(unittest.TestCase):
     def test_a_call_is_unfinished_until_it_ends(self):

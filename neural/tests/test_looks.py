@@ -261,6 +261,15 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(answer["state"], "first")
             self.assertEqual(answer["design"]["per_look"], 1)
 
+    def test_a_series_with_the_rules_at_every_seat_names_its_incumbent_with_them(self):
+        rules = {"all_last": dict(ACCOUNT), "late_rule": {"rule": "decline-last", "judged": 2, "fired": 1}}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            looks.Design(first_seed=7, step=1, per_look=1, looks=1).save(root / "design.json")
+            (root / "seed-7.json").write_text(json.dumps(report(7, [3.0] * 29 + [2.9], challenger="a",
+                                                                incumbent="b", **rules, incumbent_rules=rules)))
+            self.assertIn("stopped at look 1: b with the rules is the stronger", self.run_main(root))
+
     def test_one_checkpoint_averaging_over_the_suits_and_plain_reads_as_two(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

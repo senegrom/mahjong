@@ -743,6 +743,14 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
     incumbent = theirs.get("incumbent") or checkpoint_name(reports[rule.seeds[0]].get("incumbent", ""))
     if incumbent != settings["incumbent"]:
         return f"its incumbent is {incumbent}, not {settings['incumbent']}: name the incumbent as it does"
+    # An incumbent that follows the rules of the last hand plays other games
+    # than the same checkpoint plain, so the two series' deals are not the
+    # same deals played against the same player. A folder never registered
+    # says so by its reports.
+    ruled = bool(theirs.get("last_hand_rules")) if theirs else "incumbent_rules" in reports[rule.seeds[0]]
+    if ruled != bool(settings.get("last_hand_rules")):
+        return (f"its players {'follow' if ruled else 'do not follow'} the rules of the last hand and this "
+                f"series' {'do not' if ruled else 'do'}, so its incumbent plays other games")
     return None
 
 
