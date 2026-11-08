@@ -93,10 +93,10 @@ test('the value is named and explained by the reward the network the page plays 
   assert.match(body, /title="Estimated placement bonus, not a win probability">Estimated placement reward −1\.25</);
   assert.match(body, /Trained 0\.1\.1110 was last trained on the placement bonus \(\+1\.5 for first, \+0\.5 for second, −0\.5 for third and −1\.5 for fourth\) the scoreboard promises as each hand ends, points counting only through the places they win\. An estimate, not a win probability\./);
   assert.doesNotMatch(body, /training reward|÷ 4,000|mixed|finishing place/);
-  // 2610 and 1410 learned the same at alpha 0.05: the hand's points are paid
-  // beside the bonus, and the tooltip and the words under the value say how
-  // much.
-  for (const version of ['0.1.2610', '0.1.1410']) {
+  // 3000, 2610 and 1410 learned the same at alpha 0.05: the hand's points
+  // are paid beside the bonus, and the tooltip and the words under the value
+  // say how much.
+  for (const version of ['0.1.3000', '0.1.2610', '0.1.1410']) {
     const weighed = await shown(version);
     assert.match(weighed, /title="Estimated placement bonus plus 0\.05 × point change ÷ 4,000, not a win probability">Estimated placement reward −1\.25</);
     assert.match(weighed, new RegExp(`Trained ${version.replaceAll('.', '\\.')} was last trained on the placement bonus`));

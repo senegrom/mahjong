@@ -24,13 +24,17 @@ test('the manifest lists every network whole, the default first, and keeps expor
   }
 });
 
-test('0.1.2610 is the default, and 0.1.1410, 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
-  // Generation 2610 of the placement fork that pays points at alpha 0.05, as
-  // 1410 is, at the owner's word; 1410, 1110, 810 and 410 are the exports the
-  // site played before it, byte for byte.
+test('0.1.3000 is the default, and 0.1.2610, 0.1.1410, 0.1.1110, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
+  // Generation 3000 of fusion-place-ruled, which went on from 2610 with the
+  // same reward, at the owner's word; 2610, 1410, 1110, 810 and 410 are the
+  // exports the site played before it, byte for byte.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
-  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.2610', '0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
-  assert.equal(MANIFEST, find('0.1.2610'));
+  assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.3000', '0.1.2610', '0.1.1410', '0.1.1110', '0.1.810', '0.1.410']);
+  assert.equal(MANIFEST, find('0.1.3000'));
+  assert.deepEqual({ ...find('0.1.3000') }, { version: '0.1.3000', source: 'fusion-place-ruled/history/gen-03000', generation: 3000,
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107861778, origin,
+    object: 'models/g3000/3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5',
+    sha256: '3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5' });
   assert.deepEqual({ ...find('0.1.2610') }, { version: '0.1.2610', source: 'fusion-place-a005/history/gen-02610', generation: 2610,
     reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107861561, origin,
     object: 'models/g2610/422d3a87d1143f7b2bbe161e9920e99891b00ce213fb472813fc95be1487b721',
@@ -74,9 +78,9 @@ test("a network's value is named and described by the reward it learned from, as
     help: `Trained 0.1.1110 was last trained on the placement bonus (${BONUS}) the scoreboard promises as each hand ends, points counting only through the places they win. An estimate, not a win probability.`,
   });
   assert.doesNotMatch(placement.help, /4,000|training reward|finishing place/);
-  // 2610 and 1410: the same at alpha 0.05, which pays the hand's points
-  // beside the bonus and says how much they weigh, in the tooltip too.
-  for (const version of ['0.1.2610', '0.1.1410']) {
+  // 3000, 2610 and 1410: the same at alpha 0.05, which pays the hand's
+  // points beside the bonus and says how much they weigh, in the tooltip too.
+  for (const version of ['0.1.3000', '0.1.2610', '0.1.1410']) {
     const tiebreak = valueWords(find(version));
     assert.deepEqual(tiebreak, {
       label: 'Estimated placement reward',
