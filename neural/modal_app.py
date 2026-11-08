@@ -1433,6 +1433,7 @@ def ruler(
     average_suits: str = "",
     all_last_dama: str = "",
     late_rule: str = "",
+    last_hand_rules: bool = False,
 ) -> str:
     """A duel played the faster way, with a second challenger if `also`
     names one (see `neural.ruler`): every table of the duel in one arena,
@@ -1455,7 +1456,12 @@ def ruler(
     `LATE_RULES`, has the first challenger follow that rule of the last hand
     in place of the all-last dama rule (see `neural.late_rules`), with the
     same needs, the report saying under `late_rule_check` what it says
-    under `all_last_check`.
+    under `all_last_check`. `last_hand_rules` has every player at the
+    table, each challenger and the incumbent, follow both kept rules of the
+    last hand as the site plays them (decline-last, then all-last dama),
+    which needs fixed questions and `preview_reach` and takes neither
+    `all_last_dama` nor `late_rule`; the incumbent's account is the report's
+    `incumbent_rules`, and no pair is checked.
 
     The answer is the report, with the checkpoints named as the volume
     names them. With a `tag` it is also kept on the volume, at
@@ -1492,6 +1498,11 @@ def ruler(
         raise ValueError("late_rule compares a checkpoint with itself: also must name the challenger")
     if late_rule and average_suits not in ("", "both"):
         raise ValueError("late_rule needs both arms asked alike: average_suits must be '' or 'both'")
+    if last_hand_rules and (all_last_dama or late_rule):
+        raise ValueError("last_hand_rules plays both kept rules of the last hand for every player: it takes neither "
+                         "all_last_dama nor late_rule")
+    if last_hand_rules and (questions != "fixed" or not preview_reach):
+        raise ValueError("last_hand_rules needs fixed questions and preview_reach")
     folder = _ruler_folder(tag) if tag else None
     volume.reload()
     names = [challenger, incumbent, *([also] if also else [])]
@@ -1530,7 +1541,8 @@ def ruler(
         if late_rule:
             command += ["--late-rule", late_rule]
         for flag, wanted in (("--graphs", graphs), ("--skip-forced", skip_forced),
-                             ("--preview-reach", preview_reach), ("--timing", timing)):
+                             ("--preview-reach", preview_reach), ("--last-hand-rules", last_hand_rules),
+                             ("--timing", timing)):
             if wanted:
                 command.append(flag)
         report = json.loads(_run_child(command))

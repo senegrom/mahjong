@@ -622,6 +622,38 @@ rules in self-play"), and so does the site's Trained AI
 and `dealer-noten` reads level (-0.00001 +- 0.00001: one deal of 20,000 placed
 worse). So both were dropped.
 
+## Networks measured with the rules: `--last-hand-rules`
+
+Networks are measured against each other with the kept rules, never plain:
+the site plays every network with them, and the networks differ by a few
+thousandths, less than a plain series can tell apart from what the rules
+change. With `--last-hand-rules`, every player at the table, each challenger
+and the incumbent, follows both rules as the site plays them: decline-last is
+asked first and the all-last dama rule around it, because a declined
+self-draw can leave a riichi as the move, which dama must judge. Nothing else
+of the play changes.
+
+It needs fixed questions and the reach's tile asked with the reach, as each
+rule does alone, and takes neither `--all-last-dama` nor `--late-rule`, which
+measure one rule against plain play. No pair is checked: the checks of those
+series hold only of one network played twice against a plain incumbent.
+Instead, every report must show that each challenger (`all_last` and
+`late_rule`) and the incumbent (`incumbent_rules`) followed both rules and
+that each rule judged at least one decision of each (`looks.rules_problem`); a
+report that does not stops the series. A series names each player "with the
+rules".
+
+It is played on an app deployed from a checkout that holds it, never on
+`mahjong-train`, as each rule's series is. A head-to-head series of two
+networks, the first in one seat against three of the second:
+
+```sh
+python -m neural.ruler_cloud series ruled-g3500-vs-g3000 history/gen-03500 history/gen-03000 \
+    --last-hand-rules --run fusion-place-ruled \
+    --questions fixed --graphs --skip-forced --preview-reach \
+    --expected 0.006 --app <the app> --local E:/tmp-claude/mahjong/rulers
+```
+
 ## Reading a series: `neural.looks`
 
 A clear difference shows long before the twentieth seed and a level one never

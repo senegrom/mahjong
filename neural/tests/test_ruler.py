@@ -9,7 +9,8 @@ against the first; a timed duel plays the same games; and the cloud keeps
 every report on the volume, and tells its child which challengers average
 over the suits or leave the last hand's riichi undeclared, and which late
 rule of the last hand the first follows, the last two only for one
-checkpoint against itself, both arms asked alike, one rule at a time."""
+checkpoint against itself, both arms asked alike, one rule at a time, or
+that every player at the table follows both rules of the last hand."""
 
 import contextlib
 from functools import partial
@@ -585,6 +586,29 @@ class CloudTests(unittest.TestCase):
     def test_a_failed_child_raises(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.call({}, code=1, challenger="history/gen-00910", tag="t")
+
+    def test_every_player_following_the_rules_of_the_last_hand_is_named_to_the_child(self):
+        report = {"seed": 5, "by_deal": [2.4], "all_last": {"riichi": 2}, "late_rule": {"rule": "decline-last"},
+                  "incumbent_rules": {"all_last": {"riichi": 3}, "late_rule": {"rule": "decline-last"}}}
+        answer, calls, _texts = self.call(report, challenger="history/gen-00910", incumbent="history/gen-00810",
+                                          seed=5, last_hand_rules=True, questions="fixed", graphs=True,
+                                          preview_reach=True)
+        (command,) = calls
+        self.assertIn("--last-hand-rules", command)
+        self.assertNotIn("--all-last-dama", command)
+        self.assertNotIn("--late-rule", command)
+        self.assertEqual(json.loads(answer)["incumbent_rules"], report["incumbent_rules"])
+        # Asked for nothing of the kind, the child is told nothing of it.
+        _answer, calls, _texts = self.call({"seed": 5, "by_deal": [2.5]}, challenger="history/gen-00810", seed=5)
+        self.assertNotIn("--last-hand-rules", calls[0])
+        app = controller()
+        switched = {"questions": "fixed", "preview_reach": True, "last_hand_rules": True}
+        for bad, why in (({"last_hand_rules": True}, "fixed questions"),
+                         ({"last_hand_rules": True, "questions": "fixed"}, "preview_reach"),
+                         ({**switched, "also": "x", "all_last_dama": "first"}, "takes neither"),
+                         ({**switched, "also": "x", "late_rule": "decline-last"}, "takes neither")):
+            with self.subTest(**bad), self.assertRaisesRegex(ValueError, why):
+                app.ruler(challenger="x", **bad)
 
     def test_the_duel_asks_for_timing_only_when_told(self):
         app = controller()

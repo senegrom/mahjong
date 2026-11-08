@@ -46,8 +46,12 @@ never told before the rule has decided, and fixed questions (`neural.ruler
 --questions fixed`), so that what changes at a table where it fires changes
 no answer at any other: it is refused without either. It is the player's
 outermost question, around an average over the suits if there is one, and a
-player follows one rule of the last hand: never the all-last dama rule and a
-late rule.
+player follows one rule of the last hand, never the all-last dama rule and a
+late rule, but where a ruler plays the kept rules of the last hand together
+(`neural.ruler --last-hand-rules`). There decline-last is followed first and
+the all-last dama rule is wrapped around it (`all_last.dama(around_decline=
+True)`), as the site's Trained AI and self-play order them: a declined
+self-draw can leave a riichi as the move, which dama must judge.
 
 It is off unless asked for: only a ruler seats a player that follows one.
 Self-play decides through `Combined.decide`, never `_ask`, so a rule reaches
@@ -205,8 +209,9 @@ def follow(player, rule: str, fixed: bool = False):
     in Mortal's moves can, asked in fixed rows, which its seating says with
     `fixed`, with the reach's tile asked with the reach (see
     `neural.ruler.seat`), following no other rule of the last hand, and the
-    rule must be the last wrapped around its question. Told, not looked for,
-    as `all_last.dama` is told."""
+    rule must be the last wrapped around its question, but for the all-last
+    dama rule, which may then be wrapped around it (see the module's notes).
+    Told, not looked for, as `all_last.dama` is told."""
     from . import combined
 
     require_late_engine()
@@ -216,7 +221,10 @@ def follow(player, rule: str, fixed: bool = False):
         raise ValueError(f"{type(player).__name__} answers nothing in Mortal's moves: only a joined player, a Mortal "
                          "or one of ours in Mortal's moves can follow a late rule")
     if account_of(player) is not None or all_last.account_of(player) is not None:
-        raise ValueError("the player already follows a rule of the last hand, and follows one at most")
+        # Never the all-last dama rule's question inside this one: decline
+        # is asked first where both are followed (see the module's notes).
+        raise ValueError("the player already follows a rule of the last hand, and follows one at most, or decline-last "
+                         "and then the all-last dama rule around it")
     if not fixed:
         raise ValueError(f"the {rule} rule needs the questions fixed (neural.ruler --questions fixed): asked by "
                          "seating, a firing at one table changes the batches every other is asked in")

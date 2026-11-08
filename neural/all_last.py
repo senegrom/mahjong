@@ -44,7 +44,9 @@ an average over the suits if there is one (see `suits`), whose renamed game
 names no arena.
 
 It is off unless asked for: only a ruler seats a player that follows it
-(`neural.ruler --all-last-dama`). Self-play decides through
+(`neural.ruler --all-last-dama`), alone or, with `--last-hand-rules`, as
+the second of the two kept rules of the last hand, around decline-last
+(see `neural.late_rules`). Self-play decides through
 `Combined.decide`, never `_ask`, so the rule reaches training only through
 `selfplay_rules`, which plays the learner's own drawn moves by it, at the
 tile each reach drew, when the trainer is told (`train_combined
@@ -187,17 +189,20 @@ def ruled(ask, account: Account):
     return dama_where_riichi_buys_nothing
 
 
-def dama(player, fixed: bool = False):
+def dama(player, fixed: bool = False, around_decline: bool = False):
     """`player`, from now on leaving undeclared each riichi of the last
     hand whose tile keeps it first (see the module's notes); what it does
     is kept as `all_last`. Only a player that answers in Mortal's moves can,
     asked in fixed rows, which its seating says with `fixed`, with the
-    reach's tile asked with the reach (see `neural.ruler.seat`), following
-    no late rule of the last hand (see `neural.late_rules`), and the rule
-    must be the last wrapped around its question. Told, not looked
-    for: run as `python -m neural.ruler`, the ruler is a module twice over,
-    and a forward cut into one copy's fixed rows is no instance of the
-    other's."""
+    reach's tile asked with the reach (see `neural.ruler.seat`), and the
+    rule must be the last wrapped around its question. It follows no late
+    rule of the last hand (see `neural.late_rules`) unless told
+    `around_decline`, and then the player must already follow decline-last,
+    which is then asked first, as the site's Trained AI and self-play order
+    the two: a declined self-draw can leave a riichi as the move, and dama
+    must judge that one. Told, not looked for: run as `python -m
+    neural.ruler`, the ruler is a module twice over, and a forward cut into
+    one copy's fixed rows is no instance of the other's."""
     from . import combined
 
     require_all_last_engine()
@@ -208,7 +213,11 @@ def dama(player, fixed: bool = False):
         raise ValueError("the player already leaves the last hand's riichi undeclared")
     # Looked up by its name, as `late_rules.account_of` looks it up:
     # `late_rules` imports this module.
-    if getattr(player, "late_rule", None) is not None:
+    late = getattr(player, "late_rule", None)
+    if around_decline and getattr(late, "rule", None) != "decline-last":
+        raise ValueError("the all-last dama rule is asked around decline-last only once the player follows "
+                         "decline-last: follow it first (see neural.late_rules)")
+    if late is not None and not around_decline:
         raise ValueError("the player already follows a late rule of the last hand, and follows one rule of the last "
                          "hand at most")
     if not fixed:
