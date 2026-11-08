@@ -368,7 +368,7 @@ test('a first visit meets Trained opponents and is reviewed by Trained AI', () =
     assert.equal(DEFAULT_REVIEW_ADVISER, 'strong');
   }
   // A record this build cannot read is no choice at all.
-  for (const version of [0, 6, '5', undefined]) {
+  for (const version of [0, 7, '6', undefined]) {
     assert.deepEqual(table(readSettings({ getItem: () => JSON.stringify({ version, difficulty: 'club' }) })), ['neural', 'neural', 'neural']);
   }
 });

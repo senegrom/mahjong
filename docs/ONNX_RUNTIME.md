@@ -8,7 +8,8 @@ the reward it learned from, precision, decoded byte count, stored byte count,
 origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
 0.1.3000, the default, published on 8 November 2026, then 0.1.2610 (the
 default from 30 October), 0.1.1410 (from 21 October), 0.1.1110 (from 19
-October), 0.1.810 and 0.1.410, which the site played before it. Inspect those fields for the current release.
+October), 0.1.810 and 0.1.410, which the site played before it. Inspect those
+fields for the current release.
 
 The reward is what the network's value estimates, and the page names and
 explains the value by the reward of the network it plays: `{ "kind": "hybrid" }`
@@ -118,9 +119,10 @@ which their waiting workers cannot tell from the running page's message, so
 for a player who had picked an older network (before 1110, 0.1.410, or
 0.1.810 picked before #139 made picking the default no pick; before 1410,
 0.1.810 or 0.1.410; before 2610, 0.1.1110, 0.1.810 or 0.1.410; before 3000,
-0.1.1410, 0.1.1110, 0.1.810 or 0.1.410) nothing new is saved ahead, and the update's own page saves the new default once it runs, while
-connected. A new version never plays a network it does not list, even one an
-earlier version left saved.
+0.1.1410, 0.1.1110, 0.1.810 or 0.1.410) nothing new is saved ahead, and the
+update's own page saves the new default once it runs, while connected. A new
+version never plays a network it does not list, even one an earlier version
+left saved.
 Normal waiting-worker activation is retained: there is no forced mid-match
 upgrade.
 

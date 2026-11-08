@@ -16,14 +16,14 @@ games; 2610 and 1410 are generations 2610 and 1410 of the placement fork that
 pays the hand's points at alpha 0.05 (fusion-place-a005), and 1110 generation
 1110 of the one that pays placement alone (fusion-place-a0), all trained on
 the placement reward from fusion-long's generation 1010; 810 and 410 are
-fusion-long's own, trained on the hybrid reward (see the value, below). The section's title names the
-network the page plays, and so does every place that names Trained as an
-opponent, adviser or watched agent: the opponents menu and custom table, each
-opponent's badge, the watch lineup, the guided and physical advisers and the
-decision weights say **Trained 0.1.3000**, or the version picked, and the
-review adviser and the offline panel **Trained AI 0.1.3000**. Saved game logs
-say Trained alone, since a restored match may have been played by another
-network.
+fusion-long's own, trained on the hybrid reward (see the value, below). The
+section's title names the network the page plays, and so does every place that
+names Trained as an opponent, adviser or watched agent: the opponents menu and
+custom table, each opponent's badge, the watch lineup, the guided and physical
+advisers and the decision weights say **Trained 0.1.3000**, or the version
+picked, and the review adviser and the offline panel **Trained AI 0.1.3000**.
+Saved game logs say Trained alone, since a restored match may have been played
+by another network.
 
 Picking another version asks first, then reloads the page with the other
 network, in the mode it was in: a match, a guided game and a physical
