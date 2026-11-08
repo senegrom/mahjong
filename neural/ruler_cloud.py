@@ -48,6 +48,15 @@ last hand a series), the first challenger following the rule: on an app
 named with `--app`, one checkpoint asked alike, each report held to the
 rule's check (see `looks.late_problem`).
 
+Networks are measured against each other with `--last-hand-rules`: every
+player at the table, each challenger and the incumbent, follows both kept
+rules of the last hand as the site plays them (decline-last, then all-last
+dama; see `neural.ruler`), since the site plays every network so and the
+networks differ by a few thousandths. Such a series is played only on an
+app named with `--app`, in fixed rows with the reach's tile asked with the
+reach, and never with `--all-last-dama` or `--late-rule`; each report must
+show that every player followed both rules (see `looks.rules_problem`).
+
 The app's ruler is looked up before anything is registered, and a call
 that failed on an argument the app's code does not take (an app deployed
 from an older checkout) is never spawned again: every call there fails
@@ -187,12 +196,13 @@ SERIES = (*CALLED, "also", "against")
 #: What a series holds, and its calls are told, only when it is asked for:
 #: the challengers that average over the suits (see `neural.suits`), those
 #: that leave the last hand's riichi undeclared where its tile keeps them
-#: first through every win (see `neural.all_last`), and the late rule of the
-#: last hand the first challenger follows (see `neural.late_rules`). A series
-#: registered before they existed is then resumed as it was, and a call that
-#: asks for none of them is made as before, which an app deployed before they
-#: existed still takes.
-OPTIONAL = ("average_suits", "all_last_dama", "late_rule")
+#: first through every win (see `neural.all_last`), the late rule of the
+#: last hand the first challenger follows (see `neural.late_rules`), and
+#: both kept rules of the last hand followed by every player at the table
+#: (`last_hand_rules`, see `neural.ruler`). A series registered before they
+#: existed is then resumed as it was, and a call that asks for none of them
+#: is made as before, which an app deployed before they existed still takes.
+OPTIONAL = ("average_suits", "all_last_dama", "late_rule", "last_hand_rules")
 #: A tag names a folder here and on the volume, so it is held to what
 #: `modal_app.ruler` takes for one (see `cloud_runs.validate_run`), before
 #: any folder is made.
@@ -542,7 +552,15 @@ def challenger_name(settings: dict, which: str) -> str:
     name = settings["challenger" if which == "first" else "also"]
     return (name + (looks.AVERAGED if settings.get("average_suits") in (which, "both") else "")
             + (looks.RULED if settings.get("all_last_dama") in (which, "both") else "")
-            + (looks.late_named(settings.get("late_rule") or "") if which == "first" else ""))
+            + (looks.late_named(settings.get("late_rule") or "") if which == "first" else "")
+            + (looks.RULES if settings.get("last_hand_rules") else ""))
+
+
+def incumbent_name(settings: dict) -> str:
+    """The incumbent of a series as it is named where the series names its
+    players: said to follow the rules of the last hand when every player
+    does."""
+    return settings["incumbent"] + (looks.RULES if settings.get("last_hand_rules") else "")
 
 
 def compared(series: Series, settings: dict) -> tuple[str, str]:
@@ -551,7 +569,7 @@ def compared(series: Series, settings: dict) -> tuple[str, str]:
         return challenger_name(settings, "first"), challenger_name(settings, "second")
     if settings.get("against"):
         return challenger_name(settings, "first"), names_of(series.beside(settings["against"]))[0]
-    return challenger_name(settings, "first"), settings["incumbent"]
+    return challenger_name(settings, "first"), incumbent_name(settings)
 
 
 def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: float = POLL) -> str:
@@ -635,7 +653,8 @@ def names_of(series: Series) -> tuple[str, str]:
                 + looks.ruled(arms[1]))
     return (checkpoint_name(sample.get("challenger", "the challenger")) + looks.averaged(sample)
             + looks.ruled(sample),
-            checkpoint_name(sample.get("incumbent", "the incumbent")))
+            checkpoint_name(sample.get("incumbent", "the incumbent"))
+            + (looks.ruled(sample["incumbent_rules"]) if sample.get("incumbent_rules") else ""))
 
 
 def asking_problem(settings: dict) -> str | None:
@@ -684,6 +703,15 @@ def asking_problem(settings: dict) -> str | None:
     if late and app_of(settings) == APP:
         return (f"--late-rule is played only on an app deployed from a checkout that holds it, never on {APP}, "
                 "which keeps the live code: deploy one under another name and name it with --app")
+    if settings.get("last_hand_rules") and (rule or late):
+        return ("--last-hand-rules plays both kept rules of the last hand for every player: it takes neither "
+                "--all-last-dama nor --late-rule, which measure one rule against plain play")
+    if settings.get("last_hand_rules") and (settings["questions"] != "fixed" or not settings["preview_reach"]):
+        # As for --all-last-dama.
+        return "--last-hand-rules needs --questions fixed and --preview-reach"
+    if settings.get("last_hand_rules") and app_of(settings) == APP:
+        return (f"--last-hand-rules is played only on an app deployed from a checkout that holds it, never on "
+                f"{APP}, which keeps the live code: deploy one under another name and name it with --app")
     return None
 
 
@@ -754,12 +782,12 @@ def what_of(settings: dict) -> str:
     """What a series compares, in words, as its rule records it."""
     first = challenger_name(settings, "first")
     if settings["also"]:
-        pair = f"{first} against {challenger_name(settings, 'second')} at {settings['incumbent']}'s table"
+        pair = f"{first} against {challenger_name(settings, 'second')} at {incumbent_name(settings)}'s table"
     elif settings["against"]:
         pair = (f"{first} against the challenger of {settings['against']}, deal by deal, "
-                f"both at {settings['incumbent']}'s table")
+                f"both at {incumbent_name(settings)}'s table")
     else:
-        pair = f"{first} against {settings['incumbent']}"
+        pair = f"{first} against {incumbent_name(settings)}"
     return f"{pair}, questions {settings['questions']}"
 
 
@@ -1062,6 +1090,10 @@ def main() -> None:
                       help="the late rule of the last hand the first challenger follows, the second, its own "
                            "checkpoint, playing plain (see neural.late_rules); played only on an app named with "
                            "--app")
+    play.add_argument("--last-hand-rules", action="store_true",
+                      help="every player at the table, each challenger and the incumbent, follows both kept rules "
+                           "of the last hand as the site plays them: decline-last, then all-last dama; played only "
+                           "on an app named with --app, with --questions fixed and --preview-reach")
     play.add_argument("--app", default=APP,
                       help=f"the deployed app whose ruler the calls are spawned on; {APP}, the live app, unless "
                            "another is named, which the series then keeps")

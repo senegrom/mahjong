@@ -86,6 +86,20 @@ checkpoint, both arms asked alike), in fixed rows with the reach's tile asked
 with the reach, and checked the same way: every table whose final scores
 differ between the arms must be one the rule fired at (`late_rule_check`).
 
+Every player at the table may instead follow both kept rules of the last
+hand (`--last-hand-rules`), as the site's Trained AI plays any network: each
+challenger and the incumbent decline a win that would leave them alone in
+last, and then leave undeclared a riichi whose tile keeps them first
+(decline-last asked first and the all-last dama rule around it, as the site
+and self-play order them; see `late_rules`). Networks are measured against
+each other so, never plain: they differ by a few thousandths, and the site
+plays every one of them with the rules. It needs the questions fixed and
+the reach's tile asked with the reach, and takes neither `--all-last-dama`
+nor `--late-rule`, which measure one rule against plain play. No pair is
+checked, since no pair is one network played twice; each challenger's report
+says what its rules did under `all_last` and `late_rule`, and the
+incumbent's is `incumbent_rules`.
+
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
         --skip-forced --preview-reach --games 1000 --seed 9100000
@@ -95,6 +109,8 @@ differ between the arms must be one the rule fired at (`late_rule_check`).
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also a.pt --late-rule decline-last --questions fixed \\
         --graphs --skip-forced --preview-reach --games 1000 --seed 9100000
+    python -m neural.ruler a.pt b.pt --last-hand-rules --questions fixed --graphs --skip-forced \\
+        --preview-reach --games 1000 --seed 9100000
 
 The report is the duel's, with `play` saying how it played and where the
 time went (see `duel.Split`); with `--also`, one entry a challenger under
@@ -330,6 +346,7 @@ def seat(
     average_suits: bool = False,
     all_last_dama: bool = False,
     late_rule: str | None = None,
+    last_hand_rules: bool = False,
 ):
     """A player from a checkpoint, as a ruler seats it: asked only for
     moves, so with no gradients, its convolutions' and linear layers'
@@ -347,8 +364,15 @@ def seat(
     keeps the player first through every win (see `all_last.dama`), the
     rule wrapped around everything else the player asks; with `late_rule`,
     which needs the same, that late rule is followed in its place (see
-    `late_rules.follow`)."""
+    `late_rules.follow`). With `last_hand_rules`, which needs the same too,
+    the player follows both kept rules of the last hand, as the site plays
+    them: decline-last first, and the all-last dama rule around it."""
     validate_questions(questions, rows, graphs, skip_forced, preview_reach)
+    if last_hand_rules and (all_last_dama or late_rule):
+        raise ValueError("last_hand_rules plays both kept rules of the last hand: it takes neither the all-last dama "
+                         "rule nor a late rule apart")
+    if last_hand_rules and (questions != "fixed" or not preview_reach):
+        raise ValueError("the rules of the last hand need fixed questions and the reach's tile previewed")
     if all_last_dama and late_rule:
         raise ValueError("a player follows one rule of the last hand: the all-last dama rule or a late rule, not both")
     if all_last_dama and (questions != "fixed" or not preview_reach):
@@ -381,7 +405,26 @@ def seat(
     if late_rule:
         # Likewise.
         late_rules.follow(player, late_rule, fixed=questions == "fixed")
+    if last_hand_rules:
+        # Decline first, then dama around it, as the site's Trained AI and
+        # self-play order them: a declined self-draw can leave a riichi as
+        # the move, and dama must judge that one.
+        late_rules.follow(player, "decline-last", fixed=True)
+        all_last.dama(player, fixed=True, around_decline=True)
     return player
+
+
+def rules_of(player) -> dict:
+    """What the rules of the last hand a player follows did, under the
+    names a challenger's report gives them (`all_last`, `late_rule`):
+    nothing for a player that follows none."""
+    found = {}
+    dama, late = all_last.account_of(player), late_rules.account_of(player)
+    if dama is not None:
+        found["all_last"] = dama.report()
+    if late is not None:
+        found["late_rule"] = late.report()
+    return found
 
 
 def validate_questions(questions: str, rows: int, graphs: bool, skip_forced: bool,
@@ -653,9 +696,12 @@ def ruler(
     pair with the rule says whether the arms played the same games wherever
     it did not fire, under `all_last_check` (see `dama_check`); one that
     follows a late rule says what it did under `late_rule` (see
-    `late_rules.Account`), and the pair's check is `late_rule_check`. With
-    `timing`, a dict, the report says how it played and where the time
-    went, as `play`, with `how` among it."""
+    `late_rules.Account`), and the pair's check is `late_rule_check`. An
+    incumbent that follows the rules of the last hand (`--last-hand-rules`)
+    says what they did under `incumbent_rules`, and then no pair is
+    checked: the checks hold of one network played twice against a plain
+    incumbent. With `timing`, a dict, the report says how it played and
+    where the time went, as `play`, with `how` among it."""
     began = time.perf_counter()
     scores = play(challengers, incumbent, deals, seed, device=device, max_steps=max_steps,
                   questions=questions, timing=timing)
@@ -673,6 +719,7 @@ def ruler(
         if other is not None:
             arm["late_rule"] = other.report()
     result = {"training_api_version": TRAINING_API_VERSION, "seed": seed}
+    incumbent_rules = rules_of(incumbent)
     if len(arms) == 1:
         result.update(arms[0])
     else:
@@ -680,10 +727,12 @@ def ruler(
         result["arms"] = arms
         if len(arms) == 2:
             result["difference"] = difference(arms[0], arms[1], scores, layout)
-            if any(rule is not None for rule in rules):
+            if any(rule is not None for rule in rules) and not incumbent_rules:
                 result["all_last_check"] = dama_check(scores, layout, rules)
-            if any(other is not None for other in late):
+            if any(other is not None for other in late) and not incumbent_rules:
                 result["late_rule_check"] = dama_check(scores, layout, late)
+    if incumbent_rules:
+        result["incumbent_rules"] = incumbent_rules
     if timing is not None:
         result["play"] = play_record(timing, seconds, path="ruler", **(how or {}))
     return result
@@ -731,6 +780,10 @@ def main() -> None:
                         help="the late rule of the last hand the first challenger follows, the second, its own "
                              "checkpoint, playing plain (see neural.late_rules); needs --questions fixed and "
                              "--preview-reach, and not with --all-last-dama")
+    parser.add_argument("--last-hand-rules", action="store_true",
+                        help="every player at the table, each challenger and the incumbent, follows both kept rules "
+                             "of the last hand as the site plays them: decline-last, then all-last dama; needs "
+                             "--questions fixed and --preview-reach, and neither --all-last-dama nor --late-rule")
     parser.add_argument("--timing", action="store_true",
                         help="report how it played and where the time went, as `play`")
     parser.add_argument(
@@ -766,6 +819,12 @@ def main() -> None:
     if args.late_rule and args.average_suits not in (None, "both"):
         parser.error(f"--late-rule needs both arms asked alike, and --average-suits {args.average_suits} "
                      "averages one of them: average both or neither")
+    if args.last_hand_rules and (args.all_last_dama or args.late_rule):
+        parser.error("--last-hand-rules plays both kept rules of the last hand for every player: it takes neither "
+                     "--all-last-dama nor --late-rule, which measure one rule against plain play")
+    if args.last_hand_rules and (args.questions != "fixed" or not args.preview_reach):
+        # As for --all-last-dama.
+        parser.error("--last-hand-rules needs --questions fixed and --preview-reach")
 
     how = {"questions": args.questions, "graphs": args.graphs}
     if args.questions == "fixed":
@@ -776,6 +835,8 @@ def main() -> None:
         how["all_last_dama"] = args.all_last_dama
     if args.late_rule:
         how["late_rule"] = args.late_rule
+    if args.last_hand_rules:
+        how["last_hand_rules"] = True
     options = {name: getattr(args, name) for name in ("questions", "rows", "graphs", "skip_forced", "preview_reach")}
     began = time.perf_counter()
     paths = [args.challenger] + ([args.also] if args.also is not None else [])
@@ -783,9 +844,10 @@ def main() -> None:
     ruled = [args.all_last_dama in (which, "both") for which in ("first", "second")]
     # The first challenger follows the late rule, if one is named.
     late = [args.late_rule, None]
-    challengers = [seat(path, args.device, **options, average_suits=averages, all_last_dama=rule, late_rule=other)
+    challengers = [seat(path, args.device, **options, average_suits=averages, all_last_dama=rule, late_rule=other,
+                        last_hand_rules=args.last_hand_rules)
                    for path, averages, rule, other in zip(paths, averaging, ruled, late)]
-    incumbent = seat(args.incumbent, args.device, **options)
+    incumbent = seat(args.incumbent, args.device, **options, last_hand_rules=args.last_hand_rules)
     loaded = time.perf_counter() - began
     timing = {} if args.timing else None
     result = ruler(challengers, incumbent, args.games, args.seed, device=args.device, max_steps=args.max_steps,

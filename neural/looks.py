@@ -40,7 +40,10 @@ placement. A series of one checkpoint with the all-last dama rule and
 without it (see `neural.all_last`) is read only while every report passes
 the rule's check (`dama_problem`), and one with a late rule and without it
 (see `neural.late_rules`) only while every report passes its own
-(`late_problem`); a folder with one that fails is refused.
+(`late_problem`); a folder with one that fails is refused. A series whose
+every player followed both kept rules of the last hand (`neural.ruler
+--last-hand-rules`) is read only while every report shows that each
+challenger and the incumbent did (`rules_problem`).
 
     python -m neural.looks results/<tag>
     python -m neural.looks results/g910-vs-mortal --against results/g810-vs-mortal
@@ -75,6 +78,10 @@ RULED = " with all-last dama"
 #: such as either of the two measured and dropped, whose series are kept, is
 #: named by its own name (see `late_named`).
 LATE = {"decline-last": " declining last-place wins"}
+#: What follows the name of a player that followed both kept rules of the
+#: last hand, decline-last and all-last dama (`neural.ruler
+#: --last-hand-rules`), as the site plays every network.
+RULES = " with the rules"
 #: What every report of a late rule's series must show its account did at
 #: least once, by the rule: the decline finds something to change in any
 #: call of a thousand deals, so it must have fired. A rule not named here is
@@ -311,8 +318,10 @@ def ruled(report: dict) -> str:
     """What a challenger's name is followed by when it left the last hand's
     riichi undeclared where its tile kept it first through every win (its
     report says so under `all_last`, see `neural.all_last`), or followed a
-    late rule (under `late_rule`, see `neural.late_rules`), so one
-    checkpoint played both ways reads as two."""
+    late rule (under `late_rule`, see `neural.late_rules`), or both, as
+    the site plays them, so one checkpoint played both ways reads as two."""
+    if "all_last" in report and "late_rule" in report:
+        return RULES
     if "all_last" in report:
         return RULED
     if "late_rule" in report:
@@ -401,6 +410,32 @@ def late_problem(report: dict, following: list[str] | None = None) -> str | None
     return None
 
 
+def rules_problem(report: dict) -> str | None:
+    """Why a call's report fails to show that every player at the table
+    followed both kept rules of the last hand (`neural.ruler
+    --last-hand-rules`), if it does: each challenger and the incumbent
+    (`incumbent_rules`) must say what both rules did, and each rule must
+    have judged at least one decision of each, which any call of a
+    thousand deals gives it. Nothing is checked of a pair: no pair there is
+    one network played twice."""
+    arms = report.get("arms") or [report]
+    players = [(f"the {which} challenger", arm) for which, arm in zip(("first", "second"), arms)]
+    players.append(("the incumbent", report.get("incumbent_rules")))
+    for who, account in players:
+        if not account:
+            return f"{who} was to follow the rules of the last hand, and the report says nothing of them"
+        dama, late = account.get("all_last"), account.get("late_rule")
+        if dama is None:
+            return f"{who} was to follow the all-last dama rule, and the report says nothing of it"
+        if late is None or late.get("rule") != "decline-last":
+            return f"{who} was to follow decline-last, and the report says nothing of it"
+        if not dama.get("riichi"):
+            return f"{who}'s all-last dama rule judged nothing"
+        if not late.get("judged"):
+            return f"{who}'s decline-last rule judged nothing"
+    return None
+
+
 def failed_check(reports: dict[int, dict], registered: dict | None = None) -> str | None:
     """The first report of a series, by seed, that fails the all-last dama
     rule's check (see `dama_problem`) or a late rule's (see
@@ -409,12 +444,19 @@ def failed_check(reports: dict[int, dict], registered: dict | None = None) -> st
     late rule is the first challenger's), or, for a folder never registered,
     by what each report says. None when every report passes. A series with
     such a report is not one network played twice but where the rule fired,
-    so no look of it is read."""
+    so no look of it is read. A series registered to play the rules of the
+    last hand at every seat (`last_hand_rules`), or a report whose incumbent
+    followed them, is held to `rules_problem` instead."""
     following = late = None
     if registered:
         following = [registered.get("all_last_dama") in (which, "both") for which in ("first", "second")]
         late = [registered.get("late_rule") or "", ""]
     for seed in sorted(reports):
+        if (registered or {}).get("last_hand_rules") or (not registered and "incumbent_rules" in reports[seed]):
+            problem = rules_problem(reports[seed])
+            if problem:
+                return f"seed {seed}'s report fails the rules' check: {problem}"
+            continue
         problem = dama_problem(reports[seed], following)
         if problem:
             return f"seed {seed}'s report fails the all-last dama check: {problem}"
