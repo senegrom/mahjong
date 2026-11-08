@@ -533,7 +533,7 @@ def main() -> None:
                           for i, arm in enumerate(sample["arms"][:2]))
         else:
             names = (sample.get("challenger", "the challenger") + averaged(sample) + ruled(sample),
-                     sample.get("incumbent", "the incumbent"))
+                     sample.get("incumbent", "the incumbent") + ruled(sample.get("incumbent_rules") or {}))
     looks, state = read(rule, by_seed)
     if args.json:
         print(json.dumps({"design": asdict(rule), "looks": [asdict(look) for look in looks], "state": state},

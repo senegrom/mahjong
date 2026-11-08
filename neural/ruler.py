@@ -98,7 +98,11 @@ the reach's tile asked with the reach, and takes neither `--all-last-dama`
 nor `--late-rule`, which measure one rule against plain play. No pair is
 checked, since no pair is one network played twice; each challenger's report
 says what its rules did under `all_last` and `late_rule`, and the
-incumbent's is `incumbent_rules`.
+incumbent's is `incumbent_rules`. The incumbent's accounts are one player's
+over its three seats at every table, and a hand is a table's, so the counts
+of what followed a firing in the same hand (`riichi_after_firing`,
+`kept_after_firing`) count a later reach or win at any of its seats, not
+only at the seat that fired.
 
     python -m neural.ruler challenger.pt incumbent.pt --graphs --games 1000 --seed 9100000
     python -m neural.ruler a.pt incumbent.pt --also b.pt --questions fixed --graphs \\
