@@ -526,3 +526,22 @@ test('a waiting update answers for the network its own page will play for the pl
   assert.equal(instead.network.version, '0.1.900');
   assert.equal(instead.aiReady, false);
 });
+
+test('the WebGPU runtime is saved the first time a page fetches it, never with the AI package, and ready offline after', async () => {
+  const files = { ...bodies, 'ort-webgpu/ort.min.mjs': 'gpu runtime', 'ort-webgpu/ort-wasm-simd-threaded.jsep.wasm': 'gpu wasm' };
+  const config = manifest(files);
+  config.entries = config.entries.map(entry => ({ ...entry, group: entry.url.startsWith('ort-webgpu/') ? 'webgpu' : entry.group }));
+  const w = worker({ files, config });
+  await w.install();
+  await prepareAi(w, 'weights');
+  // Neither the game nor the AI package waits for it, and neither fetched it.
+  assert.deepEqual(await status(w).then(({ coreReady, aiReady }) => ({ coreReady, aiReady })), { coreReady: true, aiReady: true });
+  assert.equal([...w.counts.keys()].some(name => name.startsWith('ort-webgpu/')), false, 'no player downloads it for offline play');
+  // A page that plays on the card fetches it, and it is saved, checked.
+  assert.equal(await (await w.get('ort-webgpu/ort.min.mjs')).text(), 'gpu runtime');
+  const cold = worker({ files, config, caches: w.caches, network() { throw new Error('plane'); } });
+  assert.equal(await (await cold.get('ort-webgpu/ort.min.mjs')).text(), 'gpu runtime');
+  // One never fetched is not there offline, and the page plays on WebAssembly.
+  assert.equal((await cold.get('ort-webgpu/ort-wasm-simd-threaded.jsep.wasm')).status, 503);
+  assert.deepEqual(await status(cold).then(({ coreReady, aiReady }) => ({ coreReady, aiReady })), { coreReady: true, aiReady: true });
+});
