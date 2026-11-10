@@ -45,6 +45,73 @@ patched JavaScript loader, and shared memory-budget module. `copy-runtime.mjs`
 checks all sources before copying anything. Vite selects ONNX Runtime's
 external-WASM entry so it does not emit a second generic WASM binary.
 
+## WebGPU on desktops
+
+On a desktop with a graphics card the worker can run the network through
+ONNX Runtime Web's WebGPU provider instead (`src/lib/webgpu.js`). Its runtime
+is onnxruntime-web's own default build, `ort.min.mjs`, whose WebGPU provider
+runs on JSEP, with `ort-wasm-simd-threaded.jsep.mjs` and `.jsep.wasm`
+(29.5 MB), unchanged (the package's `ort.webgpu.min.mjs` is the other WebGPU
+provider, built with Asyncify, which was not measured here),
+which `copy-runtime.mjs` copies from the installed package to a folder named
+by their contents, `ort-webgpu/<hash>/` (`WEBGPU_RUNTIME_FILES`). The worker
+imports it only when it tries the card.
+
+The WebGPU provider has no Softplus kernel, and Mish exported as it is,
+x * tanh(softplus(x)), is a Softplus; each of the 163 in Mortal's encoder ran
+on the processor, which held a batch of 64 to 36 positions a second.
+`neural.export` writes Mish as `ExportMish`, x * s(1 + t) / (1 + t^2) with
+s = sigmoid(x) and t = 1 - s, exact in real arithmetic, from Sigmoid, Sub,
+Add, Mul and Div, which both runtimes carry; it refuses a graph that still
+holds a Softplus and says `activations: free of Softplus` when none is left.
+Its parity check still compares the graph with the network's own Mish. One
+export serves both runtimes; the reduced runtime's operator list is
+unchanged, and keeps Softplus and Tanh for the networks exported before.
+
+The publication tool reads the graph's operators from the export, and writes
+`"webgpu": true` to the network's manifest entry when none is a Softplus,
+false otherwise. A network listed without the field plays on WebAssembly.
+
+The page asks its worker to try the card only when all of these hold: the
+played network's entry says `webgpu: true`; the address has no `?gpu=off`;
+the browser has `navigator.gpu`; and the device is no phone or tablet
+(`userAgentData.mobile` or an Android or iOS platform, else the user agent,
+an iPad asking as a Mac by its touch points). The worker then needs an
+adapter that is not a fallback adapter, loads the WebGPU runtime and the
+network, and times it on the first position asked, eight times over, the
+batch a review asks of WebAssembly: one run to compile its shaders, then
+three, whose median must be at most 400 ms (`TIMED_POSITIONS`,
+`GPU_TIMED_MS`). On a desktop with a GeForce RTX 5070 Ti one position takes
+about 58 ms there and 122 to 163 ms on WebAssembly with one thread, and
+eight about 56 ms; with the machine busy and Chrome at the lowest priority,
+one took 173 ms and sixty-four 151 ms. A card under the bound runs a review's
+batch at least twice as fast as WebAssembly at its best and a single move in
+400 ms at most; a bound on one position alone would refuse a busy desktop
+whose card still reviews many times as fast. Anything else, an import,
+session or timing that
+fails or is slow, releases the card's session and plays on WebAssembly
+exactly as before, in the same worker; a run that fails later on the card,
+as a lost device does, reads the network again and answers that request on
+WebAssembly, within its deadline. Either way the worker does not try the card
+again, and the page, told it plays on WebAssembly after asking for the card,
+asks no later worker either until it is reloaded. The worker names the
+runtime in each `ready` note, and in a message of its own, with no request
+id, when the card fails during play; `policyRuntime()` in `policy.js` says it
+to the page, which names it "GPU" in the offline panel's Trained AI line. The
+reduced runtime's memory ceilings do not apply to the stock WebGPU runtime,
+which only desktops load.
+
+On the card a review asks up to 64 positions in one forward pass
+(`GPU_BATCH`, `batchMostFor` in `game-review.js`), and the reasoning about a
+decision up to 64 tables, instead of eight; the time a position measured
+still bounds every pass to about ten seconds, and the gates, aborts and
+deadlines are unchanged. The network and its moves are the same; the card's
+float arithmetic differs in the last bits, so a near tie can flip.
+`scripts/webgpu-check.mjs` measures that on real positions with the
+production worker, where Chrome gives a real adapter (it skips elsewhere,
+CI included), given a network exported without Softplus in
+`MAHJONG_WEBGPU_NETWORK`.
+
 ## Verification and memory
 
 Downloaded and cached model bytes are checked against the manifest's exact
@@ -66,7 +133,7 @@ worker begins it, which the worker says with a `ready` note, so its wait behind
 the requests ahead of it is not counted; one the worker never begins is ended
 after its own deadline and those of the requests still ahead of it, counted
 again from each answer. The whole-game review asks up to eight positions in one
-request, fewer on a slow device, their planes and masks laid end to end with a
+request (64 on a graphics card), fewer on a slow device, their planes and masks laid end to end with a
 `count`; the worker runs them as one batch and answers each position's best
 legal move and weights, and the request's deadline grows with the batch.
 

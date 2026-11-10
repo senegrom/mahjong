@@ -22,7 +22,9 @@ section's title names the network the page plays, and so does every place that
 names Trained as an opponent, adviser or watched agent: the opponents menu and
 custom table, each opponent's badge, the watch lineup, the guided and physical
 advisers and the decision weights say **Trained 0.1.3000**, or the version
-picked, and the review adviser and the offline panel **Trained AI 0.1.3000**.
+picked, and the review adviser and the offline panel **Trained AI 0.1.3000**,
+the panel adding **· GPU** while the network plays on the graphics card
+(see [WebGPU on desktops](ONNX_RUNTIME.md#webgpu-on-desktops)).
 Saved game logs say Trained alone, since a restored match may have been played
 by another network.
 
