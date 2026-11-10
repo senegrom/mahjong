@@ -38,7 +38,9 @@ from .training_safety import (
 
 # How much of a new measurement goes into the smoothed figure the best
 # checkpoint is chosen on. A third means roughly the last three count, which
-# cuts the noise about in half without lagging far behind a real gain.
+# cuts the noise about in half without lagging far behind a real gain. That
+# holds because each measurement plays deals of its own
+# (`training_state.measure_seed`); readings on shared deals share their luck.
 SMOOTHING = 1 / 3
 
 

@@ -56,7 +56,10 @@ def validate_training_options(args) -> None:
     # Here, not at the top: the deploying client imports this module and has
     # no NumPy, which the roster needs.
     from .population import CLUB
+    from .training_state import MEASURE_SEED_STRIDE
 
+    if args.measure_games > MEASURE_SEED_STRIDE:
+        raise ValueError(f"measure_games must be at most {MEASURE_SEED_STRIDE}, the seeds a measurement keeps")
     roster = list(getattr(args, "opponents", []))
     for path in roster:
         if str(path) != CLUB and not Path(path).is_file():

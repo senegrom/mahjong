@@ -37,7 +37,7 @@ from neural.tests.test_baseline_from_play import varied
 from neural.tests.test_bfloat16_players import fusion
 from neural.tests.test_compiled_learning import compiler_settings_kept
 from neural.tests.test_preview_reach import Steered
-from neural.training_state import round_seed
+from neural.training_state import measure_seed, round_seed
 
 CUDA = torch.cuda.is_available()
 SEED = 5
@@ -762,7 +762,7 @@ class RealRoundTests(unittest.TestCase):
         for generation in (0, 1):
             torch.save(payloads[generation + 1], self.root / f"after-{generation}.pt")
             net, _state = combined.load(self.root / f"after-{generation}.pt", "cpu")
-            alone = selfplay.measure(net, games=1, seed=7_000_000 + generation, device="cpu")
+            alone = selfplay.measure(net, games=1, seed=measure_seed(generation, 1), device="cpu")
             self.assertEqual(records[generation]["placement"], round(alone["placement"], 3))
             self.assertEqual(records[generation]["score"], round(alone["score"], 1))
 

@@ -105,6 +105,34 @@ def round_seed(seed: int, generation: int, games: int) -> int:
     return first
 
 
+# The in-training measurement against the heuristic players: where its seeds
+# start, and how many each generation keeps for itself.
+MEASURE_SEED_BASE = 7_000_000
+MEASURE_SEED_STRIDE = 1 << 16
+
+
+def measure_seed(generation: int, games: int) -> int:
+    """First deal seed of the measurement taken after `generation`.
+
+    The arena deals game i from seed + i, so measurements seeded one apart
+    played almost the same games: every 5 generations at 512 games, 507 of a
+    measurement's games were the one before's, and the smoothed figure best.pt
+    is chosen on kept the luck they shared. Each generation keeps a range of
+    2**16 seeds of its own instead, so no two measurements share a deal. The
+    ranges stay far below the rounds', which start at --seed + 2**32 (see
+    `round_seed`), for the first 65,000 generations.
+
+    The first measurement, after generation 0, plays the deals it always did."""
+    if type(generation) is not int or generation < 0:
+        raise ValueError("generation must be a nonnegative integer")
+    if type(games) is not int or not 1 <= games <= MEASURE_SEED_STRIDE:
+        raise ValueError(f"measure_games must be between 1 and {MEASURE_SEED_STRIDE}")
+    first = MEASURE_SEED_BASE + generation * MEASURE_SEED_STRIDE
+    if first + games > ROUND_SEED_STRIDE:
+        raise ValueError("The measurement's deal seeds would reach the rounds'")
+    return first
+
+
 def peak_rss_gb() -> float | None:
     """The process's peak resident memory so far, in GiB, where the platform
     says (Linux reports kilobytes); None elsewhere."""
