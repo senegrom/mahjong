@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
+import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
@@ -1315,4 +1315,29 @@ test('a closed review asks nothing more and frees its replay', async () => {
   review.review();
   await settled(review);
   assert.equal(review.decisions.length, before);
+});
+
+test('a review whose network plays on the graphics card asks passes of up to GPU_BATCH, and judges every decision as before', async () => {
+  const run = async (log, options) => {
+    const review = new MatchReview(Game, game, { ...options, analyzeBatch: async (positions, signal) => {
+      log.push(positions.length);
+      await turn();
+      if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+      return positions.map(position => decisive(position.mask));
+    } });
+    try {
+      review.review();
+      await settled(review);
+      return review.decisions.map(decision => [decision.hand, decision.index, decision.advised_kind, decision.advised_tile ?? null,
+        Boolean(decision.judgement?.flagged)]);
+    } finally { review.dispose(); }
+  };
+  const wide = [], narrow = [];
+  const onCard = await run(wide, { batchMost: () => GPU_BATCH });
+  const plain = await run(narrow, {});
+  assert.ok(plain.length > 0);
+  assert.deepEqual(onCard, plain);
+  assert.ok(Math.max(...narrow) <= BATCH, 'BATCH unless the network plays on the card');
+  assert.ok(Math.max(...wide) > BATCH && Math.max(...wide) <= GPU_BATCH, JSON.stringify(wide));
+  assert.ok(wide.length < narrow.length, 'fewer passes');
 });

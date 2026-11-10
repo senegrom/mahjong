@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
-import { Asking, batchFor, scanMatch } from '../src/lib/game-review.js';
+import { Asking, GPU_BATCH, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
 import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight,
   searchTime, trainedAsk } from '../src/lib/review-insight-policy.js';
@@ -331,6 +331,20 @@ test('a pass takes about as long as the review\'s batch at the device\'s speed, 
     askBoth: askOnce });
   const found = await insight.search(questionOf(reviewedDecision(), entry.position));
   assert.deepEqual([found.status, network.sizes], ['searched', Array(18).fill(2)]);
+});
+
+test('on the graphics card a pass may ask up to GPU_BATCH tables, and the search finds what it found in passes of PASS', async () => {
+  const search = async batchMost => {
+    const network = recordedNetwork(), asking = new Asking(), notes = new Asking(), batches = new Asking();
+    const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 1,
+      askBoth: askOnce, ...(batchMost ? { batchMost } : {}) });
+    return { found: await insight.search(questionOf(reviewedDecision(), entry.position)), sizes: network.sizes };
+  };
+  const card = await search(() => GPU_BATCH), plain = await search();
+  assert.equal(card.found.status, 'searched');
+  assert.equal(JSON.stringify(card.found), JSON.stringify(plain.found));
+  assert.ok(Math.max(...plain.sizes) <= PASS);
+  assert.ok(Math.max(...card.sizes) > PASS && Math.max(...card.sizes) <= GPU_BATCH, JSON.stringify(card.sizes));
 });
 
 test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {

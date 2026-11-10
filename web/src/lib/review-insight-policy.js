@@ -48,7 +48,7 @@
  * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
-import { batchFor } from './game-review.js';
+import { BATCH, batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 import { averagedAnswers } from './suits.js';
@@ -207,9 +207,12 @@ export function questionOf(decision, position) {
  * is under way. The three must be spells apart: a search waiting for its own
  * spell to end would never ask. `positionMs()` is the review's time a
  * position, read as each begins, which sizes its passes as the review's
- * batches (batchFor), a table counted as FORWARDS_A_TABLE positions.
+ * batches (batchFor), a table counted as FORWARDS_A_TABLE positions, and
+ * `batchMost()` the most positions a pass may ask, as the review's are
+ * (batchMostFor): more while the network plays on the graphics card.
  * `askBoth` is trainedAsk's. */
-export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth }) {
+export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth,
+  batchMost = () => BATCH }) {
   if (asking === notes) throw new Error('A search needs a spell of asking apart from the notes\'');
   if (!batches || batches === asking || batches === notes) throw new Error('The worker\'s batches need spells of their own (countedBatches)');
   const send = countedBatches(analyzeBatch, batches), gate = anyGate(notes, batches);
@@ -217,7 +220,7 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
     let end = null, out = 0, over = false;
     const close = () => { if (over && !out) end?.(); };
     const settled = () => { out--; close(); };
-    const size = batchFor(positionMs() * FORWARDS_A_TABLE);
+    const size = batchFor(positionMs() * FORWARDS_A_TABLE, { most: batchMost() });
     const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: send, gate, size, sent: pass => { out++; pass.then(settled, settled); }, askBoth });
     try {
       return await work((positions, signal) => { end ??= asking.begin(); return ask(positions, signal); }, size);

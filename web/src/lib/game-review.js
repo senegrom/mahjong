@@ -29,6 +29,15 @@ export const FLAG_PREFERRED_FROM = 0.6;
  * saves messages there and costs nothing, and a smaller one costs nothing
  * either. */
 export const BATCH = 8;
+/** Positions asked in one forward pass at most where the network plays on
+ * the graphics card (policyRuntime(), webgpu.js): there sixty-four took
+ * about as long as one, 61 ms against 58 on a desktop's GeForce RTX 5070 Ti
+ * (10 November 2026), so a batch of them is the whole gain, and still ends
+ * long before whatever waits behind it would notice. */
+export const GPU_BATCH = 64;
+/** The most positions a forward pass asks where the network plays on
+ * `runtime` ('webgpu', 'wasm', or null before the worker has said). */
+export const batchMostFor = runtime => (runtime === 'webgpu' ? GPU_BATCH : BATCH);
 /** How long a forward pass should take at most, at the review's measured
  * time a position: half the twenty seconds the worker gives one decision
  * (policy.js), so that a pass ends well within its own deadline, which is
@@ -40,11 +49,12 @@ export const BATCH = 8;
  * position, which alone takes longer. */
 export const BATCH_MS = 10000;
 /** The positions in each forward pass on a device that takes `positionMs` a
- * position (MatchReview.positionMs): BATCH up to 1.25 seconds a position, and
- * on a slower device as many as take BATCH_MS, at least one. BATCH before
- * anything is measured. */
-export function batchFor(positionMs) {
-  return positionMs > 0 ? Math.max(1, Math.min(BATCH, Math.floor(BATCH_MS / positionMs))) : BATCH;
+ * position (MatchReview.positionMs): `most`, BATCH unless it says GPU_BATCH
+ * for the graphics card (batchMostFor), while that many take BATCH_MS at
+ * most, and on a slower device as many as take BATCH_MS, at least one.
+ * `most` before anything is measured. */
+export function batchFor(positionMs, { most = BATCH } = {}) {
+  return positionMs > 0 ? Math.max(1, Math.min(most, Math.floor(BATCH_MS / positionMs))) : most;
 }
 /** A device slower than this a position reviews a hand at a time unless the
  * player asks for the rest of the game: at half a second a position, a game
@@ -340,12 +350,16 @@ export class Asking {
  * the review may ask the network, or a promise that settles once it may; the
  * review waits there before each forward pass (passGate), so that the hand's
  * own notes, which ask the same worker a decision at a time, go first
- * (Asking). */
+ * (Asking). `batchMost()` is the most positions a pass may ask, read as each
+ * is sized: BATCH, or GPU_BATCH while the network plays on the graphics card
+ * (batchMostFor). */
 export class MatchReview {
-  constructor(Game, snapshot, { analyzeBatch, gate = () => null, onChange = () => {}, onComplete = () => {}, now = () => performance.now() } = {}) {
+  constructor(Game, snapshot, { analyzeBatch, gate = () => null, onChange = () => {}, onComplete = () => {}, now = () => performance.now(),
+    batchMost = () => BATCH } = {}) {
     this.Game = Game;
     this.snapshot = snapshot;
     this.analyzeBatch = analyzeBatch;
+    this.batchMost = batchMost;
     this.gate = gate;
     this.onChange = onChange;
     this.onComplete = onComplete;
@@ -544,7 +558,7 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: () => batchFor(this.positionMs), analyze: (positions, signal) => this.passGate(positions, signal) },
+      batch: { size: () => batchFor(this.positionMs, { most: this.batchMost() }), analyze: (positions, signal) => this.passGate(positions, signal) },
       // Told as each group begins and as its decisions are judged: its
       // positions count then, with them, and those of a group stopped before
       // its end, left pending, are dropped as the next group begins.

@@ -1,10 +1,11 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
-/* global __RUNTIME_DIRECTORY__ */
+/* global __RUNTIME_DIRECTORY__, __WEBGPU_RUNTIME_DIRECTORY__ */
 import { prepareOfflineAi, refreshOffline } from './offline.js';
 import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
+import { webgpuWanted } from './webgpu.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
@@ -15,6 +16,9 @@ import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 // The runtime's folder is named by its contents (scripts/copy-runtime.mjs), so
 // its address never serves another version's bytes, from any cache.
 const runtimeBase = () => new URL(__RUNTIME_DIRECTORY__, document.baseURI).href;
+// The WebGPU runtime's folder, named the same way, which a worker is given
+// where the page asks it to try the graphics card (webgpu.js).
+const webgpuBase = () => new URL(__WEBGPU_RUNTIME_DIRECTORY__, document.baseURI).href;
 // Two phases, two deadlines. Loading the network into a fresh worker can mean
 // downloading 116 MB, which takes minutes on a slow link, so it is bounded by
 // silence: a worker that reports nothing for this long has stalled. Only a
@@ -38,13 +42,34 @@ let memoryLimitMiB = MEMORY_LIMITS_MIB[0];
 let nextId = 1;
 const waiting = new Map();
 let onProgress = null;
+// Which runtime the worker plays the network on, 'webgpu' or 'wasm', as it
+// last said, or null before a worker has said; and whether a worker asked to
+// try the graphics card played on WebAssembly instead, having found the card
+// failing or slow, after which this page asks for it no more.
+let runtime = null;
+let gpuDeclined = false;
+let onRuntime = null;
 
 export function reportProgress(callback) { onProgress = callback; }
+
+/** `callback(runtime)` hears each change of policyRuntime(). */
+export function reportRuntime(callback) { onRuntime = callback; }
+
+/** The runtime the network plays on, 'webgpu' or 'wasm', or null until a
+ * worker has loaded it. A review sizes its batches by it. */
+export function policyRuntime() { return runtime; }
+
+function setRuntime(value) {
+  if (value === runtime) return;
+  runtime = value;
+  onRuntime?.(value);
+}
 
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
   generation++;
   preparation = null;
   unstored = null;
+  setRuntime(null);
   const old = worker;
   worker = null;
   loaded = false;
@@ -112,7 +137,14 @@ function ensureWorker() {
   stillLoading(current);
   current.onmessage = ({ data }) => {
     if (worker !== current) return;
-    const { id, action, analysis, analyses, error, progress, ready, memory } = data;
+    const { id, action, analysis, analyses, error, progress, ready, memory, runtime: playing } = data;
+    if (playing) {
+      if (playing !== 'webgpu' && current.askedGpu) gpuDeclined = true;
+      setRuntime(playing);
+    }
+    // The worker's word that the graphics card failed and the network went
+    // to WebAssembly names no request, and is no answer.
+    if (id == null) return;
     const pending = waiting.get(id);
     // Initialization and memory failures poison ORT inside this worker. All
     // modes need a fresh runtime on retry, including after a cancelled call.
@@ -259,9 +291,16 @@ async function requestPolicy(planes, mask, timeout, signal, details, count) {
       clearTimeout(timer);
       const copy = planes.slice();
       const target = ensureWorker();
-      const message = { id, url: networkUrl(playedNetwork()), runtimeBase: runtimeBase(),
+      const network = playedNetwork();
+      const message = { id, url: networkUrl(network), runtimeBase: runtimeBase(),
         scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
       if (count) message.count = count;
+      // Where the network and the device allow it, the worker is asked to
+      // try the graphics card, and plays on WebAssembly wherever that fails.
+      if (!gpuDeclined && webgpuWanted(network, { search: globalThis.location?.search, navigator: globalThis.navigator })) {
+        message.webgpu = webgpuBase();
+        target.askedGpu = true;
+      }
       const transfer = [copy.buffer];
       // A fresh worker is handed bytes storage refused rather than fetch them.
       if (unstored && !loaded) {

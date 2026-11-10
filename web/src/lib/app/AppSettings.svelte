@@ -9,7 +9,8 @@
 
   // App owns persistence and match lifecycle; only panel/focus state is local.
   // network is the version of the trained network the page plays; App reloads
-  // the page to play another (onnetworkchange), or answers false to keep it.
+  // the page to play another (onnetworkchange), or answers false to keep it;
+  // runtime is where it plays, which the offline panel names (OfflineStatus).
   // reviewHideMove and reviewHideTiles are the review's two settings, which
   // the review of the game offers in its header too (GameReview).
   let {
@@ -17,7 +18,7 @@
     hints = $bindable(true), confirmDiscards = $bindable(false),
     shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
     tileFace, pendingTileFace = null,
-    network = playedNetwork().version, onnetworkchange,
+    network = playedNetwork().version, runtime = null, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
@@ -261,7 +262,7 @@
     </dl>
   </div>
 </details>
-<OfflineStatus {offline} {downloadAi} {network} bind:open={offlineOpen} />
+<OfflineStatus {offline} {downloadAi} {network} {runtime} bind:open={offlineOpen} />
 </div>
 {/snippet}
 

@@ -29,7 +29,7 @@ function client(t, prepareOfflineAi) {
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     networkUrl: network => network.url, playedNetwork: () => ({ url: 'https://test.invalid/network' }),
-    networkIsStored: async () => false,
+    networkIsStored: async () => false, webgpuWanted: () => false,
   }, ['chooseAction', 'resetPolicy']);
   t.after(() => api.resetPolicy());
   return { api, workers, ask: signal => api.chooseAction(new Float32Array(34), [1], signal, 1000) };
