@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_FILES } from '../src/lib/model-package.js';
+import { RUNTIME_FILES, WEBGPU_RUNTIME_FILES } from '../src/lib/model-package.js';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
-import { runtimeDirectory } from '../scripts/copy-runtime.mjs';
+import { runtimeDirectory, webgpuDirectory } from '../scripts/copy-runtime.mjs';
 
 const web = dirname(dirname(fileURLToPath(import.meta.url)));
 async function walk(dir) {
@@ -21,8 +21,21 @@ test('production includes the reduced runtime and all tile faces, not model file
   // One runtime, in the folder named by its contents, which the page was built to load.
   const runtime = await runtimeDirectory(web);
   assert.deepEqual(names.filter(name => name.startsWith('ort/')).sort(), RUNTIME_FILES.map(file => `${runtime}${file}`).sort());
+  // The WebGPU runtime, onnxruntime-web's own files, in a content-named folder of its own.
+  const webgpu = await webgpuDirectory(web);
+  assert.deepEqual(names.filter(name => name.startsWith('ort-webgpu/')).sort(), WEBGPU_RUNTIME_FILES.map(file => `${webgpu}${file}`).sort());
+  for (const file of WEBGPU_RUNTIME_FILES) {
+    assert.deepEqual(await readFile(join(dist, webgpu, file)), await readFile(join(web, 'node_modules/onnxruntime-web/dist', file)), file);
+  }
   const page = names.filter(name => /^assets\/index-[^/]+\.js$/.test(name));
   assert.equal(page.length, 1);
+  assert.ok((await readFile(join(dist, page[0]), 'utf8')).includes(webgpu), 'the page names the shipped WebGPU runtime folder');
+  // The AI package every player saves for offline play leaves the WebGPU
+  // runtime out; the service worker saves its files as a page fetches them.
+  const offline = JSON.parse(await readFile(join(dist, 'offline-manifest.json'), 'utf8'));
+  assert.deepEqual(offline.entries.filter(entry => entry.url.startsWith('ort-webgpu/')).map(entry => entry.group), WEBGPU_RUNTIME_FILES.map(() => 'webgpu'));
+  assert.equal(offline.entries.filter(entry => entry.group === 'ai').some(entry => entry.url.startsWith('ort-webgpu/')), false);
+  assert.ok(offline.bytes.webgpu > 20e6 && offline.bytes.runtime < 10e6, JSON.stringify(offline.bytes));
   assert.ok((await readFile(join(dist, page[0]), 'utf8')).includes(runtime), 'the page names the shipped runtime folder');
   for (const file of TILE_IMAGE_URLS) assert.ok(names.includes(file), `Missing playable artwork: ${file}`);
   assert.equal(names.some(name => /\.onnx$/i.test(name)), false, 'the only model is remote');

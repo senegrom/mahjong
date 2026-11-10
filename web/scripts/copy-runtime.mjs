@@ -3,7 +3,7 @@ import { copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_FILES } from '../src/lib/model-package.js';
+import { RUNTIME_FILES, WEBGPU_RUNTIME_FILES } from '../src/lib/model-package.js';
 
 const WEB = fileURLToPath(new URL('../', import.meta.url));
 
@@ -52,26 +52,47 @@ export async function runtimeDirectory(web = WEB) {
   return `ort/${hash.digest('hex').slice(0, 16)}/`;
 }
 
+/** The WebGPU runtime's files and their sources: onnxruntime-web's own, from
+ * the installed package, so they are always the release its JavaScript is. */
+const webgpuSources = web => WEBGPU_RUNTIME_FILES.map(file => [file, join(web, 'node_modules', 'onnxruntime-web', 'dist', file)]);
+
+/** The WebGPU runtime's folder, named by its contents as the reduced
+ * runtime's is, under a root of its own (`ort-webgpu/<hash>/`), so that the
+ * offline inventory can tell its files from the AI package's. */
+export async function webgpuDirectory(web = WEB) {
+  const hash = createHash('sha256');
+  for (const [file, source] of webgpuSources(web)) hash.update(`${file}\0`).update(await readFile(source)).update('\0');
+  return `ort-webgpu/${hash.digest('hex').slice(0, 16)}/`;
+}
+
+/** Copies `sources` into public/<directory> and removes every other folder
+ * under the directory's root: only the current runtime is published. */
+async function publishFolder(web, directory, sources) {
+  const [top] = directory.split('/');
+  const root = join(web, 'public', top), to = join(web, 'public', directory);
+  await mkdir(to, { recursive: true });
+  for (const [file, source] of sources) await copyFile(source, join(to, file));
+  for (const entry of await readdir(root)) {
+    if (`${top}/${entry}/` !== directory) await rm(join(root, entry), { recursive: true, force: true });
+  }
+}
+
 export async function copyRuntime(web = WEB) {
   await publicFiles(join(web, 'public'));
   const release = await runtimeRelease(web);
-  const sources = runtimeSources(web);
+  const sources = runtimeSources(web), webgpu = webgpuSources(web);
   // An incomplete package must not partly replace a working generated copy.
-  for (const [, source] of sources) {
+  for (const [, source] of [...sources, ...webgpu]) {
     const info = await stat(source);
     if (!info.isFile() || !info.size) throw new Error(`Missing or empty runtime file: ${source}`);
   }
-  const directory = await runtimeDirectory(web), root = join(web, 'public', 'ort'), to = join(web, 'public', directory);
-  await mkdir(to, { recursive: true });
-  for (const [file, source] of sources) await copyFile(source, join(to, file));
-  // Only the current runtime is published; earlier generated copies go.
-  for (const entry of await readdir(root)) {
-    if (`ort/${entry}/` !== directory) await rm(join(root, entry), { recursive: true, force: true });
-  }
-  return { release, directory };
+  const directory = await runtimeDirectory(web), webgpuFolder = await webgpuDirectory(web);
+  await publishFolder(web, directory, sources);
+  await publishFolder(web, webgpuFolder, webgpu);
+  return { release, directory, webgpuDirectory: webgpuFolder };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { release, directory } = await copyRuntime();
-  console.log(`Validated and copied the reduced ONNX Runtime ${release} to ${directory}; model bytes are verified when loaded.`);
+  const { release, directory, webgpuDirectory: webgpuFolder } = await copyRuntime();
+  console.log(`Validated and copied the reduced ONNX Runtime ${release} to ${directory} and its WebGPU runtime to ${webgpuFolder}; model bytes are verified when loaded.`);
 }

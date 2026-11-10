@@ -3,16 +3,18 @@
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { TILE_IMAGE_URLS } from '../src/lib/tile-faces.js';
-import { RUNTIME_FILES } from '../src/lib/model-package.js';
+import { RUNTIME_FILES, WEBGPU_RUNTIME_FILES } from '../src/lib/model-package.js';
 import { publicFiles } from './copy-runtime.mjs';
 
 const SHELL = ['apple-touch-icon.png', 'favicon-16x16.png', 'favicon-32x32.png',
   'favicon.ico', 'manifest.webmanifest'];
 
-/** runtime is the content-named folder the runtime was copied to (copy-runtime.mjs). */
-export async function copyRuntimeAssets(source, output, runtime) {
+/** runtime is the content-named folder the runtime was copied to, and webgpu
+ * the WebGPU runtime's, when the build ships it (copy-runtime.mjs). */
+export async function copyRuntimeAssets(source, output, runtime, webgpu = null) {
   const files = await publicFiles(source);
   const selected = new Set([...SHELL, ...TILE_IMAGE_URLS, ...RUNTIME_FILES.map(name => `${runtime}${name}`),
+    ...(webgpu ? WEBGPU_RUNTIME_FILES.map(name => `${webgpu}${name}`) : []),
     ...files.filter(name => /^icons\/[^/]+\.(png|svg)$/.test(name) || /(^|\/)LICENSE(?:\.[^/]*)?$/i.test(name))]);
   // Check the whole inventory before copying; missing approved artwork is an error.
   for (const name of selected) if (!files.includes(name)) throw new Error(`Missing runtime asset: ${name}`);

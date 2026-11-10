@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyRuntime, runtimeDirectory, runtimeRelease } from '../scripts/copy-runtime.mjs';
-import { RUNTIME_FILES } from '../src/lib/model-package.js';
+import { copyRuntime, runtimeDirectory, runtimeRelease, webgpuDirectory } from '../scripts/copy-runtime.mjs';
+import { RUNTIME_FILES, WEBGPU_RUNTIME_FILES } from '../src/lib/model-package.js';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'mahjong-runtime-'));
@@ -19,8 +19,9 @@ async function fixture(t) {
 // A runtime built from ONNX Runtime `built`, beside onnxruntime-web `installed`.
 async function release(root, built, installed) {
   await writeFile(join(root, 'runtime/ort-wasm-simd-threaded.wasm'), `\0asm\0${built}\0kernels`);
-  await mkdir(join(root, 'node_modules/onnxruntime-web'), { recursive: true });
+  await mkdir(join(root, 'node_modules/onnxruntime-web/dist'), { recursive: true });
   await writeFile(join(root, 'node_modules/onnxruntime-web/package.json'), JSON.stringify({ version: installed }));
+  for (const file of WEBGPU_RUNTIME_FILES) await writeFile(join(root, 'node_modules/onnxruntime-web/dist', file), `${file} ${installed}`);
 }
 
 test('a clean checkout copies the complete runtime without a local-model registry', async t => {
@@ -41,6 +42,27 @@ test('the runtime folder is named by its contents, and only the current one is p
   assert.notEqual(second.directory, first.directory);
   assert.deepEqual(await readdir(join(root, 'public/ort')), [second.directory.split('/')[1]]);
   assert.equal(await readFile(join(root, 'public', second.directory, 'memory-budget.mjs'), 'utf8'), 'memory, revised');
+});
+test('the WebGPU runtime is copied from the installed package to a content-named folder of its own', async t => {
+  const root = await fixture(t);
+  const first = await copyRuntime(root);
+  assert.match(first.webgpuDirectory, /^ort-webgpu\/[0-9a-f]{16}\/$/);
+  assert.equal(first.webgpuDirectory, await webgpuDirectory(root));
+  for (const name of WEBGPU_RUNTIME_FILES) {
+    assert.equal(await readFile(join(root, 'public', first.webgpuDirectory, name), 'utf8'), `${name} 1.29.0`);
+  }
+  // A new package release moves it, and the previous folder goes.
+  await writeFile(join(root, 'node_modules/onnxruntime-web/dist', WEBGPU_RUNTIME_FILES[2]), 'another build');
+  const second = await copyRuntime(root);
+  assert.notEqual(second.webgpuDirectory, first.webgpuDirectory);
+  assert.equal(second.directory, first.directory, 'the reduced runtime keeps its address');
+  assert.deepEqual(await readdir(join(root, 'public/ort-webgpu')), [second.webgpuDirectory.split('/')[1]]);
+  // Without its files the build stops before copying anything.
+  await rm(join(root, 'node_modules/onnxruntime-web/dist', WEBGPU_RUNTIME_FILES[0]));
+  await rm(join(root, 'public'), { recursive: true });
+  await mkdir(join(root, 'public'));
+  await assert.rejects(copyRuntime(root), /ENOENT/);
+  await assert.rejects(readdir(join(root, 'public/ort')), { code: 'ENOENT' });
 });
 test('incomplete runtime sources never partly replace an existing copy', async t => {
   const root = await fixture(t);

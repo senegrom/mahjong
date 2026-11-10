@@ -6,7 +6,7 @@ import { RUNTIME_FILES } from '../src/lib/model-package.js';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 import { validateNetwork } from '../src/lib/network-transfer.js';
 import { copyRuntimeAssets } from './runtime-assets.mjs';
-import { runtimeDirectory } from './copy-runtime.mjs';
+import { runtimeDirectory, webgpuDirectory } from './copy-runtime.mjs';
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -38,7 +38,11 @@ export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) 
   const entries = await Promise.all(files.sort().map(async file => {
     const data = await readFile(file), url = relative(root, file).split('\\').join('/');
     if (/\.onnx$/i.test(url)) throw new Error('Offline build contains an unsupported network; use the remote model manifest');
-    const group = url.startsWith('ort/') ? 'ai' : 'core';
+    // The WebGPU runtime is never prepared with a group: the worker saves
+    // each of its files when a page first fetches it, so a desktop that
+    // played on its graphics card once can again offline, and the AI package
+    // every player saves stays without its 29.5 MB.
+    const group = url.startsWith('ort/') ? 'ai' : url.startsWith('ort-webgpu/') ? 'webgpu' : 'core';
     return { url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length, group };
   }));
   for (const required of ['index.html', 'tiles/Back.svg', 'tiles/Haku.svg']) {
@@ -52,6 +56,7 @@ export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) 
   const bytes = {
     core: unique.filter(entry => entry.group === 'core').reduce((sum, entry) => sum + entry.bytes, 0),
     runtime: unique.filter(entry => entry.group === 'ai').reduce((sum, entry) => sum + entry.bytes, 0),
+    webgpu: unique.filter(entry => entry.group === 'webgpu').reduce((sum, entry) => sum + entry.bytes, 0),
     // A page saves the one network it plays, the default unless its player
     // picked another.
     network: networks[0].bytes,
@@ -73,10 +78,10 @@ export function offlineBuild() {
     },
     async closeBundle() {
       // The folder vite.config.js gave the page, from the same sources.
-      const runtime = await runtimeDirectory(web);
-      const assets = await copyRuntimeAssets(source, output, runtime);
+      const runtime = await runtimeDirectory(web), webgpu = await webgpuDirectory(web);
+      const assets = await copyRuntimeAssets(source, output, runtime, webgpu);
       const { bytes } = await buildOffline(output, { runtime });
-      console.log(`Offline bytes: core=${bytes.core}, AI runtime=${bytes.runtime}, remote network=${bytes.network}; excluded art-workspace bytes=${assets.excludedBytes}`);
+      console.log(`Offline bytes: core=${bytes.core}, AI runtime=${bytes.runtime}, WebGPU runtime saved when first used=${bytes.webgpu}, remote network=${bytes.network}; excluded art-workspace bytes=${assets.excludedBytes}`);
     },
   };
 }
