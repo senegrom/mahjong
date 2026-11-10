@@ -13,15 +13,22 @@
  * as a page plays it without this.
  */
 
-/** The longest a position may take on the graphics card, after one warm-up
- * run, for the page to play there: the median of TIMED_RUNS runs of the first
- * position asked. On a desktop with a GeForce RTX 5070 Ti one position takes
- * about 58 ms on WebGPU and 122 to 163 ms on WebAssembly with one thread
- * (10 November 2026), and 64 positions about 61 ms on WebGPU. A card under
- * this bound is never slower than WebAssembly on a fast desktop for a single
- * move, and is far faster in a review's batches. */
-export const GPU_POSITION_MS = 100;
-/** Runs timed after the warm-up, whose median is held to GPU_POSITION_MS. */
+/** Positions the graphics card is timed on: the first position asked, eight
+ * times over, the batch a review asks of WebAssembly. */
+export const TIMED_POSITIONS = 8;
+/** The longest those positions may take on the graphics card, after one
+ * warm-up run, for the page to play there: the median of TIMED_RUNS runs.
+ * On a desktop with a GeForce RTX 5070 Ti one position takes about 58 ms on
+ * WebGPU and 122 to 163 ms on WebAssembly with one thread, eight take about
+ * 56 ms on WebGPU (10 November 2026), and with the machine busy and Chrome at
+ * the lowest priority one position took 173 ms and sixty-four 151 ms. A card
+ * under this bound, 50 ms a position, runs a review's batch at least twice as
+ * fast as WebAssembly at its best, and a single move in 400 ms at most,
+ * which a player waiting on an opponent does not notice. Held to 100 ms for
+ * one position, a card would be refused on a busy desktop on which it still
+ * reviews many times as fast. */
+export const GPU_TIMED_MS = 400;
+/** Runs timed after the warm-up, whose median is held to GPU_TIMED_MS. */
 export const TIMED_RUNS = 3;
 
 /** Whether a phone or tablet is asking: its graphics card is the one its
@@ -85,10 +92,10 @@ export async function timedRuns(run, { runs = TIMED_RUNS, now = () => performanc
 /** The network opened on the graphics card, `{ runtime, session, ms }`, or
  * why not, `{ reason }`, where `bytes` are the verified network, `gpu` is the
  * worker's `navigator.gpu`, `importRuntime()` loads the WebGPU runtime, and
- * `measure(runtime, session)` runs the first position asked once. Nothing
+ * `measure(runtime, session)` runs TIMED_POSITIONS positions once. Nothing
  * here throws: a failure is a reason, and the session it opened is released,
  * so the worker plays on WebAssembly instead. */
-export async function openOnGpu(bytes, { gpu, importRuntime, measure, limitMs = GPU_POSITION_MS, now } = {}) {
+export async function openOnGpu(bytes, { gpu, importRuntime, measure, limitMs = GPU_TIMED_MS, now } = {}) {
   let session = null;
   try {
     const adapter = await webgpuAdapter(gpu);
@@ -103,7 +110,7 @@ export async function openOnGpu(bytes, { gpu, importRuntime, measure, limitMs = 
       const slow = session;
       session = null;
       await slow.release();
-      return { reason: `${Math.round(ms)} ms a position`, ms };
+      return { reason: `${Math.round(ms)} ms for ${TIMED_POSITIONS} positions`, ms };
     }
     return { runtime, session, ms };
   } catch (error) {

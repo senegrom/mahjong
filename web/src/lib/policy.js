@@ -142,6 +142,8 @@ function ensureWorker() {
       if (playing !== 'webgpu' && current.askedGpu) gpuDeclined = true;
       setRuntime(playing);
     }
+    // Why the card was not used, for whoever troubleshoots in the console.
+    if (data.webgpuRefused) globalThis.console?.warn(`Trained AI plays on WebAssembly: ${data.webgpuRefused}`);
     // The worker's word that the graphics card failed and the network went
     // to WebAssembly names no request, and is no answer.
     if (id == null) return;

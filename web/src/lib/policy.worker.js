@@ -15,17 +15,19 @@ import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
 import { networkBytes } from './network-store.js';
 import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
-import { openOnGpu } from './webgpu.js';
+import { TIMED_POSITIONS, openOnGpu } from './webgpu.js';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.simd = true;
 ort.env.logLevel = 'error';
 let runtimeMemory = null;
-// The WebGPU runtime, once imported, and whether the graphics card has
-// failed or been too slow in this worker: then it is not tried again, and
-// the network plays on WebAssembly until the page starts another worker.
+// The WebGPU runtime, once imported, and why the graphics card failed or was
+// too slow in this worker, if it did: then it is not tried again, the
+// network plays on WebAssembly until the page starts another worker, and
+// why is said once (refusalSaid).
 let gpuRuntime = null;
-let gpuRefused = false;
+let gpuRefused = null;
+let refusalSaid = false;
 
 // Positions in a plane: the 34 tile kinds. How many planes there are is
 // whatever the engine sent, so neither the worker nor the model has to be
@@ -74,25 +76,32 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, m
   handed = null;
   if (webgpu && !gpuRefused) {
     note('starting the network on the graphics card');
+    // Timed on the first position asked, as many times over as a timing
+    // asks (TIMED_POSITIONS).
     const batch = count ?? 1, width = planes.length / batch, moves = mask.length / batch;
-    const first = { planes: planes.slice(0, width), mask: mask.slice(0, moves) };
+    const first = { planes: new Float32Array(width * TIMED_POSITIONS), mask: [] };
+    for (let copy = 0; copy < TIMED_POSITIONS; copy++) {
+      first.planes.set(planes.subarray(0, width), copy * width);
+      first.mask.push(...mask.slice(0, moves));
+    }
     const opened = await openOnGpu(bytes, {
       gpu: self.navigator?.gpu,
       // The stock runtime finds its WebAssembly and that file's loader
       // beside itself, in the folder the page names.
       importRuntime: async () => {
-        gpuRuntime ??= await import(/* @vite-ignore */ new URL('ort.webgpu.min.mjs', webgpu).href);
+        gpuRuntime ??= await import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href);
         gpuRuntime.env.wasm.wasmPaths = webgpu;
         return gpuRuntime;
       },
-      measure: (runtime, session) => forward({ ort: runtime, session }, first.planes, first.mask, null, false),
+      measure: (runtime, session) => forward({ ort: runtime, session }, first.planes, first.mask, TIMED_POSITIONS, false),
     });
     if (opened.session) {
       held = { url, session: opened.session, ort: opened.runtime, runtime: 'webgpu' };
       return held;
     }
-    // Failed or slow, the card is not tried again by this worker.
-    gpuRefused = true;
+    // Failed or slow, the card is not tried again by this worker. Why is
+    // said with the next ready note, for troubleshooting.
+    gpuRefused = opened.reason || 'refused';
   }
   note('starting the network');
   const session = await ort.InferenceSession.create(bytes, {
@@ -167,7 +176,9 @@ async function infer({ id, url, runtimeBase, scope, planes, mask, count, details
   const request = { url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, mask, count };
   note('loading the network');
   let model = await load(request, note);
-  self.postMessage({ id, progress: 'network ready', ready: true, runtime: model.runtime });
+  const why = gpuRefused && !refusalSaid ? { webgpuRefused: gpuRefused } : {};
+  refusalSaid ||= Boolean(gpuRefused);
+  self.postMessage({ id, progress: 'network ready', ready: true, runtime: model.runtime, ...why });
   let answer;
   try {
     answer = await forward(model, planes, mask, count, details);
@@ -177,10 +188,11 @@ async function infer({ id, url, runtimeBase, scope, planes, mask, count, details
     // WebAssembly, read again from where it is kept, and the position is
     // asked there, within this request's deadline. The page hears of it in
     // a message of its own.
-    gpuRefused = true;
+    gpuRefused = String(error?.message ?? error) || 'failed';
+    refusalSaid = true;
     try { await release(); } catch { held = null; }
     model = await load(request, note);
-    self.postMessage({ runtime: model.runtime });
+    self.postMessage({ runtime: model.runtime, webgpuRefused: gpuRefused });
     answer = await forward(model, planes, mask, count, details);
   }
   self.postMessage({ id, ...answer });

@@ -27,6 +27,14 @@ test('production includes the reduced runtime and all tile faces, not model file
   for (const file of WEBGPU_RUNTIME_FILES) {
     assert.deepEqual(await readFile(join(dist, webgpu, file)), await readFile(join(web, 'node_modules/onnxruntime-web/dist', file)), file);
   }
+  // The module the worker imports loads the very files shipped beside it,
+  // and the worker imports that module.
+  const [module, ...beside] = WEBGPU_RUNTIME_FILES;
+  const loads = new Set((await readFile(join(dist, webgpu, module), 'utf8')).match(/ort-wasm-simd-threaded[.a-z]*\.(?:mjs|wasm)/g));
+  assert.deepEqual([...loads].filter(name => name.endsWith('.mjs')), beside.filter(name => name.endsWith('.mjs')));
+  assert.ok(beside.every(name => name.endsWith('.mjs') || loads.has(name) || loads.has(name.replace(/\.wasm$/, '.mjs'))));
+  const [workerChunk] = names.filter(name => /^assets\/policy\.worker-[^/]+\.js$/.test(name));
+  assert.ok((await readFile(join(dist, workerChunk), 'utf8')).includes(module), 'the worker imports the shipped module');
   const page = names.filter(name => /^assets\/index-[^/]+\.js$/.test(name));
   assert.equal(page.length, 1);
   assert.ok((await readFile(join(dist, page[0]), 'utf8')).includes(webgpu), 'the page names the shipped WebGPU runtime folder');
