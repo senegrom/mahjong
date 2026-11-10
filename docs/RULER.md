@@ -774,9 +774,15 @@ against its second (`looks <tag>`), so `--against` on either side of it is
 refused. When the local folder holds that series, it is refused before
 anything is read; when only the volume does, once a report of it is
 mirrored, before any is compared (with none on the volume yet there is
-nothing to compare, and the looks are empty). `python -m neural.looks
-<folder>` reads a local
-folder of reports, the old duel's included.
+nothing to compare, and the looks are empty). The two must also have
+played at one table, as registration with `--against` requires: the same
+incumbent (of the same run, for an archive or the latest or best of a run's
+own), asked the same way, the rules of the last hand at both or neither, and
+as many deals a seed, each taken from its registration or, for a folder never
+registered, from its reports. A pair that did not is refused before any look
+is read. `python -m neural.looks <folder>` reads a local folder of reports,
+the old duel's included; `--against <folder>` reads it against another,
+held to the same table.
 
 At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A

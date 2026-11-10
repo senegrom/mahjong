@@ -58,7 +58,7 @@ import functools
 import json
 import math
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 #: The published rulers' first seed and the distance between seeds.
@@ -244,6 +244,96 @@ def against_each(reports: dict[int, dict], others: dict[int, dict]) -> dict[int,
     (see `against`) on the seeds both hold: a look waits for a seed either
     lacks."""
     return {seed: against(report, others[seed]) for seed, report in reports.items() if seed in others}
+
+
+def checkpoint_name(named: str) -> str:
+    """A checkpoint as a report names it, as the volume names it. A ruler's
+    report names it so (see `modal_app.ruler`); the old duel's names the
+    container's copy, the volume's name with each "/" made "--" and ".pt"
+    after it (see `modal_app.duel`)."""
+    if named.endswith(".pt"):
+        return named.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".pt").replace("--", "/")
+    return named
+
+
+def own_to_its_run(checkpoint: str) -> bool:
+    """Whether a checkpoint so named is one of the run's own, found in the
+    run's folder (see `modal_app._checkpoint`): an archive under `history/`,
+    or the run's latest or best. The same name in two runs is then two
+    networks; `zoo/mortal_298k`, or another run's checkpoint named by its
+    path from the volume's root, is one whatever the run."""
+    return checkpoint.split("/")[0] == "history" or checkpoint.removesuffix(".pt") in ("latest", "best")
+
+
+def table_of(reports: dict[int, dict], registered: dict | None = None) -> dict:
+    """The table a series of single rulers played its challenger at: the
+    incumbent, the run it was taken from (None where nothing says), how
+    the players were asked, how many deals a seed, and whether every player
+    followed the rules of the last hand. A registered series is taken at
+    its word (`registered`, its `series.json`). A folder never registered
+    is read from its reports, which must all agree, and counts as asked by
+    seating, as an old ruler kept with `keep` was: a report says how it
+    was asked only when it was timed. Raises ValueError, saying why, for a
+    series of paired rulers or reports that do not agree."""
+    if any("arms" in report for report in reports.values()) or (registered or {}).get("also"):
+        raise ValueError("it is a series of paired rulers; a series is read against one of single rulers")
+    if registered:
+        return {"incumbent": registered["incumbent"], "run": registered.get("run"),
+                "questions": registered["questions"], "games": registered["games"],
+                "last_hand_rules": bool(registered.get("last_hand_rules"))}
+    found = {(checkpoint_name(report.get("incumbent", "")), report.get("run"),
+              report.get("games_per_seat", len(report["by_deal"])), "incumbent_rules" in report)
+             for report in reports.values()}
+    if len(found) > 1:
+        raise ValueError("its reports were not all played at one table: other incumbents, runs, deal counts or "
+                         "rules")
+    if not found:
+        raise ValueError("it holds no reports")
+    ((incumbent, run, games, ruled),) = found
+    return {"incumbent": incumbent, "run": run, "questions": "seating", "games": games, "last_hand_rules": ruled}
+
+
+def table_problem(mine: dict, theirs: dict) -> str | None:
+    """Why a series played at the table `theirs` (see `table_of`) cannot be
+    read deal by deal against one played at `mine`, if it cannot: the two
+    must have been asked the same way, faced the same incumbent, taken from
+    the same run where the incumbent is one of a run's own, both or neither
+    with the rules of the last hand, and played as many deals a seed. Any
+    of these changes the games, so the two series' deals are not the same
+    deals played against the same player."""
+    if theirs["questions"] != mine["questions"]:
+        return f"it was asked {theirs['questions']} and this series {mine['questions']}, which play other games"
+    if theirs["incumbent"] != mine["incumbent"]:
+        return f"its incumbent is {theirs['incumbent']}, not {mine['incumbent']}: name the incumbent as it does"
+    if (own_to_its_run(mine["incumbent"]) and None not in (mine["run"], theirs["run"])
+            and theirs["run"] != mine["run"]):
+        return (f"its incumbent is {theirs['run']}'s {theirs['incumbent']}, not {mine['run']}'s: "
+                "another network of the same name")
+    # An incumbent that follows the rules of the last hand plays other games
+    # than the same checkpoint plain.
+    ruled = theirs["last_hand_rules"]
+    if ruled != mine["last_hand_rules"]:
+        return (f"its players {'follow' if ruled else 'do not follow'} the rules of the last hand and this "
+                f"series' {'do not' if ruled else 'do'}, so its incumbent plays other games")
+    if theirs["games"] != mine["games"]:
+        return f"it played {theirs['games']} deals a seed, not {mine['games']}"
+    return None
+
+
+def unlike_problem(reports: dict[int, dict], registered: dict | None, others: dict[int, dict],
+                   other_registered: dict | None) -> str | None:
+    """Why the series of `reports` cannot be read deal by deal against the
+    series of `others`, each taken at its registration where it has one
+    (see `table_of`), if it cannot (see `table_problem`)."""
+    try:
+        mine = table_of(reports, registered)
+    except ValueError as error:
+        return f"this series cannot be read so: {error}"
+    try:
+        theirs = table_of(others, other_registered)
+    except ValueError as error:
+        return str(error)
+    return table_problem(mine, theirs)
 
 
 @dataclass
@@ -511,20 +601,40 @@ def main() -> None:
     else:
         rule = design()
         print(f"no design at {path}: reading by the usual rule, which was not registered for this series")
+    # What a series was registered to play, if `neural.ruler_cloud` registered it.
+    def registration(folder: Path) -> dict | None:
+        kept = folder / "series.json"
+        return json.loads(kept.read_text(encoding="utf-8")) if kept.exists() else None
+
+    settings = registration(args.folder)
+    registered = (settings or {}).get("against", "")
+    against_folder = args.against
+    unregistered = against_folder is not None and (
+        not registered or against_folder.resolve() != (args.folder.parent / registered).resolve())
+    if unregistered and path.exists():
+        print(f"read against {against_folder}, a comparison {args.folder.name}'s rule was not registered for: "
+              "its looks did not decide when the series stopped")
     reports = load_folder(args.folder)
-    others = load_folder(args.against) if args.against is not None else {}
-    for folder, kept in ((args.folder, reports), (args.against, others)):
+    others = load_folder(against_folder) if against_folder is not None else {}
+    for folder, kept in ((args.folder, reports), (against_folder, others)):
         if folder is None:
             continue
-        # What the series was registered to play, if `neural.ruler_cloud` registered it.
-        registered = folder / "series.json"
-        problem = failed_check(kept, json.loads(registered.read_text(encoding="utf-8"))
-                               if registered.exists() else None)
+        problem = failed_check(kept, registration(folder))
         if problem:
             raise SystemExit(f"{folder}: {problem}. The series is invalid, and none of its looks is read")
-    if args.against is not None:
+    if against_folder is not None:
+        # Before any look is read, and before `what` says they shared a table.
+        problem = unlike_problem(reports, settings, others, registration(against_folder))
+        if problem:
+            raise SystemExit(f"{args.folder} cannot be read against {against_folder}: {problem}")
         by_seed = against_each(reports, others)
-        names = (str(args.folder), str(args.against))
+        names = (str(args.folder), str(against_folder))
+        if unregistered:
+            # Said as read, not as the rule records the comparison it was registered for.
+            table = table_of(reports, settings)
+            rule = replace(rule, what=f"{args.folder.name} against {against_folder.name}, deal by deal, both at "
+                                      f"{table['incumbent']}{RULES if table['last_hand_rules'] else ''}'s table, "
+                                      f"questions {table['questions']}")
     else:
         by_seed = {seed: differences(report) for seed, report in reports.items()}
         sample = next(iter(reports.values()), {})

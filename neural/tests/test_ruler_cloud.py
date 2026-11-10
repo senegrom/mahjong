@@ -855,6 +855,47 @@ class AgainstTests(unittest.TestCase):
         self.assertNotIn("g910", lines[-1])
         self.assertIn("stopped at look 1: history/gen-00810 is the stronger", lines[-1])
 
+    def test_a_reading_against_a_series_of_another_table_is_refused(self):
+        """Read against a series it was not registered with, a series is
+        held to what registration against it would hold it to (see
+        `against_problem`): the same incumbent, asked the same way, the
+        rules of the last hand at both or neither, as many deals a seed,
+        whether the other was registered or is a folder never registered
+        that says so by its reports. Nothing is read, and no line says the
+        two shared a table."""
+        modal, series, _state, _out = self.play(0.3)
+        rule = looks.design()
+        cases = (
+            ("other-incumbent", {"incumbent": "history/gen-00466"}, {"incumbent": "history/gen-00466"},
+             "its incumbent is history/gen-00466, not zoo/mortal_298k"),
+            ("asked-fixed", {"questions": "fixed"}, {}, "it was asked fixed and this series seating"),
+            ("ruled", {"last_hand_rules": True}, {**RULES_ACCOUNT, "incumbent_rules": dict(RULES_ACCOUNT)},
+             "its players follow the rules of the last hand and this series' do not"),
+            ("longer", {"games": 60}, {}, "it played 60 deals a seed, not 50"),
+            # Never registered: its reports say what table it was played at.
+            ("kept-ruled", None, {**RULES_ACCOUNT, "incumbent_rules": dict(RULES_ACCOUNT)},
+             "its players follow the rules of the last hand and this series' do not"),
+            ("kept-other-incumbent", None, {"incumbent": "history/gen-00466"},
+             "its incumbent is history/gen-00466, not zoo/mortal_298k"),
+        )
+        for tag, changed, extra, why in cases:
+            with self.subTest(tag):
+                other = ruler_cloud.Series(self.root / tag)
+                if changed is not None:
+                    other.register({**AGAINST, "against": "", "challenger": "history/gen-00810", **changed}, rule)
+                for seed in rule.seeds:
+                    deals = 60 if (changed or {}).get("games") == 60 else 50
+                    other.keep({**single_report(seed, placements(seed, 7, 2.0, deals), "history/gen-00810"),
+                                **extra})
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as stop:
+                    ruler_cloud.reading(modal, series, other)
+                self.assertIn(f"g1010 cannot be read against {tag}: {why}", str(stop.exception.code))
+        # The table it shares is said once it has been checked.
+        same = ruler_cloud.Series(self.root / "same")
+        for seed in rule.seeds:
+            same.keep(single_report(seed, placements(seed, 7, 2.0), "history/gen-00810"))
+        self.assertIn("both at zoo/mortal_298k's table", ruler_cloud.reading(modal, series, same)[-1])
+
     def test_a_series_whose_kept_reports_went_missing_stops_rather_than_wait(self):
         modal = Modal(lambda name, arguments: single_report(
             arguments["seed"], placements(arguments["seed"], 3, 2.0), "history/gen-01010"))
