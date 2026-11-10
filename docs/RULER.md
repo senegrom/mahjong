@@ -781,8 +781,10 @@ own), asked the same way, the rules of the last hand at both or neither, and
 as many deals a seed, each taken from its registration or, for a folder never
 registered, from its reports. A pair that did not is refused before any look
 is read. `python -m neural.looks <folder>` reads a local folder of reports,
-the old duel's included; `--against <folder>` reads it against another,
-held to the same table.
+the old duel's included, by the comparison the series was registered with,
+so a series registered with `--against` is read against the series of that
+tag beside it; `--against <folder>` reads it against another, held to the
+same table.
 
 At the spend limit Modal refuses a launch, which the launcher asks again
 later, or takes it and leaves the call in its queue with no container. A

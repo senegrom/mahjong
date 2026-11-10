@@ -609,6 +609,10 @@ def main() -> None:
     settings = registration(args.folder)
     registered = (settings or {}).get("against", "")
     against_folder = args.against
+    if against_folder is None and registered:
+        # Registered against another series, kept beside it: read by that
+        # comparison, the one its rule and `what` were registered for.
+        against_folder = args.folder.parent / registered
     unregistered = against_folder is not None and (
         not registered or against_folder.resolve() != (args.folder.parent / registered).resolve())
     if unregistered and path.exists():

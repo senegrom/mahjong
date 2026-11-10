@@ -506,6 +506,27 @@ class CommandLineTests(unittest.TestCase):
                           "questions fixed", text)
             self.assertIn("level: no look crossed", text)
 
+    def test_a_series_registered_against_another_is_read_against_it(self):
+        """With no `--against`, a series registered against another series is
+        read by that comparison, the one its rule and its `what` name, not
+        as its challenger against the incumbent. Here both challengers are
+        half a place ahead of the incumbent and level with each other."""
+        settings = {"challenger": "history/gen-01010", "incumbent": "zoo/mortal_298k", "run": "fusion-long",
+                    "games": 20, "questions": "seating", "also": "", "against": "g910"}
+        ahead = lambda seed: [1.0, 3.0] * 10  # noqa: E731
+        with tempfile.TemporaryDirectory() as folder:
+            self.write(Path(folder) / "g910", ahead, None, challenger="history/gen-00910",
+                       incumbent="zoo/mortal_298k")
+            series = self.write(Path(folder) / "g1010-vs-g910", ahead, settings, challenger="history/gen-01010",
+                                incumbent="zoo/mortal_298k")
+            design = looks.design(what="history/gen-01010 against the challenger of g910, deal by deal")
+            design.save(series / "design.json")
+            text = self.run_main(series)
+            self.assertIn("comparing: history/gen-01010 against the challenger of g910", text)
+            self.assertNotIn("stopped at", text)
+            self.assertIn("level: no look crossed", text)
+            self.assertNotIn("not registered", text)
+
 
 if __name__ == "__main__":
     unittest.main()
