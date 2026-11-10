@@ -6,7 +6,9 @@
  * carries the network's own digest, so the response may be immutable and a
  * different export is a different address; `network-store.js` checks the
  * digest again before anything runs. Each names the reward it learned from,
- * which the page says beside the network's value.
+ * which the page says beside the network's value. One whose graph runs whole
+ * on WebGPU says so (`webgpu`), and the page may play it on the graphics
+ * card; one listed without the field plays on WebAssembly.
  */
 export const NETWORKS = Object.freeze([
   {

@@ -12,7 +12,10 @@ test('the manifest lists every network whole, the default first, and keeps expor
   assert.equal(MANIFEST, NETWORKS[0], 'every script that imports MANIFEST gets the default');
   assert.ok(Object.isFrozen(NETWORKS));
   for (const network of NETWORKS) {
-    assert.deepEqual(Object.keys(network), IDENTITY);
+    // A network published since the field says whether its graph runs whole
+    // on WebGPU; one listed before it says nothing, and plays on WebAssembly.
+    assert.deepEqual(Object.keys(network), 'webgpu' in network ? [...IDENTITY, 'webgpu'] : IDENTITY);
+    if ('webgpu' in network) assert.equal(typeof network.webgpu, 'boolean');
     assert.ok(Object.isFrozen(network));
     assert.ok(Object.isFrozen(network.reward));
     assert.match(network.version, /^\d+\.\d+\.\d+$/);

@@ -101,6 +101,43 @@ export function weightPrecision(bytes) {
   return PRECISIONS.get(largest[0]);
 }
 
+/** The operators the network's graph runs, read from the model: the op_type
+ * (field 4) of every NodeProto in ModelProto.graph (field 7, GraphProto.node
+ * field 1), of the graphs a node's attributes hold (NodeProto.attribute
+ * field 5, AttributeProto.g field 6 and graphs field 11), and of the model's
+ * functions (ModelProto.functions field 25, FunctionProto.node field 7). */
+export function graphOperators(bytes) {
+  const text = new TextDecoder();
+  const operators = new Set();
+  const node = (start, end) => {
+    for (const part of fields(bytes, start, end)) {
+      if (part.start === undefined) continue;
+      if (part.field === 4) operators.add(text.decode(bytes.subarray(part.start, part.end)));
+      else if (part.field === 5) {
+        for (const value of fields(bytes, part.start, part.end)) {
+          if ((value.field === 6 || value.field === 11) && value.start !== undefined) graph(value.start, value.end);
+        }
+      }
+    }
+  };
+  const graph = (start, end, field = 1) => {
+    for (const part of fields(bytes, start, end)) if (part.field === field && part.start !== undefined) node(part.start, part.end);
+  };
+  for (const part of fields(bytes, 0, bytes.length)) {
+    if (part.start === undefined) continue;
+    if (part.field === 7) graph(part.start, part.end);
+    else if (part.field === 25) graph(part.start, part.end, 7);
+  }
+  if (!operators.size) throw new Error("Could not read the network's operators.");
+  return operators;
+}
+
+/** Whether the graph runs whole on ONNX Runtime Web's WebGPU provider, which
+ * has a kernel for every operator the browser's networks use but Softplus:
+ * the form of Mish neural/export.py writes (ExportMish) holds none, and an
+ * export from before it 163, each of which ran on the processor. */
+export const runsOnWebgpu = operators => !operators.has('Softplus');
+
 /** The program and arguments that run npx, never through a shell: a shell
  * joins the arguments unquoted, so a staged file under a temporary directory
  * with a space in its path would split. On Windows npx is a batch file, which
@@ -167,6 +204,8 @@ function checkNetwork(network) {
   let origin;
   try { origin = new URL(network.origin); } catch { throw bad('origin'); }
   if (origin.protocol !== 'https:' || origin.origin !== network.origin) throw bad('origin');
+  // Networks published before the field have none, and play on WebAssembly.
+  if ('webgpu' in network && typeof network.webgpu !== 'boolean') throw bad('webgpu');
 }
 
 /** The manifest module for these networks, the default first: what publish
@@ -180,7 +219,9 @@ export function manifestSource(networks) {
  * carries the network's own digest, so the response may be immutable and a
  * different export is a different address; \`network-store.js\` checks the
  * digest again before anything runs. Each names the reward it learned from,
- * which the page says beside the network's value.
+ * which the page says beside the network's value. One whose graph runs whole
+ * on WebGPU says so (\`webgpu\`), and the page may play it on the graphics
+ * card; one listed without the field plays on WebAssembly.
  */
 export const NETWORKS = Object.freeze(${JSON.stringify(networks, null, 2)}.map(network => {
   Object.freeze(network.reward);
@@ -258,6 +299,7 @@ export async function publish({ modelPath, generation, source, origin, version, 
   const bytes = await readFile(resolve(modelPath));
   if (!bytes.length || bytes.length > 512 * 1024 * 1024) throw new Error('Unsupported model byte size.');
   const precision = weightPrecision(bytes);
+  const webgpu = runsOnWebgpu(graphOperators(bytes));
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const key = `models/g${generation}/${sha256}`;
   const packed = await compress(bytes, { level: 9 });
@@ -268,7 +310,7 @@ export async function publish({ modelPath, generation, source, origin, version, 
     try { await file.writeFile(packed); await file.sync(); } finally { await file.close(); }
     await upload(bucket, key, staged);
     const network = { version, source, generation, reward: learned, precision, bytes: bytes.length,
-      storedBytes: packed.length, origin, object: key, sha256 };
+      storedBytes: packed.length, origin, object: key, sha256, webgpu };
     // Read just before the write that replaces it. The upload is immutable
     // and named by its digest, so one that ends up unlisted costs nothing.
     const listed = await listedNetworks(manifestPath);
