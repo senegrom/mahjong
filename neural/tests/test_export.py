@@ -139,6 +139,56 @@ class ExportTests(unittest.TestCase):
                     self.assertEqual(destination.read_bytes(), b"previous model" if fail else b"new model")
                     self.assertEqual(list(Path(root).iterdir()), [destination])
 
+    def test_the_exported_mish_is_mish(self):
+        x = torch.linspace(-60, 60, 200001, dtype=torch.float64)
+        reference = torch.nn.functional.mish(x)
+        self.assertLess(float((export.ExportMish()(x) - reference).abs().max()), 1e-12)
+        # In single precision it stays within a few units of the last place,
+        # at the extremes too, where one of its parts vanishes.
+        single = x.float()
+        error = (export.ExportMish()(single).double() - torch.nn.functional.mish(single).double()).abs()
+        self.assertLess(float((error / reference.abs().clamp(min=1e-30)).max()), 1e-5)
+        self.assertLess(float(error.max()), 1e-5)
+
+    def test_mish_is_swapped_for_the_export_and_put_back(self):
+        net = torch.nn.Sequential(torch.nn.Linear(3, 3), torch.nn.Mish(inplace=True),
+                                  torch.nn.Sequential(torch.nn.Mish(), torch.nn.ReLU()))
+        originals = [net[1], net[2][0]]
+        with export.export_activations(net) as count:
+            self.assertEqual(count, 2)
+            self.assertIsInstance(net[1], export.ExportMish)
+            self.assertIsInstance(net[2][0], export.ExportMish)
+        self.assertEqual([net[1], net[2][0]], originals)
+        with self.assertRaises(RuntimeError), export.export_activations(net):
+            raise RuntimeError("an export that fails")
+        self.assertEqual([net[1], net[2][0]], originals)
+        # Anything but a module, as the tests' stand-ins for the network, is left alone.
+        with export.export_activations(None) as count:
+            self.assertEqual(count, 0)
+
+    def test_an_exported_mish_holds_no_softplus_and_only_the_runtimes_operators(self):
+        import onnx
+
+        net = torch.nn.Sequential(torch.nn.Conv1d(4, 4, 3, padding=1), torch.nn.Mish()).eval()
+        example = torch.randn(2, 4, 34)
+        with tempfile.TemporaryDirectory() as root:
+            plain, rewritten = Path(root) / "plain.onnx", Path(root) / "rewritten.onnx"
+            torch.onnx.export(net, (example,), str(plain), opset_version=17, dynamo=False)
+            with export.export_activations(net):
+                torch.onnx.export(net, (example,), str(rewritten), opset_version=17, dynamo=False)
+            ops = lambda path: {node.op_type for node in onnx.load(str(path)).graph.node}
+            self.assertIn("Softplus", ops(plain))
+            self.assertNotIn("Softplus", ops(rewritten))
+            self.assertNotIn("Tanh", ops(rewritten))
+            self.assertLessEqual(ops(rewritten), export.runtime_operators())
+            with self.assertRaisesRegex(SystemExit, "Softplus"):
+                export.check_operators(plain)
+            export.check_operators(plain, insist=False)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                export.check_operators(rewritten)
+            self.assertIn("free of Softplus", out.getvalue())
+
     def test_missing_operator_config_is_not_silently_accepted(self):
         fake_onnx = SimpleNamespace(load=lambda _: SimpleNamespace(graph=SimpleNamespace(node=[])))
         with patch.dict(sys.modules, {"onnx": fake_onnx}), patch.object(export, "runtime_operators", return_value=None):
