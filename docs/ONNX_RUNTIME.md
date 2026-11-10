@@ -7,18 +7,20 @@ can pick, the default first, each by its version with its source, generation,
 the reward it learned from, precision, decoded byte count, stored byte count,
 origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
 0.1.3000, the default, published on 8 November 2026, then 0.1.2610 (the
-default from 30 October), 0.1.1410 (from 21 October), 0.1.1110 (from 19
-October), 0.1.810 and 0.1.410, which the site played before it. Inspect those
-fields for the current release.
+default from 30 October), 0.1.1410 (from 21 October), 0.1.810 and 0.1.410,
+which the site played before it. 0.1.1110, the default from 19 October, was
+dropped from the list on 9 November. Inspect those fields for the current
+release.
 
 The reward is what the network's value estimates, and the page names and
 explains the value by the reward of the network it plays: `{ "kind": "hybrid" }`
 for 810 and 410, a hand's points over 4,000 plus the game's placement bonus,
-and `{ "kind": "placement", "alpha": 0.05 }` for 3000, 2610 and 1410, and
-`{ "kind": "placement", "alpha": 0 }` for 1110, the bonus the scoreboard
-promises at the start of the next hand, or after the game's last hand the
-bonus itself, plus alpha times the hand's points over 4,000
-(`neural/train_combined.py --reward`, `neural/place_model.py`).
+and `{ "kind": "placement", "alpha": 0.05 }` for 3000, 2610 and 1410, the
+bonus the scoreboard promises at the start of the next hand, or after the
+game's last hand the bonus itself, plus alpha times the hand's points over
+4,000 (`neural/train_combined.py --reward`, `neural/place_model.py`). The page
+still words alpha 0, the reward 1110 learned, should a network with it be
+listed again.
 
 `neural.export` checks the graph's operators; the publication tool
 `web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
