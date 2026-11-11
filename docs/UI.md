@@ -641,14 +641,14 @@ play. The table is drawn afresh at a change of hand; the rest of the decision
 stays. Its seats show riichi but never the word for a call, which play shows
 for a moment as it is made: the table is the one at the decision, its sets
 show what was called, and a word on a timer would still claim a call a step
-back and move the table as it went. The browser check goes through every step of a hand at 1100 by 900, 1440 by 900,
-1366 by 768, 800 by 1280, 390 by 844, 320 by 568 and 844 by 390: every tile is
-on the screen, an opponent's 18 pixels wide or more on one row or on two of
-seven, the dense table's opponents in one row under its centre and the player's
-tiles in one row, the player's seat first only on a phone held upright, the
-step bar on the screen with the player's tiles, scrolled to, clear of it, and
-no page scrolls sideways. Measured over every step of that hand, in Chromium,
-in pixels:
+back and move the table as it went. The browser check goes through every step
+of a hand at 1100 by 900, 1440 by 900, 1366 by 768, 800 by 1280, 390 by 844,
+320 by 568 and 844 by 390: every tile is on the screen, an opponent's 18 pixels
+wide or more on one row or on two of seven, the dense table's opponents in one
+row under its centre and the player's tiles in one row, the player's seat first
+only on a phone held upright, the step bar on the screen with the player's
+tiles, scrolled to, clear of it, and no page scrolls sideways. Measured over
+every step of that hand, in Chromium, in pixels:
 
 | Screen | Opponents' tiles | Player's tiles | Table and player's seat, tall |
 | --- | ---: | ---: | ---: |
