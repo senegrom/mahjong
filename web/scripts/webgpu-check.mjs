@@ -1,20 +1,28 @@
-/** The production worker on the graphics card against the same worker on
- * WebAssembly, on real positions: the decisions of the review check's game
- * and of a game the Club adviser played, written as Mortal's planes by the
- * engine, asked of a network exported without Softplus (neural/export.py,
- * ExportMish). It says the largest difference in the policy's logits, each
- * taken from the row's best move as WebAssembly has it (all that the weights
- * the worker answers keep, and all that a softmax or a best move reads), the
- * share of rows whose best move is the same, and how long a batch takes on
- * each runtime.
+/** A review's batches on the graphics card, as the page brings the card up
+ * (gpu-batches.js), with the production workers of the built site, on real
+ * positions: the decisions of the review check's game and of a game the
+ * Club adviser played, written as Mortal's planes by the engine, asked of a
+ * network exported without Softplus (neural/export.py, ExportMish).
+ *
+ * The WebAssembly worker answers a first batch, which loads the network,
+ * then the sample, a batch of BATCH positions, timed. The card's worker
+ * opens the network from this page's Cache Storage, runs the sample once to
+ * warm up and TIMED_RUNS times more, and must pass the page's own gates on
+ * it: the same answers (agreement) at least twice as fast (fastEnough).
+ * Then every position is asked on both, the card in batches of GPU_BATCH
+ * and WebAssembly in batches of BATCH, and the check says the largest
+ * difference in a weight, the share of decisions with the same best move,
+ * and how long a batch takes on each.
  *
  * It runs only where Chrome gives a real WebGPU adapter: elsewhere, as in CI,
  * whose Chrome has none, it says so and passes. The network is the file
- * MAHJONG_WEBGPU_NETWORK names, else MAHJONG_NETWORK's; one that still holds
- * a Softplus is not one the page would play on the card, and is skipped too.
+ * MAHJONG_WEBGPU_NETWORK names, else MAHJONG_NETWORK's; one whose graph does
+ * not run whole on WebGPU is not one the page would send to the card, and is
+ * skipped too.
  *   MAHJONG_WEBGPU_NETWORK=<network.onnx> node scripts/webgpu-check.mjs
  * Build the site first: npm run build. */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -26,23 +34,23 @@ import { graphOperators, runsOnWebgpu } from './publish-model-r2.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { reviewTable } from '../src/lib/trained-move.js';
 import { GPU_BATCH, BATCH } from '../src/lib/game-review.js';
-import { softwareAdapter } from '../src/lib/webgpu.js';
+import { TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, median, softwareAdapter } from '../src/lib/webgpu.js';
+import { networkCacheName } from '../src/lib/network-cache.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from '../tests/fixtures/review-check-game.js';
 
-/** The fewest rows that must keep their best move, and the largest
- * difference a logit may show, on the graphics card. Its arithmetic differs
- * from the processor's in the last bits, so a near tie may flip; anything
- * more is a different network. */
+/** The fewest decisions that must keep their best move on the card: its
+ * arithmetic differs from the processor's in the last bits, so a near tie
+ * may flip; anything more is a different network. */
 const SAME_BEST_AT_LEAST = 0.97;
-const LOGIT_DIFFERENCE_AT_MOST = 0.05;
 const POSITIONS = 34;
 
 const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 'dist');
 const runtime = await runtimeDirectory(web), webgpu = await webgpuDirectory(web);
 assert.ok(existsSync(resolve(dist, runtime, 'ort-wasm-simd-threaded.wasm')) && existsSync(resolve(dist, webgpu, 'ort.min.mjs')),
   'build the site first: npm run build');
-const [workerFile] = readdirSync(resolve(dist, 'assets')).filter(name => /^policy\.worker-[^/]+\.js$/.test(name));
-assert.ok(workerFile, 'the build has its policy worker');
+const chunk = pattern => readdirSync(resolve(dist, 'assets')).find(name => pattern.test(name));
+const playWorker = chunk(/^policy\.worker-[^/]+\.js$/), cardWorker = chunk(/^gpu-batch\.worker-[^/]+\.js$/);
+assert.ok(playWorker && cardWorker, 'the build has both workers');
 
 // Chrome runs WebGPU headless only when told it may, and on Windows through
 // Direct3D 11.
@@ -97,7 +105,7 @@ try {
   else {
     network = readFileSync(path);
     if (!runsOnWebgpu(graphOperators(network))) {
-      console.log(`SKIP WebGPU against WebAssembly: ${path} holds a Softplus; export it again with neural/export.py.`);
+      console.log(`SKIP WebGPU against WebAssembly: ${path} does not run whole on WebGPU; export it again with neural/export.py.`);
     } else {
       const rows = await positions();
       const width = rows[0].planes.length;
@@ -105,102 +113,96 @@ try {
       rows.forEach((row, at) => { laid.set(row.planes, at * width); legal.set(row.mask, at * row.mask.length); });
       planes = Buffer.from(laid.buffer);
       masks = Buffer.from(legal.buffer);
+      const expect = { bytes: network.length, sha256: createHash('sha256').update(network).digest('hex') };
       console.log(`Adapter: ${adapter.name || 'unnamed'}; ${rows.length} positions of ${width / POSITIONS} planes; network ${path}.`);
-      await check('the worker on the graphics card plays the moves it plays on WebAssembly, and a batch costs about one position', async () => {
-        const result = await page.evaluate(async ({ worker, runtimeBase, webgpuBase, width, gpuBatch, wasmBatch }) => {
+      await check('the card is brought up on a batch WebAssembly answered, passes the page\'s gates, and answers every batch as WebAssembly does', async () => {
+        const result = await page.evaluate(async ({ playWorker, cardWorker, runtimeBase, webgpuBase, cacheName, expect, width, gpuBatch, wasmBatch, runs }) => {
           const fetched = async name => new Uint8Array(await (await fetch(`webgpu-check/${name}`)).arrayBuffer());
           const allPlanes = new Float32Array((await fetched('planes.bin')).buffer), allMasks = await fetched('masks.bin');
           const count = allPlanes.length / width, moves = allMasks.length / count;
           const url = new URL('webgpu-check/network.onnx', location.href).href, scope = new URL('./', location.href).href;
-          /** A production worker, asked as policy.js asks it, the network
-           * handed to it as verified bytes; `ask(start, size)` answers the
-           * positions from start, and how long the worker took to run them. */
-          async function open(onGpu) {
-            const bytes = await fetched('network.onnx');
-            const thread = new Worker(new URL(worker, location.href), { type: 'module' });
-            const pending = new Map(), runtimes = [], refused = [];
-            let id = 0, began = 0;
+          const batch = (start, size) => ({ count: size, planes: allPlanes.slice(start * width, (start + size) * width),
+            mask: Array.from(allMasks.subarray(start * moves, (start + size) * moves), allowed => allowed === 1) });
+          /** A worker of the build, `ask(message)` answering a request as the
+           * page reads it, and how long it took from sending to answer. */
+          function open(file, onReady = () => {}) {
+            const thread = new Worker(new URL(`assets/${file}`, location.href), { type: 'module' });
+            const pending = new Map();
+            let id = 0;
             thread.onmessage = ({ data }) => {
-              if (data.runtime) runtimes.push(data.runtime);
-              if (data.webgpuRefused) refused.push(data.webgpuRefused);
-              if (data.id == null) return;
-              if (data.ready) { began = performance.now(); return; }
-              if (data.progress) return;
+              if (data.ready) onReady();
+              if (data.progress || data.id == null) return;
               const done = pending.get(data.id);
               pending.delete(data.id);
               if (data.error) done.reject(new Error(data.error));
-              else done.resolve({ analyses: data.analyses, ms: performance.now() - began });
+              else done.resolve(data);
             };
-            const ask = (start, size) => new Promise((resolve, reject) => {
-              const message = { id: ++id, url, runtimeBase, scope, count: size, details: true,
-                planes: allPlanes.slice(start * width, (start + size) * width),
-                mask: Array.from(allMasks.subarray(start * moves, (start + size) * moves), allowed => allowed === 1) };
-              if (onGpu) message.webgpu = webgpuBase;
-              if (id === 1) message.network = bytes;
-              pending.set(message.id, { resolve, reject });
-              thread.postMessage(message, id === 1 ? [bytes.buffer] : []);
+            const ask = (message, transfer = []) => new Promise((resolve, reject) => {
+              const began = performance.now();
+              const sent = { id: ++id, ...message };
+              pending.set(sent.id, { resolve: data => resolve({ ...data, ms: performance.now() - began }), reject });
+              thread.postMessage(sent, transfer);
             });
-            return { ask, runtimes, refused, close: () => thread.terminate() };
+            return { ask, close: () => thread.terminate() };
           }
-          /** Every position's answer in batches of `size`, and each full
-           * batch's time after the first, which loads the network. */
-          async function all(runner, size) {
-            const answers = [], times = [];
-            for (let start = 0; start < count; start += size) {
-              const { analyses, ms } = await runner.ask(start, Math.min(size, count - start));
-              answers.push(...analyses);
-              if (start && start + size <= count) times.push(ms);
-            }
-            return { answers, times };
-          }
-          const median = values => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
-          /** The median time of `runs` single positions, after one not timed. */
-          async function single(runner, runs = 9) {
-            const times = [];
-            for (let run = 0; run <= runs; run++) times.push((await runner.ask(run, 1)).ms);
-            return median(times.slice(1));
-          }
-          const gpu = await open(true);
-          // A card the worker would not play on ends the check there, saying why.
-          await gpu.ask(0, 1);
-          if (gpu.runtimes.includes('wasm')) {
-            gpu.close();
-            return { refused: gpu.refused, runtimes: { gpu: [...new Set(gpu.runtimes)] } };
-          }
-          const wasm = await open(false);
+          // The network saved in this page's Cache Storage, as the page saves
+          // it, which is the only place the card's worker reads it from.
+          const bytes = await fetched('network.onnx');
+          await (await caches.open(cacheName)).put(url, new Response(bytes.slice(), { headers: { 'Content-Type': 'application/octet-stream',
+            'Content-Length': String(bytes.length), 'X-Mahjong-SHA256': expect.sha256 } }));
+          const wasm = open(playWorker);
+          const onWasm = (start, size, extra = {}) => wasm.ask({ url, runtimeBase, scope, details: true, ...batch(start, size), ...extra },
+            extra.network ? [extra.network.buffer] : []);
+          const card = open(cardWorker);
           try {
-            const onGpu = await all(gpu, gpuBatch), onWasm = await all(wasm, wasmBatch);
-            const gpuOne = await single(gpu), wasmOne = await single(wasm);
-            let largest = 0, largestWeight = 0, same = 0, choices = 0;
-            onWasm.answers.forEach((plain, row) => {
-              const card = onGpu.answers[row], best = plain.action;
-              const legal = plain.weights.flatMap((weight, move) => (allMasks[row * moves + move] ? [move] : []));
-              if (legal.length > 1) {
-                choices++;
-                if (card.action === best) same++;
+            // A first batch, which loads the network, then the sample.
+            await onWasm(0, wasmBatch, { network: bytes });
+            const sample = await onWasm(wasmBatch, wasmBatch);
+            const opened = await card.ask({ open: { url, expect, scope, webgpu: webgpuBase } }).catch(error => ({ refused: error.message }));
+            if (opened.refused) return { refused: opened.refused };
+            const sampleRuns = [];
+            for (let run = 0; run <= runs; run++) sampleRuns.push(await card.ask(batch(wasmBatch, wasmBatch)));
+            // Every position, on both.
+            const all = async (ask, size) => {
+              const answers = [], times = [];
+              for (let start = 0; start < count; start += size) {
+                const { analyses, ms } = await ask(start, Math.min(size, count - start));
+                answers.push(...analyses);
+                if (start + size <= count) times.push(ms);
               }
-              for (const move of legal) {
-                const relative = answer => Math.log(answer.weights[move]) - Math.log(answer.weights[best]);
-                if (plain.weights[move] > 1e-30 && card.weights[move] > 1e-30) largest = Math.max(largest, Math.abs(relative(card) - relative(plain)));
-                largestWeight = Math.max(largestWeight, Math.abs(card.weights[move] - plain.weights[move]));
-              }
-            });
-            return { count, choices, same, largest, largestWeight, runtimes: { gpu: [...new Set(gpu.runtimes)], wasm: [...new Set(wasm.runtimes)] },
-              ms: { gpuOne, wasmOne, gpuBatch: median(onGpu.times), wasmBatch: median(onWasm.times) } };
-          } finally { gpu.close(); wasm.close(); }
-        }, { worker: `assets/${workerFile}`, runtimeBase: `${base}${runtime}`, webgpuBase: `${base}${webgpu}`, width: rows[0].planes.length,
-          gpuBatch: GPU_BATCH, wasmBatch: BATCH });
-        if (result.refused) assert.fail(`the worker would not play on the card: ${result.refused.join('; ') || 'it did not say why'}`);
-        const share = result.same / result.choices;
-        console.log(`Played on: ${result.runtimes.gpu.join(', ')} and ${result.runtimes.wasm.join(', ')}.`);
-        console.log(`Same best move on ${result.same} of ${result.choices} decisions with a choice (${(100 * share).toFixed(2)}%), of ${result.count} positions.`);
-        console.log(`Largest difference in a logit, from the row's best move: ${result.largest.toExponential(3)}; in a weight: ${result.largestWeight.toExponential(3)}.`);
-        console.log(`One position: ${result.ms.gpuOne.toFixed(1)} ms on WebGPU, ${result.ms.wasmOne.toFixed(1)} ms on WebAssembly.`);
-        console.log(`A batch: ${result.ms.gpuBatch.toFixed(1)} ms for ${GPU_BATCH} positions on WebGPU (${(GPU_BATCH * 1000 / result.ms.gpuBatch).toFixed(0)} a second), `
-          + `${result.ms.wasmBatch.toFixed(1)} ms for ${BATCH} on WebAssembly (${(BATCH * 1000 / result.ms.wasmBatch).toFixed(1)} a second).`);
-        assert.deepEqual(result.runtimes, { gpu: ['webgpu'], wasm: ['wasm'] }, 'each worker plays where it was asked to');
+              return { answers, times };
+            };
+            const plain = await all(onWasm, wasmBatch);
+            const onCard = await all((start, size) => card.ask(batch(start, size)), gpuBatch);
+            const choices = Array.from({ length: count }, (_, row) => allMasks.subarray(row * moves, (row + 1) * moves).reduce((a, b) => a + b, 0) > 1);
+            return { count, choices, sample: { answers: sample.analyses, ms: sample.ms, runs: sampleRuns.map(({ analyses, ms }) => ({ analyses, ms })) },
+              plain, onCard };
+          } finally { wasm.close(); card.close(); }
+        }, { playWorker, cardWorker, runtimeBase: `${base}${runtime}`, webgpuBase: `${base}${webgpu}`, cacheName: networkCacheName(base),
+          expect, width, gpuBatch: GPU_BATCH, wasmBatch: BATCH, runs: TIMED_RUNS });
+        if (result.refused) assert.fail(`the card's worker would not open the network: ${result.refused}`);
+        // The page's own gates on the sample.
+        const { sample } = result;
+        const differs = sample.runs.map(run => agreement(sample.answers, run.analyses)).find(Boolean) ?? null;
+        const sampleMs = median(sample.runs.slice(1).map(run => run.ms));
+        console.log(`Sample of ${BATCH}: ${sample.ms.toFixed(1)} ms on WebAssembly; on the card ${sample.runs[0].ms.toFixed(1)} ms to warm up, `
+          + `then a median of ${sampleMs.toFixed(1)} ms over ${TIMED_RUNS} runs; ${differs ? `disagrees: ${differs}` : 'agrees'}.`);
+        assert.equal(differs, null, 'the card agrees with WebAssembly on the sample');
+        assert.ok(fastEnough(sampleMs, sample.ms), 'the card is at least twice as fast on the sample');
+        // Every position.
+        let largest = 0, same = 0, choices = 0;
+        result.plain.answers.forEach((plain, row) => {
+          const card = result.onCard.answers[row];
+          plain.weights.forEach((weight, move) => { largest = Math.max(largest, Math.abs(card.weights[move] - weight)); });
+          if (result.choices[row]) { choices++; if (card.action === plain.action) same++; }
+        });
+        const share = same / choices, cardMs = median(result.onCard.times), wasmMs = median(result.plain.times);
+        console.log(`Same best move on ${same} of ${choices} decisions with a choice (${(100 * share).toFixed(2)}%), of ${result.count} positions.`);
+        console.log(`Largest difference in a weight: ${largest.toExponential(3)} (the page's bound ${WEIGHT_BOUND}).`);
+        console.log(`A batch: ${cardMs.toFixed(1)} ms for ${GPU_BATCH} positions on the card (${(GPU_BATCH * 1000 / cardMs).toFixed(0)} a second), `
+          + `${wasmMs.toFixed(1)} ms for ${BATCH} on WebAssembly (${(BATCH * 1000 / wasmMs).toFixed(1)} a second).`);
         assert.ok(share >= SAME_BEST_AT_LEAST, `the same best move on ${(100 * share).toFixed(2)}% of decisions`);
-        assert.ok(result.largest <= LOGIT_DIFFERENCE_AT_MOST, `a logit differs by ${result.largest}`);
+        assert.ok(largest <= WEIGHT_BOUND, `a weight differs by ${largest}`);
       });
     }
   }

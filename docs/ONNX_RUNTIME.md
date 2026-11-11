@@ -47,15 +47,18 @@ external-WASM entry so it does not emit a second generic WASM binary.
 
 ## WebGPU on desktops
 
-On a desktop with a graphics card the worker can run the network through
-ONNX Runtime Web's WebGPU provider instead (`src/lib/webgpu.js`). Its runtime
-is onnxruntime-web's own default build, `ort.min.mjs`, whose WebGPU provider
-runs on JSEP, with `ort-wasm-simd-threaded.jsep.mjs` and `.jsep.wasm`
-(29.5 MB), unchanged (the package's `ort.webgpu.min.mjs` is the other WebGPU
-provider, built with Asyncify, which was not measured here),
-which `copy-runtime.mjs` copies from the installed package to a folder named
-by their contents, `ort-webgpu/<hash>/` (`WEBGPU_RUNTIME_FILES`). The worker
-imports it only when it tries the card.
+On a desktop with a graphics card a review's batches, and nothing else, can
+run through ONNX Runtime Web's WebGPU provider. Play never does: every single
+decision goes to the WebAssembly worker (`policy.worker.js`), which is
+unchanged, and so does every batch until the card has shown it answers as
+that worker does, faster. The card's runtime is onnxruntime-web's own default
+build, `ort.min.mjs`, whose WebGPU provider runs on JSEP, with
+`ort-wasm-simd-threaded.jsep.mjs` and `.jsep.wasm` (29.5 MB), unchanged (the
+package's `ort.webgpu.min.mjs` is the other WebGPU provider, built with
+Asyncify, which was not measured here). `copy-runtime.mjs` copies them from
+the installed package to a folder named by their contents,
+`ort-webgpu/<hash>/` (`WEBGPU_RUNTIME_FILES`), and only the card's worker
+(`gpu-batch.worker.js`) loads them.
 
 The WebGPU provider has no Softplus kernel, and Mish exported as it is,
 x * tanh(softplus(x)), is a Softplus; each of the 163 in Mortal's encoder ran
@@ -66,51 +69,80 @@ Add, Mul and Div, which both runtimes carry; it refuses a graph that still
 holds a Softplus and says `activations: free of Softplus` when none is left.
 Its parity check still compares the graph with the network's own Mish. One
 export serves both runtimes; the reduced runtime's operator list is
-unchanged, and keeps Softplus and Tanh for the networks exported before.
+unchanged, and keeps Softplus and Tanh for the networks exported before. On
+WebAssembly the new form is about a tenth faster.
 
-The publication tool reads the graph's operators from the export, and writes
-`"webgpu": true` to the network's manifest entry when none is a Softplus,
-false otherwise. A network listed without the field plays on WebAssembly.
+The publication tool reads the graph's operators from the export and writes
+`"webgpu": true` to the network's manifest entry only when every one is an
+operator the WebGPU provider has a kernel for (`WEBGPU_KERNELS`, its
+`WEBGPU_OP_RESOLVE_RULES`, pinned, and checked against the installed runtime
+by a test), or one that needs none: `Reshape`, `Squeeze`, `Unsqueeze`,
+`Flatten` and `Identity`, which only relabel a shape, and `Shape`, `Constant`
+and `ConstantOfShape`, which ONNX Runtime computes on the processor by design
+(`WEBGPU_WITHOUT_KERNEL`). Anything else, a Softplus or an int8 export's
+`DynamicQuantizeLinear`, `MatMulInteger` and `ConvInteger`, writes false. A
+network listed without the field never runs on the card.
 
-The page asks its worker to try the card only when all of these hold: the
-played network's entry says `webgpu: true`; the address has no `?gpu=off`;
-the browser has `navigator.gpu`; and the device is no phone or tablet
-(`userAgentData.mobile` or an Android or iOS platform, else the user agent,
-an iPad asking as a Mac by its touch points). The worker then needs an
-adapter that is not a fallback adapter, loads the WebGPU runtime and the
-network, and times it on the first position asked, eight times over, the
-batch a review asks of WebAssembly: one run to compile its shaders, then
-three, whose median must be at most 400 ms (`TIMED_POSITIONS`,
-`GPU_TIMED_MS`). On a desktop with a GeForce RTX 5070 Ti one position takes
-about 58 ms there and 122 to 163 ms on WebAssembly with one thread, and
-eight about 56 ms; with the machine busy and Chrome at the lowest priority,
-one took 173 ms and sixty-four 151 ms. A card under the bound runs a review's
-batch at least twice as fast as WebAssembly at its best and a single move in
-400 ms at most; a bound on one position alone would refuse a busy desktop
-whose card still reviews many times as fast. Anything else, an import,
-session or timing that
-fails or is slow, releases the card's session and plays on WebAssembly
-exactly as before, in the same worker; a run that fails later on the card,
-as a lost device does, reads the network again and answers that request on
-WebAssembly, within its deadline. Either way the worker does not try the card
-again, and the page, told it plays on WebAssembly after asking for the card,
-asks no later worker either until it is reloaded. The worker names the
-runtime in each `ready` note, and in a message of its own, with no request
-id, when the card fails during play; `policyRuntime()` in `policy.js` says it
-to the page, which names it "GPU" in the offline panel's Trained AI line. The
+The page's card (`src/lib/gpu-batches.js`) is untried, starting, ready or
+declined:
+
+- It is considered only where the played network's entry says
+  `webgpu: true`, the address has no `?gpu=off`, the browser has
+  `navigator.gpu`, and the device is no phone or tablet
+  (`userAgentData.mobile` or an Android or iOS platform, else the user
+  agent, an iPad asking as a Mac by its touch points), and where no decline
+  is remembered.
+- Its bring-up never delays anything. It starts once WebAssembly has
+  answered the page's second batch of two or more positions (the first may
+  carry the network's load or a wait behind a move), and that batch, its
+  answers and WebAssembly's time for it are the sample. The card's worker
+  asks for an adapter and refuses none, a fallback one or a software one
+  (SwiftShader, llvmpipe, Microsoft's basic renderer); reads the network
+  from this page's Cache Storage, checked against its size and SHA-256, and
+  refuses one not saved there, never downloading it; fetches the runtime;
+  and opens the session. It runs the sample once to warm up, then three
+  times (`TIMED_RUNS`).
+- Every run must agree with WebAssembly: each move's weight within 0.001 of
+  WebAssembly's (`WEIGHT_BOUND`; the largest difference measured on a
+  GeForce RTX 5070 Ti over 368 positions was 6.5e-6), and the same best move
+  unless WebAssembly's own two best are closer than 0.002. The runs' median
+  must be at most half of WebAssembly's time for the sample (`SPEEDUP`).
+  The whole bring-up has 60 seconds (`BRING_UP_MS`). Anything else declines
+  the card and ends its worker.
+- Ready, the card answers every batch of two or more positions, one at a
+  time, each within 10 seconds (`CARD_BATCH_MS`). A batch that fails there or
+  runs out of time declines the card, ends its worker, and is asked of
+  WebAssembly through the usual path, so its caller gets an answer or its own
+  abort. A caller who stops waiting is not a failure of the card, which runs
+  the batch to its end. `resetPolicy` drops the callers waiting on the card
+  with its reason, as it drops the WebAssembly worker's, and keeps the card's
+  worker.
+- A decline about the device (no adapter or a software one, disagreeing,
+  slow, a session or a run that failed, a bring-up out of time) is kept in
+  localStorage under `mahjong-webgpu-declined:<page folder>`, with the
+  runtime folder and the network's SHA-256: a later visit does not try again
+  until a new runtime or a new network comes, and `?gpu=on` forgets it. A
+  runtime the browser could not fetch, offline before it was ever saved, or
+  a network not saved on this device, declines the card for this visit only.
+  Storage that refuses changes nothing but that. Why the card was declined
+  is said in the console once.
+
+`policyRuntime()` in `gpu-batches.js` says 'webgpu' once the card is ready
+and 'wasm' otherwise. While it says 'webgpu' a review asks up to 64 positions
+in one forward pass (`GPU_BATCH`, `batchMostFor` in `game-review.js`), and
+the reasoning about a decision up to 64 tables, instead of eight; the time a
+position measured still bounds every pass to about ten seconds, and the
+gates, aborts and deadlines are unchanged. The offline panel's Trained AI
+line then adds "GPU". The network and its moves are the same; the card's
+float arithmetic differs in the last bits, so a near tie can flip. The
 reduced runtime's memory ceilings do not apply to the stock WebGPU runtime,
-which only desktops load.
+which only desktops load, beside the WebAssembly worker.
 
-On the card a review asks up to 64 positions in one forward pass
-(`GPU_BATCH`, `batchMostFor` in `game-review.js`), and the reasoning about a
-decision up to 64 tables, instead of eight; the time a position measured
-still bounds every pass to about ten seconds, and the gates, aborts and
-deadlines are unchanged. The network and its moves are the same; the card's
-float arithmetic differs in the last bits, so a near tie can flip.
-`scripts/webgpu-check.mjs` measures that on real positions with the
-production worker, where Chrome gives a real adapter (it skips elsewhere,
-CI included), given a network exported without Softplus in
-`MAHJONG_WEBGPU_NETWORK`.
+`scripts/webgpu-check.mjs` runs both workers of the built site on real
+positions, where Chrome gives a real adapter (it skips elsewhere, CI
+included), given a network exported without Softplus in
+`MAHJONG_WEBGPU_NETWORK`: a first batch and the sample on WebAssembly, the
+card's bring-up through the page's own gates, then every position on both.
 
 ## Verification and memory
 
@@ -133,7 +165,7 @@ worker begins it, which the worker says with a `ready` note, so its wait behind
 the requests ahead of it is not counted; one the worker never begins is ended
 after its own deadline and those of the requests still ahead of it, counted
 again from each answer. The whole-game review asks up to eight positions in one
-request (64 on a graphics card), fewer on a slow device, their planes and masks laid end to end with a
+request (64 once batches run on the graphics card), fewer on a slow device, their planes and masks laid end to end with a
 `count`; the worker runs them as one batch and answers each position's best
 legal move and weights, and the request's deadline grows with the batch.
 
