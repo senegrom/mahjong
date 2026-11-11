@@ -1274,20 +1274,27 @@ try {
       // below the game's bar, which stays at the top. Focus is taken off
       // first, so that it moves onto each button: the one pressed above has
       // it already, and focusing an element that has focus does nothing,
-      // scrolling included.
+      // scrolling included. The page's height is read with its scroll: at
+      // the foot of the page a page that grows shorter takes the scroll up
+      // with it, which is the page's doing, not focus's, and focus is blamed
+      // only for a scroll that a change of height does not explain.
       for (const button of ['[data-previous]', '[data-next]']) {
         const selector = `[data-game-review] [data-steps] ${button}:not(:disabled)`;
         if (!await page.$(selector)) continue;
         await page.evaluate(() => document.activeElement?.blur());
+        await settle(page);
         const before = await page.evaluate(() => scrollY);
         await page.focus(selector);
         await settle(page);
         const after = await page.evaluate(selector => ({ scrolled: scrollY, landed: document.activeElement === document.querySelector(selector),
           sticks: getComputedStyle(document.querySelector('[data-game-review] [data-steps]')).position === 'sticky',
           top: document.querySelector(selector).getBoundingClientRect().top,
-          below: document.querySelector('header.bar').getBoundingClientRect().bottom }), selector);
+          below: document.querySelector('header.bar').getBoundingClientRect().bottom,
+          foot: document.documentElement.scrollHeight - innerHeight }), selector);
         assert.ok(after.landed, `focus on ${button} at ${width}x${height}`);
-        if (after.sticks) assert.equal(after.scrolled, before, `focus on ${button} moved the page at ${width}x${height}`);
+        if (after.sticks) {
+          assert.equal(after.scrolled, Math.max(0, Math.min(before, after.foot)), `focus on ${button} moved the page at ${width}x${height}`);
+        }
         else assert.ok(after.top >= after.below, `${button} at ${after.top}, under the game's bar to ${after.below}, at ${width}x${height}`);
       }
       if (phoneSized(page)) {
@@ -1314,6 +1321,10 @@ try {
         await onPlace(page, chosen, at);
         await measured(at);
         await settle(page);
+        // The table as it stood at the decision says no call: the sets show
+        // what was called, and a word would still be there a step back.
+        assert.deepEqual(await page.$$eval('[data-decision] .called', els => els.map(el => el.textContent.trim())
+          .filter(word => word !== 'Riichi')), [], `a call said at step ${at + 1} at ${width}x${height}`);
         const held = await page.evaluate(() => {
           const steps = document.querySelector('[data-game-review] [data-steps]'), active = document.activeElement;
           return { focus: active.dataset.stepTo ?? null, top: Math.round(active.getBoundingClientRect().top),

@@ -40,3 +40,14 @@ test('the opponent seat keeps riichi and lets a call fade on its own', async () 
   // a call from ten turns ago still announced.
   assert.doesNotMatch(source, /\$derived\([^\n]*seat\.melds\.at/);
 });
+
+test('a seat in a review says no call, and the review table tells each seat it is one', async () => {
+  const seat = await readFile(new URL('../src/lib/Seat.svelte', import.meta.url), 'utf8');
+  const table = await readFile(new URL('../src/lib/app/MatchTable.svelte', import.meta.url), 'utf8');
+  // A call word left on its timer would still claim the call a step back,
+  // and its going would move the table under the reader.
+  assert.match(seat, /if \(!word \|\| review\) return;/);
+  const seats = [...table.matchAll(/<Seat [^>]*\/>/g)].map(([markup]) => markup);
+  assert.equal(seats.length, 3, 'three opponents at the table');
+  for (const markup of seats) assert.match(markup, /\{review\}/);
+});

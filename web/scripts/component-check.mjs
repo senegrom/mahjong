@@ -215,6 +215,19 @@ try {
     assert.deepEqual(await page.$$eval('.opponent-fields select', els => els.map(el => el.value)), ['club', 'club', 'club']);
     await page.keyboard.press('Escape');
   });
+  await check('a seat in play says a call, and a seat in a review says none, at the call or a step back from it', desktop, async page => {
+    const words = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-fixture-seat]')]
+      .map(el => [el.dataset.fixtureSeat, el.querySelector('.called')?.textContent ?? null])));
+    assert.deepEqual(await words(), { play: null, review: null });
+    await page.click('[data-fixture-call]');
+    await page.waitForSelector('[data-fixture-seat="play"] .called');
+    assert.deepEqual(await words(), { play: 'Chii', review: null });
+    assert.equal(await page.$eval('[data-fixture-seat="review"] [role="status"]', el => el.textContent), '');
+    // Back before the call within the time a call is said for: the seat in
+    // the review must not go on claiming it.
+    await page.click('[data-fixture-uncall]');
+    assert.equal((await words()).review, null);
+  });
   await check('scoped wait counts and drawn gaps retain their effective styles without control leakage', desktop, async page => {
     for (const [width, gap] of [[1100, 18], [820, 18], [390, 14]]) {
       await page.setViewport({ width, height: 1000 });

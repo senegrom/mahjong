@@ -23,10 +23,11 @@
    * `concealed` turns a review's tiles face down in the same rack, at the
    * same size and with the drawn tile's gap, so that they can be turned over
    * again without anything moving; their names, their hover text and the
-   * page itself then hold nothing of what they are.
+   * page itself then hold nothing of what they are. `review` says the seat is
+   * drawn in such a review, where it says no call (below).
    */
   let { seat, dealer = false, dora = [], thinking = false, hand = null, position = '', note = '', offered = false,
-    concealed = false } = $props();
+    concealed = false, review = false } = $props();
 
   // How long a call is said for: long enough to read from across the
   // table, gone well before the next one is made.
@@ -35,7 +36,10 @@
   // Riichi is a live state of the table, so it stays for as long as it
   // lasts. A call is an event, so it is said as it happens and then goes
   // quiet: the meld itself goes on showing what was called, and a badge
-  // that stayed would be announcing something ten turns old.
+  // that stayed would be announcing something ten turns old. A review shows
+  // the table as it stood at a decision, not as it happened, so it says no
+  // call: a word left on a timer would go on claiming a call at the step
+  // before it, and its going would move the table under the reader.
   let called = $state('');
   let melds = null;
   let seated = null;
@@ -53,7 +57,7 @@
     melds = now;
     seated = person;
     const word = calledSet(was, now);
-    if (!word) return;
+    if (!word || review) return;
     called = word;
     clearTimeout(timer);
     timer = setTimeout(() => { called = ''; }, SAID_FOR);

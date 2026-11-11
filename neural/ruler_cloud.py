@@ -631,14 +631,9 @@ def keep_calls(modal, series: Series, lines: list[str]) -> tuple[int, list[str]]
     return kept, missing
 
 
-def checkpoint_name(named: str) -> str:
-    """A checkpoint as a report names it, as the volume names it. A ruler's
-    report names it so (see `modal_app.ruler`); the old duel's names the
-    container's copy, the volume's name with each "/" made "--" and ".pt"
-    after it (see `modal_app.duel`)."""
-    if named.endswith(".pt"):
-        return named.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".pt").replace("--", "/")
-    return named
+#: A checkpoint as a report names it, as the volume names it (kept in
+#: `neural.looks`, which reads a folder's table without this module).
+checkpoint_name = looks.checkpoint_name
 
 
 def names_of(series: Series) -> tuple[str, str]:
@@ -736,22 +731,10 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
             return "it is a series of paired rulers; a series is read against one of single rulers"
         if reports[seed].get("games_per_seat") != settings["games"]:
             return f"it played {reports[seed].get('games_per_seat')} deals at seed {seed}, not {settings['games']}"
-    theirs = other.settings()
-    asked = theirs.get("questions", "seating")
-    if asked != settings["questions"]:
-        return f"it was asked {asked} and this series {settings['questions']}, which play other games"
-    incumbent = theirs.get("incumbent") or checkpoint_name(reports[rule.seeds[0]].get("incumbent", ""))
-    if incumbent != settings["incumbent"]:
-        return f"its incumbent is {incumbent}, not {settings['incumbent']}: name the incumbent as it does"
-    # An incumbent that follows the rules of the last hand plays other games
-    # than the same checkpoint plain, so the two series' deals are not the
-    # same deals played against the same player. A folder never registered
-    # says so by its reports.
-    ruled = bool(theirs.get("last_hand_rules")) if theirs else "incumbent_rules" in reports[rule.seeds[0]]
-    if ruled != bool(settings.get("last_hand_rules")):
-        return (f"its players {'follow' if ruled else 'do not follow'} the rules of the last hand and this "
-                f"series' {'do not' if ruled else 'do'}, so its incumbent plays other games")
-    return None
+    # The table each was played at, as a reading against it checks it too
+    # (see `reading`): the incumbent, its run, the asking and the rules of
+    # the last hand. A folder never registered says so by its reports.
+    return looks.unlike_problem({}, settings, reports, other.settings())
 
 
 def plays_two(series: Series) -> bool:
@@ -811,7 +794,10 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     show it, and otherwise as soon as the reports of `against` are mirrored
     (see `paired_problem`). So is either series once a report of it fails
     the all-last dama rule's check or a late rule's (see
-    `refuse_failed_check`)."""
+    `refuse_failed_check`), and a pair not played at one table: another
+    incumbent, or its run's checkpoint of the same name, other asking,
+    the rules of the last hand at one and not the other, or other deal
+    counts (see `looks.table_problem`)."""
     path = series.folder / "design.json"
     lines = []
     if path.exists():
@@ -834,6 +820,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
         # A series only the volume held shows what it plays once mirrored.
         refuse_paired(series, against)
         refuse_failed_check(against)
+        # The two must have played at one table, as a series registered
+        # against another is held to (see `against_problem`), before the
+        # reading says they did.
+        problem = looks.unlike_problem(reports, series.settings(), against.reports(), against.settings())
+        if problem:
+            raise SystemExit(f"{series.tag} cannot be read against {against.tag}: {problem}")
         by_seed = looks.against_each(reports, against.reports())
         names = (names_of(series)[0], names_of(against)[0])
         if against.tag != registered:

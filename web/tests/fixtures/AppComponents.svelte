@@ -3,10 +3,11 @@
   import AppSettings from '../../src/lib/app/AppSettings.svelte';
   import OpponentDialog from '../../src/lib/app/OpponentDialog.svelte';
   import PlayerHand from '../../src/lib/app/PlayerHand.svelte';
+  import Seat from '../../src/lib/Seat.svelte';
   import TurnChoices from '../../src/lib/app/TurnChoices.svelte';
   import { TILE_FACE_CONTEXT } from '../../src/lib/tile-faces.js';
   import { MANIFEST } from '../../src/lib/model-manifest.js';
-  import type { GameMode, TileFace, Opponent, GameView, LegalChoice, OfflineState, DiscardAnalyser, SeatName } from '../../src/lib/app/types';
+  import type { GameMode, TileFace, Opponent, GameView, LegalChoice, OfflineState, DiscardAnalyser, SeatName, SeatView, MeldView } from '../../src/lib/app/types';
 
   let mode = $state<GameMode>('play'), settingsOpen = $state(false);
   let hints = $state(true), confirmDiscards = $state(true), shortcuts = $state(true);
@@ -27,6 +28,13 @@
     dora_indicators: ['4z'], dora_types: [], dora: [], safe: [], shanten: 0,
     waits: ['1m'], waits_left: [2], furiten: false, pending_discard: null, pending_from: null,
   };
+  // An opponent who calls a chii and is then seen without it again, as a
+  // review stepping back past the call sees them, at a seat in play and at
+  // one in a review.
+  const chii: MeldView = { kind: 'chii', tiles: ['3p', '4p', '5p'], from: 'north', claimed_tile: '3p' };
+  let opponentMelds = $state<MeldView[]>([]);
+  let opponent = $derived<SeatView>({ seat: 'south', player: 1, score: 25000, turn: false, riichi: false, hand: [], drawn: null,
+    discards: [], melds: opponentMelds });
   const choices: LegalChoice[] = ['1m', '2m', '3m'].map(tile => ({ kind: 'discard', tile }));
   const engine: DiscardAnalyser = { discard_hint: () => ({ shanten: 0, waits: ['1m'], waits_left: [2] }) };
   setContext(TILE_FACE_CONTEXT, () => tileFace);
@@ -53,6 +61,10 @@
     pendingOpponent={null} myTurn={true} {confirmDiscards} {shortcuts} touch={false}
     selectedTile={selected === null ? null : ['1m', '2m', '3m'][selected]} callChoices={[{ kind: 'riichi', tile: '1m' }]}
     choose={choice => { callbacks.push(choice.kind); }} discard={tile => callbacks.push(`discard:${tile}`)} oncancel={() => selected = null} />
+  <div data-fixture-seat="play"><Seat seat={{ ...opponent, hand_size: 10 }} /></div>
+  <div data-fixture-seat="review"><Seat seat={{ ...opponent, hand_size: 10 }} review /></div>
+  <button type="button" data-fixture-call onclick={() => opponentMelds = [chii]}>Call a chii</button>
+  <button type="button" data-fixture-uncall onclick={() => opponentMelds = []}>Step back before the chii</button>
   <output data-parent-state>{JSON.stringify({ mode, settingsOpen, hints, confirmDiscards, shortcuts, tileFace, opponents, selected, callbacks, handBound: Boolean(handElement) })}</output>
 </main>
 

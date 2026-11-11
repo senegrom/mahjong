@@ -68,6 +68,48 @@ class RoundSeedTests(unittest.TestCase):
                 round_seed(*args)
 
 
+class MeasureSeedTests(unittest.TestCase):
+    """The measurement against the heuristic players, taken every few
+    generations, plays deals of its own each time. Seeded one apart, two
+    measurements 5 generations apart shared 507 of their 512 games, and the
+    smoothed figure best.pt is chosen on kept the luck of those deals."""
+
+    def test_every_trainer_measures_on_deals_no_other_measurement_played(self):
+        import sys
+        from neural import train, train_combined, train_mortal
+        from neural.tests.test_resumed_checkpoints import faked, flags
+        for module in (train, train_mortal, train_combined):
+            with self.subTest(trainer=module.__name__), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                asked = []
+
+                def measured(_net, *, games, seed, **_options):
+                    asked.append(range(seed, seed + games))
+                    return {"placement": 2.5, "score": 0.0, "wins": 0.25}
+
+                argv = ["trainer", "--out", str(root / "run"), "--rounds", "3", "--batch", "4",
+                        "--epochs", "1", "--games", "1", "--measure-every", "1",
+                        "--measure-games", "16", *flags(module, root, resume=False)]
+                with patch.object(sys, "argv", argv), faked(module), \
+                        patch.object(module.selfplay, "measure", side_effect=measured):
+                    module.main()
+                self.assertEqual(len(asked), 3)
+                dealt = set()
+                for deals in asked:
+                    self.assertEqual(len(deals), 16)
+                    self.assertFalse(dealt & set(deals), asked)
+                    dealt |= set(deals)
+
+    def test_measurements_stay_clear_of_the_rounds(self):
+        from neural.training_state import MEASURE_SEED_STRIDE, measure_seed
+        self.assertEqual(measure_seed(1, 512) - measure_seed(0, 512), MEASURE_SEED_STRIDE)
+        last = measure_seed(65_000, MEASURE_SEED_STRIDE) + MEASURE_SEED_STRIDE
+        self.assertLessEqual(last, round_seed(0, 0, 1))
+        for args in ((-1, 1), (0, 0), (0, MEASURE_SEED_STRIDE + 1), (1 << 20, 1)):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                measure_seed(*args)
+
+
 TRAINERS = ('train', 'train_mortal', 'train_combined')
 
 

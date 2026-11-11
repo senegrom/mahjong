@@ -146,17 +146,68 @@ def _resume_source(run: str, resume: str) -> Path:
     return source
 
 
+#: What a trainer's call writes in its run with its first publication: the
+#: call, and what it resumed from (see `_resume_of_call`).
+CALL_MARKER = "call.json"
+
+
+def _current_call() -> str | None:
+    """The Modal call this container is running, which every attempt Modal
+    makes of it shares, or None outside one."""
+    asking = getattr(modal, "current_function_call_id", None)
+    return asking() if asking is not None else None
+
+
+def _resume_of_call(run: str, resume: str) -> tuple[Path, dict | None]:
+    """The checkpoint a trainer's block resumes from, and the marker its
+    first publication writes (None when there is no call to name).
+
+    Modal starts a preempted call again on the same input, and a retry keeps
+    it too, so every attempt is handed the same `resume`. Resolved again, a
+    `resume` other than "latest" (an archive, the run's best, another run's
+    checkpoint, or a name that found nothing and started afresh) took the
+    attempt back to that start: the log was cut back to it and the next
+    publication replaced the latest, generation.txt and the archives the
+    attempt before had published, and a block that needed more than one
+    call's time from its start could never finish. So the first publication
+    of a call writes `CALL_MARKER` in the run, naming the call and the source
+    it resumed from, and an attempt that finds the marker naming its own call
+    goes on from the run's latest.pt, which that call published."""
+    call = _current_call()
+    if call is not None:
+        try:
+            marked = json.loads((VOLUME / run / CALL_MARKER).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            marked = {}
+        latest = VOLUME / run / "latest.pt"
+        if isinstance(marked, dict) and marked.get("call") == call and latest.exists():
+            print(f"this call published to {run} before it was started again: resuming from its latest.pt, "
+                  f"not from {resume!r} again", flush=True)
+            return latest, None
+    source = _resume_source(run, resume)
+    if call is None:
+        return source, None
+    return source, {"call": call, "resume": resume, "source": str(source) if source.exists() else None}
+
+
 def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
-             published: dict[str, tuple[int, int, int]]) -> int:
+             published: dict[str, tuple[int, int, int]], marker: dict | None = None) -> int:
     """Publish only copied, fully validated checkpoints of completed
     generations. `resumed_at` is the generation the block resumed from:
     archives past it belong to this timeline (see
     `publish_training_snapshot`). `published` is what this call has
     published of the run's best and reference so far, one mapping for the
-    whole call, so that neither is copied again until it changes."""
+    whole call, so that neither is copied again until it changes. `marker`,
+    when given, is written as the run's `CALL_MARKER` after the checkpoints
+    and committed with them (see `_resume_of_call`)."""
     validate_run(target_run)
     actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at,
                                        published=published)
+    if marker is not None:
+        written = VOLUME / target_run / CALL_MARKER
+        with staging_file(written) as staged:
+            staged.write_text(json.dumps(marker, indent=1) + "\n", encoding="utf-8")
+            os.replace(staged, written)
     volume.commit()
     return actual
 
@@ -500,7 +551,7 @@ def _stopped_on_rule_check(where: Path, run: str, seen: int) -> str:
     return answer
 
 
-def _run_trainer(command: list[str], where: Path, run: str, called: float) -> str:
+def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
@@ -523,7 +574,11 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     not finish before the call's timeout, counted from `called`, when the
     call began, the trainer is stopped as soon as a generation has been
     published, seconds into the next one, rather than killed by the timeout
-    in the middle of it, and `StoppedBeforeTimeout` is raised."""
+    in the middle of it, and `StoppedBeforeTimeout` is raised.
+
+    `marker`, from `_resume_of_call`, goes to the run with the call's first
+    publication, so that the attempt Modal starts after it goes on from
+    what this one published."""
     environment = _environment(TRAINER_CPUS, compiled=True)
     print(" ".join(command), flush=True)
     began = time.time()
@@ -556,7 +611,8 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run, started_at, published)
+                    seen = _publish(where, seen, run, started_at, published, marker)
+                    marker = None
                     # Whatever the generation compiled, kept at once.
                     _save_cache()
                     now = time.time()
@@ -583,7 +639,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
     # generation whose record could not be read has not been published at
     # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
-        seen = _publish(where, seen, run, started_at, published)
+        seen = _publish(where, seen, run, started_at, published, marker)
     elif code == RULE_CHECK_EXIT and seen > started_at:
         # A trainer a check of the last hand's rules stopped ended before it
         # learned or saved the round it refused, so the workspace holds the
@@ -593,7 +649,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float) -> st
         # the refused round exists to publish. The call must still end as a
         # rule check's stop, so a failure here is only said.
         try:
-            seen = _publish(where, seen, run, started_at, published)
+            seen = _publish(where, seen, run, started_at, published, marker)
         except Exception as error:  # noqa: BLE001
             print(f"the last completed generation {seen} was not published again ({type(error).__name__}: "
                   f"{error}); the volume keeps what was published as each record arrived", flush=True)
@@ -726,7 +782,7 @@ def train(
     with workspace(run) as where:
         volume.reload()
         started_from = None
-        source = _resume_source(run, resume)
+        source, marker = _resume_of_call(run, resume)
         if source.exists():
             started_from = str(source)
             _carry(run, source, where)
@@ -778,7 +834,7 @@ def train(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
         command += controls
-        return _run_trainer(command, where, run, called)
+        return _run_trainer(command, where, run, called, marker)
 
 
 @app.function(**TRAINER)
@@ -842,7 +898,7 @@ def train_mortal(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
-        source = _resume_source(run, resume)
+        source, marker = _resume_of_call(run, resume)
         command = [
             sys.executable, "-m", "neural.train_mortal", *rounds,
             "--games", str(games), "--batch", str(batch), "--epochs", str(epochs),
@@ -879,7 +935,7 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called)
+        return _run_trainer(command, where, run, called, marker)
 
 
 @app.function(**TRAINER)
@@ -1019,7 +1075,7 @@ def train_combined(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
-        source = _resume_source(run, resume)
+        source, marker = _resume_of_call(run, resume)
         if place_model:
             # U, as the trainer reads it, beside the checkpoint it starts from.
             found = _checkpoint(run, place_model)
@@ -1088,7 +1144,7 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called)
+        return _run_trainer(command, where, run, called, marker)
 
 
 @app.function(
