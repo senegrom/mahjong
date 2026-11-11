@@ -7,8 +7,8 @@
  * different export is a different address; `network-store.js` checks the
  * digest again before anything runs. Each names the reward it learned from,
  * which the page says beside the network's value. One whose graph runs whole
- * on WebGPU says so (`webgpu`), and the page may play it on the graphics
- * card; one listed without the field plays on WebAssembly.
+ * on WebGPU says so (`webgpu`), and the page may run a review's batches of it
+ * on the graphics card; one listed without the field never does.
  */
 export const NETWORKS = Object.freeze([
   {

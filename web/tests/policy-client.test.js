@@ -4,7 +4,6 @@ import { setImmediate } from 'node:timers/promises';
 import { isMemoryError, MemoryBudget, MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
 import { MANIFEST, NETWORKS, networkUrl } from '../src/lib/trained-network.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
-import { webgpuWanted } from '../src/lib/webgpu.js';
 import { loadModule } from './fixtures/load-module.js';
 
 // The page plays the default unless a test says otherwise.
@@ -14,9 +13,8 @@ const NETWORK_URL = networkUrl(MANIFEST);
 const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
   MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => MANIFEST, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
-  __WEBGPU_RUNTIME_DIRECTORY__: 'ort-webgpu/4567cdef/', webgpuWanted,
   networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null, ...globals,
-}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportProgress', 'reportRuntime', 'policyRuntime', 'resetPolicy', 'LOADING_SILENCE_MS']);
+}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 test('a page that plays another listed network probes and asks for that one alone', async t => {
   const older = NETWORKS.find(network => network.version === '0.1.410');

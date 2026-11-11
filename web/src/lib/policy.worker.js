@@ -8,26 +8,17 @@
  * here: an illegal answer is impossible because the mask decides what may be
  * picked.
  */
-// The plain WebAssembly build, which every device runs. The WebGPU runtime,
-// many times larger, is imported only where the page asks for the graphics
-// card (webgpu.js), from its own folder.
+// The plain WebAssembly build: the WebGPU one carries a runtime many
+// times larger, for a network this small to gain nothing from.
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
 import { networkBytes } from './network-store.js';
 import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
-import { TIMED_POSITIONS, openOnGpu } from './webgpu.js';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.simd = true;
 ort.env.logLevel = 'error';
 let runtimeMemory = null;
-// The WebGPU runtime, once imported, and why the graphics card failed or was
-// too slow in this worker, if it did: then it is not tried again, the
-// network plays on WebAssembly until the page starts another worker, and
-// why is said once (refusalSaid).
-let gpuRuntime = null;
-let gpuRefused = null;
-let refusalSaid = false;
 
 // Positions in a plane: the 34 tile kinds. How many planes there are is
 // whatever the engine sent, so neither the worker nor the model has to be
@@ -49,13 +40,8 @@ let failed = false;
 // instead of downloading the same network again.
 let handed = null;
 
-/** The network as `held` keeps it: its address, the session, the runtime
- * module that opened it, whose tensors it takes, and which runtime that is,
- * 'webgpu' or 'wasm'. scope is the page's own folder, whose Cache Storage
- * holds the network. `webgpu`, where the page asks for the graphics card
- * (webgpu.js), is the WebGPU runtime's folder; the first position asked,
- * `planes`, `mask` and `count`, is what the card is timed on. */
-async function load({ url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, mask, count }, note) {
+/** scope is the page's own folder, whose Cache Storage holds the network. */
+async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   if (!runtimeMemory) {
     // The bundler renames the runtime's own WebAssembly, which its loader
     // then cannot find. It is served from a folder the page names instead.
@@ -65,8 +51,12 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, m
     runtimeMemory.configure(memoryLimitMiB);
   }
   runtimeMemory.beginRequest();
-  if (held?.url === url) return held;
-  await release();
+  if (held?.url === url) return held.session;
+  if (held) {
+    const { session } = held;
+    held = null;
+    await session.release();
+  }
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
   // nothing about. What it is handed has already been hashed, against the
@@ -74,79 +64,45 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, m
   const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`) });
   handed = null;
-  if (webgpu && !gpuRefused) {
-    note('starting the network on the graphics card');
-    // Timed on the first position asked, as many times over as a timing
-    // asks (TIMED_POSITIONS).
-    const batch = count ?? 1, width = planes.length / batch, moves = mask.length / batch;
-    const first = { planes: new Float32Array(width * TIMED_POSITIONS), mask: [] };
-    for (let copy = 0; copy < TIMED_POSITIONS; copy++) {
-      first.planes.set(planes.subarray(0, width), copy * width);
-      first.mask.push(...mask.slice(0, moves));
-    }
-    const opened = await openOnGpu(bytes, {
-      gpu: self.navigator?.gpu,
-      // The stock runtime finds its WebAssembly and that file's loader
-      // beside itself, in the folder the page names.
-      importRuntime: async () => {
-        gpuRuntime ??= await import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href);
-        gpuRuntime.env.wasm.wasmPaths = webgpu;
-        return gpuRuntime;
-      },
-      measure: (runtime, session) => forward({ ort: runtime, session }, first.planes, first.mask, TIMED_POSITIONS, false),
-    });
-    if (opened.session) {
-      held = { url, session: opened.session, ort: opened.runtime, runtime: 'webgpu' };
-      return held;
-    }
-    // Failed or slow, the card is not tried again by this worker. Why is
-    // said with the next ready note, for troubleshooting.
-    gpuRefused = opened.reason || 'refused';
-  }
   note('starting the network');
   const session = await ort.InferenceSession.create(bytes, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
-  held = { url, session, ort, runtime: 'wasm' };
-  return held;
+  held = { url, session };
+  return session;
 }
 
-/** Releases the network held, if any. */
-async function release() {
-  if (!held) return;
-  const { session } = held;
-  held = null;
-  await session.release();
-}
-
-/** One forward pass of `model` over the positions in `planes` and `mask`,
- * laid end to end, `count` of them for a review's batch or null for one
- * decision, and the answer the page is sent for it. Every tensor is
- * disposed, the answer copied out of them first. */
-async function forward(model, planes, mask, count, details) {
-  const { ort: runtime, session } = model;
+async function infer({ id, url, runtimeBase, scope, planes, mask, count, details, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
   let input, output, allowed;
   try {
+    // Each note is also a sign of life: while the network loads, the page
+    // times only the silence between notes. 'network ready' is said as each
+    // request begins to run, loaded just now or long before, and the page
+    // times the request's deadline from it, not from when it was sent.
+    const note = progress => self.postMessage({ id, progress });
+    note('loading the network');
+    const model = await load({ url, runtimeBase, scope, memoryLimitMiB }, note);
+    self.postMessage({ id, progress: 'network ready', ready: true });
     // A review sends several positions at once, their planes and masks laid
     // end to end, and the graph takes them as one batch. Natively eight cost
     // about half as much a position as one at a time; in this one-thread
     // runtime about the same, so a batch saves messages and costs nothing.
-    // On a graphics card sixty-four cost about as much as one.
     const batch = count ?? 1;
-    input = new runtime.Tensor('float32', planes, [batch, planes.length / batch / POSITIONS, POSITIONS]);
+    input = new ort.Tensor('float32', planes, [batch, planes.length / batch / POSITIONS, POSITIONS]);
     // The fused network's head reads the legality mask, so the graph takes it
     // too. An older single-input network is still served the planes alone.
-    allowed = session.inputNames.includes('legal')
-      ? new runtime.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [batch, mask.length / batch])
+    allowed = model.inputNames.includes('legal')
+      ? new ort.Tensor('float32', Float32Array.from(mask, can => (can ? 1 : 0)), [batch, mask.length / batch])
       : null;
-    output = await session.run(allowed ? { planes: input, legal: allowed } : { planes: input });
+    output = await model.run(allowed ? { planes: input, legal: allowed } : { planes: input });
     if (count != null) {
       // Each position's best legal move and weights, which is all a review
       // reads; the value and the belief are left in the tensors.
       const width = mask.length / count;
-      return { analyses: Array.from({ length: count }, (_, index) => policyWeights(
-        output.policy.data.slice(index * width, (index + 1) * width), mask.slice(index * width, (index + 1) * width))) };
+      self.postMessage({ id, analyses: Array.from({ length: count }, (_, index) => policyWeights(
+        output.policy.data.slice(index * width, (index + 1) * width), mask.slice(index * width, (index + 1) * width))) });
+      return;
     }
     // Its action is the legal entry the policy rates highest: opponents play
     // their best move.
@@ -155,47 +111,15 @@ async function forward(model, planes, mask, count, details) {
     // the belief cost nothing beyond copying them out, which is done only for
     // an adviser that shows them. They are copied because the tensors are
     // disposed below.
-    return { action: analysis.action, ...(details ? { analysis: { ...analysis,
+    self.postMessage({ id, action: analysis.action, ...(details ? { analysis: { ...analysis,
       value: output.value ? output.value.data[0] : null,
       hands: output.hands ? Float32Array.from(output.hands.data) : null,
-    } } : {}) };
+    } } : {}) });
   } finally {
     input?.dispose();
     allowed?.dispose();
     for (const tensor of Object.values(output ?? {})) tensor.dispose();
   }
-}
-
-async function infer({ id, url, runtimeBase, scope, planes, mask, count, details, webgpu, memoryLimitMiB = MEMORY_LIMITS_MIB[0] }) {
-  // Each note is also a sign of life: while the network loads, the page
-  // times only the silence between notes. 'network ready' is said as each
-  // request begins to run, loaded just now or long before, and the page
-  // times the request's deadline from it, not from when it was sent. It says
-  // which runtime the network plays on.
-  const note = progress => self.postMessage({ id, progress });
-  const request = { url, runtimeBase, scope, memoryLimitMiB, webgpu, planes, mask, count };
-  note('loading the network');
-  let model = await load(request, note);
-  const why = gpuRefused && !refusalSaid ? { webgpuRefused: gpuRefused } : {};
-  refusalSaid ||= Boolean(gpuRefused);
-  self.postMessage({ id, progress: 'network ready', ready: true, runtime: model.runtime, ...why });
-  let answer;
-  try {
-    answer = await forward(model, planes, mask, count, details);
-  } catch (error) {
-    if (model.runtime !== 'webgpu') throw error;
-    // The graphics card failed, as a lost device does: the network goes to
-    // WebAssembly, read again from where it is kept, and the position is
-    // asked there, within this request's deadline. The page hears of it in
-    // a message of its own.
-    gpuRefused = String(error?.message ?? error) || 'failed';
-    refusalSaid = true;
-    try { await release(); } catch { held = null; }
-    model = await load(request, note);
-    self.postMessage({ runtime: model.runtime, webgpuRefused: gpuRefused });
-    answer = await forward(model, planes, mask, count, details);
-  }
-  self.postMessage({ id, ...answer });
 }
 
 async function drain() {

@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { publish, atomicManifest, listedNetworks, manifestSource } from '../scripts/publish-model-r2.mjs';
+import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource, publish,
+  runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
@@ -255,4 +256,34 @@ test('the checked-in manifest is what the publisher writes, and reads back whole
   // A Windows checkout may end its lines with CR LF; the module is the same.
   assert.equal((await fs.readFile(path, 'utf8')).replaceAll('\r\n', '\n'), manifestSource(NETWORKS.map(entry => ({ ...entry }))));
   assert.deepEqual(await listedNetworks(path), NETWORKS.map(entry => ({ ...entry })));
+});
+
+test('the WebGPU kernels the publisher counts on are every one the installed runtime resolves', async () => {
+  // The provider's own table in the installed onnxruntime-web, which an
+  // update that dropped a kernel would no longer list.
+  const source = await fs.readFile(fileURLToPath(new URL('../node_modules/onnxruntime-web/dist/ort.mjs', import.meta.url)), 'utf8');
+  const start = source.indexOf('WEBGPU_OP_RESOLVE_RULES = ');
+  assert.ok(start > 0, 'the runtime names its WebGPU kernels');
+  const table = source.slice(start, source.indexOf(']);', start));
+  const installed = new Set([...table.matchAll(/\["([A-Za-z0-9]+)",/g)].map(match => match[1]));
+  assert.ok(installed.size > 50);
+  assert.deepEqual([...WEBGPU_KERNELS].filter(op => !installed.has(op)), [], 'every pinned kernel is still in the runtime');
+  // The operators that need no kernel are not kernels the table has.
+  assert.deepEqual([...WEBGPU_WITHOUT_KERNEL].filter(op => installed.has(op)), []);
+  // The export without Softplus runs whole; the shipped export, an int8
+  // export and anything the provider lacks do not.
+  const exported = ['Add', 'BatchNormalization', 'Cast', 'Concat', 'Constant', 'ConstantOfShape', 'Conv', 'Div', 'Equal', 'Expand',
+    'Flatten', 'Gather', 'Gemm', 'Greater', 'InstanceNormalization', 'MatMul', 'Mul', 'Not', 'ReduceMax', 'ReduceMean', 'ReduceSum',
+    'Relu', 'Reshape', 'Shape', 'Sigmoid', 'Split', 'Squeeze', 'Sub', 'Unsqueeze', 'Where'];
+  assert.equal(runsOnWebgpu(new Set(exported)), true);
+  assert.equal(runsOnWebgpu(new Set([...exported, 'Softplus', 'Tanh'])), false);
+  for (const op of ['DynamicQuantizeLinear', 'MatMulInteger', 'ConvInteger', 'If', 'Loop']) {
+    assert.equal(runsOnWebgpu(new Set([...exported, op])), false, op);
+  }
+});
+
+test('the operators are read from the graph, its subgraphs and its functions', () => {
+  const inSubgraph = message(1, Buffer.concat([message(4, 'If'), message(5, message(6, node('Softplus')))]));
+  const inFunction = message(25, message(7, message(4, 'Erf')));
+  assert.deepEqual([...graphOperators(network(1, 'weights', ['Conv', inSubgraph], inFunction))].sort(), ['Conv', 'Erf', 'If', 'Softplus']);
 });

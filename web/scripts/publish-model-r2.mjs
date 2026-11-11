@@ -132,11 +132,36 @@ export function graphOperators(bytes) {
   return operators;
 }
 
-/** Whether the graph runs whole on ONNX Runtime Web's WebGPU provider, which
- * has a kernel for every operator the browser's networks use but Softplus:
- * the form of Mish neural/export.py writes (ExportMish) holds none, and an
- * export from before it 163, each of which ran on the processor. */
-export const runsOnWebgpu = operators => !operators.has('Softplus');
+/** The operators ONNX Runtime Web 1.31.1's WebGPU provider (JSEP) runs with
+ * a kernel of its own: its WEBGPU_OP_RESOLVE_RULES, pinned here and checked
+ * against the installed runtime by tests/model-publication.test.js, so that
+ * an update that drops one fails there. */
+export const WEBGPU_KERNELS = Object.freeze(new Set(['Abs', 'Acos', 'Acosh', 'Add', 'ArgMax', 'ArgMin', 'Asin', 'Asinh',
+  'Atan', 'Atanh', 'Attention', 'AveragePool', 'BatchNormalization', 'BiasAdd', 'BiasSplitGelu', 'Cast', 'Ceil', 'Clip',
+  'Concat', 'Conv', 'ConvTranspose', 'Cos', 'Cosh', 'CumSum', 'DepthToSpace', 'DequantizeLinear', 'DFT', 'Div', 'Einsum',
+  'Elu', 'Equal', 'Erf', 'Exp', 'Expand', 'FastGelu', 'Floor', 'FusedConv', 'Gather', 'GatherElements',
+  'GatherBlockQuantized', 'GatherND', 'Gelu', 'Gemm', 'GlobalAveragePool', 'GlobalMaxPool', 'Greater', 'GreaterOrEqual',
+  'GridSample', 'GroupQueryAttention', 'HardSigmoid', 'HardSwish', 'InstanceNormalization', 'LayerNormalization',
+  'LeakyRelu', 'Less', 'LessOrEqual', 'Log', 'MatMul', 'MatMulNBits', 'MaxPool', 'Mul', 'MultiHeadAttention', 'Neg', 'Not',
+  'Pad', 'Pow', 'QuickGelu', 'Range', 'Reciprocal', 'ReduceMin', 'ReduceMean', 'ReduceMax', 'ReduceSum', 'ReduceProd',
+  'ReduceL1', 'ReduceL2', 'ReduceLogSum', 'ReduceLogSumExp', 'ReduceSumSquare', 'Relu', 'Resize', 'RotaryEmbedding',
+  'ScatterND', 'Sigmoid', 'Sin', 'Sinh', 'Slice', 'SkipLayerNormalization', 'Split', 'Sqrt', 'Softmax', 'Sub', 'Tan',
+  'Tanh', 'ThresholdedRelu', 'Tile', 'Transpose', 'Where']));
+/** Operators that need no kernel there: those that only relabel a tensor's
+ * shape, which the provider registers without a shader (Reshape, Squeeze,
+ * Unsqueeze, Flatten, Identity), and those that compute a shape or a
+ * constant, which ONNX Runtime places on the processor by design, as it did
+ * the export's two ConstantOfShape nodes and its Shape nodes in Chrome's
+ * verbose log (10 November 2026). None of them touches an activation. */
+export const WEBGPU_WITHOUT_KERNEL = Object.freeze(new Set(['Reshape', 'Squeeze', 'Unsqueeze', 'Flatten', 'Identity',
+  'Shape', 'Constant', 'ConstantOfShape']));
+
+/** Whether the graph runs whole on ONNX Runtime Web's WebGPU provider: every
+ * operator one it has a kernel for, or one that needs none. Mish exported as
+ * it is holds a Softplus, which has none (neural/export.py writes it as
+ * ExportMish instead), and an int8 export's DynamicQuantizeLinear,
+ * MatMulInteger and ConvInteger have none either. */
+export const runsOnWebgpu = operators => [...operators].every(op => WEBGPU_KERNELS.has(op) || WEBGPU_WITHOUT_KERNEL.has(op));
 
 /** The program and arguments that run npx, never through a shell: a shell
  * joins the arguments unquoted, so a staged file under a temporary directory
@@ -220,8 +245,8 @@ export function manifestSource(networks) {
  * different export is a different address; \`network-store.js\` checks the
  * digest again before anything runs. Each names the reward it learned from,
  * which the page says beside the network's value. One whose graph runs whole
- * on WebGPU says so (\`webgpu\`), and the page may play it on the graphics
- * card; one listed without the field plays on WebAssembly.
+ * on WebGPU says so (\`webgpu\`), and the page may run a review's batches of it
+ * on the graphics card; one listed without the field never does.
  */
 export const NETWORKS = Object.freeze(${JSON.stringify(networks, null, 2)}.map(network => {
   Object.freeze(network.reward);
