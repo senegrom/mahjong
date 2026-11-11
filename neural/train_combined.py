@@ -51,7 +51,7 @@ from .ppo_control import PolicyDrift, StepGuard, add_training_controls, baseline
 from .training_batches import require_trainable_round, require_updates
 from .training_safety import TRAINING_API_VERSION, benchmark_history
 from .training_state import (
-    capture_random_state, peak_gpu_gb, peak_rss_gb, restore_random_state, round_seed,
+    capture_random_state, measure_seed, peak_gpu_gb, peak_rss_gb, restore_random_state, round_seed,
 )
 
 
@@ -1082,7 +1082,8 @@ def main() -> None:
     def measure(generation: int) -> dict:
         net.eval()
         return selfplay.measure(
-            net, games=args.measure_games, seed=7_000_000 + generation, device=device
+            net, games=args.measure_games, seed=measure_seed(generation, args.measure_games),
+            device=device,
         )
 
     # The entropy bonus, from where the checkpoint left it (see `EntropyFloor`).

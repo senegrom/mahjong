@@ -453,6 +453,80 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("not registered", text)
             self.assertIn("level: no look crossed", text)
 
+    def write(self, folder: Path, by_deal, settings: dict | None = None, **extra) -> Path:
+        """A series of single rulers kept in `folder`, on the usual rule's
+        seeds, each placing `by_deal(seed)`, registered as `settings` when
+        they are given."""
+        folder.mkdir()
+        if settings is not None:
+            (folder / "series.json").write_text(json.dumps(settings))
+            looks.design().save(folder / "design.json")
+        for seed in looks.design().seeds:
+            (folder / f"seed-{seed}.json").write_text(json.dumps(
+                report(seed, by_deal(seed), games_per_seat=20, **extra)))
+        return folder
+
+    def test_two_series_are_read_against_each_other_only_at_one_table(self):
+        """`--against` reads two series deal by deal only once they are seen
+        to have played at one table, from the registration of each that has
+        one and from the reports of a folder never registered: the same
+        incumbent, of the same run where it is one of a run's own, asked the
+        same way, the rules of the last hand at both or neither, as many
+        deals a seed. Read, the comparison says what was read."""
+        rules = {"all_last": dict(ACCOUNT), "late_rule": {"rule": "decline-last", "judged": 2, "fired": 1}}
+        mortal = {"challenger": "a", "incumbent": "zoo/mortal_298k", "run": "fusion-long", "games": 20,
+                  "questions": "fixed", "also": "", "against": ""}
+        level = lambda seed: [2.0, 3.0] * 10  # noqa: E731
+        for name, second, settings, extra, why in (
+            ("another incumbent", {**mortal, "incumbent": "history/gen-03000"}, mortal, {},
+             "its incumbent is history/gen-03000, not zoo/mortal_298k"),
+            ("asked otherwise", {**mortal, "questions": "seating"}, mortal, {},
+             "it was asked seating and this series fixed"),
+            ("another run's archive", {**mortal, "incumbent": "history/gen-03000", "run": "other"},
+             {**mortal, "incumbent": "history/gen-03000"}, {},
+             "its incumbent is other's history/gen-03000, not fusion-long's"),
+            ("never registered, asked by seating", None, mortal, {"incumbent": "zoo/mortal_298k"},
+             "it was asked seating and this series fixed"),
+            ("never registered, ruled", None, {**mortal, "questions": "seating"},
+             {"incumbent": "zoo/mortal_298k", **rules, "incumbent_rules": rules},
+             "its players follow the rules of the last hand and this series' do not"),
+        ):
+            with self.subTest(name), tempfile.TemporaryDirectory() as folder:
+                first = self.write(Path(folder) / "first", level, settings)
+                other = self.write(Path(folder) / "other", level, second, **extra)
+                with self.assertRaises(SystemExit) as stop:
+                    self.run_main(first, "--against", other)
+                self.assertIn(f"cannot be read against {other}: {why}", str(stop.exception.code))
+        with tempfile.TemporaryDirectory() as folder:
+            first = self.write(Path(folder) / "first", level, mortal)
+            other = self.write(Path(folder) / "other", level, {**mortal, "challenger": "b"})
+            text = self.run_main(first, "--against", other)
+            self.assertIn("a comparison first's rule was not registered for", text)
+            self.assertIn("comparing: first against other, deal by deal, both at zoo/mortal_298k's table, "
+                          "questions fixed", text)
+            self.assertIn("level: no look crossed", text)
+
+    def test_a_series_registered_against_another_is_read_against_it(self):
+        """With no `--against`, a series registered against another series is
+        read by that comparison, the one its rule and its `what` name, not
+        as its challenger against the incumbent. Here both challengers are
+        half a place ahead of the incumbent and level with each other."""
+        settings = {"challenger": "history/gen-01010", "incumbent": "zoo/mortal_298k", "run": "fusion-long",
+                    "games": 20, "questions": "seating", "also": "", "against": "g910"}
+        ahead = lambda seed: [1.0, 3.0] * 10  # noqa: E731
+        with tempfile.TemporaryDirectory() as folder:
+            self.write(Path(folder) / "g910", ahead, None, challenger="history/gen-00910",
+                       incumbent="zoo/mortal_298k")
+            series = self.write(Path(folder) / "g1010-vs-g910", ahead, settings, challenger="history/gen-01010",
+                                incumbent="zoo/mortal_298k")
+            design = looks.design(what="history/gen-01010 against the challenger of g910, deal by deal")
+            design.save(series / "design.json")
+            text = self.run_main(series)
+            self.assertIn("comparing: history/gen-01010 against the challenger of g910", text)
+            self.assertNotIn("stopped at", text)
+            self.assertIn("level: no look crossed", text)
+            self.assertNotIn("not registered", text)
+
 
 if __name__ == "__main__":
     unittest.main()

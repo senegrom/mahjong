@@ -36,7 +36,7 @@ from .prefetch import Prefetcher
 from .replay import Ring
 from .training_batches import require_trainable_round, require_updates
 from .training_safety import TRAINING_API_VERSION, benchmark_history
-from .training_state import round_seed
+from .training_state import measure_seed, round_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -280,7 +280,7 @@ def main() -> None:
         return selfplay.measure(
             net,
             games=args.measure_games,
-            seed=7_000_000 + generation,
+            seed=measure_seed(generation, args.measure_games),
             device=device,
             amp=args.amp,
         )

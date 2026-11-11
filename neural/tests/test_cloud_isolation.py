@@ -335,6 +335,67 @@ class CloudIsolationTests(unittest.TestCase):
                     self.assertEqual(len(calls),1);self.assertNotIn('--resume',calls[0])
                     self.assertEqual(validate_checkpoint(volume/'new/latest.pt'),1)
 
+    def test_a_call_started_again_goes_on_from_what_it_published(self):
+        # Modal starts a preempted call again on the same input. Resolved
+        # again, a resume other than 'latest' copied its start in once more:
+        # the log was cut back to it, and the restart's first publication set
+        # latest.pt and generation.txt back over what the first attempt had
+        # published. Another call with the same resume still starts there.
+        import torch
+        app=controller()
+        record=lambda generation:json.dumps({'generation':generation,'checkpoint_generation':generation+1})
+
+        class Preempted(BaseException):
+            """The container going away in the middle of a generation."""
+
+        def trainer(generations,timeline,starts):
+            def popen(command,**kwargs):
+                where=Path(command[command.index('--out')+1])
+                start=validate_checkpoint(where/'latest.pt') if '--resume' in command else 0
+                starts.append(start)
+                def lines():
+                    for generation in range(start,start+generations):
+                        atomic_save({'generation':generation+1,'timeline':timeline},where/'latest.pt')
+                        with (where/'log.jsonl').open('a') as handle:handle.write(record(generation)+'\n')
+                        yield record(generation)+'\n'
+                    raise Preempted()
+                return SimpleNamespace(stdout=lines(),wait=lambda timeout=None:0,poll=lambda:None,
+                                       terminate=lambda:None,kill=lambda:None)
+            return popen
+
+        for trainer_name in ('train','train_mortal','train_combined'):
+            for resume in ('history/gen-00030','other/latest'):
+                with self.subTest(trainer=trainer_name,resume=resume),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume';run=volume/'run'
+                    atomic_save({'generation':40,'timeline':1},run/'latest.pt')
+                    for generation in (30,40):
+                        atomic_save({'generation':generation,'timeline':1},run/f'history/gen-{generation:05d}.pt')
+                    atomic_save({'generation':30,'timeline':1},volume/'other/latest.pt')
+                    (run/'log.jsonl').write_text(''.join(record(g)+'\n' for g in range(40)))
+                    starts=[]
+
+                    def attempt(call,generations,timeline):
+                        with patch.object(app.modal,'current_function_call_id',lambda:call,create=True), \
+                                self.assertRaises(Preempted):
+                            self.launch(app,trainer_name,volume,root/'scratch',trainer(generations,timeline,starts),
+                                        run='run',resume=resume,until=100,generations=70)
+
+                    attempt('fc-first',15,2)
+                    self.assertEqual(validate_checkpoint(run/'latest.pt'),45)
+                    # Modal's restart of the same call goes on from 45.
+                    attempt('fc-first',1,3)
+                    self.assertEqual(starts,[30,45])
+                    self.assertEqual(validate_checkpoint(run/'latest.pt'),46)
+                    self.assertEqual((run/'generation.txt').read_text(),'46')
+                    log=[json.loads(line)['generation'] for line in (run/'log.jsonl').read_text().splitlines()]
+                    if resume.startswith('history'):
+                        self.assertEqual(log,list(range(46)))
+                    self.assertEqual(torch.load(run/'history/gen-00040.pt',weights_only=True)['timeline'],2)
+                    # A new call asked for the same start begins there.
+                    attempt('fc-second',1,4)
+                    self.assertEqual(starts,[30,45,30])
+                    self.assertEqual(validate_checkpoint(run/'latest.pt'),31)
+
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
         with tempfile.TemporaryDirectory() as folder:
