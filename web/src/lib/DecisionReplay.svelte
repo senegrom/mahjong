@@ -194,9 +194,9 @@
 <div class="decision" data-decision bind:this={root}>
   <div class="overview" data-overview>
     {#if upright}{@render seat()}{/if}
-    <!-- Drawn afresh for another hand, so that a seat does not announce a
-         call made in the hand before. The hands turn over in place, without
-         being drawn afresh. -->
+    <!-- Drawn afresh for another hand, so that nothing of one hand's table
+         stays at the next; its seats say no call at all (Seat). The hands
+         turn over in place, without being drawn afresh. -->
     {#key hand.index}
       <MatchTable view={frame.view} {hints} thinking={false} pendingOpponent={null} hands={frame.hands ?? null} {notes} review
         concealed={tilesHidden} />
