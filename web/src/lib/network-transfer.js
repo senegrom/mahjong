@@ -38,6 +38,14 @@ async function downloadNetwork(url, expect, onProgress, timeouts) {
   return bytes;
 }
 
+/** The verified bytes of the network stored at url in this scope's cache, or
+ * null where none is: never a download, for the graphics card's worker,
+ * which plays only a network already saved (gpu-batch.worker.js). */
+export async function storedNetworkBytes({ url, expect, scope } = {}) {
+  validateNetwork(expect);
+  return verifiedCached(await networkCache(scope), url, expect);
+}
+
 /** Verified bytes are usable online even when storage fails. Durable callers
  * explicitly require a successful cache write; they must never claim readiness
  * from a transient in-memory download. Errors never publish unverified bytes. */

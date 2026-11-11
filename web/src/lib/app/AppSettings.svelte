@@ -10,7 +10,8 @@
   // App owns persistence and match lifecycle; only panel/focus state is local.
   // network is the version of the trained network the page plays; App reloads
   // the page to play another (onnetworkchange), or answers false to keep it;
-  // runtime is where it plays, which the offline panel names (OfflineStatus).
+  // runtime is where a review's batches run, which the offline panel names
+  // (OfflineStatus).
   // reviewHideMove and reviewHideTiles are the review's two settings, which
   // the review of the game offers in its header too (GameReview).
   let {

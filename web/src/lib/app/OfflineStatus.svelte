@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { OfflineStatusProps } from './types';
   // network, when given, is the version the page plays, which is the one saved,
-  // and runtime where it plays, named "GPU" on the graphics card.
+  // and runtime where a review's batches run, named "GPU" once on the card.
   let { offline, downloadAi, network = '', runtime = null, open = $bindable(false) }: OfflineStatusProps = $props();
 </script>
 

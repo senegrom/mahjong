@@ -29,14 +29,14 @@ export const FLAG_PREFERRED_FROM = 0.6;
  * saves messages there and costs nothing, and a smaller one costs nothing
  * either. */
 export const BATCH = 8;
-/** Positions asked in one forward pass at most where the network plays on
- * the graphics card (policyRuntime(), webgpu.js): there sixty-four took
- * about as long as one, 61 ms against 58 on a desktop's GeForce RTX 5070 Ti
- * (10 November 2026), so a batch of them is the whole gain, and still ends
- * long before whatever waits behind it would notice. */
+/** Positions asked in one forward pass at most once a review's batches run
+ * on the graphics card (policyRuntime(), gpu-batches.js): there sixty-four
+ * took about as long as one, 61 ms against 58 on a desktop's GeForce RTX
+ * 5070 Ti (10 November 2026), so a batch of them is the whole gain, and
+ * still ends long before whatever waits behind it would notice. */
 export const GPU_BATCH = 64;
-/** The most positions a forward pass asks where the network plays on
- * `runtime` ('webgpu', 'wasm', or null before the worker has said). */
+/** The most positions a forward pass asks where batches run on `runtime`
+ * ('webgpu' or 'wasm'). */
 export const batchMostFor = runtime => (runtime === 'webgpu' ? GPU_BATCH : BATCH);
 /** How long a forward pass should take at most, at the review's measured
  * time a position: half the twenty seconds the worker gives one decision
@@ -351,7 +351,7 @@ export class Asking {
  * review waits there before each forward pass (passGate), so that the hand's
  * own notes, which ask the same worker a decision at a time, go first
  * (Asking). `batchMost()` is the most positions a pass may ask, read as each
- * is sized: BATCH, or GPU_BATCH while the network plays on the graphics card
+ * is sized: BATCH, or GPU_BATCH once batches run on the graphics card
  * (batchMostFor). */
 export class MatchReview {
   constructor(Game, snapshot, { analyzeBatch, gate = () => null, onChange = () => {}, onComplete = () => {}, now = () => performance.now(),

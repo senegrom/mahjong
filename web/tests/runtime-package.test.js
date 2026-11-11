@@ -33,8 +33,11 @@ test('production includes the reduced runtime and all tile faces, not model file
   const loads = new Set((await readFile(join(dist, webgpu, module), 'utf8')).match(/ort-wasm-simd-threaded[.a-z]*\.(?:mjs|wasm)/g));
   assert.deepEqual([...loads].filter(name => name.endsWith('.mjs')), beside.filter(name => name.endsWith('.mjs')));
   assert.ok(beside.every(name => name.endsWith('.mjs') || loads.has(name) || loads.has(name.replace(/\.wasm$/, '.mjs'))));
-  const [workerChunk] = names.filter(name => /^assets\/policy\.worker-[^/]+\.js$/.test(name));
-  assert.ok((await readFile(join(dist, workerChunk), 'utf8')).includes(module), 'the worker imports the shipped module');
+  // The card's worker imports that module; the WebAssembly worker never does.
+  const chunk = pattern => names.filter(name => pattern.test(name));
+  const [cardChunk] = chunk(/^assets\/gpu-batch\.worker-[^/]+\.js$/), [playChunk] = chunk(/^assets\/policy\.worker-[^/]+\.js$/);
+  assert.ok((await readFile(join(dist, cardChunk), 'utf8')).includes(module), 'the card\'s worker imports the shipped module');
+  assert.equal((await readFile(join(dist, playChunk), 'utf8')).includes(module), false, 'play never loads it');
   const page = names.filter(name => /^assets\/index-[^/]+\.js$/.test(name));
   assert.equal(page.length, 1);
   assert.ok((await readFile(join(dist, page[0]), 'utf8')).includes(webgpu), 'the page names the shipped WebGPU runtime folder');

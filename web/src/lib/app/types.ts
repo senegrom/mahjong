@@ -45,8 +45,8 @@ export interface OfflineStatusProps {
   offline: OfflineState; downloadAi: () => void; open?: boolean;
   /** The version of the trained network the page plays, such as '0.1.3000'. */
   network?: string;
-  /** Where the network plays, once its worker has said: 'webgpu' on the
-   * graphics card, 'wasm' on the processor (policy.js, policyRuntime). */
+  /** Where a review's batches run: 'webgpu' once they run on the graphics
+   * card, 'wasm' otherwise (gpu-batches.js, policyRuntime). */
   runtime?: 'webgpu' | 'wasm' | null;
 }
 export interface SettingsProps extends OfflineStatusProps {

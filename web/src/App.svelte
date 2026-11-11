@@ -19,7 +19,8 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { analyzeBatch, analyzePolicy, modelIsAvailable, policyRuntime, reportProgress, reportRuntime, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
   import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
@@ -164,8 +165,9 @@
   // worker, one at most, as it waited behind a batch before.
   const insightAsking = new Asking(), workerBatches = new Asking();
   const reviewBatch = countedBatches(analyzeBatch, workerBatches);
-  // A review and its reasoning ask bigger batches while the network plays on
-  // the graphics card (batchMostFor), which the settings name too.
+  // A review and its reasoning ask bigger batches once their batches run on
+  // the graphics card (batchMostFor, gpu-batches.js), which the settings
+  // name too. Play never runs there.
   const batchMost = () => batchMostFor(policyRuntime());
   let trainedRuntime = $state(policyRuntime());
   const reasoning = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking: insightAsking, notes: notesAsking,

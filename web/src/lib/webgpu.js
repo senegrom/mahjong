@@ -1,35 +1,38 @@
-/** Whether the trained network plays on the graphics card, through ONNX
- * Runtime Web's WebGPU provider, or on the processor, through the reduced
- * WebAssembly runtime, which every device can run.
+/** Whether a review's batches may run on the graphics card, through ONNX
+ * Runtime Web's WebGPU provider, and the tests the card must pass first.
+ * Play never runs there: every single decision goes to the WebAssembly
+ * worker, as it always did (policy.worker.js).
  *
- * The page asks for the graphics card only where its network's manifest
- * entry says the graph runs whole on WebGPU (`webgpu`, written by
+ * The page considers the card only where its network's manifest entry says
+ * the graph runs whole on WebGPU (`webgpu`, written by
  * scripts/publish-model-r2.mjs), the browser has WebGPU at all, the device is
  * neither a phone nor a tablet, and the player has not turned it off with
- * `?gpu=off` (webgpuWanted). The worker then asks for an adapter, refuses a
- * fallback one, which is the processor again, loads the WebGPU runtime and
- * the network, and times it on the first position it is asked (openOnGpu).
- * Anything that fails or is slow leaves the network to WebAssembly, exactly
- * as a page plays it without this.
+ * `?gpu=off` (webgpuWanted). Its own worker (gpu-batch.worker.js) then needs
+ * a real adapter (webgpuAdapter), and the card must answer a batch the
+ * WebAssembly worker has already answered as that worker did (agreement)
+ * and in at most half the time (fastEnough) before it is given any batch
+ * (gpu-batches.js).
  */
 
-/** Positions the graphics card is timed on: the first position asked, eight
- * times over, the batch a review asks of WebAssembly. */
-export const TIMED_POSITIONS = 8;
-/** The longest those positions may take on the graphics card, after one
- * warm-up run, for the page to play there: the median of TIMED_RUNS runs.
- * On a desktop with a GeForce RTX 5070 Ti one position takes about 58 ms on
- * WebGPU and 122 to 163 ms on WebAssembly with one thread, eight take about
- * 56 ms on WebGPU (10 November 2026), and with the machine busy and Chrome at
- * the lowest priority one position took 173 ms and sixty-four 151 ms. A card
- * under this bound, 50 ms a position, runs a review's batch at least twice as
- * fast as WebAssembly at its best, and a single move in 400 ms at most,
- * which a player waiting on an opponent does not notice. Held to 100 ms for
- * one position, a card would be refused on a busy desktop on which it still
- * reviews many times as fast. */
-export const GPU_TIMED_MS = 400;
-/** Runs timed after the warm-up, whose median is held to GPU_TIMED_MS. */
+/** Runs of the sample timed after the warm-up, whose median is compared
+ * with WebAssembly's time for the same batch. */
 export const TIMED_RUNS = 3;
+/** The most a move's weight on the card may differ from its weight on
+ * WebAssembly, at any position of the sample. The card's float arithmetic
+ * differs in the last bits: on a GeForce RTX 5070 Ti weights differed by
+ * 6.5e-6 at most over 368 positions (10 November 2026). A thousandth is
+ * generous against that, and far below anything a review shows (weights
+ * are shown in whole percent) or a wrong answer would give. */
+export const WEIGHT_BOUND = 0.001;
+/** How many times faster than WebAssembly the card must run the sample. */
+export const SPEEDUP = 2;
+/** How long the card's bring-up may take in all, from creating its worker
+ * to the last timed run, before the card is declined. */
+export const BRING_UP_MS = 60000;
+/** How long one batch may take on the card once it serves them. Sixty-four
+ * positions took 61 ms on a desktop card; one that takes longer than this
+ * has failed, and the batch is asked of WebAssembly instead. */
+export const CARD_BATCH_MS = 10000;
 
 /** Whether a phone or tablet is asking: its graphics card is the one its
  * battery runs, and its browsers' WebGPU is the least tried. Chromium says so
@@ -44,11 +47,10 @@ export function mobileDevice(nav) {
   return /Macintosh/.test(agent) && (nav?.maxTouchPoints ?? 0) > 1;
 }
 
-/** Whether the page asks its worker to try the graphics card for `network`
- * (a manifest entry): only where the entry says its graph runs whole on
- * WebGPU, the address does not say `?gpu=off`, the browser has WebGPU and the
- * device is not a phone or tablet. Older entries, without the field, play on
- * WebAssembly. */
+/** Whether the page considers the graphics card for `network` (a manifest
+ * entry): only where the entry says its graph runs whole on WebGPU, the
+ * address does not say `?gpu=off`, the browser has WebGPU and the device is
+ * not a phone or tablet. Older entries, without the field, never do. */
 export function webgpuWanted(network, { search = '', navigator: nav } = {}) {
   if (network?.webgpu !== true) return false;
   if (new URLSearchParams(search).get('gpu') === 'off') return false;
@@ -74,47 +76,32 @@ export async function webgpuAdapter(gpu) {
   return softwareAdapter(adapter.info) ? null : adapter;
 }
 
-/** The median time of `runs` calls of `run`, after one that is not timed:
- * the first run on a graphics card compiles its shaders and takes a second
- * or so. */
-export async function timedRuns(run, { runs = TIMED_RUNS, now = () => performance.now() } = {}) {
-  await run();
-  const times = [];
-  for (let index = 0; index < runs; index++) {
-    const began = now();
-    await run();
-    times.push(now() - began);
+/** Why the card's answers to a batch, `given`, do not agree with
+ * WebAssembly's, `expected` (each a list of `{ action, weights }`, a
+ * position each), or null where they do: every move's weight within `bound`
+ * of WebAssembly's, and the same best move, unless WebAssembly's own two best
+ * are closer than twice the bound, where the arithmetic may tip either way. */
+export function agreement(expected, given, bound = WEIGHT_BOUND) {
+  if (!Array.isArray(given) || given.length !== expected.length) return 'the card answered the wrong number of positions';
+  for (let row = 0; row < expected.length; row++) {
+    const plain = expected[row].weights, card = given[row]?.weights;
+    if (!card || card.length !== plain.length) return `the card answered position ${row} with the wrong number of moves`;
+    for (let move = 0; move < plain.length; move++) {
+      if (!(Math.abs(card[move] - plain[move]) <= bound)) {
+        return `position ${row}, move ${move}: weight ${card[move]} on the card against ${plain[move]}`;
+      }
+    }
+    if (given[row].action !== expected[row].action) {
+      const [first = 0, second = 0] = [...plain].sort((a, b) => b - a);
+      if (first - second >= 2 * bound) return `position ${row}: best move ${given[row].action} on the card against ${expected[row].action}`;
+    }
   }
-  times.sort((a, b) => a - b);
-  return times[Math.floor(times.length / 2)];
+  return null;
 }
 
-/** The network opened on the graphics card, `{ runtime, session, ms }`, or
- * why not, `{ reason }`, where `bytes` are the verified network, `gpu` is the
- * worker's `navigator.gpu`, `importRuntime()` loads the WebGPU runtime, and
- * `measure(runtime, session)` runs TIMED_POSITIONS positions once. Nothing
- * here throws: a failure is a reason, and the session it opened is released,
- * so the worker plays on WebAssembly instead. */
-export async function openOnGpu(bytes, { gpu, importRuntime, measure, limitMs = GPU_TIMED_MS, now } = {}) {
-  let session = null;
-  try {
-    const adapter = await webgpuAdapter(gpu);
-    if (!adapter) return { reason: 'no graphics card adapter' };
-    const runtime = await importRuntime();
-    runtime.env.logLevel = 'error';
-    runtime.env.wasm.numThreads = 1;
-    runtime.env.webgpu.adapter = adapter;
-    session = await runtime.InferenceSession.create(bytes, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' });
-    const ms = await timedRuns(() => measure(runtime, session), { now });
-    if (!(ms <= limitMs)) {
-      const slow = session;
-      session = null;
-      await slow.release();
-      return { reason: `${Math.round(ms)} ms for ${TIMED_POSITIONS} positions`, ms };
-    }
-    return { runtime, session, ms };
-  } catch (error) {
-    try { await session?.release(); } catch { /* Released or lost with its device. */ }
-    return { reason: String(error?.message ?? error) };
-  }
-}
+/** Whether the card's median time for the sample, `cardMs`, is at most
+ * 1/SPEEDUP of WebAssembly's time for the same batch, `wasmMs`. */
+export const fastEnough = (cardMs, wasmMs) => cardMs * SPEEDUP <= wasmMs;
+
+/** The median of a list of times. */
+export const median = times => [...times].sort((a, b) => a - b)[Math.floor(times.length / 2)];

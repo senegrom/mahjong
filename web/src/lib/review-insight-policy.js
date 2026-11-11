@@ -209,7 +209,7 @@ export function questionOf(decision, position) {
  * position, read as each begins, which sizes its passes as the review's
  * batches (batchFor), a table counted as FORWARDS_A_TABLE positions, and
  * `batchMost()` the most positions a pass may ask, as the review's are
- * (batchMostFor): more while the network plays on the graphics card.
+ * (batchMostFor): more once batches run on the graphics card.
  * `askBoth` is trainedAsk's. */
 export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth,
   batchMost = () => BATCH }) {

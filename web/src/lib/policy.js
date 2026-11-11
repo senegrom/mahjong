@@ -5,6 +5,7 @@ import { prepareOfflineAi, refreshOffline } from './offline.js';
 import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
+import { batchesOnCard, resetCard } from './gpu-batches.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
@@ -52,6 +53,9 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   old?.terminate();
   for (const pending of waiting.values()) pending.reject(reason);
   waiting.clear();
+  // A review's batches waiting on the graphics card are dropped the same way;
+  // the card's own worker stays (gpu-batches.js).
+  resetCard(reason);
 }
 
 /** Restarts the loading phase's deadline for this worker. */
@@ -199,9 +203,15 @@ export function analyzePolicy(planes, mask, signal) {
 /** The best legal move and weights of several positions, asked in one
  * forward pass, in the order given: what a whole-game review asks of the
  * network. Each position is `{ planes, mask }`. The deadline grows with the
- * batch, since a slow phone takes a good part of a second a position. */
+ * batch, since a slow phone takes a good part of a second a position. Once
+ * the graphics card has shown that it answers as this worker does, faster,
+ * batches of two or more go to it instead (gpu-batches.js). */
 export function analyzeBatch(positions, signal) {
   if (!positions.length) return Promise.resolve([]);
+  return batchesOnCard(positions, signal, batchOnWasm);
+}
+
+function batchOnWasm(positions, signal) {
   const width = positions[0].planes.length;
   const planes = new Float32Array(positions.length * width);
   positions.forEach((position, index) => planes.set(position.planes, index * width));

@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import { policyWeights } from '../src/lib/policy-weights.js';
-import { MemoryBudget, MEMORY_LIMITS_MIB, isMemoryError, nextMemoryLimit } from '../src/lib/memory-budget.js';
+import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
 import { MANIFEST, networkUrl } from '../src/lib/trained-network.js';
 import { BATCH, GPU_BATCH, batchFor, batchMostFor } from '../src/lib/game-review.js';
-import { GPU_TIMED_MS, TIMED_POSITIONS, mobileDevice, openOnGpu, timedRuns, webgpuAdapter, webgpuWanted } from '../src/lib/webgpu.js';
+import { BRING_UP_MS, CARD_BATCH_MS, TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, mobileDevice, webgpuAdapter,
+  webgpuWanted } from '../src/lib/webgpu.js';
+import { cardBatches } from '../src/lib/gpu-batches.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const READY = { ...MANIFEST, webgpu: true };
@@ -64,237 +66,353 @@ test('a fallback adapter is the processor again, and is refused like none', asyn
   assert.equal(await webgpuAdapter({}), null);
 });
 
-test('the card is timed by the median of its runs after one warm-up run', async () => {
-  const times = [1200, 70, 50, 60], ran = [];
-  let clock = 0, run = 0;
-  const ms = await timedRuns(async () => { ran.push(run); clock += times[run++]; }, { now: () => clock });
-  assert.deepEqual(ran, [0, 1, 2, 3], 'one warm-up and three timed runs');
-  assert.equal(ms, 60);
+test('the card agrees only where every weight is within the bound, and the best move is the same unless a near tie', () => {
+  const plain = [{ action: 0, weights: [0.7, 0.3, 0] }, { action: 1, weights: [0.4995, 0.5005, 0] }];
+  assert.equal(agreement(plain, plain), null);
+  assert.equal(agreement(plain, plain.map(row => ({ ...row, weights: row.weights.map(w => w + WEIGHT_BOUND / 2) }))), null);
+  assert.match(agreement(plain, [{ action: 0, weights: [0.7 - 2 * WEIGHT_BOUND, 0.3, 0] }, plain[1]]), /position 0, move 0/);
+  // Its second position's two best are 0.001 apart, under twice the bound: either may come first.
+  assert.equal(agreement(plain, [plain[0], { action: 0, weights: [0.5003, 0.4997, 0] }]), null);
+  assert.match(agreement([{ action: 0, weights: [0.503, 0.497] }], [{ action: 1, weights: [0.5025, 0.4975] }]), /best move 1/);
+  assert.match(agreement(plain, plain.slice(1)), /wrong number of positions/);
+  assert.match(agreement(plain, [plain[0], { action: 1, weights: [NaN, 1, 0] }]), /position 1, move 0/);
+  // Twice as fast at least.
+  assert.equal(fastEnough(50, 100), true);
+  assert.equal(fastEnough(51, 100), false);
 });
 
-/** A stand-in for the WebGPU runtime, whose sessions take `ms` a run, fail to
- * open with `createError`, or fail to run from their `failFrom`th run on. */
-function gpuRuntime({ ms = 40, createError = null, failFrom = Infinity } = {}) {
-  const log = { created: [], opened: 0, released: 0, runs: 0, clock: 0, batches: [] };
-  class Tensor {
-    constructor(type, data, dims) { Object.assign(this, { type, data, dims }); this.disposed = false; }
-    dispose() { this.disposed = true; }
+/** A clock that moves only when a test moves it, for every timer the card's
+ * module uses. */
+function clock() {
+  let now = 0, last = 0;
+  const timers = new Map();
+  return {
+    now: () => now,
+    setTimeout: (fn, ms) => { timers.set(++last, { at: now + ms, fn }); return last; },
+    clearTimeout: id => { timers.delete(id); },
+    pass(ms) { now += ms; },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const due = [...timers].filter(([, timer]) => timer.at <= end).sort(([, a], [, b]) => a.at - b.at)[0];
+        if (!due) break;
+        timers.delete(due[0]); now = due[1].at; due[1].fn();
+      }
+      now = end;
+    },
+  };
+}
+const settle = async (turns = 20) => { for (let turn = 0; turn < turns; turn++) await setImmediate(); };
+/** A position, and WebAssembly's answer to it. */
+const position = index => ({ planes: Float32Array.of(index, 1), mask: [1, 1] });
+const plainAnswer = () => ({ action: 0, weights: [0.7, 0.3] });
+
+/** The card's batches with a stand-in for its worker and for WebAssembly.
+ * WebAssembly takes `wasmMs` a batch; the card answers its requests as
+ * `answer(message)` says, after `cardMs` (null for no answer). */
+function setup({ storage = memoryStorage(), search = '', nav = desktop(), network = READY, runtime = 'ort-webgpu/aaaa/',
+  wasmMs = 1000, cardMs = 50, answer } = {}) {
+  const time = clock(), workers = [], wasmCalls = [], warnings = [], runtimes = [];
+  const reply = answer ?? (message => (message.open ? { opened: true }
+    : { analyses: Array.from({ length: message.count }, plainAnswer), ms: cardMs }));
+  class FakeWorker {
+    constructor() { this.messages = []; this.terminated = false; workers.push(this); }
+    postMessage(message) {
+      this.messages.push(message);
+      const answered = reply(message, this);
+      if (answered == null) return;
+      Promise.resolve().then(() => {
+        if (!message.open) time.pass(cardMs);
+        this.onmessage?.({ data: { id: message.id, ...answered } });
+      });
+    }
+    terminate() { this.terminated = true; }
   }
-  const runtime = { env: { wasm: {}, webgpu: {} }, Tensor, log, InferenceSession: { create: async (bytes, options) => {
-    log.created.push({ bytes, options, adapter: runtime.env.webgpu.adapter });
-    if (createError) throw createError;
-    log.opened++;
-    return {
-      inputNames: ['planes', 'legal'],
-      run: async feeds => {
-        assert.ok(feeds.planes instanceof Tensor, 'the card is given its own runtime\'s tensors');
-        log.batches.push(feeds.planes.dims[0]);
-        if (++log.runs >= failFrom) throw new Error('GPU device lost');
-        log.clock += ms;
-        return { policy: new Tensor('float32', new Float32Array(feeds.legal.data.length).fill(1)), value: new Tensor('float32', [0.5]),
-          hands: new Tensor('float32', new Float32Array(102)) };
-      },
-      release: async () => { log.released++; },
-    };
-  } } };
-  return runtime;
+  const card = cardBatches({ createWorker: () => new FakeWorker(), storage, search, navigator: nav, network: () => network,
+    runtime, scope: 'https://test.invalid/mahjong/', now: time.now, setTimeout: time.setTimeout, clearTimeout: time.clearTimeout,
+    warn: message => warnings.push(message), onRuntime: value => runtimes.push(value) });
+  const wasm = async (positions, signal) => {
+    wasmCalls.push(positions.length);
+    time.pass(wasmMs);
+    if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
+    return positions.map(plainAnswer);
+  };
+  const ask = (count, signal) => card.analyze(Array.from({ length: count }, (_, index) => position(index)), signal, wasm);
+  return { card, ask, time, workers, wasmCalls, warnings, runtimes, storage };
+}
+function memoryStorage() {
+  const entries = new Map();
+  return { entries, getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, String(value)),
+    removeItem: key => entries.delete(key) };
+}
+/** Brings the card up: two batches of eight on WebAssembly, then the bring-up. */
+async function bringUp(s) {
+  await s.ask(8);
+  await s.ask(8);
+  await settle();
 }
 
-const measured = runtime => ({ now: () => runtime.log.clock });
-const measure = (runtime, session) => session.run({ planes: new runtime.Tensor('float32', new Float32Array(34), [1, 1, 34]),
-  legal: new runtime.Tensor('float32', new Float32Array(46), [1, 46]) });
-
-test('a fast card is chosen, and a slow one or one that fails is released for WebAssembly', async () => {
-  const fast = gpuRuntime({ ms: 58 });
-  const chosen = await openOnGpu('bytes', { gpu: gpu(), importRuntime: async () => fast, measure, ...measured(fast) });
-  assert.equal(chosen.runtime, fast);
-  assert.equal(chosen.ms, 58);
-  assert.ok(chosen.session);
-  assert.deepEqual(fast.log.created[0].options, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' });
-  assert.ok(fast.log.created[0].adapter, 'the runtime is given the adapter that was checked');
-  assert.equal(fast.env.wasm.numThreads, 1);
-  assert.equal(fast.log.released, 0);
-
-  const slow = gpuRuntime({ ms: GPU_TIMED_MS + 1 });
-  const refused = await openOnGpu('bytes', { gpu: gpu(), importRuntime: async () => slow, measure, ...measured(slow) });
-  assert.equal(refused.session, undefined);
-  assert.match(refused.reason, /401 ms for 8 positions/);
-  assert.equal(slow.log.released, 1, 'a slow card lets its session go');
-
-  const broken = gpuRuntime({ createError: new Error('no kernel') });
-  assert.match((await openOnGpu('bytes', { gpu: gpu(), importRuntime: async () => broken, measure })).reason, /no kernel/);
-  const lost = gpuRuntime({ failFrom: 2 });
-  assert.match((await openOnGpu('bytes', { gpu: gpu(), importRuntime: async () => lost, measure })).reason, /device lost/);
-  assert.equal(lost.log.released, 1);
-  assert.match((await openOnGpu('bytes', { gpu: gpu(), importRuntime: async () => { throw new Error('offline'); }, measure })).reason, /offline/);
-  // Without an adapter the runtime is never loaded.
-  let imported = false;
-  assert.match((await openOnGpu('bytes', { gpu: gpu(adapter({ isFallbackAdapter: true })), importRuntime: async () => { imported = true; }, measure })).reason,
-    /no graphics card adapter/);
-  assert.equal(imported, false);
+test('the card is brought up only after WebAssembly has answered a second batch of two or more, and never delays it', async () => {
+  const s = setup({ answer: message => (message.open ? null : { analyses: Array.from({ length: message.count }, plainAnswer), ms: 50 }) });
+  await s.ask(1);
+  await s.ask(8);
+  await s.ask(1);
+  assert.equal(s.workers.length, 0, 'single positions and the first batch bring nothing up');
+  const answered = await s.ask(8);
+  assert.equal(answered.length, 8, 'the batch that starts the bring-up is answered on WebAssembly at once');
+  assert.equal(s.workers.length, 1);
+  assert.equal(s.card.state(), 'starting');
+  assert.equal(s.workers[0].messages[0].open.url, networkUrl(READY));
+  assert.deepEqual({ ...s.workers[0].messages[0].open.expect }, { bytes: READY.bytes, sha256: READY.sha256 });
+  assert.equal(s.workers[0].messages[0].open.webgpu, 'https://test.invalid/mahjong/ort-webgpu/aaaa/');
+  // While it starts, everything still goes to WebAssembly.
+  await s.ask(8);
+  assert.deepEqual(s.wasmCalls, [1, 8, 1, 8, 8]);
 });
 
-/** The real worker with a stand-in WebAssembly runtime and WebGPU runtime. */
-function worker({ gpuOptions = {}, adapterGiven = adapter(), wasmRunError = false } = {}) {
-  const messages = [], wasm = { created: 0, released: 0, runs: 0 }, imports = [];
-  const gpuSide = gpuRuntime(gpuOptions);
-  let live = 0;
-  class Tensor {
-    constructor(type, data, dims) { Object.assign(this, { type, data, dims }); }
-    dispose() {}
-  }
-  const ort = { env: { wasm: {} }, Tensor, InferenceSession: { create: async (_bytes, options) => {
-    assert.equal(JSON.stringify(options.executionProviders), '["wasm"]');
-    assert.ok(live++ < 1);
-    wasm.created++;
-    return {
-      inputNames: ['planes', 'legal'],
-      run: async feeds => {
-        assert.ok(feeds.planes instanceof Tensor, 'WebAssembly is given its own runtime\'s tensors');
-        wasm.runs++;
-        if (wasmRunError) throw new Error('wasm failed');
-        return { policy: new Tensor('float32', new Float32Array(feeds.legal.data.length).fill(1)), value: new Tensor('float32', [0.25]),
-          hands: new Tensor('float32', new Float32Array(102)) };
-      },
-      release: async () => { wasm.released++; live--; },
-    };
-  } } };
-  const self = { postMessage: message => messages.push(message), navigator: { gpu: gpu(adapterGiven) } };
-  loadModule('policy.worker.js', { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
-    networkBytes: async ({ url }) => `bytes of ${url}`,
-    loadMemoryControls: async () => ({ memoryBudget: new MemoryBudget() }),
-    loadWebgpuRuntime: async url => { imports.push(url); return gpuSide; },
-    openOnGpu: (bytes, options) => openOnGpu(bytes, { ...options, now: () => gpuSide.log.clock }), TIMED_POSITIONS,
-  }, [], { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)',
-    "import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href)": "loadWebgpuRuntime(new URL('ort.min.mjs', webgpu).href)" });
-  const send = (id, extra = {}) => self.onmessage({ data: { id, url: 'model.onnx', runtimeBase: 'https://test.invalid/ort/0123abcd/',
-    scope: 'https://test.invalid/', planes: new Float32Array(34 * 2), mask: Array(46).fill(1), details: false,
-    webgpu: 'https://test.invalid/ort-webgpu/4567cdef/', ...extra } });
-  const ready = () => messages.filter(message => message.ready).map(message => message.runtime);
-  return { send, messages, wasm, gpu: gpuSide, imports, ready };
-}
-
-test('the worker plays on the card where it is asked to and the card is fast', async () => {
-  const w = worker();
-  await w.send(1);
-  await w.send(2, { count: 1 });
-  assert.deepEqual(w.ready(), ['webgpu', 'webgpu']);
-  assert.deepEqual(w.imports, ['https://test.invalid/ort-webgpu/4567cdef/ort.min.mjs']);
-  assert.equal(w.gpu.env.wasm.wasmPaths, 'https://test.invalid/ort-webgpu/4567cdef/', 'the stock runtime finds its files beside itself');
-  assert.equal(w.wasm.created, 0, 'WebAssembly is never started');
-  assert.deepEqual(w.gpu.log.created.map(entry => entry.bytes), ['bytes of model.onnx']);
-  // A warm-up run and three timed ones of the first position eight times
-  // over, then the two requests.
-  assert.deepEqual([...w.gpu.log.batches], [8, 8, 8, 8, 1, 1]);
-  assert.equal(w.messages.find(message => message.id === 1 && 'action' in message).action, 0);
-  assert.equal(w.messages.find(message => message.analyses)?.analyses.length, 1);
-  assert.ok(w.messages.some(message => message.progress === 'starting the network on the graphics card'));
+test('a card that agrees and is twice as fast serves every batch of two or more, and single positions stay on WebAssembly', async () => {
+  const s = setup();
+  await bringUp(s);
+  assert.equal(s.card.state(), 'ready');
+  assert.equal(s.card.runtime(), 'webgpu');
+  assert.deepEqual(s.runtimes, ['webgpu']);
+  // A warm-up run and TIMED_RUNS timed ones of the sample.
+  assert.deepEqual(s.workers[0].messages.slice(1).map(message => message.count), Array(TIMED_RUNS + 1).fill(8));
+  const before = s.wasmCalls.length;
+  assert.equal((await s.ask(64)).length, 64);
+  assert.equal((await s.ask(1)).length, 1);
+  assert.deepEqual(s.wasmCalls.slice(before), [1], 'only the single position went to WebAssembly');
+  assert.equal(s.workers[0].messages.at(-1).count, 64);
+  assert.deepEqual(s.warnings, []);
 });
 
-test('the worker plays on WebAssembly where the page does not ask, the card is slow, it fails to open, or there is no adapter', async () => {
-  for (const [name, options, extra] of [['not asked', {}, { webgpu: undefined }],
-    ['slow', { gpuOptions: { ms: GPU_TIMED_MS * 2 } }, {}],
-    ['failing to open', { gpuOptions: { createError: new Error('unsupported') } }, {}],
-    ['a fallback adapter', { adapterGiven: adapter({ isFallbackAdapter: true }) }, {}]]) {
-    const w = worker(options);
-    await w.send(1, extra);
-    await w.send(2, extra);
-    assert.deepEqual(w.ready(), ['wasm', 'wasm'], name);
-    assert.equal(w.wasm.created, 1, name);
-    assert.equal(w.messages.filter(message => 'action' in message).length, 2, name);
-    assert.equal(w.messages.some(message => message.error), false, name);
-    assert.equal(w.gpu.log.created.length, ['slow', 'failing to open'].includes(name) ? 1 : 0, `${name}: the card is tried once at most`);
-    assert.equal(w.gpu.log.opened - w.gpu.log.released, 0, `${name}: no session is left on the card`);
+test('a card that disagrees with WebAssembly, or is not twice as fast, is declined and remembered', async () => {
+  for (const [name, options, reason] of [
+    ['disagrees', { answer: message => (message.open ? { opened: true }
+      : { analyses: Array.from({ length: message.count }, () => ({ action: 1, weights: [0.3, 0.7] })) }) }, /disagrees/],
+    ['slow', { wasmMs: 1000, cardMs: 501 }, /took 501 ms for a batch WebAssembly ran in 1000 ms/],
+  ]) {
+    const s = setup(options);
+    await bringUp(s);
+    assert.equal(s.card.state(), 'declined', name);
+    assert.equal(s.card.runtime(), 'wasm');
+    assert.ok(s.workers[0].terminated, name);
+    assert.equal(s.warnings.length, 1);
+    assert.match(s.warnings[0], reason);
+    assert.equal(s.storage.entries.size, 1, `${name}: remembered`);
+    const before = s.wasmCalls.length;
+    await s.ask(8);
+    assert.equal(s.wasmCalls.length, before + 1, `${name}: batches stay on WebAssembly`);
   }
 });
 
-test('a card that fails while playing hands the network to WebAssembly within the same request', async () => {
-  // Four runs time the card; the fifth, the first request's own, fails.
-  const w = worker({ gpuOptions: { failFrom: 5 } });
-  await w.send(1, { count: 2, mask: Array(92).fill(1) });
-  assert.deepEqual(w.ready(), ['webgpu']);
-  assert.equal(w.gpu.log.released, 1);
-  assert.equal(w.wasm.created, 1);
-  assert.equal(JSON.stringify(w.messages.filter(message => message.id == null)), '[{"runtime":"wasm","webgpuRefused":"GPU device lost"}]',
-    'the page hears of it, and why, apart from any answer');
-  assert.equal(w.messages.find(message => message.analyses)?.analyses.length, 2, 'the request is answered');
-  assert.equal(w.messages.some(message => message.error), false);
-  await w.send(2);
-  assert.deepEqual(w.ready(), ['webgpu', 'wasm']);
-  assert.equal(w.gpu.log.created.length, 1, 'the card is not tried again');
+test('a bring-up that takes longer than its 60 seconds is declined', async () => {
+  const s = setup({ answer: message => (message.open ? null : {}) });
+  await bringUp(s);
+  assert.equal(s.card.state(), 'starting');
+  s.time.advance(BRING_UP_MS - 1);
+  assert.equal(s.card.state(), 'starting');
+  s.time.advance(1);
+  await settle();
+  assert.equal(s.card.state(), 'declined');
+  assert.ok(s.workers[0].terminated);
+  assert.match(s.warnings[0], /longer than 60 s/);
+  assert.equal(s.storage.entries.size, 1);
 });
 
-test('a failure on WebAssembly after the card failed is the request\'s failure, as before', async () => {
-  const w = worker({ gpuOptions: { failFrom: 5 }, wasmRunError: true });
-  await w.send(1);
-  await setImmediate();
-  assert.match(w.messages.find(message => message.error)?.error ?? '', /wasm failed/);
+test('a remembered decline holds on later visits until the runtime, the network or ?gpu=on says to try again', async () => {
+  const storage = memoryStorage();
+  const first = setup({ storage, wasmMs: 100, cardMs: 90 });
+  await bringUp(first);
+  assert.equal(first.card.state(), 'declined');
+  const [[key, record]] = storage.entries;
+  assert.equal(key, 'mahjong-webgpu-declined:/mahjong/');
+  assert.equal(JSON.parse(record).runtime, 'ort-webgpu/aaaa/');
+  assert.equal(JSON.parse(record).network, READY.sha256);
+  // The next visit does not try, and says nothing.
+  const again = setup({ storage });
+  await bringUp(again);
+  assert.equal(again.workers.length, 0);
+  assert.equal(again.card.state(), 'declined');
+  assert.deepEqual(again.warnings, []);
+  // A new runtime, a new network, or ?gpu=on, tries once again.
+  for (const options of [{ runtime: 'ort-webgpu/bbbb/' }, { network: { ...READY, sha256: 'f'.repeat(64) } }, { search: '?gpu=on' }]) {
+    const fresh = setup({ storage, ...options });
+    await bringUp(fresh);
+    assert.equal(fresh.card.state(), 'ready', JSON.stringify(options));
+  }
+  assert.equal(storage.entries.size, 0, '?gpu=on forgot the decline');
+  // ?gpu=off never tries.
+  const off = setup({ search: '?gpu=off' });
+  await bringUp(off);
+  assert.equal(off.workers.length, 0);
+  assert.equal(off.card.state(), 'declined');
 });
 
-/** The page's coordinator with a stand-in worker, on a desktop with WebGPU. */
-function page({ network = READY, search = '' } = {}) {
-  const workers = [];
+test('a runtime the browser could not fetch, or a network not saved, declines the card for this visit only', async () => {
+  for (const error of ['the WebGPU runtime could not be fetched: HTTP 503', 'the network is not saved on this device']) {
+    const storage = memoryStorage();
+    const s = setup({ storage, answer: message => (message.open ? { error, remember: false } : {}) });
+    await bringUp(s);
+    assert.equal(s.card.state(), 'declined');
+    assert.equal(s.warnings[0], `Trained AI reviews on WebAssembly: ${error}`);
+    assert.equal(storage.entries.size, 0);
+    const next = setup({ storage });
+    await bringUp(next);
+    assert.equal(next.card.state(), 'ready', 'the next visit tries again');
+  }
+});
+
+test('a batch that fails or runs out of time on the card is answered on WebAssembly, and the card is declined', async () => {
+  for (const [name, failure] of [['fails', { error: 'a batch failed on the card: device lost', remember: true }], ['overruns', null]]) {
+    let failing = false;
+    const s = setup({ answer: message => (message.open ? { opened: true } : failing ? failure
+      : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+    await bringUp(s);
+    assert.equal(s.card.state(), 'ready', name);
+    failing = true;
+    const before = s.wasmCalls.length;
+    const answer = s.ask(16);
+    await settle();
+    if (!failure) s.time.advance(CARD_BATCH_MS);
+    const answers = await answer;
+    assert.equal(answers.length, 16, `${name}: the caller gets its answers`);
+    assert.deepEqual(s.wasmCalls.slice(before), [16], `${name}: from WebAssembly`);
+    assert.equal(s.card.state(), 'declined');
+    assert.ok(s.workers[0].terminated);
+    assert.deepEqual(s.runtimes, ['webgpu', 'wasm']);
+    assert.equal(s.storage.entries.size, 1);
+  }
+});
+
+test('a caller who stops waiting is not a failure of the card, and a reset drops waiting batches but keeps the card', async () => {
+  let hold = false;
+  const s = setup({ answer: message => (message.open ? { opened: true } : hold ? null
+    : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+  await bringUp(s);
+  hold = true;
+  const stop = new AbortController();
+  const stopped = s.ask(16, stop.signal);
+  await settle();
+  stop.abort();
+  await assert.rejects(stopped, { name: 'AbortError' });
+  assert.equal(s.card.state(), 'ready');
+  // A reset tells a waiting caller its own reason, and the card stays.
+  const waiting = s.ask(16);
+  await settle();
+  const reason = new Error('Match changed');
+  s.card.reset(reason);
+  await assert.rejects(waiting, error => error === reason);
+  assert.equal(s.card.state(), 'ready');
+  assert.equal(s.workers[0].terminated, false);
+});
+
+test('storage that throws breaks nothing', async () => {
+  const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() { throw new Error('denied'); } };
+  const ready = setup({ storage: broken, search: '?gpu=on' });
+  await bringUp(ready);
+  assert.equal(ready.card.state(), 'ready');
+  const slow = setup({ storage: broken, wasmMs: 100, cardMs: 90 });
+  await bringUp(slow);
+  assert.equal(slow.card.state(), 'declined');
+  assert.equal((await slow.ask(8)).length, 8);
+});
+
+test('the page sends single decisions to its WebAssembly worker alone, and batches through the card', async t => {
+  const workers = [], routed = [];
   class Worker {
     constructor() { this.messages = []; workers.push(this); }
     postMessage(message) { this.messages.push(message); }
     terminate() {}
-    say(data) { this.onmessage({ data }); }
   }
   const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout, Worker,
-    MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => network, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    __WEBGPU_RUNTIME_DIRECTORY__: 'ort-webgpu/4567cdef/', webgpuWanted, navigator: { onLine: true, ...desktop() }, location: { search },
-    networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
-  }, ['chooseAction', 'analyzeBatch', 'policyRuntime', 'reportRuntime', 'resetPolicy']);
-  return { api, workers };
-}
-
-test('the page asks its worker to try the card for a ready network, and hears where it plays', async t => {
-  const { api, workers } = page();
+    MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => READY, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
+    navigator: { onLine: true }, networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
+    batchesOnCard: (positions, signal, wasm) => { routed.push(positions.length); return wasm(positions, signal); }, resetCard: () => {},
+  }, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'resetPolicy']);
   t.after(() => api.resetPolicy());
-  const heard = [];
-  api.reportRuntime(value => heard.push(value));
-  assert.equal(api.policyRuntime(), null);
-  const move = api.chooseAction(new Float32Array(34), [1]);
-  await setImmediate();
-  const [sent] = workers[0].messages;
-  assert.equal(sent.webgpu, 'https://test.invalid/mahjong/ort-webgpu/4567cdef/');
-  workers[0].say({ id: sent.id, progress: 'network ready', ready: true, runtime: 'webgpu' });
-  assert.equal(api.policyRuntime(), 'webgpu');
-  workers[0].say({ id: sent.id, action: 0 });
-  assert.equal(await move, 0);
-  // A card that fails later says so in a message of its own, which answers nothing.
-  const next = api.chooseAction(new Float32Array(34), [1]);
-  await setImmediate();
-  const second = workers[0].messages[1];
-  workers[0].say({ id: second.id, progress: 'network ready', ready: true, runtime: 'webgpu' });
-  workers[0].say({ runtime: 'wasm' });
-  assert.equal(api.policyRuntime(), 'wasm');
-  workers[0].say({ id: second.id, action: 0 });
-  assert.equal(await next, 0);
-  assert.deepEqual(heard, ['webgpu', 'wasm']);
-  // Having found the card failing, the page does not ask for it again.
-  const third = api.chooseAction(new Float32Array(34), [1]);
-  await setImmediate();
-  assert.equal(workers[0].messages[2].webgpu, undefined);
-  workers[0].say({ id: workers[0].messages[2].id, action: 0 });
-  await third;
-  api.resetPolicy();
-  assert.equal(api.policyRuntime(), null, 'a new worker says again where it plays');
+  const answered = async (promise, reply) => {
+    await setImmediate();
+    const worker = workers.at(-1), message = worker.messages.at(-1);
+    worker.onmessage({ data: { id: message.id, ...reply(message) } });
+    return promise;
+  };
+  assert.equal(await answered(api.chooseAction(new Float32Array(34), [1, 1]), () => ({ action: 1 })), 1);
+  await answered(api.analyzePolicy(new Float32Array(34), [1, 1]), () => ({ analysis: { action: 0 } }));
+  assert.deepEqual(routed, [], 'no single decision is offered to the card');
+  const positions = [0, 1].map(index => ({ planes: new Float32Array(34).fill(index), mask: [1, 1] }));
+  const batch = await answered(api.analyzeBatch(positions),
+    message => ({ analyses: Array.from({ length: message.count }, () => policyWeights([1, 0], [1, 1])) }));
+  assert.equal(batch.length, 2);
+  assert.deepEqual(routed, [2]);
 });
 
-test('the page does not ask for the card for a network without the flag, or with ?gpu=off', async t => {
-  for (const options of [{ network: MANIFEST }, { search: '?gpu=off' }]) {
-    const { api, workers } = page(options);
-    t.after(() => api.resetPolicy());
-    const move = api.chooseAction(new Float32Array(34), [1]);
-    await setImmediate();
-    assert.equal(workers[0].messages[0].webgpu, undefined, JSON.stringify(options.search ?? 'no flag'));
-    workers[0].say({ id: workers[0].messages[0].id, progress: 'network ready', ready: true, runtime: 'wasm' });
-    workers[0].say({ id: workers[0].messages[0].id, action: 0 });
-    await move;
-    assert.equal(api.policyRuntime(), 'wasm');
+/** The card's worker, with a stand-in runtime, adapter, stored network and fetch. */
+function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3), fetchStatus = 200, createError = null, runError = null } = {}) {
+  const messages = [], imports = [], created = [], reads = [];
+  class Tensor {
+    constructor(type, data, dims) { Object.assign(this, { type, data, dims }); }
+    dispose() {}
   }
+  const runtime = { env: { wasm: {}, webgpu: {} }, Tensor, InferenceSession: { create: async (bytes, options) => {
+    created.push({ bytes, options, adapter: runtime.env.webgpu.adapter });
+    if (createError) throw createError;
+    return { inputNames: ['planes', 'legal'], run: async feeds => {
+      if (runError) throw runError;
+      return { policy: new Tensor('float32', Float32Array.from(feeds.legal.data, (_, index) => (index % 2 ? 0 : 1))),
+        value: new Tensor('float32', [0]), hands: new Tensor('float32', [0]) };
+    } };
+  } } };
+  const self = { postMessage: message => messages.push(message), navigator: { gpu: gpu(adapterGiven) } };
+  loadModule('gpu-batch.worker.js', { self, URL, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
+    webgpuAdapter, storedNetworkBytes: async read => { reads.push(read); return stored; },
+    fetch: async () => new Response('runtime', { status: fetchStatus }),
+    loadRuntime: async url => { imports.push(url); return runtime; },
+  }, [], { "import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href)": "loadRuntime(new URL('ort.min.mjs', webgpu).href)" });
+  const send = data => { self.onmessage({ data }); return settle(); };
+  const open = { url: 'https://cdn.invalid/models/g3000/x', expect: { bytes: 3, sha256: 'a'.repeat(64) }, scope: 'https://test.invalid/mahjong/',
+    webgpu: 'https://test.invalid/mahjong/ort-webgpu/aaaa/' };
+  return { send, open, messages, imports, created, reads, runtime };
+}
+
+test('the card\'s worker opens the stored network on WebGPU alone and answers batches with their analyses and time', async () => {
+  const w = cardWorker();
+  await w.send({ id: 1, open: w.open });
+  assert.equal(JSON.stringify(w.messages.find(message => message.id === 1)), '{"id":1,"opened":true}');
+  assert.equal(w.reads[0].scope, 'https://test.invalid/mahjong/', 'the network is read from the page\'s cache');
+  assert.equal(w.reads[0].expect.sha256, 'a'.repeat(64));
+  assert.deepEqual(w.imports, ['https://test.invalid/mahjong/ort-webgpu/aaaa/ort.min.mjs']);
+  assert.equal(w.runtime.env.wasm.wasmPaths, 'https://test.invalid/mahjong/ort-webgpu/aaaa/');
+  assert.equal(JSON.stringify(w.created[0].options), '{"executionProviders":["webgpu"],"graphOptimizationLevel":"all"}');
+  assert.ok(w.created[0].adapter, 'the runtime is given the adapter that was checked');
+  await w.send({ id: 2, planes: new Float32Array(68), mask: [1, 1, 1, 1], count: 2 });
+  const answer = w.messages.find(message => message.id === 2);
+  assert.equal(answer.analyses.length, 2);
+  assert.equal(answer.analyses[0].action, 0);
+  assert.ok(answer.ms >= 0);
+});
+
+test('the card\'s worker says why it cannot serve, and whether that is the device\'s', async () => {
+  for (const [name, options, reason, remember] of [
+    ['no adapter', { adapterGiven: null }, /no graphics card adapter/, true],
+    ['a software adapter', { adapterGiven: adapter({ architecture: 'swiftshader' }) }, /no graphics card adapter/, true],
+    ['a network not saved', { stored: null }, /not saved on this device/, false],
+    ['a runtime it cannot fetch', { fetchStatus: 503 }, /could not be fetched: .*HTTP 503/, false],
+    ['a session that fails', { createError: new Error('no kernel') }, /could not be opened on the card: no kernel/, true],
+  ]) {
+    const w = cardWorker(options);
+    await w.send({ id: 1, open: w.open });
+    const said = w.messages.find(message => message.id === 1);
+    assert.match(said.error, reason, name);
+    assert.equal(said.remember, remember, name);
+    if (name !== 'a session that fails') assert.equal(w.created.length, 0, `${name}: no session is made`);
+  }
+  const failing = cardWorker({ runError: new Error('device lost') });
+  await failing.send({ id: 1, open: failing.open });
+  await failing.send({ id: 2, planes: new Float32Array(68), mask: [1, 1, 1, 1], count: 2 });
+  assert.equal(JSON.stringify(failing.messages.find(message => message.id === 2)),
+    '{"id":2,"error":"a batch failed on the card: device lost","remember":true}');
 });
 
 test('a review asks up to GPU_BATCH positions a pass on the card, and BATCH otherwise', () => {
