@@ -1346,8 +1346,9 @@ test('the review\'s time a position is measured afresh where its batches run cha
   // MatchReview.timed alone, on a stand-in: its clock, the worker's time for a batch, and the most a pass may ask,
   // eight on WebAssembly and sixty-four on the graphics card, which is all the review hears of where its batches run.
   let clock = 0, most = BATCH, took = 0, meanwhile = null;
-  const review = { now: () => clock, batchMost: () => most, asked: 0, pending: 0, positionMs: null, ranOn: null,
-    analyzeBatch: async positions => { clock += took; meanwhile?.(); meanwhile = null; return positions.map(() => ({})); } };
+  const review = Object.assign(Object.create(MatchReview.prototype), { now: () => clock, batchMost: () => most, asked: 0, pending: 0,
+    timedMs: null, ranOn: null,
+    analyzeBatch: async positions => { clock += took; meanwhile?.(); meanwhile = null; return positions.map(() => ({})); } });
   const timed = (count, ms, during = null) => { took = ms; meanwhile = during; return MatchReview.prototype.timed.call(review, Array.from({ length: count }, () => ({}))); };
   await timed(8, 2000);
   assert.equal(review.positionMs, null, 'the first batch carries the network\'s load');
@@ -1372,5 +1373,16 @@ test('the review\'s time a position is measured afresh where its batches run cha
   most = GPU_BATCH;
   await timed(16, 96);
   assert.equal(review.positionMs, 6);
-  assert.equal(review.pending, 8 * 4 + 16 + 2 + 2 + 16);
+  // A single position is WebAssembly's even then, and no measure of the card; on WebAssembly it counts as any batch.
+  await timed(1, 120);
+  assert.equal(review.positionMs, 6);
+  // The card declined with no batch of the review under way, on a search's pass: whoever reads the time
+  // reads none of the card's, at once, and the review is not slow for it.
+  most = BATCH;
+  assert.equal(review.positionMs, null);
+  assert.equal(review.slow, false);
+  assert.equal(review.decisionMs, null);
+  await timed(1, 120);
+  assert.equal(review.positionMs, 120);
+  assert.equal(review.pending, 8 * 4 + 16 + 2 + 2 + 16 + 1 + 1);
 });

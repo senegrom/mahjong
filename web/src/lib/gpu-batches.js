@@ -81,7 +81,8 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
   today = () => Date.now(), warn = () => {}, onRuntime = () => {}, onWork = () => {} }) {
   const query = new URLSearchParams(search).get('gpu');
   const key = `mahjong-webgpu-declined:${new URL('./', scope).pathname}`;
-  let state = 'untried', worker = null, opened = null, answeredBatches = 0, nextId = 0, generation = 0;
+  // `tried` is the network the card is being brought up for, or serves.
+  let state = 'untried', worker = null, tried = null, answeredBatches = 0, nextId = 0, generation = 0;
   let bringUp = null, cardTurn = Promise.resolve(), running = 0, least = Infinity;
   // Requests with the card's worker, and callers waiting on the card, whom a reset drops.
   const pending = new Map(), dropping = new Set();
@@ -94,15 +95,16 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
       return record?.runtime === folder && record?.network === network().sha256 && age >= 0 && age < DECLINE_LASTS_MS ? record : null;
     } catch { return null; }
   };
-  const remember = reason => {
-    try { storage?.setItem(key, JSON.stringify({ runtime: folder, network: network().sha256, reason, at: today() })); } catch { /* Storage refused: this visit only. */ }
+  // Under the network the card was tried for, which the page may no longer play.
+  const remember = (reason, entry) => {
+    try { storage?.setItem(key, JSON.stringify({ runtime: folder, network: entry.sha256, reason, at: today() })); } catch { /* Storage refused: this visit only. */ }
   };
   if (query === 'on') { try { storage?.removeItem(key); } catch { /* Nothing to forget. */ } }
 
   function endWorker() {
     const old = worker;
     worker = null;
-    opened = null;
+    tried = null;
     old?.terminate();
     for (const request of pending.values()) request.reject(new CardFailure('the card\'s worker was ended'));
     pending.clear();
@@ -114,11 +116,11 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
    * the device has passed, and what fails then says nothing lasting of it. */
   function decline(reason, remembers) {
     if (state === 'declined') return;
-    const was = state;
+    const was = state, entry = tried ?? network();
     state = 'declined';
     if (bringUp) { cancel(bringUp); bringUp = null; }
     endWorker();
-    if (remembers && was !== 'ready') remember(reason);
+    if (remembers && was !== 'ready') remember(reason, entry);
     warn(`Trained AI reviews on WebAssembly: ${reason}`);
     if (was === 'ready') onRuntime('wasm');
   }
@@ -154,8 +156,10 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
       if (data.error) request.reject(new CardFailure(data.error, data.remember !== false));
       else request.resolve(data);
     };
-    current.onerror = event => { if (worker === current) decline(`the card's worker failed: ${event?.message ?? 'no reason given'}`, true); };
-    current.onmessageerror = () => { if (worker === current) decline('the card\'s worker sent an unreadable answer', true); };
+    // A worker that did not load, its file gone with a new build or out of
+    // reach, or whose answer could not be read, says nothing of the device.
+    current.onerror = event => { if (worker === current) decline(`the card's worker failed: ${event?.message ?? 'no reason given'}`, false); };
+    current.onmessageerror = () => { if (worker === current) decline('the card\'s worker sent an unreadable answer', false); };
   }
 
   /** The bring-up's time from now: `ms`, out of which the card is declined
@@ -173,11 +177,11 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     let mine = null;
     try {
       const played = network();
+      tried = played;
       startWorker();
       mine = worker;
       await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256 }, scope, webgpu: new URL(folder, scope).href } },
         () => within(BRING_UP_MS, `bringing the card up took longer than ${BRING_UP_MS / 1000} s`, true));
-      opened = networkUrl(played);
       const order = timedOrder(sample.positions.length);
       const batch = laid(order.map(index => sample.positions[index])), expected = order.map(index => sample.answers[index]);
       const times = [];
@@ -256,9 +260,10 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     /** The answers to `positions`, as policy.js's analyzeBatch gives them,
      * `wasm(positions, signal)` being the WebAssembly worker's path. */
     async analyze(positions, signal, wasm) {
-      if (opened && opened !== networkUrl(network())) {
-        // Another network is played: the card starts over for it. The old
-        // bring-up's time stops with its worker, a batch still on the card
+      if (tried && networkUrl(tried) !== networkUrl(network())) {
+        // Another network is played than the card was brought up for, or is
+        // being: the card starts over for it. The old bring-up's time stops
+        // with its worker, wherever it had got to, a batch still on the card
         // is answered on WebAssembly without blame (below), and the page
         // hears that batches run there again.
         const was = state;

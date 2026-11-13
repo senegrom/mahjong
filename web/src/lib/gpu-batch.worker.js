@@ -49,21 +49,26 @@ async function open({ url, expect, scope, webgpu }, fetched) {
   // The runtime's own files, fetched here first so that one the browser
   // cannot fetch, offline before it was ever saved, is told apart from a
   // runtime that fails on this device. Its WebAssembly is kept and handed to
-  // the runtime, which would fetch it again otherwise: 30 MB a second time
-  // wherever the browser could not save the first.
-  let binary;
+  // the runtime under an address of this worker's own; the runtime would
+  // fetch it from the site again otherwise, 30 MB a second time wherever the
+  // browser could not save the first. By address, which the runtime reads
+  // once and compiles as it reads: given the bytes themselves, it would keep
+  // them for as long as it runs.
+  let held = null;
   try {
     for (const file of ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']) {
       const response = await fetch(new URL(file, webgpu));
       if (!response.ok) throw new Error(`${file}: HTTP ${response.status}`);
       const body = await response.arrayBuffer();
-      if (file.endsWith('.wasm')) binary = body;
+      if (file.endsWith('.wasm')) held = URL.createObjectURL(new Blob([body], { type: 'application/wasm' }));
     }
     runtime = await import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href);
-  } catch (error) { throw new Refusal(`the WebGPU runtime could not be fetched: ${said(error)}`, false); }
+  } catch (error) {
+    if (held) URL.revokeObjectURL(held);
+    throw new Refusal(`the WebGPU runtime could not be fetched: ${said(error)}`, false);
+  }
   fetched();
-  runtime.env.wasm.wasmPaths = webgpu;
-  runtime.env.wasm.wasmBinary = binary;
+  runtime.env.wasm.wasmPaths = { mjs: new URL('ort-wasm-simd-threaded.jsep.mjs', webgpu).href, wasm: held };
   runtime.env.wasm.numThreads = 1;
   runtime.env.logLevel = 'error';
   runtime.env.webgpu.adapter = adapter;
@@ -74,8 +79,8 @@ async function open({ url, expect, scope, webgpu }, fetched) {
     session = await runtime.InferenceSession.create(bytes, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all',
       logSeverityLevel: 3 });
   } catch (error) { throw new Refusal(`the network could not be opened on the card: ${said(error)}`, true); }
-  // The runtime is running by now, and has no more use for its 30 MB.
-  finally { runtime.env.wasm.wasmBinary = undefined; }
+  // Running or not, the runtime has read its WebAssembly by now.
+  finally { URL.revokeObjectURL(held); }
 }
 
 async function run({ planes, mask, count }) {

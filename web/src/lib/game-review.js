@@ -384,7 +384,7 @@ export class MatchReview {
     // positions are pending until its decisions are judged, and counted with
     // them, so that a review stopped between a group's passes counts no
     // positions without their decisions.
-    this.positionMs = null;
+    this.timedMs = null;
     // Where batches ran when that time was last measured, as the most a
     // pass may ask says it: eight on WebAssembly, more on the graphics card.
     this.ranOn = null;
@@ -426,6 +426,12 @@ export class MatchReview {
   /** The time a decision takes at the speed seen so far: as many positions as
    * the decisions judged have taken each, none for a forced move and two for
    * one Trained AI hesitated over (suits.js), one before any is judged. */
+  /** The time a position where the review's batches run now: the one
+   * measured there (timed), and none where they have moved since, to the
+   * graphics card or back from it, until a batch is measured there. Whoever
+   * reads it between the review's batches, a search sizing its passes or
+   * saying how long it will take, reads no time of another place. */
+  get positionMs() { return this.ranOn === this.batchMost() ? this.timedMs : null; }
   get decisionMs() { return this.positionMs == null ? null : this.positionMs * (this.judged ? this.positions / this.judged : 1); }
   /** How long the rest would take at that speed, in seconds. */
   get estimate() { return this.decisionMs == null ? null : Math.ceil(this.remaining * this.decisionMs / 1000); }
@@ -643,8 +649,11 @@ export class MatchReview {
     // after its ten seconds and the batch answered on WebAssembly after
     // them, is a measure of neither, and would make a slow device of a fast
     // one.
-    if (runsOn !== this.ranOn) { this.positionMs = null; this.ranOn = runsOn; }
-    if (!first && runsOn === most) this.positionMs = this.positionMs == null ? each : (this.positionMs * 3 + each) / 4;
+    if (runsOn !== this.ranOn) { this.timedMs = null; this.ranOn = runsOn; }
+    // A single position is WebAssembly's wherever the batches run
+    // (gpu-batches.js): on the card it is no measure of the card.
+    const there = runsOn === most && (positions.length > 1 || runsOn === BATCH);
+    if (!first && there) this.timedMs = this.timedMs == null ? each : (this.timedMs * 3 + each) / 4;
     return answers;
   }
 

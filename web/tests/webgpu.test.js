@@ -9,6 +9,7 @@ import { BATCH, GPU_BATCH, batchFor, batchMostFor } from '../src/lib/game-review
 import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, RUNTIME_MS, TIMED_POSITIONS, TIMED_RUNS, WASM_PASS, WEIGHT_BOUND, agreement,
   fastEnough, median, mobileDevice, timedOrder, webgpuAdapter, webgpuWanted } from '../src/lib/webgpu.js';
 import { CARD_AT_WORK, cardBatches } from '../src/lib/gpu-batches.js';
+import { resolveObjectURL } from 'node:buffer';
 import { loadModule } from './fixtures/load-module.js';
 
 const READY = { ...MANIFEST, webgpu: true };
@@ -317,6 +318,59 @@ test('another network played starts the card over, and blames no card for it', a
   assert.notEqual(serving.card.state(), 'declined');
 });
 
+test('a decline is remembered under the network the card was tried for, and another network played is noticed while the runtime is still fetched', async () => {
+  // The bring-up's 60 seconds run out after the page has gone on to another network, and before it asks again.
+  const late = setup({ answer: message => (message.open ? null : {}) });
+  await bringUp(late);
+  late.play(OTHER);
+  late.time.advance(BRING_UP_MS);
+  await settle();
+  assert.equal(late.card.state(), 'declined');
+  const [[, record]] = late.storage.entries;
+  assert.equal(JSON.parse(record).network, READY.sha256, 'not under the network that was never tried');
+  // Another network played while the first one's worker still fetches its runtime: the card starts over for it.
+  let hold = true;
+  const s = setup({ fetched: false, answer: message => (message.open ? (hold ? null : { opened: true })
+    : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+  await bringUp(s);
+  assert.equal(s.card.state(), 'starting');
+  s.play(OTHER);
+  await s.ask(8);
+  assert.equal(s.card.state(), 'untried');
+  assert.ok(s.workers[0].terminated);
+  s.time.advance(RUNTIME_MS);
+  await settle();
+  assert.equal(s.card.state(), 'untried', 'the old fetch\'s ten minutes are not this card\'s');
+  hold = false;
+  await s.ask(8);
+  await settle();
+  assert.equal(s.workers[1].messages[0].open.expect.sha256, OTHER.sha256);
+  assert.equal(s.card.state(), 'ready');
+  assert.deepEqual(s.warnings, []);
+  assert.equal(s.storage.entries.size, 0);
+});
+
+test('a worker that does not load, or whose answer cannot be read, declines the card for this visit only', async () => {
+  for (const [name, fail, reason] of [
+    ['its file is gone', worker => worker.onerror({ message: 'Failed to load script' }), /the card's worker failed: Failed to load script/],
+    ['its answer is unreadable', worker => worker.onmessageerror({}), /sent an unreadable answer/],
+  ]) {
+    // In the bring-up, and once the card serves.
+    for (const serving of [false, true]) {
+      const s = setup({ answer: message => (message.open ? (serving ? { opened: true } : null)
+        : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+      await bringUp(s);
+      assert.equal(s.card.state(), serving ? 'ready' : 'starting', name);
+      fail(s.workers[0]);
+      await settle();
+      assert.equal(s.card.state(), 'declined', name);
+      assert.match(s.warnings[0], reason);
+      assert.equal(s.storage.entries.size, 0, `${name}: nothing is said of the device`);
+      assert.equal((await s.ask(8)).length, 8);
+    }
+  }
+});
+
 test('a card that disagrees with WebAssembly, or is not twice as fast, is declined and remembered', async () => {
   // Eight positions in 1000 ms on WebAssembly are sixteen in 2000.
   const fast = setup({ wasmMs: 1000, cardMs: 1000 });
@@ -370,6 +424,10 @@ test('fetching the runtime is the connection\'s time: its own ten minutes, the 6
   await settle();
   assert.equal(slow.card.state(), 'starting');
   slow.workers[0].onmessage({ data: { id: opening.id, opened: true } });
+  await settle();
+  assert.equal(slow.card.state(), 'ready');
+  // Ready, neither time runs any more.
+  slow.time.advance(RUNTIME_MS);
   await settle();
   assert.equal(slow.card.state(), 'ready');
   assert.deepEqual(slow.warnings, []);
@@ -715,7 +773,9 @@ function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3),
     dispose() {}
   }
   const runtime = { env: { wasm: {}, webgpu: {} }, Tensor, InferenceSession: { create: async (bytes, options) => {
-    created.push({ bytes, options, adapter: runtime.env.webgpu.adapter, binary: runtime.env.wasm.wasmBinary });
+    // What the runtime would read its WebAssembly from, read here as it would.
+    const paths = { ...runtime.env.wasm.wasmPaths };
+    created.push({ bytes, options, adapter: runtime.env.webgpu.adapter, paths, handed: await resolveObjectURL(paths.wasm)?.text() });
     if (createError) throw createError;
     return { inputNames: inputs, run: async feeds => {
       fed.push(feeds);
@@ -727,7 +787,7 @@ function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3),
     } };
   } } };
   const self = { postMessage: message => messages.push(message), navigator: { gpu: gpu(adapterGiven) } };
-  loadModule('gpu-batch.worker.js', { self, URL, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
+  loadModule('gpu-batch.worker.js', { self, URL, Blob, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
     webgpuAdapter, storedNetworkBytes: async read => { reads.push(read); return stored; },
     fetch: async url => { fetches.push(String(url)); return new Response('runtime', { status: fetchStatus }); },
     loadRuntime: async url => { imports.push(url); return runtime; },
@@ -744,15 +804,18 @@ test('the card\'s worker opens the stored network on WebGPU alone and answers ba
   // It says that its runtime is in hand, then that the network is open.
   assert.deepEqual(w.messages.filter(message => message.id === 1).map(message => JSON.stringify(message)),
     ['{"id":1,"fetched":true}', '{"id":1,"opened":true}']);
-  // The runtime's WebAssembly, fetched once to see that it can be, is the one the runtime is handed, and let go after.
+  // The runtime's WebAssembly, fetched once to see that it can be, is the one the runtime is handed, by an address
+  // of the worker's own that is given up once the session is open; its loader it takes from the site.
   const folder = 'https://test.invalid/mahjong/ort-webgpu/aaaa/';
   assert.deepEqual(w.fetches, [`${folder}ort-wasm-simd-threaded.jsep.mjs`, `${folder}ort-wasm-simd-threaded.jsep.wasm`]);
-  assert.equal(new TextDecoder().decode(w.created[0].binary), 'runtime');
-  assert.equal(w.runtime.env.wasm.wasmBinary, undefined);
+  assert.equal(w.created[0].paths.mjs, `${folder}ort-wasm-simd-threaded.jsep.mjs`);
+  assert.match(w.created[0].paths.wasm, /^blob:/);
+  assert.equal(w.created[0].handed, 'runtime');
+  assert.equal(resolveObjectURL(w.created[0].paths.wasm), undefined);
+  assert.equal(w.runtime.env.wasm.wasmBinary, undefined, 'the bytes themselves the runtime would keep for as long as it runs');
   assert.equal(w.reads[0].scope, 'https://test.invalid/mahjong/', 'the network is read from the page\'s cache');
   assert.equal(w.reads[0].expect.sha256, 'a'.repeat(64));
   assert.deepEqual(w.imports, ['https://test.invalid/mahjong/ort-webgpu/aaaa/ort.min.mjs']);
-  assert.equal(w.runtime.env.wasm.wasmPaths, 'https://test.invalid/mahjong/ort-webgpu/aaaa/');
   // Errors alone are logged: the runtime's warning about nodes it keeps on the processor by design is none.
   assert.equal(JSON.stringify(w.created[0].options), '{"executionProviders":["webgpu"],"graphOptimizationLevel":"all","logSeverityLevel":3}');
   assert.ok(w.created[0].adapter, 'the runtime is given the adapter that was checked');
@@ -792,7 +855,7 @@ test('the card\'s worker says why it cannot serve, and whether that is the devic
     if (name !== 'a session that fails') assert.equal(w.created.length, 0, `${name}: no session is made`);
     // Only with the runtime in hand does it say so: before that the time is not the device's.
     assert.equal(w.messages.some(message => message.fetched), name === 'a session that fails', name);
-    assert.equal(w.runtime.env.wasm.wasmBinary, undefined, `${name}: the runtime's WebAssembly is not kept`);
+    if (w.created.length) assert.equal(resolveObjectURL(w.created[0].paths.wasm), undefined, `${name}: the address of the runtime's WebAssembly is given up`);
   }
   const failing = cardWorker({ runError: new Error('device lost') });
   await failing.send({ id: 1, open: failing.open });
