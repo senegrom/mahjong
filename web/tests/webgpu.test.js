@@ -11,6 +11,8 @@ import { cardBatches } from '../src/lib/gpu-batches.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const READY = { ...MANIFEST, webgpu: true };
+// The default network as an entry published before the field held it.
+const { webgpu: _flag, ...BEFORE } = MANIFEST;
 const DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
 const adapter = (info = {}) => ({ info: { vendor: 'nvidia', ...info } });
 const gpu = (given = adapter()) => ({ requestAdapter: async options => {
@@ -23,7 +25,7 @@ test('the page asks for the graphics card only for a ready network on a desktop 
   assert.equal(webgpuWanted(READY, { navigator: desktop() }), true);
   assert.equal(webgpuWanted(READY, { search: '?mode=play', navigator: desktop() }), true);
   // An entry published before the field, or one whose graph holds a Softplus.
-  assert.equal(webgpuWanted(MANIFEST, { navigator: desktop() }), false);
+  assert.equal(webgpuWanted(BEFORE, { navigator: desktop() }), false);
   assert.equal(webgpuWanted({ ...MANIFEST, webgpu: false }, { navigator: desktop() }), false);
   assert.equal(webgpuWanted({ ...MANIFEST, webgpu: 'true' }, { navigator: desktop() }), false);
   // Turned off for troubleshooting.

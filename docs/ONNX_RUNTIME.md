@@ -6,11 +6,12 @@
 can pick, the default first, each by its version with its source, generation,
 the reward it learned from, precision, decoded byte count, stored byte count,
 origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
-0.1.3000, the default, published on 8 November 2026, then 0.1.2610 (the
-default from 30 October), 0.1.1410 (from 21 October), 0.1.810 and 0.1.410,
-which the site played before it. 0.1.1110, the default from 19 October, was
-dropped from the list on 9 November. Inspect those fields for the current
-release.
+0.1.3000, the default, published on 8 November 2026 and again on 11 November
+in the export free of Softplus (below), the same weights and the one entry
+with `webgpu: true`, then 0.1.2610 (the default from 30 October), 0.1.1410
+(from 21 October), 0.1.810 and 0.1.410, which the site played before it.
+0.1.1110, the default from 19 October, was dropped from the list on 9
+November. Inspect those fields for the current release.
 
 The reward is what the network's value estimates, and the page names and
 explains the value by the reward of the network it plays: `{ "kind": "hybrid" }`
