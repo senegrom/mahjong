@@ -423,15 +423,15 @@ export class MatchReview {
   get complete() { return this.hands.every(hand => hand.status === 'done'); }
   /** Decisions still to ask about: those of the hands not yet done. */
   get remaining() { return this.hands.filter(hand => hand.status !== 'done').reduce((sum, hand) => sum + hand.frames.length, 0); }
-  /** The time a decision takes at the speed seen so far: as many positions as
-   * the decisions judged have taken each, none for a forced move and two for
-   * one Trained AI hesitated over (suits.js), one before any is judged. */
   /** The time a position where the review's batches run now: the one
    * measured there (timed), and none where they have moved since, to the
    * graphics card or back from it, until a batch is measured there. Whoever
    * reads it between the review's batches, a search sizing its passes or
    * saying how long it will take, reads no time of another place. */
   get positionMs() { return this.ranOn === this.batchMost() ? this.timedMs : null; }
+  /** The time a decision takes at the speed seen so far: as many positions as
+   * the decisions judged have taken each, none for a forced move and two for
+   * one Trained AI hesitated over (suits.js), one before any is judged. */
   get decisionMs() { return this.positionMs == null ? null : this.positionMs * (this.judged ? this.positions / this.judged : 1); }
   /** How long the rest would take at that speed, in seconds. */
   get estimate() { return this.decisionMs == null ? null : Math.ceil(this.remaining * this.decisionMs / 1000); }
