@@ -6,9 +6,11 @@
  *
  * The WebAssembly worker answers a first batch, which loads the network,
  * then the sample, a batch of BATCH positions, timed. The card's worker
- * opens the network from this page's Cache Storage, runs the sample once to
- * warm up and TIMED_RUNS times more, and must pass the page's own gates on
- * it: the same answers (agreement) at least twice as fast (fastEnough).
+ * opens the network from this page's Cache Storage, runs the timed batch,
+ * the sample's positions again and again to a hand's worth (timedOrder),
+ * once to warm up and TIMED_RUNS times more, and must pass the page's own
+ * gates on it: the same answers (agreement), at least twice as fast as
+ * WebAssembly runs as many positions (fastEnough).
  * Then every position is asked on both, the card in batches of GPU_BATCH
  * and WebAssembly in batches of BATCH, and the check says the largest
  * difference in a weight, the share of decisions with the same best move,
@@ -34,7 +36,7 @@ import { graphOperators, runsOnWebgpu } from './publish-model-r2.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { reviewTable } from '../src/lib/trained-move.js';
 import { GPU_BATCH, BATCH } from '../src/lib/game-review.js';
-import { TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, median, softwareAdapter } from '../src/lib/webgpu.js';
+import { TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, median, softwareAdapter, timedOrder } from '../src/lib/webgpu.js';
 import { networkCacheName } from '../src/lib/network-cache.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from '../tests/fixtures/review-check-game.js';
 
@@ -116,7 +118,7 @@ try {
       const expect = { bytes: network.length, sha256: createHash('sha256').update(network).digest('hex') };
       console.log(`Adapter: ${adapter.name || 'unnamed'}; ${rows.length} positions of ${width / POSITIONS} planes; network ${path}.`);
       await check('the card is brought up on a batch WebAssembly answered, passes the page\'s gates, and answers every batch as WebAssembly does', async () => {
-        const result = await page.evaluate(async ({ playWorker, cardWorker, runtimeBase, webgpuBase, cacheName, expect, width, gpuBatch, wasmBatch, runs }) => {
+        const result = await page.evaluate(async ({ playWorker, cardWorker, runtimeBase, webgpuBase, cacheName, expect, width, gpuBatch, wasmBatch, runs, order }) => {
           const fetched = async name => new Uint8Array(await (await fetch(`webgpu-check/${name}`)).arrayBuffer());
           const allPlanes = new Float32Array((await fetched('planes.bin')).buffer), allMasks = await fetched('masks.bin');
           const count = allPlanes.length / width, moves = allMasks.length / count;
@@ -160,8 +162,15 @@ try {
             const sample = await onWasm(wasmBatch, wasmBatch);
             const opened = await card.ask({ open: { url, expect, scope, webgpu: webgpuBase } }).catch(error => ({ refused: error.message }));
             if (opened.refused) return { refused: opened.refused };
+            // The timed batch: the sample's positions in the page's own order (timedOrder).
+            const timed = { count: order.length, planes: new Float32Array(order.length * width), mask: [] };
+            order.forEach((index, at) => {
+              const one = batch(wasmBatch + index, 1);
+              timed.planes.set(one.planes, at * width);
+              timed.mask.push(...one.mask);
+            });
             const sampleRuns = [];
-            for (let run = 0; run <= runs; run++) sampleRuns.push(await card.ask(batch(wasmBatch, wasmBatch)));
+            for (let run = 0; run <= runs; run++) sampleRuns.push(await card.ask(timed));
             // Every position, on both.
             const all = async (ask, size) => {
               const answers = [], times = [];
@@ -179,16 +188,19 @@ try {
               plain, onCard };
           } finally { wasm.close(); card.close(); }
         }, { playWorker, cardWorker, runtimeBase: `${base}${runtime}`, webgpuBase: `${base}${webgpu}`, cacheName: networkCacheName(base),
-          expect, width, gpuBatch: GPU_BATCH, wasmBatch: BATCH, runs: TIMED_RUNS });
+          expect, width, gpuBatch: GPU_BATCH, wasmBatch: BATCH, runs: TIMED_RUNS, order: timedOrder(BATCH) });
         if (result.refused) assert.fail(`the card's worker would not open the network: ${result.refused}`);
-        // The page's own gates on the sample.
+        // The page's own gates on the timed batch.
         const { sample } = result;
-        const differs = sample.runs.map(run => agreement(sample.answers, run.analyses)).find(Boolean) ?? null;
+        // WebAssembly's time for as many positions, at the sample's time a position.
+        const order = timedOrder(BATCH), wasmTimedMs = sample.ms / BATCH * order.length;
+        const differs = sample.runs.map(run => agreement(order.map(index => sample.answers[index]), run.analyses)).find(Boolean) ?? null;
         const sampleMs = median(sample.runs.slice(1).map(run => run.ms));
-        console.log(`Sample of ${BATCH}: ${sample.ms.toFixed(1)} ms on WebAssembly; on the card ${sample.runs[0].ms.toFixed(1)} ms to warm up, `
+        console.log(`Sample of ${BATCH}: ${sample.ms.toFixed(1)} ms on WebAssembly, which makes ${wasmTimedMs.toFixed(1)} ms for ${order.length}; `
+          + `on the card ${order.length} took ${sample.runs[0].ms.toFixed(1)} ms to warm up, `
           + `then a median of ${sampleMs.toFixed(1)} ms over ${TIMED_RUNS} runs; ${differs ? `disagrees: ${differs}` : 'agrees'}.`);
-        assert.equal(differs, null, 'the card agrees with WebAssembly on the sample');
-        assert.ok(fastEnough(sampleMs, sample.ms), 'the card is at least twice as fast on the sample');
+        assert.equal(differs, null, 'the card agrees with WebAssembly on the timed batch');
+        assert.ok(fastEnough(sampleMs, wasmTimedMs), 'the card is at least twice as fast on the timed batch');
         // Every position.
         let largest = 0, same = 0, choices = 0;
         result.plain.answers.forEach((plain, row) => {

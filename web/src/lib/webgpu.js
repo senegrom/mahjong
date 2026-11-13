@@ -9,14 +9,25 @@
  * neither a phone nor a tablet, and the player has not turned it off with
  * `?gpu=off` (webgpuWanted). Its own worker (gpu-batch.worker.js) then needs
  * a real adapter (webgpuAdapter), and the card must answer a batch the
- * WebAssembly worker has already answered as that worker did (agreement)
- * and in at most half the time (fastEnough) before it is given any batch
+ * WebAssembly worker has already answered as that worker did (agreement),
+ * and a hand's worth of positions in at most half the time WebAssembly
+ * takes for as many (timedOrder, fastEnough), before it is given any batch
  * (gpu-batches.js).
  */
 
-/** Runs of the sample timed after the warm-up, whose median is compared
- * with WebAssembly's time for the same batch. */
+/** Runs of the timed batch after the warm-up, whose median is compared with
+ * WebAssembly's time for as many positions. */
 export const TIMED_RUNS = 3;
+/** The positions the card is timed on: about the decisions of a hand, which
+ * is what a review asks of the card in one pass once it serves (GPU_BATCH in
+ * game-review.js lets a pass hold a whole hand). A review asks WebAssembly
+ * eight positions at most (BATCH), and the sample is often two or three, the
+ * end of a hand, while WebAssembly's time grows with every position and the
+ * card's hardly does: about 120 ms a position against 70 to 150 ms a batch,
+ * of two or of sixty-four, on a desktop's GeForce RTX 5070 Ti. Timed on the
+ * sample alone, two positions, that card read as too slow for the reviews it
+ * runs a hundred times faster (11 November 2026). */
+export const TIMED_POSITIONS = 16;
 /** The most a move's weight on the card may differ from its weight on
  * WebAssembly, at any position of the sample. The card's float arithmetic
  * differs in the last bits: on a GeForce RTX 5070 Ti weights differed by
@@ -24,7 +35,8 @@ export const TIMED_RUNS = 3;
  * generous against that, and far below anything a review shows (weights
  * are shown in whole percent) or a wrong answer would give. */
 export const WEIGHT_BOUND = 0.001;
-/** How many times faster than WebAssembly the card must run the sample. */
+/** How many times faster than WebAssembly the card must run the timed
+ * batch. */
 export const SPEEDUP = 2;
 /** How long the card's bring-up may take in all, from creating its worker
  * to the last timed run, before the card is declined. */
@@ -33,6 +45,13 @@ export const BRING_UP_MS = 60000;
  * positions took 61 ms on a desktop card; one that takes longer than this
  * has failed, and the batch is asked of WebAssembly instead. */
 export const CARD_BATCH_MS = 10000;
+/** How long a remembered decline holds: a week. A card can read as slow, or
+ * a run fail, for a reason that passes, another program at work on the card
+ * that minute or a driver since replaced, and nothing else would ever try it
+ * again before the next network. Trying costs a device without an adapter
+ * one question, and any other a bring-up beside the review, which never
+ * waits for it. */
+export const DECLINE_LASTS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Whether a phone or tablet is asking: its graphics card is the one its
  * battery runs, and its browsers' WebGPU is the least tried. Chromium says so
@@ -99,8 +118,15 @@ export function agreement(expected, given, bound = WEIGHT_BOUND) {
   return null;
 }
 
-/** Whether the card's median time for the sample, `cardMs`, is at most
- * 1/SPEEDUP of WebAssembly's time for the same batch, `wasmMs`. */
+/** Which of the sample's positions the batch the card is timed on holds, in
+ * order, for a sample of `count`: the sample's own again and again,
+ * TIMED_POSITIONS of them, or the sample as it is where it holds more. */
+export const timedOrder = count => Array.from({ length: Math.max(count, TIMED_POSITIONS) }, (_, index) => index % count);
+
+/** Whether the card's median time for the timed batch, `cardMs`, is at most
+ * 1/SPEEDUP of WebAssembly's time for as many positions, `wasmMs`: its time
+ * a position, the same whatever the batch (BATCH in game-review.js), times
+ * their number. */
 export const fastEnough = (cardMs, wasmMs) => cardMs * SPEEDUP <= wasmMs;
 
 /** The median of a list of times. */

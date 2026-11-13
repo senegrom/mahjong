@@ -59,7 +59,11 @@ async function open({ url, expect, scope, webgpu }) {
   runtime.env.logLevel = 'error';
   runtime.env.webgpu.adapter = adapter;
   try {
-    session = await runtime.InferenceSession.create(bytes, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' });
+    // Errors alone are logged: opening any graph, the runtime warns that the
+    // nodes it computes on the processor by design, a Shape's and those fed
+    // by one, were not given to WebGPU, twice, in the console.
+    session = await runtime.InferenceSession.create(bytes, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all',
+      logSeverityLevel: 3 });
   } catch (error) { throw new Refusal(`the network could not be opened on the card: ${said(error)}`, true); }
 }
 

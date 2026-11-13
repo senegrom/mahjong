@@ -10,9 +10,12 @@
  *    and only where webgpuWanted holds and no decline stands. That batch, its
  *    WebAssembly answers and the time WebAssembly took for it are the sample.
  *  - Its own worker (gpu-batch.worker.js) opens the network stored on this
- *    device, runs the sample once to warm up and TIMED_RUNS times more. Every
- *    run must agree with WebAssembly's answers (agreement), and the runs'
- *    median time must be at most half of WebAssembly's (fastEnough). The
+ *    device and runs the timed batch, the sample's positions again and again
+ *    to a hand's worth (timedOrder), once to warm up and TIMED_RUNS times
+ *    more. Every run must agree with WebAssembly's answers (agreement), and
+ *    the runs' median time must be at most half of what WebAssembly takes
+ *    for as many positions (fastEnough), at the least time a position it
+ *    has shown, over the sample and the batches it answers meanwhile. The
  *    whole bring-up has BRING_UP_MS. Anything else declines the card.
  *  - Ready, the card answers every batch of two or more positions, one at a
  *    time, each within CARD_BATCH_MS, and policyRuntime() says 'webgpu', so
@@ -22,15 +25,23 @@
  *  - A decline about the device (no adapter or a software one, slow,
  *    disagreeing, a session or run that failed, a bring-up out of time) is
  *    remembered in localStorage for this runtime folder and this network's
- *    digest, so a later visit does not try again until either changes;
- *    `?gpu=on` forgets it. A runtime the browser could not fetch, or a
- *    network not saved on this device, declines the card for this visit
- *    only. `?gpu=off` never tries. Why the card was declined is said in the
- *    console once.
+ *    digest, so a later visit does not try again until either changes or a
+ *    week has passed (DECLINE_LASTS_MS); `?gpu=on` forgets it. A runtime the
+ *    browser could not fetch, or a network not saved on this device,
+ *    declines the card for this visit only. `?gpu=off` never tries. Why the
+ *    card was declined is said in the console once.
+ *
+ * While the card runs a batch the page is told (`onWork`), and holds still
+ * whatever it paints again every frame, a dora's sheen (Tile.svelte). The
+ * browser paints the page and runs the card's work in one process, on one
+ * thread of it; a sheen in view had that thread paint its part of the page
+ * again, every picture in it, for every frame, and kept it so busy that a
+ * batch the card answers in 70 ms took 4.5 s (Chrome on a desktop with six
+ * dora in view, 12 November 2026).
  */
 /* global __WEBGPU_RUNTIME_DIRECTORY__ */
 import { networkUrl, playedNetwork } from './trained-network.js';
-import { BRING_UP_MS, CARD_BATCH_MS, TIMED_RUNS, agreement, fastEnough, median, webgpuWanted } from './webgpu.js';
+import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, TIMED_RUNS, agreement, fastEnough, median, timedOrder, webgpuWanted } from './webgpu.js';
 
 /** A request the page dropped, as resetPolicy drops the WebAssembly worker's:
  * its caller hears `reason`, and the card is not blamed. */
@@ -56,26 +67,29 @@ function laid(positions) {
  * localStorage (or null), `search` the address's query, `navigator` the
  * browser's, `network()` the manifest entry the page plays, `runtime` the
  * WebGPU runtime's folder, `scope` the page's folder, `now` and the timers,
- * `warn` the console's, and `onRuntime(runtime)` hears each change of
- * runtime(). */
+ * `today()` the date in milliseconds, `warn` the console's,
+ * `onRuntime(runtime)` hears each change of runtime(), and
+ * `onWork(working)` hears the card begin a run and end its last. */
 export function cardBatches({ createWorker, storage = null, search = '', navigator, network, runtime: folder, scope,
   now = () => performance.now(), setTimeout: later = setTimeout, clearTimeout: cancel = clearTimeout,
-  warn = () => {}, onRuntime = () => {} }) {
+  today = () => Date.now(), warn = () => {}, onRuntime = () => {}, onWork = () => {} }) {
   const query = new URLSearchParams(search).get('gpu');
   const key = `mahjong-webgpu-declined:${new URL('./', scope).pathname}`;
   let state = 'untried', worker = null, opened = null, answeredBatches = 0, nextId = 0, generation = 0;
-  let bringUp = null, cardTurn = Promise.resolve();
+  let bringUp = null, cardTurn = Promise.resolve(), running = 0, least = Infinity;
   // Requests with the card's worker, and callers waiting on the card, whom a reset drops.
   const pending = new Map(), dropping = new Set();
 
+  // A decline kept without its date, or with one yet to come, has lapsed too.
   const remembered = () => {
     try {
       const record = JSON.parse(storage?.getItem(key) ?? 'null');
-      return record?.runtime === folder && record?.network === network().sha256 ? record : null;
+      const age = today() - record?.at;
+      return record?.runtime === folder && record?.network === network().sha256 && age >= 0 && age < DECLINE_LASTS_MS ? record : null;
     } catch { return null; }
   };
   const remember = reason => {
-    try { storage?.setItem(key, JSON.stringify({ runtime: folder, network: network().sha256, reason })); } catch { /* Storage refused: this visit only. */ }
+    try { storage?.setItem(key, JSON.stringify({ runtime: folder, network: network().sha256, reason, at: today() })); } catch { /* Storage refused: this visit only. */ }
   };
   if (query === 'on') { try { storage?.removeItem(key); } catch { /* Nothing to forget. */ } }
 
@@ -109,6 +123,13 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     });
   }
 
+  /** One batch run on the card: the page hears that the card works from the
+   * first run sent until the last is answered, or its worker ended. */
+  function run(batch) {
+    if (running++ === 0) onWork(true);
+    return call(batch).finally(() => { if (--running === 0) onWork(false); });
+  }
+
   function startWorker() {
     const current = createWorker();
     worker = current;
@@ -127,22 +148,26 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
   async function start(sample) {
     state = 'starting';
     bringUp = later(() => { bringUp = null; decline(`bringing the card up took longer than ${BRING_UP_MS / 1000} s`, true); }, BRING_UP_MS);
+    let mine = null;
     try {
       const played = network();
       startWorker();
+      mine = worker;
       await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256 }, scope, webgpu: new URL(folder, scope).href } });
       opened = networkUrl(played);
-      const batch = laid(sample.positions), times = [];
-      for (let run = 0; run <= TIMED_RUNS; run++) {
+      const order = timedOrder(sample.positions.length);
+      const batch = laid(order.map(index => sample.positions[index])), expected = order.map(index => sample.answers[index]);
+      const times = [];
+      for (let turn = 0; turn <= TIMED_RUNS; turn++) {
         const began = now();
-        const { analyses } = await call(batch);
-        if (run) times.push(now() - began);
-        const differs = agreement(sample.answers, analyses);
+        const { analyses } = await run(batch);
+        if (turn) times.push(now() - began);
+        const differs = agreement(expected, analyses);
         if (differs) throw new CardFailure(`the card disagrees with WebAssembly: ${differs}`);
       }
-      const ms = median(times);
-      if (!fastEnough(ms, sample.ms)) {
-        throw new CardFailure(`the card took ${Math.round(ms)} ms for a batch WebAssembly ran in ${Math.round(sample.ms)} ms`);
+      const ms = median(times), wasmMs = least * order.length;
+      if (!fastEnough(ms, wasmMs)) {
+        throw new CardFailure(`the card took ${Math.round(ms)} ms for ${order.length} positions, which WebAssembly runs in ${Math.round(wasmMs)} ms`);
       }
       if (state !== 'starting') return;
       cancel(bringUp);
@@ -150,29 +175,45 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
       state = 'ready';
       onRuntime('webgpu');
     } catch (error) {
-      if (state === 'starting') decline(error.message, error.remember !== false);
+      // A bring-up whose worker was ended for another network's is not this card's failure.
+      if (state === 'starting' && worker === mine) decline(error.message, error.remember !== false);
     }
   }
 
-  /** Considers the card after WebAssembly answered `positions` in `ms`. */
+  /** Considers the card after WebAssembly answered `positions` in `ms`. Until
+   * the card serves or is declined, each batch of two or more after the
+   * page's first also says how long WebAssembly takes a position, and the
+   * least of those times is kept (`least`): a batch that waited its turn in
+   * the worker behind another request took longer through no fault of
+   * WebAssembly's, and its time alone, taken eight times over for the timed
+   * batch, would let a card slower than WebAssembly pass. */
   function consider(positions, answers, ms) {
-    if (state !== 'untried' || positions.length < 2 || ++answeredBatches < 2) return;
+    if (positions.length < 2 || state === 'ready' || state === 'declined' || ++answeredBatches < 2) return;
+    least = Math.min(least, ms / positions.length);
+    if (state !== 'untried') return;
     if (!webgpuWanted(network(), { search, navigator })) { state = 'declined'; return; }
     if (query !== 'on' && remembered()) { state = 'declined'; return; }
-    void start({ positions, answers, ms });
+    void start({ positions, answers });
   }
 
   /** One batch on the card, after the card's last batch: answered within
    * CARD_BATCH_MS, or a CardFailure; the caller's abort ends its wait at
-   * once, though the card runs the batch to its end. */
+   * once, though the card runs the batch to its end. A batch out of time
+   * declines the card there and then, whether or not its caller still
+   * waits: the next batch does not wait a turn behind it, and the page is
+   * not left told that the card works. */
   function onCard(positions, signal) {
     const owner = generation;
     const turnTaken = cardTurn.then(() => new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(abortError());
       if (owner !== generation) return reject(new Dropped(abortError()));
       if (state !== 'ready') return reject(new CardFailure('the card was declined meanwhile'));
-      const timer = later(() => reject(new CardFailure(`a batch took longer than ${CARD_BATCH_MS / 1000} s on the card`)), CARD_BATCH_MS);
-      call(laid(positions)).then(({ analyses }) => {
+      const timer = later(() => {
+        const failure = new CardFailure(`a batch took longer than ${CARD_BATCH_MS / 1000} s on the card`);
+        decline(failure.message, failure.remember);
+        reject(failure);
+      }, CARD_BATCH_MS);
+      run(laid(positions)).then(({ analyses }) => {
         cancel(timer);
         if (owner !== generation) reject(new Dropped(abortError()));
         else if (!Array.isArray(analyses) || analyses.length !== positions.length) reject(new CardFailure('the card answered the wrong number of positions'));
@@ -193,16 +234,25 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
      * `wasm(positions, signal)` being the WebAssembly worker's path. */
     async analyze(positions, signal, wasm) {
       if (opened && opened !== networkUrl(network())) {
-        // Another network is played: the card starts over for it.
+        // Another network is played: the card starts over for it. The old
+        // bring-up's time stops with its worker, a batch still on the card
+        // is answered on WebAssembly without blame (below), and the page
+        // hears that batches run there again.
+        const was = state;
+        if (bringUp) { cancel(bringUp); bringUp = null; }
         endWorker();
         state = 'untried';
         answeredBatches = 0;
+        least = Infinity;
+        if (was === 'ready') onRuntime('wasm');
       }
       if (state === 'ready' && positions.length >= 2) {
         try { return await onCard(positions, signal); } catch (error) {
           if (error instanceof Dropped) throw error.reason;
           if (!(error instanceof CardFailure)) throw error;
-          decline(error.message, error.remember);
+          // Only a card that still serves is declined: one already declined
+          // is, and one started over for another network did not fail.
+          if (state === 'ready') decline(error.message, error.remember);
         }
       }
       const began = now();
@@ -222,6 +272,9 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
   };
 }
 
+/** The attribute the page's root carries while the card runs a batch. */
+export const CARD_AT_WORK = 'data-card-at-work';
+
 let page = null;
 let listener = null;
 /** The page's own card, made when its first batch is asked. */
@@ -232,6 +285,8 @@ function card() {
     search: globalThis.location?.search ?? '', navigator: globalThis.navigator, network: playedNetwork,
     runtime: __WEBGPU_RUNTIME_DIRECTORY__, scope: new URL('./', document.baseURI).href,
     warn: message => globalThis.console?.warn(message), onRuntime: value => listener?.(value),
+    // What paints again every frame holds still meanwhile (Tile.svelte).
+    onWork: working => document.documentElement.toggleAttribute(CARD_AT_WORK, working),
   });
   return page;
 }

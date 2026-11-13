@@ -101,32 +101,60 @@ declined:
   (SwiftShader, llvmpipe, Microsoft's basic renderer); reads the network
   from this page's Cache Storage, checked against its size and SHA-256, and
   refuses one not saved there, never downloading it; fetches the runtime;
-  and opens the session. It runs the sample once to warm up, then three
-  times (`TIMED_RUNS`).
+  and opens the session. It then runs the timed batch, the sample's
+  positions again and again to sixteen (`TIMED_POSITIONS`, `timedOrder`),
+  once to warm up and three times more (`TIMED_RUNS`). Sixteen is about a
+  hand's decisions, which is what a review asks of the card in one pass. A
+  review asks WebAssembly eight positions at most, and the sample is often
+  two or three, the end of a hand, while WebAssembly's time grows with every
+  position (about 120 ms each on a desktop) and the card's hardly does (70
+  to 150 ms a batch, of two or of sixty-four): timed on a sample of two, a
+  GeForce RTX 5070 Ti read as too slow for the reviews it runs a hundred
+  times faster.
 - Every run must agree with WebAssembly: each move's weight within 0.001 of
   WebAssembly's (`WEIGHT_BOUND`; the largest difference measured on a
   GeForce RTX 5070 Ti over 368 positions was 6.5e-6), and the same best move
   unless WebAssembly's own two best are closer than 0.002. The runs' median
-  must be at most half of WebAssembly's time for the sample (`SPEEDUP`).
-  The whole bring-up has 60 seconds (`BRING_UP_MS`). Anything else declines
-  the card and ends its worker.
+  must be at most half of what WebAssembly takes for as many positions
+  (`SPEEDUP`), at the least time a position it has shown, over the sample
+  and the batches it answers while the card is brought up: a batch that
+  waited its turn in the worker behind another request took longer through
+  no fault of WebAssembly's, and its time alone, taken eight times over,
+  would let a slow card pass. The whole bring-up has 60 seconds
+  (`BRING_UP_MS`). Anything else declines the card and ends its worker.
 - Ready, the card answers every batch of two or more positions, one at a
   time, each within 10 seconds (`CARD_BATCH_MS`). A batch that fails there or
   runs out of time declines the card, ends its worker, and is asked of
   WebAssembly through the usual path, so its caller gets an answer or its own
   abort. A caller who stops waiting is not a failure of the card, which runs
-  the batch to its end. `resetPolicy` drops the callers waiting on the card
-  with its reason, as it drops the WebAssembly worker's, and keeps the card's
-  worker.
+  the batch to its end; a batch that then runs out of time is, and declines
+  the card as it would with its caller waiting. `resetPolicy` drops the
+  callers waiting on the card with its reason, as it drops the WebAssembly
+  worker's, and keeps the card's worker.
 - A decline about the device (no adapter or a software one, disagreeing,
   slow, a session or a run that failed, a bring-up out of time) is kept in
   localStorage under `mahjong-webgpu-declined:<page folder>`, with the
-  runtime folder and the network's SHA-256: a later visit does not try again
-  until a new runtime or a new network comes, and `?gpu=on` forgets it. A
-  runtime the browser could not fetch, offline before it was ever saved, or
-  a network not saved on this device, declines the card for this visit only.
-  Storage that refuses changes nothing but that. Why the card was declined
-  is said in the console once.
+  runtime folder, the network's SHA-256 and the date: a later visit does not
+  try again until a new runtime or a new network comes or a week has passed
+  (`DECLINE_LASTS_MS`), and `?gpu=on` forgets it. The week is for a decline
+  whose reason passes, another program at work on the card that minute or a
+  driver since replaced; trying again costs a device without an adapter one
+  question, and any other a bring-up beside the review. A runtime the
+  browser could not fetch, offline before it was ever saved, or a network
+  not saved on this device, declines the card for this visit only. Storage
+  that refuses changes nothing but that. Why the card was declined is said
+  in the console once.
+- While the card runs a batch, in the bring-up or after, the page's root
+  carries `data-card-at-work` (`CARD_AT_WORK`), and under it a dora's sheen
+  and the white dragon's reveal hold still (`Tile.svelte`), where they are,
+  and go on from there when the batch is answered, a tenth of a second or so
+  later. Both move by being painted again, and each frame of either has the
+  browser paint the part of the page around it again, every tile's picture
+  in it, on the one thread of its graphics process that also runs the card's
+  work. With six dora in view in a review that thread was busy for all of
+  two seconds traced, the page drew 44 frames a second, and a batch of eight
+  took the card 4.5 s, longer than WebAssembly takes; with the sheens still
+  it took 70 ms (Chrome on a desktop, 12 November 2026).
 
 `policyRuntime()` in `gpu-batches.js` says 'webgpu' once the card is ready
 and 'wasm' otherwise. While it says 'webgpu' a review asks up to 64 positions

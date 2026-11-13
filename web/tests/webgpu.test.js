@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { setImmediate } from 'node:timers/promises';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from '../src/lib/memory-budget.js';
 import { MANIFEST, networkUrl } from '../src/lib/trained-network.js';
 import { BATCH, GPU_BATCH, batchFor, batchMostFor } from '../src/lib/game-review.js';
-import { BRING_UP_MS, CARD_BATCH_MS, TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, mobileDevice, webgpuAdapter,
-  webgpuWanted } from '../src/lib/webgpu.js';
-import { cardBatches } from '../src/lib/gpu-batches.js';
+import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, TIMED_POSITIONS, TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, median,
+  mobileDevice, timedOrder, webgpuAdapter, webgpuWanted } from '../src/lib/webgpu.js';
+import { CARD_AT_WORK, cardBatches } from '../src/lib/gpu-batches.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const READY = { ...MANIFEST, webgpu: true };
@@ -83,6 +84,18 @@ test('the card agrees only where every weight is within the bound, and the best 
   assert.equal(fastEnough(51, 100), false);
 });
 
+test('the card is timed on a hand\'s worth of positions, the sample\'s own again and again', () => {
+  assert.equal(TIMED_POSITIONS, 16);
+  // The end of a hand, two positions, eight times over.
+  assert.deepEqual(timedOrder(2), [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
+  // A full pass of eight, twice over.
+  assert.deepEqual(timedOrder(8), [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]);
+  // Five do not divide sixteen: the last round stops short.
+  assert.deepEqual(timedOrder(5), [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0]);
+  // A sample of more is timed as it is.
+  assert.deepEqual(timedOrder(20), Array.from({ length: 20 }, (_, index) => index));
+});
+
 /** A clock that moves only when a test moves it, for every timer the card's
  * module uses. */
 function clock() {
@@ -109,12 +122,18 @@ const settle = async (turns = 20) => { for (let turn = 0; turn < turns; turn++) 
 const position = index => ({ planes: Float32Array.of(index, 1), mask: [1, 1] });
 const plainAnswer = () => ({ action: 0, weights: [0.7, 0.3] });
 
+/** The day the tests are run on, in milliseconds. */
+const TODAY = Date.UTC(2026, 10, 12);
+/** Another network than READY, as ready for the card. */
+const OTHER = { ...READY, version: '0.1.9999', object: `models/g9999/${'e'.repeat(64)}`, sha256: 'e'.repeat(64) };
 /** The card's batches with a stand-in for its worker and for WebAssembly.
- * WebAssembly takes `wasmMs` a batch; the card answers its requests as
- * `answer(message)` says, after `cardMs` (null for no answer). */
+ * WebAssembly takes `wasmMs` a batch, or what `wasmMs(call, count)` says for
+ * its call of that number, the first being 1; the card answers its requests
+ * as `answer(message)` says, after `cardMs` (null for no answer). `play`
+ * changes the network the page plays. */
 function setup({ storage = memoryStorage(), search = '', nav = desktop(), network = READY, runtime = 'ort-webgpu/aaaa/',
-  wasmMs = 1000, cardMs = 50, answer } = {}) {
-  const time = clock(), workers = [], wasmCalls = [], warnings = [], runtimes = [];
+  wasmMs = 1000, cardMs = 50, answer, today = TODAY } = {}) {
+  const time = clock(), workers = [], wasmCalls = [], warnings = [], runtimes = [], works = [], playing = { network };
   const reply = answer ?? (message => (message.open ? { opened: true }
     : { analyses: Array.from({ length: message.count }, plainAnswer), ms: cardMs }));
   class FakeWorker {
@@ -130,17 +149,18 @@ function setup({ storage = memoryStorage(), search = '', nav = desktop(), networ
     }
     terminate() { this.terminated = true; }
   }
-  const card = cardBatches({ createWorker: () => new FakeWorker(), storage, search, navigator: nav, network: () => network,
+  const card = cardBatches({ createWorker: () => new FakeWorker(), storage, search, navigator: nav, network: () => playing.network,
     runtime, scope: 'https://test.invalid/mahjong/', now: time.now, setTimeout: time.setTimeout, clearTimeout: time.clearTimeout,
-    warn: message => warnings.push(message), onRuntime: value => runtimes.push(value) });
+    today: () => today, warn: message => warnings.push(message), onRuntime: value => runtimes.push(value),
+    onWork: working => works.push(working) });
   const wasm = async (positions, signal) => {
     wasmCalls.push(positions.length);
-    time.pass(wasmMs);
+    time.pass(typeof wasmMs === 'function' ? wasmMs(wasmCalls.length, positions.length) : wasmMs);
     if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
     return positions.map(plainAnswer);
   };
   const ask = (count, signal) => card.analyze(Array.from({ length: count }, (_, index) => position(index)), signal, wasm);
-  return { card, ask, time, workers, wasmCalls, warnings, runtimes, storage };
+  return { card, ask, time, workers, wasmCalls, warnings, runtimes, works, storage, play: next => { playing.network = next; } };
 }
 function memoryStorage() {
   const entries = new Map();
@@ -178,8 +198,12 @@ test('a card that agrees and is twice as fast serves every batch of two or more,
   assert.equal(s.card.state(), 'ready');
   assert.equal(s.card.runtime(), 'webgpu');
   assert.deepEqual(s.runtimes, ['webgpu']);
-  // A warm-up run and TIMED_RUNS timed ones of the sample.
-  assert.deepEqual(s.workers[0].messages.slice(1).map(message => message.count), Array(TIMED_RUNS + 1).fill(8));
+  // A warm-up run and TIMED_RUNS timed ones, of the sample's eight positions twice over.
+  const runs = s.workers[0].messages.slice(1);
+  assert.deepEqual(runs.map(message => message.count), Array(TIMED_RUNS + 1).fill(TIMED_POSITIONS));
+  const twice = [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7];
+  assert.deepEqual(Array.from(runs[0].planes), twice.flatMap(index => [index, 1]));
+  assert.equal(runs[0].mask.length, 2 * TIMED_POSITIONS);
   const before = s.wasmCalls.length;
   assert.equal((await s.ask(64)).length, 64);
   assert.equal((await s.ask(1)).length, 1);
@@ -188,11 +212,116 @@ test('a card that agrees and is twice as fast serves every batch of two or more,
   assert.deepEqual(s.warnings, []);
 });
 
+test('the end of a hand is sample enough: the card is timed on sixteen positions, not on its two', async () => {
+  // Two positions in 250 ms on WebAssembly, and 150 ms a batch on the card: not twice as fast
+  // on the two, eight times as fast on a hand.
+  const s = setup({ wasmMs: 250, cardMs: 150 });
+  await s.ask(8);
+  await s.ask(2);
+  await settle();
+  assert.equal(s.card.state(), 'ready');
+  const runs = s.workers[0].messages.slice(1);
+  assert.deepEqual(runs.map(message => message.count), Array(TIMED_RUNS + 1).fill(TIMED_POSITIONS));
+  assert.deepEqual(Array.from(runs[0].planes), Array.from({ length: TIMED_POSITIONS }, (_, index) => [index % 2, 1]).flat());
+  // A card that answers the second of the two otherwise, wherever it stands in the batch, disagrees.
+  const wrong = setup({ answer: message => (message.open ? { opened: true } : { analyses: Array.from({ length: message.count },
+    (_, index) => (index === 15 ? { action: 1, weights: [0.3, 0.7] } : plainAnswer())) }) });
+  await wrong.ask(8);
+  await wrong.ask(2);
+  await settle();
+  assert.equal(wrong.card.state(), 'declined');
+  assert.match(wrong.warnings[0], /disagrees with WebAssembly: position 15/);
+});
+
+test('WebAssembly\'s time a position is the least any batch has shown, so a sample that waited its turn lets no slow card pass', async () => {
+  // Eight positions take WebAssembly 1000 ms, two take 250. The sample, two positions, waited a second
+  // behind another request: eight times over, its 1250 ms would say sixteen positions take 10000.
+  const waited = (call, count) => (call === 2 ? 1250 : count * 125);
+  // The card takes 3000 ms for sixteen, half as long again as WebAssembly's 2000.
+  const answers = held => message => (message.open ? (held.open ? null : { opened: true })
+    : { analyses: Array.from({ length: message.count }, plainAnswer) });
+  const held = { open: true };
+  const s = setup({ wasmMs: waited, cardMs: 3000, answer: answers(held) });
+  await s.ask(8);
+  await s.ask(2);
+  assert.equal(s.card.state(), 'starting');
+  // While the card's network opens, WebAssembly answers the next pass at its own pace.
+  await s.ask(8);
+  held.open = false;
+  const opening = s.workers[0].messages[0];
+  s.workers[0].onmessage({ data: { id: opening.id, opened: true } });
+  await settle();
+  assert.equal(s.card.state(), 'declined');
+  assert.match(s.warnings[0], /took 3000 ms for 16 positions, which WebAssembly runs in 2000 ms/);
+  // With nothing else to go by, the sample's own time stands.
+  const alone = setup({ wasmMs: waited, cardMs: 3000 });
+  await alone.ask(8);
+  await alone.ask(2);
+  await settle();
+  assert.equal(alone.card.state(), 'ready');
+});
+
+test('another network played starts the card over, and blames no card for it', async () => {
+  // In the middle of a bring-up: its worker is ended, and its 60 seconds no longer run.
+  let hold = true;
+  const answer = message => (message.open ? { opened: true } : hold ? null
+    : { analyses: Array.from({ length: message.count }, plainAnswer) });
+  const starting = setup({ answer });
+  await bringUp(starting);
+  assert.equal(starting.card.state(), 'starting');
+  assert.deepEqual(starting.works, [true], 'the warm-up run is on the card');
+  starting.play(OTHER);
+  assert.equal((await starting.ask(8)).length, 8);
+  await settle();
+  assert.equal(starting.card.state(), 'untried');
+  assert.ok(starting.workers[0].terminated);
+  assert.deepEqual(starting.works, [true, false]);
+  starting.time.advance(BRING_UP_MS);
+  await settle();
+  assert.equal(starting.card.state(), 'untried', 'the old bring-up\'s time is not this card\'s');
+  assert.deepEqual(starting.warnings, []);
+  assert.equal(starting.storage.entries.size, 0);
+  // The card is brought up for the new network on its second batch.
+  hold = false;
+  await starting.ask(8);
+  await settle();
+  assert.equal(starting.workers.length, 2);
+  assert.equal(starting.workers[1].messages[0].open.url, networkUrl(OTHER));
+  assert.equal(starting.workers[1].messages[0].open.expect.sha256, OTHER.sha256);
+  assert.equal(starting.card.state(), 'ready');
+  assert.deepEqual(starting.runtimes, ['webgpu']);
+
+  // From a card that serves: the page hears that batches run on WebAssembly again, and a batch still
+  // on the card, its caller waiting, is answered there, nothing declined and nothing remembered.
+  hold = false;
+  const serving = setup({ answer });
+  await bringUp(serving);
+  assert.equal(serving.card.state(), 'ready');
+  hold = true;
+  const waiting = serving.ask(16);
+  await settle();
+  serving.play(OTHER);
+  const before = serving.wasmCalls.length;
+  const next = serving.ask(8);
+  assert.equal((await waiting).length, 16);
+  assert.equal((await next).length, 8);
+  assert.deepEqual(serving.wasmCalls.slice(before).sort((a, b) => a - b), [8, 16]);
+  assert.deepEqual(serving.runtimes, ['webgpu', 'wasm']);
+  assert.ok(serving.workers[0].terminated);
+  assert.deepEqual(serving.warnings, []);
+  assert.equal(serving.storage.entries.size, 0);
+  assert.notEqual(serving.card.state(), 'declined');
+});
+
 test('a card that disagrees with WebAssembly, or is not twice as fast, is declined and remembered', async () => {
+  // Eight positions in 1000 ms on WebAssembly are sixteen in 2000.
+  const fast = setup({ wasmMs: 1000, cardMs: 1000 });
+  await bringUp(fast);
+  assert.equal(fast.card.state(), 'ready', 'exactly twice as fast is fast enough');
   for (const [name, options, reason] of [
     ['disagrees', { answer: message => (message.open ? { opened: true }
       : { analyses: Array.from({ length: message.count }, () => ({ action: 1, weights: [0.3, 0.7] })) }) }, /disagrees/],
-    ['slow', { wasmMs: 1000, cardMs: 501 }, /took 501 ms for a batch WebAssembly ran in 1000 ms/],
+    ['slow', { wasmMs: 1000, cardMs: 1001 }, /took 1001 ms for 16 positions, which WebAssembly runs in 2000 ms/],
   ]) {
     const s = setup(options);
     await bringUp(s);
@@ -224,13 +353,14 @@ test('a bring-up that takes longer than its 60 seconds is declined', async () =>
 
 test('a remembered decline holds on later visits until the runtime, the network or ?gpu=on says to try again', async () => {
   const storage = memoryStorage();
-  const first = setup({ storage, wasmMs: 100, cardMs: 90 });
+  const first = setup({ storage, wasmMs: 100, cardMs: 101 });
   await bringUp(first);
   assert.equal(first.card.state(), 'declined');
   const [[key, record]] = storage.entries;
   assert.equal(key, 'mahjong-webgpu-declined:/mahjong/');
   assert.equal(JSON.parse(record).runtime, 'ort-webgpu/aaaa/');
   assert.equal(JSON.parse(record).network, READY.sha256);
+  assert.equal(JSON.parse(record).at, TODAY);
   // The next visit does not try, and says nothing.
   const again = setup({ storage });
   await bringUp(again);
@@ -249,6 +379,108 @@ test('a remembered decline holds on later visits until the runtime, the network 
   await bringUp(off);
   assert.equal(off.workers.length, 0);
   assert.equal(off.card.state(), 'declined');
+});
+
+test('a remembered decline lapses after a week, and one kept without its date has lapsed', async () => {
+  const storage = memoryStorage();
+  const declined = setup({ storage, wasmMs: 100, cardMs: 101 });
+  await bringUp(declined);
+  assert.equal(declined.card.state(), 'declined');
+  const [[key, record]] = storage.entries;
+  // To the last millisecond of the week it holds.
+  const held = setup({ storage, today: TODAY + DECLINE_LASTS_MS - 1 });
+  await bringUp(held);
+  assert.equal(held.workers.length, 0);
+  assert.equal(held.card.state(), 'declined');
+  // A week on, the card is tried again; still slow, it is remembered from that day.
+  const slow = setup({ storage, today: TODAY + DECLINE_LASTS_MS, wasmMs: 100, cardMs: 101 });
+  await bringUp(slow);
+  assert.equal(slow.workers.length, 1);
+  assert.equal(slow.card.state(), 'declined');
+  assert.equal(JSON.parse(storage.entries.get(key)).at, TODAY + DECLINE_LASTS_MS);
+  // Without a date, with one that is no number, or with one yet to come (a clock set back), it does not hold.
+  const { at: _at, ...undated } = JSON.parse(record);
+  for (const kept of [undated, { ...undated, at: 'yesterday' }, { ...undated, at: TODAY + 60000 }]) {
+    storage.entries.set(key, JSON.stringify(kept));
+    const tried = setup({ storage });
+    await bringUp(tried);
+    assert.equal(tried.card.state(), 'ready', JSON.stringify(kept.at));
+  }
+});
+
+test('the page hears the card begin a run and end it, through bring-up, batches, failures and resets', async () => {
+  const opening = setup({ answer: message => (message.open ? null : {}) });
+  await bringUp(opening);
+  assert.equal(opening.card.state(), 'starting');
+  assert.deepEqual(opening.works, [], 'opening the network is no run');
+  let hold = false;
+  const s = setup({ answer: message => (message.open ? { opened: true } : hold ? null
+    : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+  await bringUp(s);
+  // The warm-up and each timed run.
+  assert.deepEqual(s.works, Array.from({ length: 2 * (TIMED_RUNS + 1) }, (_, index) => index % 2 === 0));
+  s.works.length = 0;
+  // A batch on the card, and none for a single position or a batch on WebAssembly.
+  await s.ask(16);
+  await s.ask(1);
+  assert.deepEqual(s.works, [true, false]);
+  s.works.length = 0;
+  // A caller who stops waiting, and a reset, leave the card at its run.
+  hold = true;
+  const stop = new AbortController();
+  const stopped = s.ask(16, stop.signal);
+  await settle();
+  stop.abort();
+  await assert.rejects(stopped, { name: 'AbortError' });
+  s.card.reset(new Error('Match changed'));
+  assert.deepEqual(s.works, [true], 'the card is still at the run nobody waits for');
+  // That run out of time, the card is declined, its worker ended and its work with it,
+  // and the batch that waited its turn behind it is answered on WebAssembly at once.
+  const before = s.wasmCalls.length;
+  const late = s.ask(16);
+  await settle();
+  assert.equal(s.card.state(), 'ready');
+  s.time.advance(CARD_BATCH_MS);
+  assert.equal((await late).length, 16);
+  assert.deepEqual(s.wasmCalls.slice(before), [16]);
+  assert.equal(s.card.state(), 'declined');
+  assert.deepEqual(s.works, [true, false]);
+});
+
+test('a batch nobody waits for any more still declines the card when it runs out of time', async () => {
+  let hold = false;
+  const s = setup({ answer: message => (message.open ? { opened: true } : hold ? null
+    : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+  await bringUp(s);
+  s.works.length = 0;
+  hold = true;
+  const stop = new AbortController();
+  const stopped = s.ask(16, stop.signal);
+  await settle();
+  stop.abort();
+  await assert.rejects(stopped, { name: 'AbortError' });
+  // To the last millisecond the card is given its time.
+  s.time.advance(CARD_BATCH_MS - 1);
+  await settle();
+  assert.equal(s.card.state(), 'ready');
+  assert.deepEqual(s.works, [true]);
+  s.time.advance(1);
+  await settle();
+  assert.equal(s.card.state(), 'declined');
+  assert.ok(s.workers[0].terminated);
+  assert.deepEqual(s.works, [true, false], 'the page is not left told that the card works');
+  assert.deepEqual(s.runtimes, ['webgpu', 'wasm']);
+  assert.match(s.warnings[0], /a batch took longer than 10 s on the card/);
+  assert.equal(s.storage.entries.size, 1);
+  const before = s.wasmCalls.length;
+  assert.equal((await s.ask(16)).length, 16);
+  assert.deepEqual(s.wasmCalls.slice(before), [16]);
+});
+
+test('the sheen and the reveal hold still under the attribute the page\'s root carries while the card works', () => {
+  assert.equal(CARD_AT_WORK, 'data-card-at-work');
+  const tile = readFileSync(new URL('../src/lib/Tile.svelte', import.meta.url), 'utf8');
+  assert.match(tile, /:global\(:root\[data-card-at-work\]\) :is\(\.foil, \.haku-dragon-reveal\) \{\s*animation-play-state: paused;\s*\}/);
 });
 
 test('a runtime the browser could not fetch, or a network not saved, declines the card for this visit only', async () => {
@@ -314,10 +546,48 @@ test('storage that throws breaks nothing', async () => {
   const ready = setup({ storage: broken, search: '?gpu=on' });
   await bringUp(ready);
   assert.equal(ready.card.state(), 'ready');
-  const slow = setup({ storage: broken, wasmMs: 100, cardMs: 90 });
+  const slow = setup({ storage: broken, wasmMs: 100, cardMs: 101 });
   await bringUp(slow);
   assert.equal(slow.card.state(), 'declined');
   assert.equal((await slow.ask(8)).length, 8);
+});
+
+test('the page\'s own card marks its root while it works, and says which runtime a review\'s batches run on', async () => {
+  const time = clock(), marks = [], heard = [], workers = [];
+  class Worker {
+    constructor(url, options) { this.url = String(url); this.options = options; workers.push(this); }
+    postMessage(message) {
+      Promise.resolve().then(() => {
+        if (!message.open) time.pass(50);
+        this.onmessage?.({ data: message.open ? { id: message.id, opened: true }
+          : { id: message.id, analyses: Array.from({ length: message.count }, plainAnswer), ms: 50 } });
+      });
+    }
+    terminate() {}
+  }
+  const api = loadModule('gpu-batches.js', {
+    document: { baseURI: 'https://test.invalid/mahjong/index.html', documentElement: { toggleAttribute: (name, on) => marks.push([name, on]) } },
+    localStorage: memoryStorage(), location: { search: '' }, navigator: desktop(), console: { warn: message => heard.push(message) },
+    performance: { now: time.now }, setTimeout: time.setTimeout, clearTimeout: time.clearTimeout, Date: { now: () => TODAY },
+    URL, URLSearchParams, DOMException, Worker, Promise, Float32Array, Array,
+    networkUrl, playedNetwork: () => READY, __WEBGPU_RUNTIME_DIRECTORY__: 'ort-webgpu/aaaa/',
+    BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, TIMED_RUNS, agreement, fastEnough, median, timedOrder, webgpuWanted,
+  }, ['batchesOnCard', 'policyRuntime', 'reportRuntime', 'CARD_AT_WORK']);
+  const wasm = async positions => { time.pass(1000); return positions.map(plainAnswer); };
+  const ask = count => api.batchesOnCard(Array.from({ length: count }, (_, index) => position(index)), undefined, wasm);
+  api.reportRuntime(value => heard.push(value));
+  assert.equal(api.policyRuntime(), 'wasm');
+  await ask(8);
+  await ask(8);
+  await settle();
+  assert.equal(workers.length, 1);
+  assert.match(workers[0].url, /gpu-batch\.worker\.js$/);
+  assert.equal(api.policyRuntime(), 'webgpu');
+  assert.deepEqual(heard, ['webgpu']);
+  assert.deepEqual(marks, Array.from({ length: 2 * (TIMED_RUNS + 1) }, (_, index) => [api.CARD_AT_WORK, index % 2 === 0]));
+  marks.length = 0;
+  assert.equal((await ask(64)).length, 64);
+  assert.deepEqual(marks, [['data-card-at-work', true], ['data-card-at-work', false]]);
 });
 
 test('the page sends single decisions to its WebAssembly worker alone, and batches through the card', async t => {
@@ -386,7 +656,8 @@ test('the card\'s worker opens the stored network on WebGPU alone and answers ba
   assert.equal(w.reads[0].expect.sha256, 'a'.repeat(64));
   assert.deepEqual(w.imports, ['https://test.invalid/mahjong/ort-webgpu/aaaa/ort.min.mjs']);
   assert.equal(w.runtime.env.wasm.wasmPaths, 'https://test.invalid/mahjong/ort-webgpu/aaaa/');
-  assert.equal(JSON.stringify(w.created[0].options), '{"executionProviders":["webgpu"],"graphOptimizationLevel":"all"}');
+  // Errors alone are logged: the runtime's warning about nodes it keeps on the processor by design is none.
+  assert.equal(JSON.stringify(w.created[0].options), '{"executionProviders":["webgpu"],"graphOptimizationLevel":"all","logSeverityLevel":3}');
   assert.ok(w.created[0].adapter, 'the runtime is given the adapter that was checked');
   await w.send({ id: 2, planes: new Float32Array(68), mask: [1, 1, 1, 1], count: 2 });
   const answer = w.messages.find(message => message.id === 2);

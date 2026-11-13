@@ -54,7 +54,10 @@ declare riichi. Open hands also receive readiness markings. Only legal discards
 can have these borders: pending calls, disabled tiles, hidden faces, melds and
 completed-hand displays do not acquire them. The existing dora/ura-dora foil and
 red border, safety and selection cues are retained; overlapping marks use the
-existing striped ring so no cue hides another.
+existing striped ring so no cue hides another. The foil's sheen holds still for
+the tenth of a second or so in which a desktop's graphics card answers a batch
+of a review, and goes on from where it was (see [WebGPU on
+desktops](ONNX_RUNTIME.md#webgpu-on-desktops)).
 
 A newly drawn tile keeps its accessible “just drawn” label and is separated by
 a gap on desktop, phones and landscape layouts, but has no border merely for
