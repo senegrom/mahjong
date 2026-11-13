@@ -59,8 +59,10 @@ assert.ok(playWorker && cardWorker, 'the build has both workers');
 const args = ['--enable-unsafe-webgpu', '--enable-features=WebGPU', '--ignore-gpu-blocklist',
   ...(process.platform === 'win32' ? ['--use-angle=d3d11'] : [])];
 const PAGE = '<!doctype html><meta charset="utf-8"><title>WebGPU check</title><body></body>';
-let network = null, planes = null, masks = null;
+let network = null, planes = null, masks = null, wasmFetches = 0;
 const server = createServer(createFixtureHandler({ root: dist, intercept: name => {
+  // This page has no service worker: every fetch of the runtime's WebAssembly reaches the server.
+  if (name === `${webgpu}ort-wasm-simd-threaded.jsep.wasm`) wasmFetches++;
   if (name === 'webgpu-check.html') return { body: PAGE };
   if (name === 'webgpu-check/network.onnx') return { body: network };
   if (name === 'webgpu-check/planes.bin') return { body: planes };
@@ -190,6 +192,7 @@ try {
         }, { playWorker, cardWorker, runtimeBase: `${base}${runtime}`, webgpuBase: `${base}${webgpu}`, cacheName: networkCacheName(base),
           expect, width, gpuBatch: GPU_BATCH, wasmBatch: BATCH, runs: TIMED_RUNS, order: timedOrder(BATCH) });
         if (result.refused) assert.fail(`the card's worker would not open the network: ${result.refused}`);
+        assert.equal(wasmFetches, 1, 'the runtime\'s 30 MB of WebAssembly are fetched once, and handed to the runtime');
         // The page's own gates on the timed batch.
         const { sample } = result;
         // WebAssembly's time for as many positions, at the sample's time a position.

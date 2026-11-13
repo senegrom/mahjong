@@ -54,7 +54,7 @@ decision goes to the WebAssembly worker (`policy.worker.js`), which is
 unchanged, and so does every batch until the card has shown it answers as
 that worker does, faster. The card's runtime is onnxruntime-web's own default
 build, `ort.min.mjs`, whose WebGPU provider runs on JSEP, with
-`ort-wasm-simd-threaded.jsep.mjs` and `.jsep.wasm` (29.5 MB), unchanged (the
+`ort-wasm-simd-threaded.jsep.mjs` and `.jsep.wasm`, 29.9 MB in all, unchanged (the
 package's `ort.webgpu.min.mjs` is the other WebGPU provider, built with
 Asyncify, which was not measured here). `copy-runtime.mjs` copies them from
 the installed package to a folder named by their contents,
@@ -65,9 +65,13 @@ The WebGPU provider has no Softplus kernel, and Mish exported as it is,
 x * tanh(softplus(x)), is a Softplus; each of the 163 in Mortal's encoder ran
 on the processor, which held a batch of 64 to 36 positions a second.
 `neural.export` writes Mish as `ExportMish`, x * s(1 + t) / (1 + t^2) with
-s = sigmoid(x) and t = 1 - s, exact in real arithmetic, from Sigmoid, Sub,
-Add, Mul and Div, which both runtimes carry; it refuses a graph that still
-holds a Softplus and says `activations: free of Softplus` when none is left.
+s = sigmoid(x) and t = 1 - s, exact in real arithmetic and within 2.3e-6 of
+Mish for every input in ONNX Runtime's float arithmetic on the processor
+(its Sigmoid is nought from about -18 down, where Mish is within 3e-7 of
+it), from Sigmoid, Sub, Add, Mul and Div, which both runtimes carry; it
+refuses a graph whose own nodes still hold a Softplus, unless told
+`--allow-any-operator`, when it only says so, and says `activations: free of
+Softplus` when none is left.
 Its parity check still compares the graph with the network's own Mish. One
 export serves both runtimes; the reduced runtime's operator list is
 unchanged, and keeps Softplus and Tanh for the networks exported before. On
@@ -82,7 +86,11 @@ by a test), or one that needs none: `Reshape`, `Squeeze`, `Unsqueeze`,
 and `ConstantOfShape`, which ONNX Runtime computes on the processor by design
 (`WEBGPU_WITHOUT_KERNEL`). Anything else, a Softplus or an int8 export's
 `DynamicQuantizeLinear`, `MatMulInteger` and `ConvInteger`, writes false. A
-network listed without the field never runs on the card.
+network listed without the field never runs on the card. The tool goes by an
+operator's name alone: a kernel the provider has only for some types, or for
+other versions of the operator, would pass and still run on the processor.
+What holds such a network back is the page's own test of the card, which
+declines one that is not twice as fast.
 
 The page's card (`src/lib/gpu-batches.js`) is untried, starting, ready or
 declined:
@@ -120,28 +128,37 @@ declined:
   and the batches it answers while the card is brought up: a batch that
   waited its turn in the worker behind another request took longer through
   no fault of WebAssembly's, and its time alone, taken eight times over,
-  would let a slow card pass. The whole bring-up has 60 seconds
-  (`BRING_UP_MS`). Anything else declines the card and ends its worker.
+  would let a slow card pass. Having the runtime in hand has ten minutes
+  (`RUNTIME_MS`), which are the connection's: its 29.9 MB are fetched the
+  first time, and the worker says when it has them. From there, opening the
+  network on the card and the runs have 60 seconds (`BRING_UP_MS`). Anything
+  else declines the card and ends its worker.
 - Ready, the card answers every batch of two or more positions, one at a
   time, each within 10 seconds (`CARD_BATCH_MS`). A batch that fails there or
   runs out of time declines the card, ends its worker, and is asked of
-  WebAssembly through the usual path, so its caller gets an answer or its own
-  abort. A caller who stops waiting is not a failure of the card, which runs
+  WebAssembly through the usual path, in passes of eight (`WASM_PASS`) where
+  it was sized for the card, so that a move waiting behind it waits no longer
+  than behind any pass, and its caller gets an answer or its own abort. A
+  caller who stops waiting is not a failure of the card, which runs
   the batch to its end; a batch that then runs out of time is, and declines
   the card as it would with its caller waiting. `resetPolicy` drops the
   callers waiting on the card with its reason, as it drops the WebAssembly
   worker's, and keeps the card's worker.
-- A decline about the device (no adapter or a software one, disagreeing,
-  slow, a session or a run that failed, a bring-up out of time) is kept in
-  localStorage under `mahjong-webgpu-declined:<page folder>`, with the
+- A decline in the bring-up that is about the device (no adapter or a
+  software one, disagreeing, slow, a session or a run that failed, its 60
+  seconds gone) is kept in localStorage under `mahjong-webgpu-declined:<page folder>`, with the
   runtime folder, the network's SHA-256 and the date: a later visit does not
   try again until a new runtime or a new network comes or a week has passed
   (`DECLINE_LASTS_MS`), and `?gpu=on` forgets it. The week is for a decline
   whose reason passes, another program at work on the card that minute or a
   driver since replaced; trying again costs a device without an adapter one
   question, and any other a bring-up beside the review. A runtime the
-  browser could not fetch, offline before it was ever saved, or a network
-  not saved on this device, declines the card for this visit only. Storage
+  browser could not fetch, offline before it was ever saved, or not within
+  its ten minutes, and a network not saved on this device or not readable
+  there, decline the card for this visit only. So does whatever fails once
+  the card serves, a run that fails or a batch out of time: the device has
+  passed by then, and a card lost over a sleep, or busy with another
+  program, says nothing lasting of it. Storage
   that refuses changes nothing but that. Why the card was declined is said
   in the console once.
 - While the card runs a batch, in the bring-up or after, the page's root
@@ -160,7 +177,9 @@ declined:
 and 'wasm' otherwise. While it says 'webgpu' a review asks up to 64 positions
 in one forward pass (`GPU_BATCH`, `batchMostFor` in `game-review.js`), and
 the reasoning about a decision up to 64 tables, instead of eight; the time a
-position measured still bounds every pass to about ten seconds, and the
+position measured still bounds every pass to about ten seconds, is measured
+afresh whenever the place the batches run changes, no batch counted during
+which it did, and the
 gates, aborts and deadlines are unchanged. The offline panel's Trained AI
 line then adds "GPU". The network and its moves are the same; the card's
 float arithmetic differs in the last bits, so a near tie can flip. The

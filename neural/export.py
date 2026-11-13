@@ -106,10 +106,13 @@ class ExportMish(torch.nn.Module):
     other way to write it, are not in the reduced WebAssembly runtime. With
     s = sigmoid(x) and t = 1 - s, tanh(softplus(x)) = s (1 + t) / (1 + t^2),
     which is exact in real arithmetic and needs only Sigmoid, Sub, Add, Mul
-    and Div, which both runtimes carry. It keeps its precision at both ends:
-    for very negative x it is about s, and for large x, t vanishes and it is
-    one. Only the export uses it (export_activations); the parity check
-    compares the graph with the network's own Mish.
+    and Div, which both runtimes carry. In ONNX Runtime's float arithmetic on
+    the processor it stays within 2.3e-6 of Mish for every x (measured from
+    -40 to 40 in onnxruntime 1.29, 13 November 2026): for large x, t vanishes
+    and it is x, and from about -18 down the runtime's Sigmoid is nought,
+    where Mish itself is within 3e-7 of it. Only the export uses it
+    (export_activations); the parity check compares the graph with the
+    network's own Mish.
     """
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -122,7 +125,10 @@ class ExportMish(torch.nn.Module):
 def export_activations(module):
     """Every Mish in `module` swapped for ExportMish while the block runs,
     and put back after it, so that what is exported is free of Softplus and
-    what it is checked against is the network as trained."""
+    what it is checked against is the network as trained. A Mish is found
+    where it is a module's child; one called as a function, or held outside
+    the module tree, is not, and check_operators then refuses the Softplus
+    it leaves."""
     swapped = []
     if isinstance(module, torch.nn.Module):
         for parent in module.modules():
@@ -140,7 +146,8 @@ def export_activations(module):
 
 def check_operators(destination: Path, insist: bool = True) -> None:
     """Refuse missing kernels unless explicitly exporting to widen the runtime,
-    and a Softplus, which the WebGPU provider would run on the processor."""
+    and a Softplus among the graph's own nodes, which the WebGPU provider
+    would run on the processor. Told not to insist, it only says so."""
     import onnx
 
     allowed = runtime_operators()

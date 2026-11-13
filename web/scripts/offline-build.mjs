@@ -41,7 +41,7 @@ export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) 
     // The WebGPU runtime is never prepared with a group: the worker saves
     // each of its files when a page first fetches it, so a desktop that
     // played on its graphics card once can again offline, and the AI package
-    // every player saves stays without its 29.5 MB.
+    // every player saves stays without its 29.9 MB.
     const group = url.startsWith('ort/') ? 'ai' : url.startsWith('ort-webgpu/') ? 'webgpu' : 'core';
     return { url, hash: createHash('sha256').update(data).digest('hex'), bytes: data.length, group };
   }));

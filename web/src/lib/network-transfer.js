@@ -10,14 +10,24 @@ export { NETWORK_CACHE, hasStoredNetwork, networkCacheName, pruneNetworkCache, v
 // hours; a stalled one still ends after a minute without bytes.
 const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
 
-async function verifiedCached(cache, url, expect) {
+/** The stored network's bytes where they are the ones expected, or null.
+ * An entry read whole and found to be other bytes is deleted. One that
+ * could not be read at all is deleted too, for the page's own reader, which
+ * then downloads the network again, unless `keepUnread`: the graphics
+ * card's worker reads a second copy beside the page's, and its failure, of
+ * memory for one, says nothing of the entry, which offline play depends on;
+ * there the error is thrown. */
+async function verifiedCached(cache, url, expect, { keepUnread = false } = {}) {
   if (!cache) return null;
   try {
     const held = await cache.match(url);
     if (!held) return null;
     const bytes = new Uint8Array(await held.arrayBuffer());
     if (bytes.length === expect.bytes && await digestOf(bytes) === expect.sha256) return bytes;
-  } catch { /* An unreadable cache is not a prerequisite for online play. */ }
+  } catch (error) {
+    if (keepUnread) throw error;
+    /* An unreadable cache is not a prerequisite for online play. */
+  }
   try { await cache.delete(url); } catch { /* Never turn a cache error into trusted bytes. */ }
   return null;
 }
@@ -40,10 +50,11 @@ async function downloadNetwork(url, expect, onProgress, timeouts) {
 
 /** The verified bytes of the network stored at url in this scope's cache, or
  * null where none is: never a download, for the graphics card's worker,
- * which plays only a network already saved (gpu-batch.worker.js). */
+ * which plays only a network already saved (gpu-batch.worker.js). An entry
+ * it cannot read it leaves as it is, and throws. */
 export async function storedNetworkBytes({ url, expect, scope } = {}) {
   validateNetwork(expect);
-  return verifiedCached(await networkCache(scope), url, expect);
+  return verifiedCached(await networkCache(scope), url, expect, { keepUnread: true });
 }
 
 /** Verified bytes are usable online even when storage fails. Durable callers

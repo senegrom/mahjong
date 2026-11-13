@@ -6,7 +6,7 @@ export const RUNTIME_FILES = Object.freeze([
 /** The WebGPU runtime: onnxruntime-web's own files, unchanged, from the
  * package the page already depends on. The worker imports the first, which
  * loads the other two from beside it, and only on a device it plays on the
- * graphics card (webgpu.js); its 29.5 MB are not part of the offline AI
+ * graphics card (webgpu.js); its 29.9 MB are not part of the offline AI
  * package (scripts/offline-build.mjs). It is the package's default build,
  * whose WebGPU provider runs on JSEP: its ort.webgpu.min.mjs is another
  * provider, built with Asyncify, which was never measured here. */

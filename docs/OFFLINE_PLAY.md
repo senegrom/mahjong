@@ -85,7 +85,7 @@ network is loaded and the worker begins that move. A Retry after a failed start
 tries offline saving again.
 
 On a desktop whose reviews run on its graphics card (see [WebGPU on
-desktops](ONNX_RUNTIME.md#webgpu-on-desktops)), the WebGPU runtime's 29.5 MB
+desktops](ONNX_RUNTIME.md#webgpu-on-desktops)), the WebGPU runtime's 29.9 MB
 are not part of that package, so no player downloads them for offline play:
 the build lists them in their own group, `webgpu`, which no status counts and
 no download prepares, and the service worker saves each file, checked like

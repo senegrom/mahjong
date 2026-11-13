@@ -38,13 +38,25 @@ export const WEIGHT_BOUND = 0.001;
 /** How many times faster than WebAssembly the card must run the timed
  * batch. */
 export const SPEEDUP = 2;
-/** How long the card's bring-up may take in all, from creating its worker
- * to the last timed run, before the card is declined. */
+/** How long the card's worker may take to have the runtime in hand, from its
+ * start: an adapter asked for, the stored network read and checked, and the
+ * runtime fetched, 30 MB the first time, for which these ten minutes allow a
+ * connection of 0.4 Mbit/s. That time is the connection's, not the device's:
+ * out of it the card is declined for this visit only. */
+export const RUNTIME_MS = 10 * 60 * 1000;
+/** How long the card's bring-up may take from the runtime in hand to the
+ * last timed run, the network opened on the card and the runs, before the
+ * card is declined. */
 export const BRING_UP_MS = 60000;
 /** How long one batch may take on the card once it serves them. Sixty-four
  * positions took 61 ms on a desktop card; one that takes longer than this
  * has failed, and the batch is asked of WebAssembly instead. */
 export const CARD_BATCH_MS = 10000;
+/** The positions WebAssembly is asked in one pass at most: BATCH in
+ * game-review.js, which a test holds this to. A batch sized for the card
+ * that comes back to WebAssembly is asked of it in passes of this size
+ * (gpu-batches.js). */
+export const WASM_PASS = 8;
 /** How long a remembered decline holds: a week. A card can read as slow, or
  * a run fail, for a reason that passes, another program at work on the card
  * that minute or a driver since replaced, and nothing else would ever try it

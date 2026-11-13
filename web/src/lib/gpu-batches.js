@@ -15,21 +15,27 @@
  *    more. Every run must agree with WebAssembly's answers (agreement), and
  *    the runs' median time must be at most half of what WebAssembly takes
  *    for as many positions (fastEnough), at the least time a position it
- *    has shown, over the sample and the batches it answers meanwhile. The
- *    whole bring-up has BRING_UP_MS. Anything else declines the card.
+ *    has shown, over the sample and the batches it answers meanwhile.
+ *    Having the runtime in hand, 30 MB fetched the first time, has
+ *    RUNTIME_MS, which is the connection's time; from there the bring-up
+ *    has BRING_UP_MS. Anything else declines the card.
  *  - Ready, the card answers every batch of two or more positions, one at a
  *    time, each within CARD_BATCH_MS, and policyRuntime() says 'webgpu', so
  *    a review asks bigger batches (batchMostFor). A batch that fails or runs
  *    out of time there declines the card, ends its worker and is answered on
- *    WebAssembly instead: the caller gets an answer, or its own abort.
- *  - A decline about the device (no adapter or a software one, slow,
- *    disagreeing, a session or run that failed, a bring-up out of time) is
- *    remembered in localStorage for this runtime folder and this network's
- *    digest, so a later visit does not try again until either changes or a
- *    week has passed (DECLINE_LASTS_MS); `?gpu=on` forgets it. A runtime the
- *    browser could not fetch, or a network not saved on this device,
- *    declines the card for this visit only. `?gpu=off` never tries. Why the
- *    card was declined is said in the console once.
+ *    WebAssembly instead, in passes of WebAssembly's own size (WASM_PASS):
+ *    the caller gets an answer, or its own abort.
+ *  - A decline in the bring-up that is about the device (no adapter or a
+ *    software one, slow, disagreeing, a session or run that failed, its
+ *    BRING_UP_MS gone) is remembered in localStorage for this runtime folder
+ *    and this network's digest, so a later visit does not try again until
+ *    either changes or a week has passed (DECLINE_LASTS_MS); `?gpu=on`
+ *    forgets it. A runtime the browser could not fetch, or not within
+ *    RUNTIME_MS, and a network not saved on this device, decline the card
+ *    for this visit only. So does whatever fails once the card serves: the
+ *    device has passed by then, and a card lost over a sleep, or busy with
+ *    another program, says nothing lasting of it. `?gpu=off` never tries.
+ *    Why the card was declined is said in the console once.
  *
  * While the card runs a batch the page is told (`onWork`), and holds still
  * whatever it paints again every frame, a dora's sheen (Tile.svelte). The
@@ -41,7 +47,7 @@
  */
 /* global __WEBGPU_RUNTIME_DIRECTORY__ */
 import { networkUrl, playedNetwork } from './trained-network.js';
-import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, TIMED_RUNS, agreement, fastEnough, median, timedOrder, webgpuWanted } from './webgpu.js';
+import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, RUNTIME_MS, TIMED_RUNS, WASM_PASS, agreement, fastEnough, median, timedOrder, webgpuWanted } from './webgpu.js';
 
 /** A request the page dropped, as resetPolicy drops the WebAssembly worker's:
  * its caller hears `reason`, and the card is not blamed. */
@@ -102,23 +108,29 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     pending.clear();
   }
 
+  /** Declines the card for `reason`, for the rest of this visit. It is
+   * remembered across visits only where `remembers` says the reason is the
+   * device's and the card was still being brought up: once it has served,
+   * the device has passed, and what fails then says nothing lasting of it. */
   function decline(reason, remembers) {
     if (state === 'declined') return;
     const was = state;
     state = 'declined';
     if (bringUp) { cancel(bringUp); bringUp = null; }
     endWorker();
-    if (remembers) remember(reason);
+    if (remembers && was !== 'ready') remember(reason);
     warn(`Trained AI reviews on WebAssembly: ${reason}`);
     if (was === 'ready') onRuntime('wasm');
   }
 
-  /** Sends one request to the card's worker and waits for its answer. */
-  function call(message) {
+  /** Sends one request to the card's worker and waits for its answer;
+   * `fetched()` hears the worker say, before it, that its runtime is in
+   * hand. */
+  function call(message, fetched) {
     const current = worker;
     return new Promise((resolve, reject) => {
       const id = ++nextId;
-      pending.set(id, { resolve, reject });
+      pending.set(id, { resolve, reject, fetched });
       try { current.postMessage({ id, ...message }); } catch (error) { pending.delete(id); reject(new CardFailure(String(error?.message ?? error))); }
     });
   }
@@ -137,6 +149,7 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
       if (worker !== current) return;
       const request = pending.get(data.id);
       if (!request) return;
+      if (data.fetched) { request.fetched?.(); return; }
       pending.delete(data.id);
       if (data.error) request.reject(new CardFailure(data.error, data.remember !== false));
       else request.resolve(data);
@@ -145,15 +158,25 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     current.onmessageerror = () => { if (worker === current) decline('the card\'s worker sent an unreadable answer', true); };
   }
 
+  /** The bring-up's time from now: `ms`, out of which the card is declined
+   * for `reason`, remembered or not. */
+  function within(ms, reason, remembers) {
+    if (bringUp) cancel(bringUp);
+    bringUp = later(() => { bringUp = null; decline(reason, remembers); }, ms);
+  }
+
   async function start(sample) {
     state = 'starting';
-    bringUp = later(() => { bringUp = null; decline(`bringing the card up took longer than ${BRING_UP_MS / 1000} s`, true); }, BRING_UP_MS);
+    // Until the worker has the runtime in hand the time is the connection's,
+    // 30 MB fetched the first time: out of it, nothing is said of the device.
+    within(RUNTIME_MS, `fetching the WebGPU runtime took longer than ${RUNTIME_MS / 60000} minutes`, false);
     let mine = null;
     try {
       const played = network();
       startWorker();
       mine = worker;
-      await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256 }, scope, webgpu: new URL(folder, scope).href } });
+      await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256 }, scope, webgpu: new URL(folder, scope).href } },
+        () => within(BRING_UP_MS, `bringing the card up took longer than ${BRING_UP_MS / 1000} s`, true));
       opened = networkUrl(played);
       const order = timedOrder(sample.positions.length);
       const batch = laid(order.map(index => sample.positions[index])), expected = order.map(index => sample.answers[index]);
@@ -256,7 +279,15 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
         }
       }
       const began = now();
-      const answers = await wasm(positions, signal);
+      let answers;
+      if (positions.length <= WASM_PASS) answers = await wasm(positions, signal);
+      else {
+        // A batch sized for the card is asked of WebAssembly in passes of
+        // its own size, one after another: whatever waits behind a pass in
+        // its worker, a move among it, waits no longer than behind any other.
+        answers = [];
+        for (let from = 0; from < positions.length; from += WASM_PASS) answers.push(...await wasm(positions.slice(from, from + WASM_PASS), signal));
+      }
       consider(positions, answers, now() - began);
       return answers;
     },

@@ -385,6 +385,9 @@ export class MatchReview {
     // them, so that a review stopped between a group's passes counts no
     // positions without their decisions.
     this.positionMs = null;
+    // Where batches ran when that time was last measured, as the most a
+    // pass may ask says it: eight on WebAssembly, more on the graphics card.
+    this.ranOn = null;
     this.asked = 0;
     this.positions = 0;
     this.pending = 0;
@@ -627,11 +630,21 @@ export class MatchReview {
    * network's, so it is not counted either: the clock starts once the gate is
    * passed. Its positions wait for its group's decisions (pending). */
   async timed(positions, signal) {
-    const started = this.now();
+    const started = this.now(), most = this.batchMost();
     const answers = await this.analyzeBatch(positions, signal);
     const each = (this.now() - started) / positions.length;
     this.pending += positions.length;
-    if (this.asked++ > 0) this.positionMs = this.positionMs == null ? each : (this.positionMs * 3 + each) / 4;
+    const first = this.asked++ === 0, runsOn = this.batchMost();
+    // Batches run on WebAssembly or on the graphics card, a hundred times
+    // apart, and the review hears which only as the most a pass may ask
+    // (batchMost). A time measured where they ran before says nothing of
+    // where they run now, so it is let go, to be measured afresh; and a
+    // batch during which that changed, the card ready meanwhile, or declined
+    // after its ten seconds and the batch answered on WebAssembly after
+    // them, is a measure of neither, and would make a slow device of a fast
+    // one.
+    if (runsOn !== this.ranOn) { this.positionMs = null; this.ranOn = runsOn; }
+    if (!first && runsOn === most) this.positionMs = this.positionMs == null ? each : (this.positionMs * 3 + each) / 4;
     return answers;
   }
 

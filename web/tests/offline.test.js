@@ -20,7 +20,7 @@ const bodies = { 'index.html': '<html>Game</html>', 'app.js': 'game', 'tiles/Hak
 const manifest = (files = bodies, networks = [external('weights')]) => ({ version: sha(JSON.stringify(files)),
   hasModel: true, networkCacheVersion: 2, networks,
   entries: Object.entries(files).map(([url, body]) => ({ url, hash: sha(body), bytes: Buffer.byteLength(body),
-    group: url.startsWith('ort/') ? 'ai' : 'core' })) });
+    group: url.startsWith('ort/') ? 'ai' : url.startsWith('ort-webgpu/') ? 'webgpu' : 'core' })) });
 function storage() {
   const stores = new Map();
   return { stores, async open(name) {
@@ -530,7 +530,8 @@ test('a waiting update answers for the network its own page will play for the pl
 test('the WebGPU runtime is saved the first time a page fetches it, never with the AI package, and ready offline after', async () => {
   const files = { ...bodies, 'ort-webgpu/ort.min.mjs': 'gpu runtime', 'ort-webgpu/ort-wasm-simd-threaded.jsep.wasm': 'gpu wasm' };
   const config = manifest(files);
-  config.entries = config.entries.map(entry => ({ ...entry, group: entry.url.startsWith('ort-webgpu/') ? 'webgpu' : entry.group }));
+  assert.deepEqual(config.entries.filter(entry => entry.group === 'webgpu').map(entry => entry.url),
+    ['ort-webgpu/ort.min.mjs', 'ort-webgpu/ort-wasm-simd-threaded.jsep.wasm']);
   const w = worker({ files, config });
   await w.install();
   await prepareAi(w, 'weights');
@@ -544,4 +545,17 @@ test('the WebGPU runtime is saved the first time a page fetches it, never with t
   // One never fetched is not there offline, and the page plays on WebAssembly.
   assert.equal((await cold.get('ort-webgpu/ort-wasm-simd-threaded.jsep.wasm')).status, 503);
   assert.deepEqual(await status(cold).then(({ coreReady, aiReady }) => ({ coreReady, aiReady })), { coreReady: true, aiReady: true });
+  // A build with another runtime installs without fetching it, lets the old one go when it takes over, megabytes
+  // nothing would read again, and saves its own when a page first fetches it.
+  const store = w.caches.stores.get('mahjong-offline-v1:/mahjong/');
+  assert.equal(store.has(base + '__offline_content__/' + sha('gpu runtime')), true);
+  const newer = { ...files, 'ort-webgpu/ort.min.mjs': 'gpu runtime, the next' };
+  const update = worker({ files: newer, caches: w.caches });
+  await update.install();
+  assert.equal([...update.counts.keys()].some(name => name.startsWith('ort-webgpu/')), false);
+  assert.equal(store.has(base + '__offline_content__/' + sha('gpu runtime')), true, 'the page still open may read it');
+  await update.activate();
+  assert.equal(store.has(base + '__offline_content__/' + sha('gpu runtime')), false);
+  assert.equal(await (await update.get('ort-webgpu/ort.min.mjs')).text(), 'gpu runtime, the next');
+  assert.equal(store.has(base + '__offline_content__/' + sha('gpu runtime, the next')), true);
 });

@@ -19,7 +19,10 @@
  * best legal move and weights, and how long the run took), or `{ id, error,
  * remember }`, where `remember` says whether the failure is the device's and
  * worth remembering across visits, or this visit's only (a runtime the
- * browser could not fetch, a network not stored).
+ * browser could not fetch, a network not stored). While it opens a network
+ * it says `{ id, fetched: true }` once, when the runtime is in hand: what
+ * came before went at the connection's pace, and what follows is the
+ * device's time (gpu-batches.js).
  */
 import { policyWeights } from './policy-weights.js';
 import { storedNetworkBytes } from './network-transfer.js';
@@ -36,7 +39,7 @@ class Refusal extends Error {
 }
 const said = error => String(error?.message ?? error);
 
-async function open({ url, expect, scope, webgpu }) {
+async function open({ url, expect, scope, webgpu }, fetched) {
   const adapter = await webgpuAdapter(self.navigator?.gpu);
   if (!adapter) throw new Refusal('no graphics card adapter, or only one that runs on the processor', true);
   let bytes;
@@ -45,16 +48,22 @@ async function open({ url, expect, scope, webgpu }) {
   if (!bytes) throw new Refusal('the network is not saved on this device', false);
   // The runtime's own files, fetched here first so that one the browser
   // cannot fetch, offline before it was ever saved, is told apart from a
-  // runtime that fails on this device.
+  // runtime that fails on this device. Its WebAssembly is kept and handed to
+  // the runtime, which would fetch it again otherwise: 30 MB a second time
+  // wherever the browser could not save the first.
+  let binary;
   try {
     for (const file of ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']) {
       const response = await fetch(new URL(file, webgpu));
       if (!response.ok) throw new Error(`${file}: HTTP ${response.status}`);
-      await response.arrayBuffer();
+      const body = await response.arrayBuffer();
+      if (file.endsWith('.wasm')) binary = body;
     }
     runtime = await import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href);
   } catch (error) { throw new Refusal(`the WebGPU runtime could not be fetched: ${said(error)}`, false); }
+  fetched();
   runtime.env.wasm.wasmPaths = webgpu;
+  runtime.env.wasm.wasmBinary = binary;
   runtime.env.wasm.numThreads = 1;
   runtime.env.logLevel = 'error';
   runtime.env.webgpu.adapter = adapter;
@@ -65,6 +74,8 @@ async function open({ url, expect, scope, webgpu }) {
     session = await runtime.InferenceSession.create(bytes, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all',
       logSeverityLevel: 3 });
   } catch (error) { throw new Refusal(`the network could not be opened on the card: ${said(error)}`, true); }
+  // The runtime is running by now, and has no more use for its 30 MB.
+  finally { runtime.env.wasm.wasmBinary = undefined; }
 }
 
 async function run({ planes, mask, count }) {
@@ -98,7 +109,7 @@ self.onmessage = ({ data, source }) => {
   turn = turn.then(async () => {
     try {
       if (data.open) {
-        await open(data.open);
+        await open(data.open, () => self.postMessage({ id: data.id, fetched: true }));
         self.postMessage({ id: data.id, opened: true });
       } else self.postMessage({ id: data.id, ...await run(data) });
     } catch (error) {
