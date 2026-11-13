@@ -31,11 +31,12 @@
  *    and this network's digest, so a later visit does not try again until
  *    either changes or a week has passed (DECLINE_LASTS_MS); `?gpu=on`
  *    forgets it. A runtime the browser could not fetch, or not within
- *    RUNTIME_MS, and a network not saved on this device, decline the card
- *    for this visit only. So does whatever fails once the card serves: the
- *    device has passed by then, and a card lost over a sleep, or busy with
- *    another program, says nothing lasting of it. `?gpu=off` never tries.
- *    Why the card was declined is said in the console once.
+ *    RUNTIME_MS, a network not saved on this device, and a worker that did
+ *    not load, decline the card for this visit only. So does whatever fails
+ *    once the card serves: the device has passed by then, and a card lost
+ *    over a sleep, or busy with another program, says nothing lasting of
+ *    it. `?gpu=off` never tries. Why the card was declined is said in the
+ *    console once.
  *
  * While the card runs a batch the page is told (`onWork`), and holds still
  * whatever it paints again every frame, a dora's sheen (Tile.svelte). The

@@ -154,13 +154,13 @@ declined:
   driver since replaced; trying again costs a device without an adapter one
   question, and any other a bring-up beside the review. A runtime the
   browser could not fetch, offline before it was ever saved, or not within
-  its ten minutes, and a network not saved on this device or not readable
-  there, decline the card for this visit only. So does whatever fails once
-  the card serves, a run that fails or a batch out of time: the device has
-  passed by then, and a card lost over a sleep, or busy with another
-  program, says nothing lasting of it. Storage
-  that refuses changes nothing but that. Why the card was declined is said
-  in the console once.
+  its ten minutes, a network not saved on this device or not readable
+  there, and a worker whose own file did not load, decline the card for this
+  visit only. So does whatever fails once the card serves, a run that fails
+  or a batch out of time: the device has passed by then, and a card lost
+  over a sleep, or busy with another program, says nothing lasting of it.
+  Storage that refuses changes nothing but that. Why the card was declined
+  is said in the console once.
 - While the card runs a batch, in the bring-up or after, the page's root
   carries `data-card-at-work` (`CARD_AT_WORK`), and under it a dora's sheen
   and the white dragon's reveal hold still (`Tile.svelte`), where they are,
