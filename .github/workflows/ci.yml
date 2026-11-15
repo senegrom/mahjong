@@ -55,6 +55,11 @@ jobs:
           ./target/release/riichi-cli fuzz --games 500 --seed "$FUZZ_SEED"
       - name: Arena sanity check
         run: ./target/release/riichi-cli arena --games 20 --seed 1
+      # Cargo refuses a crate whose rust-version is older than a dependency's
+      # on the releases its manifest says are enough. Seconds, from the lock.
+      - name: Declared Rust versions
+        if: ${{ !cancelled() }}
+        run: python3 engine/rust-versions.py
 
   # The npm audit on its own: an advisory or a registry outage fails this job
   # alone, and every test still reports. Publishing needs it all the same.
