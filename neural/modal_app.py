@@ -1299,7 +1299,9 @@ def placement_pretest(
     Its report, the round's ledger and U fitted on the whole round go to
     the run's directory under `name`, `pretest-g<generation>` when it is
     empty; a fork starts from that U (`train_combined`'s `place_model`).
-    The answer is the child's output, ending with its verdict."""
+    A folder there that already holds anything is refused before the child
+    starts, unless this call's own earlier attempt left it (see
+    `_claim_folder`). The answer is the child's output, ending with its verdict."""
     validate_cloud_request(1, opponents, 0.0, seat_share)
     if name:
         validate_run(name)
@@ -1310,6 +1312,11 @@ def placement_pretest(
             raise FileNotFoundError(f"no checkpoint at {source}")
         local = where / "checkpoint.pt"
         generation = copy_checkpoint(source, local)
+        target = VOLUME / run / (name or f"pretest-g{generation}")
+        # One folder a call, as for the noise pre-test: a second pre-test of
+        # the same generation, with other alphas or another seed, replaced
+        # the first's report, ledger and U, the one a fork settles by.
+        _claim_folder(target)
         print(f"pre-test of {source}, generation {generation}", flush=True)
         out = where / "out"
         command = [
@@ -1322,8 +1329,7 @@ def placement_pretest(
         if alphas:
             command += ["--alphas", *(str(float(alpha)) for alpha in alphas)]
         answer = _run_child(command, tail=6000)
-        target = VOLUME / run / (name or f"pretest-g{generation}")
-        target.mkdir(parents=True, exist_ok=True)
+        _mark_folder(target)
         for kept in ("report.json", "ledger.npz"):
             shutil.copyfile(out / kept, target / kept)
         copy_checkpoint(out / "place-model.pt", target / "place-model.pt")
@@ -1334,6 +1340,44 @@ def placement_pretest(
 #: Where the noise pre-test writes on the volume, and the only place: one
 #: folder a call, named by the caller.
 NOISE_RUN = "noise-pretest"
+
+
+def _claim_folder(target: Path) -> None:
+    """Refuses a measurement's folder on the volume that already holds
+    anything, before its child starts: one folder a call, since an earlier
+    call's files beside this one's would be read as this one's. The one
+    folder taken is one this call's own earlier attempt left, as its
+    `CALL_MARKER` says (see `_mark_folder`): Modal starts a preempted call
+    again on the same input, and the attempt it stopped kept what its child
+    had written on the way out, so its restart was refused by its own
+    files. Those are removed, and the restart writes them again."""
+    if not (target.exists() and any(target.iterdir())):
+        return
+    call = _current_call()
+    try:
+        marked = json.loads((target / CALL_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marked = None
+    if call is not None and isinstance(marked, dict) and marked.get("call") == call:
+        print(f"{target} holds what an earlier attempt of this call kept: removed, to be written again", flush=True)
+        shutil.rmtree(target)
+        volume.commit()
+        return
+    raise FileExistsError(f"{target} already holds an earlier call's files; name this call afresh")
+
+
+def _mark_folder(target: Path) -> None:
+    """Makes a measurement's folder on the volume and, within a Modal call,
+    writes `CALL_MARKER` in it naming the call, before any output is kept
+    there, so that the call's restart knows the folder for its own (see
+    `_claim_folder`)."""
+    target.mkdir(parents=True, exist_ok=True)
+    call = _current_call()
+    if call is None:
+        return
+    with staging_file(target / CALL_MARKER) as staged:
+        staged.write_text(json.dumps({"call": call}) + "\n", encoding="utf-8")
+        os.replace(staged, target / CALL_MARKER)
 
 
 def _keep_outputs(out: Path, target: Path, failed: bool) -> None:
@@ -1348,7 +1392,7 @@ def _keep_outputs(out: Path, target: Path, failed: bool) -> None:
         written = sorted(path for path in out.iterdir()
                          if path.is_file() and not fnmatch.fnmatch(path.name, ".*.partial")) if out.is_dir() else []
         if written:
-            target.mkdir(parents=True, exist_ok=True)
+            _mark_folder(target)
             for path in written:
                 shutil.copyfile(path, target / path.name)
             volume.commit()
@@ -1397,7 +1441,9 @@ def noise_pretest(
     child succeeded, so a child that fails in its last pass, the gradient's,
     still leaves the round's readings and the report it wrote before it. A
     folder there that already holds anything is refused before the child
-    starts. The answer is the child's output, ending with its verdict."""
+    starts, unless this call's own earlier attempt left it (see
+    `_claim_folder`). The answer is the child's output, ending with its
+    verdict."""
     validate_cloud_request(1, opponents, 0.0, seat_share)
     if name:
         validate_run(name)
@@ -1409,10 +1455,7 @@ def noise_pretest(
         local = where / "checkpoint.pt"
         generation = copy_checkpoint(source, local)
         target = VOLUME / NOISE_RUN / (name or f"g{generation}")
-        if target.exists() and any(target.iterdir()):
-            # One folder a call: an earlier call's files beside this one's
-            # would be read as this one's.
-            raise FileExistsError(f"{target} already holds an earlier call's files; name this call afresh")
+        _claim_folder(target)
         print(f"noise pre-test of {source}, generation {generation}", flush=True)
         out = where / "out"
         command = [

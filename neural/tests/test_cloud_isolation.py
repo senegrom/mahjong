@@ -504,6 +504,44 @@ class CloudIsolationTests(unittest.TestCase):
                     self.assertEqual((run/'generation.txt').read_text(),'41')
                     self.assertEqual(json.loads((run/'call.json').read_text())['call'],'fc-other')
 
+    def test_a_second_placement_pretest_of_one_generation_is_refused_before_its_child(self):
+        # Its report, ledger and U were copied over the first's, so a fork
+        # settled by a U that the report it was vetted by never described.
+        # The call's own restart takes its folder back.
+        import torch
+        app=controller()
+        asked=[]
+        def popen(command,**kwargs):
+            asked.append(command)
+            out=Path(command[command.index('--out')+1]);out.mkdir(parents=True)
+            (out/'report.json').write_text(json.dumps({'call':len(asked)}))
+            (out/'ledger.npz').write_bytes(b'ledger')
+            atomic_save({'fitted':len(asked)},out/'place-model.pt')
+            return child(stdout='VERDICT {"verdict": "go"}\n')
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'generation':1010},volume/'fusion-long/latest.pt')
+            atomic_save({'generation':30},volume/'zoo/mortal_298k.pt')
+            target=volume/'fusion-long/pretest-g1010'
+            def pretest(call,**kwargs):
+                with patch.object(app.modal,'current_function_call_id',lambda:call,create=True), \
+                     patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                     patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=popen), \
+                     redirect_stdout(io.StringIO()):
+                    return app.placement_pretest(opponents=['zoo/mortal_298k','club'],**kwargs)
+            pretest('fc-first')
+            for name in ('','pretest-g1010'):
+                with self.subTest(name=name),self.assertRaisesRegex(FileExistsError,'afresh'):
+                    pretest('fc-second',alphas=[0.1],name=name)
+            self.assertEqual(len(asked),1)
+            self.assertEqual(json.loads((target/'report.json').read_text()),{'call':1})
+            self.assertEqual(torch.load(target/'place-model.pt',weights_only=True)['fitted'],1)
+            # Modal's restart of the first call writes its folder again.
+            pretest('fc-first')
+            self.assertEqual(json.loads((target/'report.json').read_text()),{'call':2})
+            self.assertEqual(sorted(path.name for path in target.iterdir()),
+                             ['call.json','ledger.npz','place-model.pt','report.json'])
+
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
         with tempfile.TemporaryDirectory() as folder:

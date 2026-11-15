@@ -265,7 +265,11 @@ decisions and the South's apart (`return_variance_east`,
 `python -m neural.placement_pretest` (on Modal: `placement_pretest`) plays
 one round of a checkpoint at its run's tables, keeping the ledger, and
 writes `report.json`, `ledger.npz` and `place-model.pt` (U fitted on the
-whole round, which a fork starts from). It reads:
+whole round, which a fork starts from). The cloud function writes them to
+`<run>/<name>`, `<run>/pretest-g<generation>` when unnamed, and refuses a
+folder there that already holds anything before its child starts, so a
+second pre-test of the same generation never replaces the U the first
+report vetted; it is named afresh instead. It reads:
 
 1. **U's calibration**, every game held out once (`--folds`): the mean U
    against the mean bonus by stage (with U's explained share beside the
@@ -462,7 +466,11 @@ inputs 3, the warm-up 1, the oracle's term and its control 8, the readings
 before it plays. In the pass, a chunk without room is taken again at half
 its rows and the rest of the pass read at that size. `--out` must be empty
 or absent, and the cloud function refuses a `noise-pretest/<name>` that
-already holds anything before its child starts. The round's ledger, every
+already holds anything before its child starts, unless the call's own
+earlier attempt left it: within a Modal call both pre-tests write
+`call.json`, naming the call, into their folder before anything else, and
+a call Modal starts again after a preemption removes what its interrupted
+attempt kept and writes it again. The round's ledger, every
 decision's baselines and a report are written before the gradient pass,
 each file under a hidden name renamed into place once whole, and the cloud
 function copies whatever the child wrote to the volume whether or not it
