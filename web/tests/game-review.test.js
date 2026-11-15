@@ -6,7 +6,7 @@ import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
-  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid, UNMEASURED } from '../src/lib/game-review.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -763,8 +763,9 @@ test('a slow device holds after each hand until the player asks for the next one
 test('on a slow device the review asks fewer decisions a batch, as many as take about ten seconds at the speed it has measured', async () => {
   // 2.5 seconds a position, some fifteen times desktop Chromium: eight would
   // take twenty seconds, and keep whatever is sent behind them waiting as
-  // long. The first two batches go before anything is measured, the first
-  // because it can include loading the network, so they are as at full speed.
+  // long. The first batch can include loading the network, so it goes before
+  // anything is measured, UNMEASURED positions at most as at full speed; its
+  // time, never less than the device's, sizes the second, which measures it.
   let clock = 0;
   const sizes = [], answer = network(sizes), total = list => list.reduce((sum, size) => sum + size, 0);
   const review = new MatchReview(Game, game, { now: () => clock, analyzeBatch: (positions, signal) => {
@@ -779,10 +780,37 @@ test('on a slow device the review asks fewer decisions a batch, as many as take 
     assert.equal(review.positionMs, 2500);
     const fast = await ungatedSizes(game);
     assert.ok(fast.includes(BATCH), 'at full speed, batches of eight');
-    assert.deepEqual(sizes.slice(0, 2), fast.slice(0, 2), 'the first two as at full speed');
-    assert.ok(sizes.slice(2).every(size => size <= 4), `four decisions at most, ten seconds, once measured: ${sizes.join(' ')}`);
+    assert.equal(sizes[0], fast[0], 'the first as at full speed');
+    assert.ok(sizes[0] <= UNMEASURED && fast[0] <= UNMEASURED, `small until anything is timed: ${sizes.join(' ')}`);
+    assert.ok(sizes.slice(1).every(size => size <= 4), `four decisions at most, ten seconds, after the first: ${sizes.join(' ')}`);
     assert.equal(total(sizes), total(fast), 'every position asked, once');
   } finally { review.dispose(); }
+});
+
+test('a device of several seconds a position is measured on small passes, each well within its deadline', async () => {
+  // Six seconds a position: eight would take 48 seconds, past the forty a
+  // pass of eight has from the worker (policy.js: twenty seconds for every
+  // four positions begun), which would end the worker on every Continue. The
+  // first pass is small, and sizes the second.
+  let clock = 0;
+  const sizes = [], answer = network(sizes), deadline = size => 20000 * Math.ceil(size / 4);
+  const review = new MatchReview(Game, game, { now: () => clock, analyzeBatch: (positions, signal) => {
+    clock += positions.length * 6000;
+    if (positions.length * 6000 > deadline(positions.length)) return Promise.reject(new Error('The trained opponent did not answer in time'));
+    return answer(positions, signal);
+  } });
+  try {
+    review.review([review.order[0]]);
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(sizes[0] <= UNMEASURED, sizes.join(' '));
+    assert.equal(review.positionMs, 6000);
+    assert.ok(sizes.slice(1).every(size => size === 1), `a position a pass after the first: ${sizes.join(' ')}`);
+  } finally { review.dispose(); }
+  // The most a pass may ask stays where nothing is measured otherwise.
+  assert.equal(batchFor(null), BATCH);
+  assert.equal(batchFor(null, { most: GPU_BATCH }), GPU_BATCH);
+  assert.equal(batchFor(null, { most: GPU_BATCH, unmeasured: UNMEASURED }), UNMEASURED);
 });
 
 test('the decisions Trained AI hesitates over are asked again in batches of their own, timed a position at a time, and the time left counts them', async () => {
