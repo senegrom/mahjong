@@ -199,9 +199,29 @@ def _resume_of_call(run: str, resume: str) -> tuple[Path, dict | None]:
     return source, {"call": call, "resume": resume, "source": str(source) if source.exists() else None}
 
 
+class AnotherWriter(RuntimeError):
+    """Another call published to the run a trainer's call publishes to,
+    after this call last saw it (see `_publish`)."""
+
+
+def _run_state(run: str) -> tuple[str | None, str | None]:
+    """What says who last published to a run: its `generation.txt`, and the
+    call its `CALL_MARKER` names (None for either it does not hold)."""
+    folder = VOLUME / run
+    try:
+        generation = (folder / "generation.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        generation = None
+    try:
+        marked = json.loads((folder / CALL_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marked = None
+    return generation, marked.get("call") if isinstance(marked, dict) else None
+
+
 def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
              published: dict[str, tuple[int, int, int]], marker: dict | None = None,
-             *, new_lineage: bool = False) -> int:
+             *, new_lineage: bool = False, held: dict | None = None) -> int:
     """Publish only copied, fully validated checkpoints of completed
     generations. `resumed_at` is the generation the block resumed from:
     archives past it belong to this timeline (see
@@ -217,8 +237,37 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     workspace does not hold are the old lineage's and are removed. Left
     there, the run's best stayed the old lineage's network, and the next
     block, resumed from the run's own latest, carried the old reference in
-    and was leashed to the old lineage's start."""
+    and was leashed to the old lineage's start.
+
+    `held`, when given, holds under "state" what `_run_state` said of the
+    run when this call resolved its resume, or after its own last
+    publication, and is brought up to date here. Nothing keeps a run to one
+    writer: Modal runs one container of a trainer at a time only for one
+    set of options, and a launcher gives every run options of its own, so
+    a second call on a run that is training (a `modal run` by hand, a
+    bench, another launcher) got a container of its own, and the two
+    published over each other every generation, the latest alternating
+    between two timelines and the log keeping the last committer's. So
+    the volume is reloaded before each publication, and a run that another
+    call has published to since raises `AnotherWriter` and publishes
+    nothing: whichever of two calls finds the other's publication first
+    stops, and the run goes on as one timeline."""
     validate_run(target_run)
+    if held is not None:
+        try:
+            volume.reload()
+        except RuntimeError as error:
+            # The check reads what this container last saw; publishing as
+            # before is better than failing the call over it.
+            print(f"the volume could not be reloaded before publishing ({error}); "
+                  "another writer would not be seen", flush=True)
+        found = _run_state(target_run)
+        if found != held["state"]:
+            raise AnotherWriter(
+                f"another call published to {target_run} while this one trained: its generation.txt says "
+                f"{found[0]} and its marker names call {found[1]}, where this call last saw {held['state'][0]} "
+                f"and {held['state'][1]}; this call's generation {generation} was not published"
+            )
     actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at,
                                        published=published)
     if new_lineage:
@@ -231,6 +280,8 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
             staged.write_text(json.dumps(marker, indent=1) + "\n", encoding="utf-8")
             os.replace(staged, written)
     volume.commit()
+    if held is not None:
+        held["state"] = (str(actual), marker["call"] if marker is not None else held["state"][1])
     return actual
 
 
@@ -332,7 +383,8 @@ TRAINER_TIMEOUT = 24 * 60 * 60
 # the compiler cache take a while themselves.
 TRAINER_SPARE = 10 * 60
 
-# What the three trainers run on, one container at a time each: an L40S, and
+# What the three trainers run on, one container at a time for each set of
+# options a caller asks for (so not one a run: see `_publish`): an L40S, and
 # no other card without the owner's word (19 October 2026). Self-play, on the
 # processors, is most of a generation, and an L40S played one in 9.5 minutes
 # against an H100's 9.0 for half the card's price. A card asked for at the
@@ -579,8 +631,16 @@ def _stopped_on_rule_check(where: Path, run: str, seen: int) -> str:
     return answer
 
 
+def _stopped_by_another_writer(other: AnotherWriter) -> str:
+    """The answer of a trainer's call that found another call publishing
+    to its run (see `_publish`)."""
+    answer = f"stopped: {other}"
+    print(answer, flush=True)
+    return answer
+
+
 def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None,
-                 *, new_lineage: bool = False) -> str:
+                 *, new_lineage: bool = False, held: tuple[str | None, str | None] | None = None) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
@@ -608,7 +668,13 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     `marker`, from `_resume_of_call`, goes to the run with the call's first
     publication, so that the attempt Modal starts after it goes on from
     what this one published. `new_lineage` is for a block that did not
-    resume from the run's own lineage (see `_publish`)."""
+    resume from the run's own lineage (see `_publish`).
+
+    `held` is what `_run_state` said of the run when the call resolved its
+    resume. A run that another call has published to since this one last
+    saw it is not published to (see `_publish`): the trainer is stopped and
+    the call answers, starting "stopped: another call", rather than raise,
+    so that no retry of it starts a second writer again."""
     environment = _environment(TRAINER_CPUS, compiled=True)
     print(" ".join(command), flush=True)
     began = time.time()
@@ -618,6 +684,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     # A fresh record for every call, so its first publication copies the
     # run's best and reference whatever an earlier call published.
     published: dict[str, tuple[int, int, int]] = {}
+    publishing = {"new_lineage": new_lineage, "held": None if held is None else {"state": held}}
     print(f"the checkpoint says generation {started_at}", flush=True)
     try:
         with managed_process(subprocess.Popen(
@@ -641,7 +708,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
+                    seen = _publish(where, seen, run, started_at, published, marker, **publishing)
                     marker = None
                     # Whatever the generation compiled, kept at once.
                     _save_cache()
@@ -661,6 +728,10 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
         print(stopped, flush=True)
         _save_cache()
         raise
+    except AnotherWriter as other:
+        # The trainer has been stopped on the way out, as above.
+        _save_cache()
+        return _stopped_by_another_writer(other)
     _save_cache()
     # A last publication once the trainer has exited cleanly. The trainer
     # prints a generation's record before it appends it to the log, so the
@@ -669,7 +740,10 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     # generation whose record could not be read has not been published at
     # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
-        seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
+        try:
+            seen = _publish(where, seen, run, started_at, published, marker, **publishing)
+        except AnotherWriter as other:
+            return _stopped_by_another_writer(other)
     elif code == RULE_CHECK_EXIT and seen > started_at:
         # A trainer a check of the last hand's rules stopped ended before it
         # learned or saved the round it refused, so the workspace holds the
@@ -679,7 +753,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
         # the refused round exists to publish. The call must still end as a
         # rule check's stop, so a failure here is only said.
         try:
-            seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
+            seen = _publish(where, seen, run, started_at, published, marker, **publishing)
         except Exception as error:  # noqa: BLE001
             print(f"the last completed generation {seen} was not published again ({type(error).__name__}: "
                   f"{error}); the volume keeps what was published as each record arrived", flush=True)
@@ -812,6 +886,7 @@ def train(
     with workspace(run) as where:
         volume.reload()
         started_from = None
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         if source.exists():
             started_from = str(source)
@@ -864,7 +939,8 @@ def train(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(**TRAINER)
@@ -928,6 +1004,7 @@ def train_mortal(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         command = [
             sys.executable, "-m", "neural.train_mortal", *rounds,
@@ -965,7 +1042,8 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(**TRAINER)
@@ -1105,6 +1183,7 @@ def train_combined(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         if place_model:
             # U, as the trainer reads it, beside the checkpoint it starts from.
@@ -1174,7 +1253,8 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(

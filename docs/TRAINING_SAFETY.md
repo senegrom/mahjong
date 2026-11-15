@@ -71,8 +71,17 @@ scratch directories, volume checkpoints, and compiler caches are not deleted.
 Replay is local to the invocation and starts empty on the next cloud call;
 it remains available across generations within that call. Compiler caches
 remain separately shared. Use a new run identity to start an independent
-lineage. Simultaneous publishers for the same volume run are not supported;
-this change does not add a distributed run lock or a transactional volume.
+lineage. Simultaneous publishers for the same volume run are not supported,
+and there is no distributed run lock or transactional volume. Modal runs one
+container of a trainer at a time only for one set of options, and a launcher
+gives each run options of its own, so a second call on a run that is
+training gets a container of its own. Each trainer's call therefore notes
+the run's `generation.txt` and the call its `call.json` names when it
+resolves its resume, reloads the volume before every publication, and
+publishes nothing once either has changed by another call's hand: it stops
+its trainer and answers "stopped: another call published to ..." rather
+than fail, so that no retry starts it as a second writer again. Whichever
+of two calls finds the other's publication first stops.
 
 Opponents named for a cloud run are resolved as a whole population before
 anything is staged: one missing checkpoint aborts the invocation rather than

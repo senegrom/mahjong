@@ -145,8 +145,12 @@ class CloudIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);volume=root/'volume'
             atomic_save({'generation':4},volume/'run/latest.pt')
+            reloads=[]
             def reload():
-                clock.now+=setup
+                # The call's first reload stands for copying the run in; the
+                # reloads before each publication take no time.
+                reloads.append(clock.now)
+                if len(reloads)==1:clock.now+=setup
             def popen(command,**kwargs):
                 where=Path(command[command.index('--out')+1])
                 def lines():
@@ -459,6 +463,46 @@ class CloudIsolationTests(unittest.TestCase):
                     attempt('fc-second',1,4)
                     self.assertEqual(starts,[30,45,30])
                     self.assertEqual(validate_checkpoint(run/'latest.pt'),31)
+
+    def test_two_calls_on_one_run_never_publish_over_each_other(self):
+        # Modal keeps one container of a trainer at a time only for one set
+        # of options, so a second call on a run that is training got its
+        # own, and both published every generation over the other's. Here
+        # the other call publishes generation 41 while this one trains, once
+        # after this call's first publication and once before it.
+        import torch
+        app=controller()
+        record=lambda generation:json.dumps({'generation':generation,'checkpoint_generation':generation+1})
+        for trainer in ('train','train_mortal','train_combined'):
+            for other_first in (False,True):
+                with self.subTest(trainer=trainer,other_first=other_first),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume';run=volume/'run'
+                    atomic_save({'generation':40,'timeline':'old'},run/'latest.pt')
+                    (run/'generation.txt').write_text('40')
+                    (run/'call.json').write_text(json.dumps({'call':'fc-before'}))
+                    events=[]
+                    def other():
+                        # What the other call's publication leaves.
+                        atomic_save({'generation':41,'timeline':'other'},run/'latest.pt')
+                        (run/'generation.txt').write_text('41')
+                        (run/'call.json').write_text(json.dumps({'call':'fc-other'}))
+                    def popen(command,**kwargs):
+                        where=Path(command[command.index('--out')+1])
+                        def lines():
+                            for generation in range(40,43):
+                                if generation==(40 if other_first else 41):other()
+                                atomic_save({'generation':generation+1,'timeline':'this'},where/'latest.pt')
+                                yield record(generation)+'\n'
+                        return SimpleNamespace(stdout=lines(),wait=lambda timeout=None:0,poll=lambda:None,
+                                               terminate=lambda:events.append('terminate'),kill=lambda:None)
+                    with patch.object(app.modal,'current_function_call_id',lambda:'fc-this',create=True):
+                        answer=self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=3)
+                    self.assertTrue(answer.startswith('stopped: another call published to run'),answer)
+                    self.assertEqual(events,['terminate'])
+                    # The run is the other call's, as it published it.
+                    self.assertEqual(torch.load(run/'latest.pt',weights_only=True)['timeline'],'other')
+                    self.assertEqual((run/'generation.txt').read_text(),'41')
+                    self.assertEqual(json.loads((run/'call.json').read_text())['call'],'fc-other')
 
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
