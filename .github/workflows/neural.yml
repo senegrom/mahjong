@@ -13,6 +13,8 @@ on:
       - "web/runtime/**"
       - ".github/actions/python-engines/**"
       - ".github/workflows/neural.yml"
+      # The trainer's tests hold the image's Rust to ci.yml's toolchain.
+      - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "neural/**"
@@ -24,6 +26,8 @@ on:
       - "web/runtime/**"
       - ".github/actions/python-engines/**"
       - ".github/workflows/neural.yml"
+      # The trainer's tests hold the image's Rust to ci.yml's toolchain.
+      - ".github/workflows/ci.yml"
   schedule:
     - cron: '23 6 * * 1'
   workflow_dispatch:
