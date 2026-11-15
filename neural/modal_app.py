@@ -12,7 +12,17 @@ sees. Self-play is those two, and both must match the checkpoint exactly.
 
     modal deploy neural/modal_app.py
     modal run neural/modal_app.py::smoke
-    modal run --detach neural/modal_app.py::train --generations 40
+    modal run --detach neural/modal_app.py --generations 40
+
+The last runs `main`, the app's local entrypoint, which trains the default
+run by `train` with its other options at their defaults. `modal run` builds
+its options from a function's type hints and has none for a list, so
+`modal run ...::train`, and the same for the other trainers and the two
+pre-tests, stops before anything is launched ("Parameter `opponents` has
+unparseable annotation"). Those are called from Python once the app is
+deployed, `modal.Function.from_name("mahjong-train", "train").spawn(...)`
+with any of their options, as the launchers do. A call made either way is
+not retried unless it asks to be (see `TRAINER`).
 
 Runs live side by side on the volume, each in its own directory: `w1012-run`
 is the lineage that sees Mortal's planes, and `w320-run` the retired one
