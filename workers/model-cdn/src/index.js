@@ -49,6 +49,15 @@ function corsHeaders(origin) {
   return headers;
 }
 
+// A refusal passes the CORS check too, so the page reads its status instead
+// of a bare network error, and is never cached: an object may yet be uploaded.
+function refusal(origin, status, body, extra = {}) {
+  const headers = corsHeaders(origin);
+  headers.set('Cache-Control', 'no-store');
+  for (const [name, value] of Object.entries(extra)) headers.set(name, value);
+  return new Response(body, { status, headers });
+}
+
 /** RFC 9110 section 13.2.2: failed write-style preconditions win over
  * cache validators. Evaluate against the same object whose stream we serve.
  * Entity tags can contain commas, so do not split the list at every comma. */
@@ -86,7 +95,7 @@ export default {
       return new Response(null, { status: 204, headers });
     }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD, OPTIONS' } });
+      return refusal(origin, 405, 'Method not allowed', { Allow: 'GET, HEAD, OPTIONS' });
     }
 
     let key;
@@ -95,9 +104,9 @@ export default {
     } catch {
       // A malformed escape, such as a `%` not followed by two hex digits,
       // names no model; decodeURIComponent throws on it.
-      return new Response('Not found', { status: 404 });
+      return refusal(origin, 404, 'Not found');
     }
-    if (!KEY.test(key)) return new Response('Not found', { status: 404 });
+    if (!KEY.test(key)) return refusal(origin, 404, 'Not found');
 
     // A Range header is ignored and the whole object sent, as HTTP allows:
     // the object is stored gzipped, and a byte range of a gzip stream cannot
@@ -107,7 +116,7 @@ export default {
     // One lookup supplies both metadata and a stream; rejected/HEAD requests
     // cancel that stream without buffering or reading the model.
     const object = await env.MODELS.get(key);
-    if (object === null) return new Response('Not found', { status: 404 });
+    if (object === null) return refusal(origin, 404, 'Not found');
 
     const headers = corsHeaders(origin);
     // Carries the content type and, importantly, the content encoding: R2
