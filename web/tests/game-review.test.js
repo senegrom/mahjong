@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
-import { Asking, BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
+import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
@@ -1315,4 +1315,74 @@ test('a closed review asks nothing more and frees its replay', async () => {
   review.review();
   await settled(review);
   assert.equal(review.decisions.length, before);
+});
+
+test('a review whose network plays on the graphics card asks passes of up to GPU_BATCH, and judges every decision as before', async () => {
+  const run = async (log, options) => {
+    const review = new MatchReview(Game, game, { ...options, analyzeBatch: async (positions, signal) => {
+      log.push(positions.length);
+      await turn();
+      if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+      return positions.map(position => decisive(position.mask));
+    } });
+    try {
+      review.review();
+      await settled(review);
+      return review.decisions.map(decision => [decision.hand, decision.index, decision.advised_kind, decision.advised_tile ?? null,
+        Boolean(decision.judgement?.flagged)]);
+    } finally { review.dispose(); }
+  };
+  const wide = [], narrow = [];
+  const onCard = await run(wide, { batchMost: () => GPU_BATCH });
+  const plain = await run(narrow, {});
+  assert.ok(plain.length > 0);
+  assert.deepEqual(onCard, plain);
+  assert.ok(Math.max(...narrow) <= BATCH, 'BATCH unless the network plays on the card');
+  assert.ok(Math.max(...wide) > BATCH && Math.max(...wide) <= GPU_BATCH, JSON.stringify(wide));
+  assert.ok(wide.length < narrow.length, 'fewer passes');
+});
+
+test('the review\'s time a position is measured afresh where its batches run changes, and no batch counts during which it did', async () => {
+  // MatchReview.timed alone, on a stand-in: its clock, the worker's time for a batch, and the most a pass may ask,
+  // eight on WebAssembly and sixty-four on the graphics card, which is all the review hears of where its batches run.
+  let clock = 0, most = BATCH, took = 0, meanwhile = null;
+  const review = Object.assign(Object.create(MatchReview.prototype), { now: () => clock, batchMost: () => most, asked: 0, pending: 0,
+    timedMs: null, ranOn: null,
+    analyzeBatch: async positions => { clock += took; meanwhile?.(); meanwhile = null; return positions.map(() => ({})); } });
+  const timed = (count, ms, during = null) => { took = ms; meanwhile = during; return MatchReview.prototype.timed.call(review, Array.from({ length: count }, () => ({}))); };
+  await timed(8, 2000);
+  assert.equal(review.positionMs, null, 'the first batch carries the network\'s load');
+  await timed(8, 960);
+  assert.equal(review.positionMs, 120);
+  await timed(8, 1280);
+  assert.equal(review.positionMs, 130, 'three parts of what it was and one of the new');
+  // The card comes up while a batch is with WebAssembly: a measure of neither.
+  await timed(8, 960, () => { most = GPU_BATCH; });
+  assert.equal(review.positionMs, null);
+  // The next is the card's, and not weighed against WebAssembly's 130.
+  await timed(16, 80);
+  assert.equal(review.positionMs, 5);
+  // A batch out of the card's ten seconds, answered on WebAssembly after them: no slow device is made of a fast one.
+  await timed(2, 10240, () => { most = BATCH; });
+  assert.equal(review.positionMs, null);
+  assert.equal(batchFor(review.positionMs, { most }), BATCH);
+  await timed(2, 240);
+  assert.equal(review.positionMs, 120);
+  assert.ok(review.positionMs < SLOW_MS);
+  // The card ready between two batches: the next is measured afresh too.
+  most = GPU_BATCH;
+  await timed(16, 96);
+  assert.equal(review.positionMs, 6);
+  // A single position is WebAssembly's even then, and no measure of the card; on WebAssembly it counts as any batch.
+  await timed(1, 120);
+  assert.equal(review.positionMs, 6);
+  // The card declined with no batch of the review under way, on a search's pass: whoever reads the time
+  // reads none of the card's, at once, and the review is not slow for it.
+  most = BATCH;
+  assert.equal(review.positionMs, null);
+  assert.equal(review.slow, false);
+  assert.equal(review.decisionMs, null);
+  await timed(1, 120);
+  assert.equal(review.positionMs, 120);
+  assert.equal(review.pending, 8 * 4 + 16 + 2 + 2 + 16 + 1 + 1);
 });

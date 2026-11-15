@@ -48,7 +48,7 @@
  * MatchInsight, which asks for the decision on show alone.
  */
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
-import { batchFor } from './game-review.js';
+import { BATCH, batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
 import { MatchSession } from './session.js';
 import { averagedAnswers } from './suits.js';
@@ -207,9 +207,12 @@ export function questionOf(decision, position) {
  * is under way. The three must be spells apart: a search waiting for its own
  * spell to end would never ask. `positionMs()` is the review's time a
  * position, read as each begins, which sizes its passes as the review's
- * batches (batchFor), a table counted as FORWARDS_A_TABLE positions.
+ * batches (batchFor), a table counted as FORWARDS_A_TABLE positions, and
+ * `batchMost()` the most positions a pass may ask, as the review's are
+ * (batchMostFor): more once batches run on the graphics card.
  * `askBoth` is trainedAsk's. */
-export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth }) {
+export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking, notes, batches, positionMs = () => null, askBoth,
+  batchMost = () => BATCH }) {
   if (asking === notes) throw new Error('A search needs a spell of asking apart from the notes\'');
   if (!batches || batches === asking || batches === notes) throw new Error('The worker\'s batches need spells of their own (countedBatches)');
   const send = countedBatches(analyzeBatch, batches), gate = anyGate(notes, batches);
@@ -217,7 +220,7 @@ export function reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, as
     let end = null, out = 0, over = false;
     const close = () => { if (over && !out) end?.(); };
     const settled = () => { out--; close(); };
-    const size = batchFor(positionMs() * FORWARDS_A_TABLE);
+    const size = batchFor(positionMs() * FORWARDS_A_TABLE, { most: batchMost() });
     const ask = trainedAsk({ PhysicalAnalysis, analyzeBatch: send, gate, size, sent: pass => { out++; pass.then(settled, settled); }, askBoth });
     try {
       return await work((positions, signal) => { end ??= asking.begin(); return ask(positions, signal); }, size);
@@ -255,9 +258,13 @@ export function searchTime({ tables, most }, positionMs) {
  * decision came on show, or as first measured after, and kept while the
  * decision stays on show, whatever the review measures meanwhile. Otherwise
  * the button's words, and the name a screen reader says again as it changes,
- * would follow every batch the review times. `kept` is what was kept before. */
+ * would follow every batch the review times. It is let go once the review
+ * has none: its batches then run elsewhere than where the time was measured
+ * (MatchReview.positionMs), a graphics card declined or come up meanwhile,
+ * and a search timed by it would be promised a hundred times too fast or too
+ * slow. `kept` is what was kept before. */
 export function keptTime(kept, at, positionMs) {
-  return kept?.at === at && kept.ms != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
+  return kept?.at === at && kept.ms != null && positionMs != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
 }
 
 /** Waits until the page has drawn what was changed before it: a frame, then a

@@ -84,6 +84,16 @@ nothing for two minutes. The 20-second deadline for a move starts only once the
 network is loaded and the worker begins that move. A Retry after a failed start
 tries offline saving again.
 
+On a desktop whose reviews run on its graphics card (see [WebGPU on
+desktops](ONNX_RUNTIME.md#webgpu-on-desktops)), the WebGPU runtime's 29.9 MB
+are not part of that package, so no player downloads them for offline play:
+the build lists them in their own group, `webgpu`, which no status counts and
+no download prepares, and the service worker saves each file, checked like
+any other, the first time a page fetches it. Offline, a desktop that brought
+its card up before can again; one that never did, or whose copy is gone,
+reviews on WebAssembly, for that visit, as everyone else does. Play is never
+on the card.
+
 The service worker saves the runtime (a few megabytes); the page saves the
 network itself (over 100 MB), because a browser cuts a service worker's work
 short after a few minutes, too soon for the network on a slow link (see

@@ -695,6 +695,19 @@
     }
   }
 
+  /* The sheen and the reveal move by being painted again, and each frame
+     of either paints the part of the page around it again, every tile's
+     picture in it with it. The browser does that where it also runs the
+     graphics card's work for a review, which then waits behind every frame:
+     with six dora in view a batch took the card 4.5 s, and 0.07 s with them
+     still (Chrome on a desktop, 12 November 2026). So both hold still, where
+     they are, while the card answers a batch (CARD_AT_WORK in
+     gpu-batches.js), a tenth of a second or so at a time, and go on from
+     there. */
+  :global(:root[data-card-at-work]) :is(.foil, .haku-dragon-reveal) {
+    animation-play-state: paused;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .haku-dragon-reveal {
       animation: none;

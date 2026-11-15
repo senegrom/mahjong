@@ -1,14 +1,16 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { offlineBuild } from './scripts/offline-build.mjs';
-import { runtimeDirectory } from './scripts/copy-runtime.mjs';
+import { runtimeDirectory, webgpuDirectory } from './scripts/copy-runtime.mjs';
 
 // The site is served from a project page, so assets resolve relatively.
 export default defineConfig(async () => ({
   base: './',
   plugins: [svelte(), offlineBuild()],
-  // The trained runtime's folder, named by its contents (scripts/copy-runtime.mjs).
-  define: { __RUNTIME_DIRECTORY__: JSON.stringify(await runtimeDirectory()) },
+  // The trained runtime's folder and the WebGPU runtime's, each named by its
+  // contents (scripts/copy-runtime.mjs).
+  define: { __RUNTIME_DIRECTORY__: JSON.stringify(await runtimeDirectory()),
+    __WEBGPU_RUNTIME_DIRECTORY__: JSON.stringify(await webgpuDirectory()) },
   // Select the external-WASM entry instead of bundling the generic ORT binary.
   resolve: {
     conditions: ['onnxruntime-web-use-extern-wasm', 'module', 'browser', 'development|production'],

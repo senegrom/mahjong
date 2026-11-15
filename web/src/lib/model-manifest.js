@@ -6,7 +6,9 @@
  * carries the network's own digest, so the response may be immutable and a
  * different export is a different address; `network-store.js` checks the
  * digest again before anything runs. Each names the reward it learned from,
- * which the page says beside the network's value.
+ * which the page says beside the network's value. One whose graph runs whole
+ * on WebGPU says so (`webgpu`), and the page may run a review's batches of it
+ * on the graphics card; one listed without the field never does.
  */
 export const NETWORKS = Object.freeze([
   {
@@ -18,11 +20,12 @@ export const NETWORKS = Object.freeze([
       "alpha": 0.05
     },
     "precision": "float32",
-    "bytes": 116633861,
-    "storedBytes": 107861778,
+    "bytes": 116935691,
+    "storedBytes": 107878377,
     "origin": "https://mahjong-model.connect4-chaos.workers.dev",
-    "object": "models/g3000/3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5",
-    "sha256": "3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5"
+    "object": "models/g3000/afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc",
+    "sha256": "afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc",
+    "webgpu": true
   },
   {
     "version": "0.1.2610",

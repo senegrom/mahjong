@@ -13,13 +13,14 @@
   import Standings from './lib/Standings.svelte';
   import Review from './lib/Review.svelte';
   import GameReview from './lib/GameReview.svelte';
-  import { Asking, MatchReview } from './lib/game-review.js';
+  import { Asking, MatchReview, batchMostFor } from './lib/game-review.js';
   import { MatchInsight, anyGate, countedBatches, reviewInsight } from './lib/review-insight-policy.js';
   import { readTrend, recordTrend } from './lib/review-trend.js';
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
   import { analyzeBatch, analyzePolicy, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
   import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
@@ -164,8 +165,13 @@
   // worker, one at most, as it waited behind a batch before.
   const insightAsking = new Asking(), workerBatches = new Asking();
   const reviewBatch = countedBatches(analyzeBatch, workerBatches);
+  // A review and its reasoning ask bigger batches once their batches run on
+  // the graphics card (batchMostFor, gpu-batches.js), which the settings
+  // name too. Play never runs there.
+  const batchMost = () => batchMostFor(policyRuntime());
+  let trainedRuntime = $state(policyRuntime());
   const reasoning = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch, asking: insightAsking, notes: notesAsking,
-    batches: workerBatches, positionMs: () => matchReview?.positionMs ?? null });
+    batches: workerBatches, positionMs: () => matchReview?.positionMs ?? null, batchMost });
   // The reviewed games this browser keeps, which a finished review joins.
   let reviewTrend = $state.raw(readTrend(storage));
 
@@ -355,6 +361,14 @@
       onChange: available => { if (mounted) trainedAvailable = available; },
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
+    // Where a review's batches run decides its time a position, which is none
+    // once they run elsewhere than where it was measured (MatchReview): its
+    // screen keeps what it last read, so the review tells it to read again.
+    reportRuntime((value) => {
+      if (!mounted) return;
+      trainedRuntime = value;
+      matchReview?.notify();
+    });
     const startup = new AbortController();
     // Full-package caching has its own honest status. An unavailable unused
     // face set must not prevent a game with the selected graphics opening.
@@ -389,6 +403,7 @@
       matchReview?.dispose();
       session?.dispose();
       reportProgress(null);
+      reportRuntime(null);
       resetPolicy();
     };
   });
@@ -712,7 +727,7 @@
     try {
       if (matchReview) takeReviewOn(session.snapshot());
       else {
-        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch: reviewBatch, gate: anyGate(notesAsking, insightAsking),
+        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch: reviewBatch, gate: anyGate(notesAsking, insightAsking), batchMost,
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
@@ -779,7 +794,7 @@
 <main>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
     {tileFace} {pendingTileFace} onfacechange={changeTileFace}
-    network={network.version} onnetworkchange={changeNetwork}
+    network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />

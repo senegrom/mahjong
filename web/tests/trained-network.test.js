@@ -12,7 +12,10 @@ test('the manifest lists every network whole, the default first, and keeps expor
   assert.equal(MANIFEST, NETWORKS[0], 'every script that imports MANIFEST gets the default');
   assert.ok(Object.isFrozen(NETWORKS));
   for (const network of NETWORKS) {
-    assert.deepEqual(Object.keys(network), IDENTITY);
+    // A network published since the field says whether its graph runs whole
+    // on WebGPU; one listed before it says nothing, and plays on WebAssembly.
+    assert.deepEqual(Object.keys(network), 'webgpu' in network ? [...IDENTITY, 'webgpu'] : IDENTITY);
+    if ('webgpu' in network) assert.equal(typeof network.webgpu, 'boolean');
     assert.ok(Object.isFrozen(network));
     assert.ok(Object.isFrozen(network.reward));
     assert.match(network.version, /^\d+\.\d+\.\d+$/);
@@ -26,16 +29,20 @@ test('the manifest lists every network whole, the default first, and keeps expor
 
 test('0.1.3000 is the default, and 0.1.2610, 0.1.1410, 0.1.810 and 0.1.410 stay listed as published, newest first', () => {
   // Generation 3000 of fusion-place-ruled, which went on from 2610 with the
-  // same reward, at the owner's word; 2610, 1410, 810 and 410 are the exports
+  // same reward, at the owner's word, in the export of 11 November: the same
+  // weights with Mish written without Softplus, so that its graph runs whole
+  // on WebGPU, which its entry says. 2610, 1410, 810 and 410 are the exports
   // the site played before it, byte for byte. 1110, the default from 19 to 21
   // October, is no longer listed, at the owner's word.
   const origin = 'https://mahjong-model.connect4-chaos.workers.dev';
   assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.3000', '0.1.2610', '0.1.1410', '0.1.810', '0.1.410']);
   assert.equal(MANIFEST, find('0.1.3000'));
   assert.deepEqual({ ...find('0.1.3000') }, { version: '0.1.3000', source: 'fusion-place-ruled/history/gen-03000', generation: 3000,
-    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107861778, origin,
-    object: 'models/g3000/3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5',
-    sha256: '3d33501945786ac05bdcc09f4d6b9e42d2f5d64b93124b75583e18ed9e0135d5' });
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116935691, storedBytes: 107878377, origin,
+    object: 'models/g3000/afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc',
+    sha256: 'afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc', webgpu: true });
+  // The exports from before the field say nothing of WebGPU, and stay on WebAssembly.
+  for (const network of NETWORKS.slice(1)) assert.equal('webgpu' in network, false, network.version);
   assert.deepEqual({ ...find('0.1.2610') }, { version: '0.1.2610', source: 'fusion-place-a005/history/gen-02610', generation: 2610,
     reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116633861, storedBytes: 107861561, origin,
     object: 'models/g2610/422d3a87d1143f7b2bbe161e9920e99891b00ce213fb472813fc95be1487b721',

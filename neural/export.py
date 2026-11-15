@@ -26,6 +26,7 @@ export with web/scripts/publish-model-r2.mjs.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -94,13 +95,89 @@ def quantise(source: Path, destination: Path) -> None:
         onnx.save(model, str(destination))
 
 
+class ExportMish(torch.nn.Module):
+    """Mish, x * tanh(softplus(x)), written as both of the browser's runtimes
+    run it whole.
+
+    Exported as it is, Mish is a Softplus, a Tanh and a Mul, and ONNX Runtime
+    Web's WebGPU provider has no Softplus kernel: each of Mortal's 163 falls
+    back to the processor, and the network ran at 36 positions a second in a
+    batch of 64 on a desktop card instead of over a thousand. Exp and Log, the
+    other way to write it, are not in the reduced WebAssembly runtime. With
+    s = sigmoid(x) and t = 1 - s, tanh(softplus(x)) = s (1 + t) / (1 + t^2),
+    which is exact in real arithmetic and needs only Sigmoid, Sub, Add, Mul
+    and Div, which both runtimes carry. In ONNX Runtime's float arithmetic on
+    the processor it stays within 2.3e-6 of Mish for every x (measured from
+    -40 to 40 in onnxruntime 1.29, 13 November 2026): for large x, t vanishes
+    and it is x, and from about -18 down the runtime's Sigmoid is nought,
+    where Mish itself is within 3e-7 of it. Only the export uses it
+    (export_activations); the parity check compares the graph with the
+    network's own Mish.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        s = torch.sigmoid(x)
+        t = 1 - s
+        return x * (s * (1 + t)) / (1 + t * t)
+
+
+@contextlib.contextmanager
+def export_activations(module):
+    """Every Mish in `module` swapped for ExportMish while the block runs,
+    and put back after it, so that what is exported is free of Softplus and
+    what it is checked against is the network as trained. A Mish is found
+    where it is a module's child; one called as a function, or held outside
+    the module tree, is not, and check_operators then refuses the Softplus
+    it leaves."""
+    swapped = []
+    if isinstance(module, torch.nn.Module):
+        for parent in module.modules():
+            for name, child in parent.named_children():
+                if isinstance(child, torch.nn.Mish):
+                    swapped.append((parent, name, child))
+    try:
+        for parent, name, _child in swapped:
+            setattr(parent, name, ExportMish())
+        yield len(swapped)
+    finally:
+        for parent, name, child in swapped:
+            setattr(parent, name, child)
+
+
+def export_graph(wrapped, example: tuple, names: list[str], destination: Path) -> None:
+    """The playable network written to `destination` as the browser's graph.
+
+    The one place a graph is written, for the site's export and for the small
+    networks the tests export alike: one written apart went out with the
+    Softplus check_operators refuses. Mish is in its form free of Softplus
+    (export_activations) only while the exporter runs, so what a check then
+    compares the graph with is the network as trained.
+    """
+    with export_activations(wrapped):
+        torch.onnx.export(
+            wrapped, example, str(destination), input_names=names,
+            output_names=list(OUTPUTS),
+            dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
+            opset_version=17, dynamo=False,
+        )
+
+
 def check_operators(destination: Path, insist: bool = True) -> None:
-    """Refuse missing kernels unless explicitly exporting to widen the runtime."""
+    """Refuse missing kernels unless explicitly exporting to widen the runtime,
+    and a Softplus among the graph's own nodes, which the WebGPU provider
+    would run on the processor. Told not to insist, it only says so."""
     import onnx
 
     allowed = runtime_operators()
     needed = {node.op_type for node in onnx.load(str(destination)).graph.node}
     print(f"operators: {', '.join(sorted(needed))}")
+    if "Softplus" in needed:
+        message = "the graph holds a Softplus, which WebGPU runs on the processor; export Mish as ExportMish"
+        if insist:
+            raise SystemExit(message)
+        print(message)
+    else:
+        print("activations: free of Softplus, so the graph runs whole on WebGPU")
     if allowed is None:
         message = "no runtime operator list found; the browser's build was not checked"
         if insist:
@@ -340,12 +417,9 @@ def main() -> None:
     # an existing playable model on validation failures or interrupted copies.
     with tempfile.TemporaryDirectory(dir=destination.parent) as scratch:
         full = Path(scratch) / "float32.onnx"
-        torch.onnx.export(
-            wrapped, example, str(full), input_names=names,
-            output_names=list(OUTPUTS),
-            dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
-            opset_version=17, dynamo=False,
-        )
+        # Mish goes out in a form free of Softplus (ExportMish), and is back
+        # before check_runs compares the graph with the network.
+        export_graph(wrapped, example, names, full)
         made = full if args.float32 else Path(scratch) / "int8.onnx"
         if not args.float32:
             quantise(full, made)

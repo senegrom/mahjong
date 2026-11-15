@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { publish, atomicManifest, listedNetworks, manifestSource } from '../scripts/publish-model-r2.mjs';
+import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource, publish,
+  runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
@@ -15,11 +16,17 @@ async function folder(t) {
   return dir;
 }
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-// The smallest ONNX model the publisher reads: a graph holding one initializer
-// of ONNX element type `type`, whose stored bytes are `data`.
-function network(type, data) {
-  const message = (field, body) => Buffer.concat([Buffer.from([field * 8 + 2, body.length]), body]);
-  return message(7, message(5, Buffer.concat([Buffer.from([2 * 8, type]), message(9, Buffer.from(data))])));
+// A length-delimited field; its key is a varint, two bytes from field 16.
+const message = (field, body) => Buffer.concat([Buffer.from(field < 16 ? [field * 8 + 2] : [(field * 8 + 2) % 128 + 128, (field * 8 + 2) >> 7]),
+  Buffer.from([body.length]), Buffer.from(body)]);
+const node = op => message(1, message(4, op));
+// The smallest ONNX model the publisher reads: a graph of nodes running
+// `operators` (or nodes given whole), holding one initializer of ONNX element
+// type `type`, whose stored bytes are `data`. `extra` is laid after the
+// graph, in the model.
+function network(type, data, operators = ['Conv', 'Sigmoid'], extra = Buffer.alloc(0)) {
+  return Buffer.concat([message(7, Buffer.concat([...operators.map(op => (typeof op === 'string' ? node(op) : op)),
+    message(5, Buffer.concat([Buffer.from([2 * 8, type]), message(9, Buffer.from(data))]))])), extra]);
 }
 
 test('interleaved publishers upload only their own immutable staged bytes', async t => {
@@ -113,6 +120,39 @@ test('the manifest records the precision the weights are stored in, or nothing i
   assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
 });
 
+test('the manifest says whether the graph runs whole on WebGPU, read from its operators', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const request = { modelPath, manifestPath, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid', upload: () => {} };
+  // A function's nodes (ModelProto.functions, FunctionProto.node) and a
+  // subgraph's (an attribute's graph) are read as the graph's own are.
+  const inFunction = message(25, message(7, message(4, 'Softplus')));
+  const inSubgraph = message(1, Buffer.concat([message(4, 'If'), message(5, message(6, node('Softplus')))]));
+  for (const [generation, operators, extra, webgpu] of [[1, ['Conv', 'Sigmoid', 'Div'], undefined, true],
+    [2, ['Conv', 'Softplus', 'Tanh'], undefined, false], [3, ['Conv'], inFunction, false], [4, ['Conv', inSubgraph], undefined, false]]) {
+    await fs.writeFile(modelPath, network(1, `weights ${generation}`, operators, extra));
+    const entry = await publish({ ...request, generation });
+    assert.equal(entry.webgpu, webgpu, `generation ${generation}`);
+    assert.equal((await listedNetworks(manifestPath))[0].webgpu, webgpu);
+  }
+  // A network listed before the field keeps working without it, and is kept
+  // as it is; a field that is not a yes or no is not a whole entry.
+  const [listed] = await listedNetworks(manifestPath);
+  const { webgpu: _, ...older } = listed;
+  await fs.writeFile(manifestPath, manifestSource([older]));
+  await fs.writeFile(modelPath, network(1, 'weights 5'));
+  await publish({ ...request, generation: 5 });
+  assert.deepEqual((await listedNetworks(manifestPath)).map(entry => [entry.version, entry.webgpu]), [['0.1.5', true], [older.version, undefined]]);
+  for (const webgpu of ['yes', 1, null]) {
+    const text = manifestSource([{ ...older, webgpu }]);
+    await fs.writeFile(manifestPath, text);
+    await assert.rejects(publish({ ...request, generation: 6 }), /network whose webgpu is not valid/);
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), text);
+  }
+  // A graph with no nodes is not a network.
+  await fs.writeFile(modelPath, network(1, 'weights 7', []));
+  await assert.rejects(publish({ ...request, generation: 7 }), /operators/);
+});
+
 /** The manifest at path as the page imports it. */
 async function imported(path) {
   return import(`data:text/javascript;base64,${Buffer.from(await fs.readFile(path)).toString('base64')}`);
@@ -135,7 +175,7 @@ test('a published network becomes the default and every network listed before it
   assert.deepEqual(listed.map(entry => ({ ...entry })), [...published].reverse(), 'each keeps its whole identity');
   assert.deepEqual(sent, published.map(entry => entry.object));
   for (const entry of listed) {
-    assert.deepEqual(Object.keys(entry), ['version', 'source', 'generation', 'reward', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256']);
+    assert.deepEqual(Object.keys(entry), ['version', 'source', 'generation', 'reward', 'precision', 'bytes', 'storedBytes', 'origin', 'object', 'sha256', 'webgpu']);
     assert.equal(entry.object, `models/g${entry.generation}/${entry.sha256}`);
   }
   assert.deepEqual(await listedNetworks(manifestPath), [...published].reverse());
@@ -216,4 +256,34 @@ test('the checked-in manifest is what the publisher writes, and reads back whole
   // A Windows checkout may end its lines with CR LF; the module is the same.
   assert.equal((await fs.readFile(path, 'utf8')).replaceAll('\r\n', '\n'), manifestSource(NETWORKS.map(entry => ({ ...entry }))));
   assert.deepEqual(await listedNetworks(path), NETWORKS.map(entry => ({ ...entry })));
+});
+
+test('the WebGPU kernels the publisher counts on are every one the installed runtime resolves', async () => {
+  // The provider's own table in the installed onnxruntime-web, which an
+  // update that dropped a kernel would no longer list.
+  const source = await fs.readFile(fileURLToPath(new URL('../node_modules/onnxruntime-web/dist/ort.mjs', import.meta.url)), 'utf8');
+  const start = source.indexOf('WEBGPU_OP_RESOLVE_RULES = ');
+  assert.ok(start > 0, 'the runtime names its WebGPU kernels');
+  const table = source.slice(start, source.indexOf(']);', start));
+  const installed = new Set([...table.matchAll(/\["([A-Za-z0-9]+)",/g)].map(match => match[1]));
+  assert.ok(installed.size > 50);
+  assert.deepEqual([...WEBGPU_KERNELS].filter(op => !installed.has(op)), [], 'every pinned kernel is still in the runtime');
+  // The operators that need no kernel are not kernels the table has.
+  assert.deepEqual([...WEBGPU_WITHOUT_KERNEL].filter(op => installed.has(op)), []);
+  // The export without Softplus runs whole; the shipped export, an int8
+  // export and anything the provider lacks do not.
+  const exported = ['Add', 'BatchNormalization', 'Cast', 'Concat', 'Constant', 'ConstantOfShape', 'Conv', 'Div', 'Equal', 'Expand',
+    'Flatten', 'Gather', 'Gemm', 'Greater', 'InstanceNormalization', 'MatMul', 'Mul', 'Not', 'ReduceMax', 'ReduceMean', 'ReduceSum',
+    'Relu', 'Reshape', 'Shape', 'Sigmoid', 'Split', 'Squeeze', 'Sub', 'Unsqueeze', 'Where'];
+  assert.equal(runsOnWebgpu(new Set(exported)), true);
+  assert.equal(runsOnWebgpu(new Set([...exported, 'Softplus', 'Tanh'])), false);
+  for (const op of ['DynamicQuantizeLinear', 'MatMulInteger', 'ConvInteger', 'If', 'Loop']) {
+    assert.equal(runsOnWebgpu(new Set([...exported, op])), false, op);
+  }
+});
+
+test('the operators are read from the graph, its subgraphs and its functions', () => {
+  const inSubgraph = message(1, Buffer.concat([message(4, 'If'), message(5, message(6, node('Softplus')))]));
+  const inFunction = message(25, message(7, message(4, 'Erf')));
+  assert.deepEqual([...graphOperators(network(1, 'weights', ['Conv', inSubgraph], inFunction))].sort(), ['Conv', 'Erf', 'If', 'Softplus']);
 });

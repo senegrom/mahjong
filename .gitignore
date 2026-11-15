@@ -39,6 +39,7 @@ web/src/wasm/
 
 # Copied from the package at build time, not source.
 web/public/ort/
+web/public/ort-webgpu/
 
 # Browser UI regression evidence
 web/test-results/

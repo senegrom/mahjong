@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
 import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
-import { Asking, batchFor, scanMatch } from '../src/lib/game-review.js';
+import { Asking, GPU_BATCH, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
 import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight,
   searchTime, trainedAsk } from '../src/lib/review-insight-policy.js';
@@ -333,6 +333,20 @@ test('a pass takes about as long as the review\'s batch at the device\'s speed, 
   assert.deepEqual([found.status, network.sizes], ['searched', Array(18).fill(2)]);
 });
 
+test('on the graphics card a pass may ask up to GPU_BATCH tables, and the search finds what it found in passes of PASS', async () => {
+  const search = async batchMost => {
+    const network = recordedNetwork(), asking = new Asking(), notes = new Asking(), batches = new Asking();
+    const insight = reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, positionMs: () => 1,
+      askBoth: askOnce, ...(batchMost ? { batchMost } : {}) });
+    return { found: await insight.search(questionOf(reviewedDecision(), entry.position)), sizes: network.sizes };
+  };
+  const card = await search(() => GPU_BATCH), plain = await search();
+  assert.equal(card.found.status, 'searched');
+  assert.equal(JSON.stringify(card.found), JSON.stringify(plain.found));
+  assert.ok(Math.max(...plain.sizes) <= PASS);
+  assert.ok(Math.max(...card.sizes) > PASS && Math.max(...card.sizes) <= GPU_BATCH, JSON.stringify(card.sizes));
+});
+
 test('a table where the seat may both add to its pon and declare a quad is read back as the review reads it', async () => {
   // Mortal has one kan, which the engine gives to the first kan open, so the
   // review lists the added kan at no weight. The answer read back lists it
@@ -558,7 +572,7 @@ test('the button says about how long a search takes, from the tables it asks fir
   assert.deepEqual([searchTime(counts, null), searchTime(counts, 0), searchTime({ tables: 0, most: 0 }, 157)], [null, null, null]);
 });
 
-test("the button's time is the review's speed as it stood when the decision came on show, kept while it stays on show", () => {
+test("the button's time is the review's speed as it stood when the decision came on show, kept while it stays on show and the review has one", () => {
   let kept = keptTime(null, '3:4', 157);
   assert.deepEqual(kept, { at: '3:4', ms: 157 });
   kept = keptTime(kept, '3:4', 170);
@@ -568,6 +582,13 @@ test("the button's time is the review's speed as it stood when the decision came
   kept = keptTime(null, '3:4', null);
   assert.deepEqual(kept, { at: '3:4', ms: null });
   assert.deepEqual(keptTime(kept, '3:4', 160), { at: '3:4', ms: 160 });
+  // The review has no time any more: its batches run elsewhere than where the
+  // kept one was measured, on WebAssembly since the graphics card was
+  // declined. The kept time is let go, for the decision on show too, and the
+  // first measured there is taken.
+  kept = keptTime({ at: '3:4', ms: 6 }, '3:4', null);
+  assert.deepEqual(kept, { at: '3:4', ms: null }, 'a time measured on a card since declined times no search');
+  assert.deepEqual(keptTime(kept, '3:4', 124), { at: '3:4', ms: 124 });
 });
 
 test("the search is not offered below the margin floor, nor where the Why line finds that Trained AI does not answer the decision's table as the review recorded", async () => {

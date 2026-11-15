@@ -1,6 +1,7 @@
 /** Render the real Tile component with its production CSS. The temporary
  * fixture never ships. Test mask motion (not just opacity), asset loading,
- * rotated geometry, prop changes, hidden tiles and reduced motion. */
+ * rotated geometry, prop changes, hidden tiles, reduced motion and the hold
+ * while the graphics card works. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createFixtureHandler } from './static-fixture-server.mjs';
@@ -144,6 +145,34 @@ let writtenShown = $state(false);
     for(const id of ['dora','small','tiny','rotated','muted']) assert.ok(await page.$(`#${id} .haku-dragon-reveal`));
     assert.match(await page.$eval('#dora .tile',el=>el.getAttribute('aria-label')),/^white dragon, dora$/);
     assert.equal(await page.$eval('#dora .haku-dragon-reveal',el=>el.getAttribute('aria-hidden')),'true');
+  });
+  // Before this script freezes any animation itself: each is as its style alone drives it.
+  await check('the sheen and the reveal hold still while the graphics card works, and go on from where they held',async()=>{
+    const read=()=>page.$eval('#dora .face',el=>[...el.querySelectorAll('.haku-dragon-reveal,.foil')].map(e=>{
+      const style=getComputedStyle(e),[animation]=e.getAnimations();
+      return {style:style.animationPlayState,state:animation.playState,time:animation.currentTime,now:performance.now(),at:e.classList.contains('foil')?style.backgroundPosition:style.maskPosition};
+    }));
+    const wait=ms=>new Promise(done=>setTimeout(done,ms));
+    const running=await read();
+    assert.deepEqual(running.map(one=>[one.style,one.state]),[['running','running'],['running','running']]);
+    // The attribute the page's root carries while the card runs a batch (CARD_AT_WORK in gpu-batches.js).
+    // A pause is taken up with the next frame, and until then the time still reads on: two frames pass first.
+    await page.evaluate(()=>{document.documentElement.setAttribute('data-card-at-work','');return new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));});
+    const held=await read();
+    assert.deepEqual(held.map(one=>[one.style,one.state]),[['paused','paused'],['paused','paused']]);
+    assert.ok(held.every((one,index)=>one.time>=running[index].time));
+    await wait(300);
+    const still=await read();
+    assert.deepEqual(still.map(one=>[one.time,one.at]),held.map(one=>[one.time,one.at]),'neither moves while the card works');
+    const released=await page.evaluate(()=>{document.documentElement.removeAttribute('data-card-at-work');return performance.now();});
+    await page.waitForFunction(times=>[...document.querySelectorAll('#dora .face .haku-dragon-reveal,#dora .face .foil')].every((e,index)=>e.getAnimations()[0].currentTime>times[index]),{timeout:10000},held.map(one=>one.time));
+    const on=await read();
+    assert.deepEqual(on.map(one=>[one.style,one.state]),[['running','running'],['running','running']]);
+    // Both go on, and from where they held: by no more than the time since, the hold's own not made up.
+    for(const [index,one] of on.entries()){
+      assert.ok(one.time>held[index].time,'goes on');
+      assert.ok(one.time-held[index].time<=one.now-released+50,`went on ${one.time-held[index].time} ms in ${one.now-released} ms`);
+    }
   });
   await check('mask travels with the shine while the dragon artwork stays still',async()=>{
     const positions=[];

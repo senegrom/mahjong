@@ -72,7 +72,12 @@ async function status(version) {
   let aiRequested = false;
   try {
     const cache = await caches.open(CACHE);
-    for (const entry of CONFIG.entries) if (!(await cached(cache, entry))) complete[entry.group] = false;
+    // The WebGPU runtime's files ('webgpu') count in neither: they are saved
+    // as a page first fetches them, and without them the page plays on the
+    // processor.
+    for (const entry of CONFIG.entries) {
+      if (entry.group in complete && !(await cached(cache, entry))) complete[entry.group] = false;
+    }
     if (complete.ai && !(await networkReady(network))) complete.ai = false;
     aiRequested = Boolean(await cache.match(requestedKey()));
   } catch { complete.core = false; complete.ai = false; }

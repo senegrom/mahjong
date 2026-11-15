@@ -54,7 +54,10 @@ declare riichi. Open hands also receive readiness markings. Only legal discards
 can have these borders: pending calls, disabled tiles, hidden faces, melds and
 completed-hand displays do not acquire them. The existing dora/ura-dora foil and
 red border, safety and selection cues are retained; overlapping marks use the
-existing striped ring so no cue hides another.
+existing striped ring so no cue hides another. The foil's sheen holds still for
+the tenth of a second or so in which a desktop's graphics card answers a batch
+of a review, and goes on from where it was (see [WebGPU on
+desktops](ONNX_RUNTIME.md#webgpu-on-desktops)).
 
 A newly drawn tile keeps its accessible “just drawn” label and is separated by
 a gap on desktop, phones and landscape layouts, but has no border merely for
@@ -736,7 +739,11 @@ first to the most it may ask, each 1.43 positions on average, those Trained
 AI hesitates over asked twice, at the review's own time a position as it
 stood when the decision came on show, so the words do not change under the
 player ("What would change its mind? · about 8–14 s"; one figure where both
-round alike, "about 1 s", and minutes from a minute, "about 4–5 min"). It asks Trained AI about the table changed in one
+round alike, "about 1 s", and minutes from a minute, "about 4–5 min"). Where
+the review's batches have moved to the graphics card or back since that time
+was measured, the review has none until it measures one there, the page has
+it tell its screen, and the button says no time meanwhile, for the decision
+on show too: a time from the other runtime would be a hundred times out. It asks Trained AI about the table changed in one
 thing the player could see, a tile of the hand, a discard, the dora
 indicator, a riichi, the score or the round, only as a game can reach it, and
 never the wall, the dealer or a call taken back; pairs of changes only where

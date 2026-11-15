@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { hasStoredNetwork, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { hasStoredNetwork, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
 
 const good = Uint8Array.from([1, 2, 3, 4]);
 const expect = { bytes: good.length, sha256: createHash('sha256').update(good).digest('hex') };
@@ -143,4 +143,29 @@ test('storage that refuses a verified download hands its bytes to the caller, so
   assert.deepEqual(refused.bytes, good, 'the verified bytes travel with the refusal');
   assert.equal(f.fetches(), 1);
   assert.equal(await hasStoredNetwork(url, expect), false, 'and nothing claims they were stored');
+});
+
+test('the graphics card\'s reader never downloads, and deletes only what it read and found to be other bytes', async t => {
+  // The stored network, verified.
+  const stored = fixture(t, { cached: good, headers: record });
+  assert.deepEqual(await storedNetworkBytes({ url, expect }), good);
+  // None stored: none given, and none fetched.
+  const none = fixture(t);
+  assert.equal(await storedNetworkBytes({ url, expect }), null);
+  assert.equal(none.fetches(), 0);
+  // Other bytes under its name are no network, and go.
+  const wrong = fixture(t, { cached: Uint8Array.from([4, 3, 2, 1]), headers: record });
+  assert.equal(await storedNetworkBytes({ url, expect }), null);
+  assert.equal(wrong.deleted(), 1);
+  assert.equal(wrong.fetches(), 0);
+  // One it could not read, for want of memory or for a fault of the storage, stays: offline play depends on it,
+  // and the page's own reader may read it yet.
+  for (const fault of ['body', 'match']) {
+    const unread = fixture(t, { cached: good, headers: record, fault });
+    await assert.rejects(storedNetworkBytes({ url, expect }), fault === 'body' ? /unreadable body/ : /storage lookup failed/);
+    assert.equal(unread.deleted(), 0, fault);
+    assert.deepEqual(unread.held(), good, fault);
+    assert.equal(unread.fetches(), 0, fault);
+  }
+  assert.equal(stored.fetches(), 0);
 });
