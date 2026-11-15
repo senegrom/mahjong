@@ -642,6 +642,8 @@
     -webkit-mask-position: var(--sheen-from) 0;
     mask-position: var(--sheen-from) 0;
     animation: dragon-reveal var(--sheen-duration) linear infinite;
+    /* On a layer of its own, as the sheen is and for its reason (.foil). */
+    will-change: transform;
   }
 
   /* Matched quiet/lit exports share a canvas. Reveal the lit state directly
@@ -684,6 +686,17 @@
     background-repeat: no-repeat;
     mix-blend-mode: screen;
     animation: sheen var(--sheen-duration) linear infinite;
+    /* The sheen moves by being painted again, every frame. Painted with the
+       page, each frame had the browser paint the part of the page around it
+       again, every tile's picture in it with it, and one dora anywhere on
+       the page, in view or scrolled out of it, kept the thread that paints
+       busy without a pause (Chrome on a desktop, 12 November 2026). So the
+       sheen is a layer of its own: a frame paints the sheen alone, and the
+       browser lays it over the face as it did. The face is then put
+       together apart from its neighbours, and where the screen scales the
+       page by a fraction, 125%, it may sit a fraction of a pixel from where
+       it was drawn before. */
+    will-change: transform;
   }
 
   @keyframes sheen {
@@ -695,28 +708,32 @@
     }
   }
 
-  /* The sheen and the reveal move by being painted again, and each frame
-     of either paints the part of the page around it again, every tile's
-     picture in it with it. The browser does that where it also runs the
-     graphics card's work for a review, which then waits behind every frame:
-     with six dora in view a batch took the card 4.5 s, and 0.07 s with them
-     still (Chrome on a desktop, 12 November 2026). So both hold still, where
-     they are, while the card answers a batch (CARD_AT_WORK in
-     gpu-batches.js), a tenth of a second or so at a time, and go on from
+  /* The sheen and the reveal are painted again every frame where the
+     browser also runs the graphics card's work for a review, which waits
+     behind each frame. Painted with the page they starved it: with six dora
+     in view a batch took the card 4.5 s, and 0.07 s with them still (Chrome
+     on a desktop, 12 November 2026). On layers of their own they no longer
+     do there, a batch taking the same tenth of a second with them running
+     (15 November 2026); they hold still all the same, where they are, while
+     the card answers a batch (CARD_AT_WORK in gpu-batches.js), for the
+     browser or the card that paints them at the card's cost, and go on from
      there. */
   :global(:root[data-card-at-work]) :is(.foil, .haku-dragon-reveal) {
     animation-play-state: paused;
   }
 
   @media (prefers-reduced-motion: reduce) {
+    /* What holds still is painted once, with the page: no layer of its own. */
     .haku-dragon-reveal {
       animation: none;
       -webkit-mask-position: 40% 0;
       mask-position: 40% 0;
+      will-change: auto;
     }
     .foil {
       animation: none;
       background-position: 40% 0;
+      will-change: auto;
     }
     /* A name has no picture around it to read instead, so a shine held
        still across it would wash it out. It rests on the corner instead. */

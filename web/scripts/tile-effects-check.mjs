@@ -174,6 +174,15 @@ let writtenShown = $state(false);
       assert.ok(one.time-held[index].time<=one.now-released+50,`went on ${one.time-held[index].time} ms in ${one.now-released} ms`);
     }
   });
+  // Painted with the page, a frame of either had the browser paint the page around it again (Tile.svelte).
+  await check('the sheen and the reveal are each a layer of their own while they move, and laid over the face as before',async()=>{
+    const layers=await page.$$eval('.haku-dragon-reveal,.foil',all=>all.map(e=>{const s=getComputedStyle(e);return {reveal:e.classList.contains('haku-dragon-reveal'),matisse:e.classList.contains('matisse'),will:s.willChange,moves:s.animationName!=='none',blend:s.mixBlendMode};}));
+    assert.ok(layers.some(one=>one.reveal)&&layers.some(one=>!one.reveal));
+    for(const one of layers){
+      assert.equal(one.will,'transform');assert.ok(one.moves);
+      assert.equal(one.blend,one.reveal?(one.matisse?'normal':'multiply'):'screen');
+    }
+  });
   await check('mask travels with the shine while the dragon artwork stays still',async()=>{
     const positions=[];
     for(const time of [0,1250,2500,3750,4999]) {
@@ -503,8 +512,10 @@ let writtenShown = $state(false);
   for(let index=0;index<20;index++){await freeze(index*250);await tile.screenshot({path:resolve(evidence,`white-dragon-frame-${String(index).padStart(2,'0')}.png`)});}
   await check('reduced-motion stops both animations at the same static position',async()=>{
     await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
-    const styles=await page.$eval('#dora .face',el=>[...el.querySelectorAll('.haku-dragon-reveal,.foil')].map(e=>{const s=getComputedStyle(e);return {animation:s.animationName,position:e.classList.contains('foil')?s.backgroundPosition:s.maskPosition};}));
+    const styles=await page.$eval('#dora .face',el=>[...el.querySelectorAll('.haku-dragon-reveal,.foil')].map(e=>{const s=getComputedStyle(e);return {animation:s.animationName,will:s.willChange,position:e.classList.contains('foil')?s.backgroundPosition:s.maskPosition};}));
     assert.ok(styles.every(s=>s.animation==='none'));assert.equal(styles[0].position,styles[1].position);
+    // What holds still is painted once, with the page: it has no layer of its own.
+    assert.deepEqual(styles.map(s=>s.will),['auto','auto']);
   });
   await check('Matisse uses its approved quiet and lit faces with aligned foil and hidden tiles',async()=>{
     await page.click('#faces');

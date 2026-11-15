@@ -166,13 +166,20 @@ declined:
   carries `data-card-at-work` (`CARD_AT_WORK`), and under it a dora's sheen
   and the white dragon's reveal hold still (`Tile.svelte`), where they are,
   and go on from there when the batch is answered, a tenth of a second or so
-  later. Both move by being painted again, and each frame of either has the
-  browser paint the part of the page around it again, every tile's picture
-  in it, on the one thread of its graphics process that also runs the card's
-  work. With six dora in view in a review that thread was busy for all of
-  two seconds traced, the page drew 44 frames a second, and a batch of eight
-  took the card 4.5 s, longer than WebAssembly takes; with the sheens still
-  it took 70 ms (Chrome on a desktop, 12 November 2026).
+  later. Both move by being painted again, on the one thread of the
+  browser's graphics process that also runs the card's work. Painted with
+  the page, each frame of either had the browser paint the part of the page
+  around it again, every tile's picture in it: with six dora in view in a
+  review that thread was busy for all of two seconds traced, the page drew
+  44 frames a second, and a batch of eight took the card 4.5 s, longer than
+  WebAssembly takes; with the sheens still it took 70 ms (Chrome on a
+  desktop, 12 November 2026). Each is now a layer of its own
+  (`will-change: transform` in `Tile.svelte`), so a frame paints the sheen
+  alone: the thread is busy for under a fifth of the time in that review and
+  a twentieth at the table, the page draws about 210 frames a second, and
+  the card answers a batch in 60 to 130 ms whether the sheens hold still or
+  not (the same desktop, 15 November 2026). They hold still all the same,
+  for the browser or the card that paints them at the card's cost.
 
 `policyRuntime()` in `gpu-batches.js` says 'webgpu' once the card is ready
 and 'wasm' otherwise. While it says 'webgpu' a review asks up to 64 positions
