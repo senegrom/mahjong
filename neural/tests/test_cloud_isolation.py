@@ -559,7 +559,8 @@ class CloudIsolationTests(unittest.TestCase):
                 for function in (app.rehead,app.distil):
                     with self.subTest(function=function.__name__), \
                          self.assertRaises(subprocess.CalledProcessError) as failed:
-                        function(teacher='teacher',run='run',name='product')
+                        # Asked to replace the earlier product, so the child runs.
+                        function(teacher='teacher',run='run',name='product',overwrite=True)
                     self.assertIn('failed',failed.exception.output)
             self.assertEqual(before,(volume/'run/product.pt').read_bytes())
 
@@ -673,7 +674,9 @@ class CloudIsolationTests(unittest.TestCase):
             root=Path(folder);volume=root/'volume';scratch=root/'scratch'
             atomic_save({'generation':3},volume/'run/teacher.pt')
             for function in (app.distil,app.rehead):
-                for name in ('sub/x','','../x'):
+                # And the run's own checkpoints, which a product replaced
+                # under the run's log, generation marker and history.
+                for name in ('sub/x','','../x','latest','best','reference'):
                     with self.subTest(function=function.__name__,name=name), \
                          patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
                          patch.object(app,'_environment',return_value={}), \
@@ -685,6 +688,24 @@ class CloudIsolationTests(unittest.TestCase):
                         started.assert_not_called();ran.assert_not_called()
                         # Not even a workspace was made for it.
                         self.assertFalse(scratch.exists())
+
+    def test_a_product_never_replaces_one_of_its_name_unless_asked_to(self):
+        app=controller()
+        def popen(command,**kwargs):
+            out=Path(command[command.index('--out')+1]);atomic_save({'generation':99},out/'latest.pt')
+            return child()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            for function in (app.distil,app.rehead):
+                atomic_save({'generation':2},volume/'run/product.pt')
+                with self.subTest(function=function.__name__),                      patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)),                      patch.object(app,'_environment',return_value={}),                      patch.object(app.subprocess,'Popen',side_effect=popen) as started,                      redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(FileExistsError,'overwrite'):
+                        function(teacher='teacher',run='run',name='product')
+                    started.assert_not_called()
+                    self.assertEqual(validate_checkpoint(volume/'run/product.pt'),2)
+                    self.assertIn('wrote run/product.pt',function(teacher='teacher',run='run',name='product',overwrite=True))
+                    self.assertEqual(validate_checkpoint(volume/'run/product.pt'),99)
 
     def test_a_childs_lines_reach_the_log_while_it_runs(self):
         # A distillation's child, run whole and printed when it ended, left

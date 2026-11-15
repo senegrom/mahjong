@@ -834,6 +834,33 @@ def _run_child(command: list[str], tail: int | None = None) -> str:
     return output
 
 
+#: A run's own checkpoints, which a trainer's publications write and the next
+#: block resumes from: never a distillation's or a re-heading's product.
+TRAINED = ("latest", "best", "reference")
+
+
+def _product_name(name: str) -> None:
+    """Refuses a product's name that is not one folder name, or that is one
+    of the run's own checkpoints (`TRAINED`): `<run>/latest.pt` replaced by
+    a product left the run's log, generation marker and history describing
+    a network it no longer held, and the next block resumed from the
+    product. Checked before any work."""
+    validate_run(name)
+    if name in TRAINED:
+        raise ValueError(f"{name!r} is one of a run's own checkpoints ({', '.join(TRAINED)}): name the product "
+                         "something else")
+
+
+def _product_free(run: str, name: str, overwrite: bool) -> None:
+    """Refuses a product whose `<run>/<name>.pt` is already there, unless
+    `overwrite` says to replace it, before the child starts: an earlier
+    product of that name was replaced without a word."""
+    taken = VOLUME / run / f"{name}.pt"
+    if taken.exists() and not overwrite:
+        raise FileExistsError(f"{taken} is already there: name the product afresh, or pass overwrite=True "
+                              "to replace it")
+
+
 def _publish_product(out: Path, run: str, name: str) -> str:
     """A distillation's or a re-heading's product, the `latest.pt` its
     child saved in `out`, validated on its way to the run's directory as
@@ -1806,6 +1833,7 @@ def distil(
     attention: bool = True,
     run: str = DEFAULT_RUN,
     name: str = "distilled",
+    overwrite: bool = False,
 ) -> str:
     """Teaches a network another's moves, or the heuristic player's.
 
@@ -1827,14 +1855,18 @@ def distil(
 
     The result goes to the run's directory under `name`, so it can be
     duelled before anything decides to train on from it. A `name` that is
-    not one directory name raises `ValueError`, and a missing checkpoint
-    `FileNotFoundError`, both before anything runs; a failed run raises
+    not one directory name, or names one of the run's own checkpoints
+    (latest, best, reference), raises `ValueError`, and a missing
+    checkpoint `FileNotFoundError`, both before anything runs, as does
+    `FileExistsError` for a product of that name already there unless
+    `overwrite` is true; a failed run raises
     `CalledProcessError` carrying its output, and publishes nothing.
     """
     # Checked before the hours of work it names, not after them.
-    validate_run(name)
+    _product_name(name)
     with workspace(run) as where:
         volume.reload()
+        _product_free(run, name, overwrite)
         local = where / "inputs"
         local.mkdir()
         out = where / "out"
@@ -1880,6 +1912,7 @@ def rehead(
     temperature: float = 1.0,
     run: str = DEFAULT_RUN,
     name: str = "mortal-space",
+    overwrite: bool = False,
 ) -> str:
     """Teaches one of our networks to answer in Mortal's action space.
 
@@ -1887,15 +1920,18 @@ def rehead(
     replaced, by one over Mortal's forty-six moves, and taught to say what
     the old head said. See `neural/rehead.py`. The result goes to the run's
     directory under `name`, to be duelled against the teacher before
-    anything is built on it. A `name` that is not one directory name raises
-    `ValueError`, and a missing checkpoint `FileNotFoundError`, both before
-    anything runs; a failed run raises `CalledProcessError` carrying its
+    anything is built on it. A `name` that is not one directory name, or
+    names one of the run's own checkpoints (latest, best, reference),
+    raises `ValueError`, and a missing checkpoint `FileNotFoundError`, both
+    before anything runs, as does `FileExistsError` for a product of that
+    name already there unless `overwrite` is true; a failed run raises `CalledProcessError` carrying its
     output, and publishes nothing.
     """
     # Checked before the hours of work it names, not after them.
-    validate_run(name)
+    _product_name(name)
     with workspace(run) as where:
         volume.reload()
+        _product_free(run, name, overwrite)
         out = where / "out"
         source = _checkpoint(run, teacher)
         if not source.exists():
