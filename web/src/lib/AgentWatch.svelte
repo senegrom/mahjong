@@ -15,7 +15,7 @@
   import Standings from './Standings.svelte';
   import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
-  let { trainedAvailable, hints = true, offline = null } = $props();
+  let { trainedAvailable, hints = true, offline = null, workerNote = '' } = $props();
   // Trained at every seat by default, the followed one and the three it plays
   // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
@@ -53,7 +53,7 @@
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   // A Trained seat may be waiting for the network's first download.
-  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote('', offline) : '');
+  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote(workerNote, offline) : '');
   $effect(() => {
     if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched

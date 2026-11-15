@@ -19,7 +19,7 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportProgress, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
@@ -78,6 +78,9 @@
   let saveConflict = $state('');
   let notice = $state('');
   let loadNote = $state('');
+  // What the opponent's worker last said of the network while it loads it,
+  // for the modes other than Play, which show it beside their own thinking.
+  let workerNote = $state('');
   let session = $state.raw(null);
   let view = $state(null);
   let choices = $state([]);
@@ -361,6 +364,7 @@
       onChange: available => { if (mounted) trainedAvailable = available; },
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
+    reportLoading((note) => { if (mounted) workerNote = note; });
     // Where a review's batches run decides its time a position, which is none
     // once they run elsewhere than where it was measured (MatchReview): its
     // screen keeps what it last read, so the review tells it to read again.
@@ -403,6 +407,7 @@
       matchReview?.dispose();
       session?.dispose();
       reportProgress(null);
+      reportLoading(null);
       reportRuntime(null);
       resetPolicy();
     };
@@ -841,14 +846,14 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {hints} {offline} />
+    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} />
   {:else if ready && mode === 'physical'}
     <PhysicalPlay {trainedAvailable} {storage} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} onclose={closeGameReview} {shortcuts} {touch}
+      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} onclose={closeGameReview} {shortcuts} {touch}
         bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
         bind:hideTiles={reviewHideTiles} />
     {/if}
@@ -879,7 +884,7 @@
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
               onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}

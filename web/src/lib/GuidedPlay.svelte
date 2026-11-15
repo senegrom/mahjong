@@ -14,7 +14,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { trainedAvailable, storage, hints = true, offline = null } = $props();
+  let { trainedAvailable, storage, hints = true, offline = null, workerNote = '' } = $props();
   let game = $state(emptyGuided());
   let state = $derived(game.state);
   let position = $derived(state.position);
@@ -38,7 +38,7 @@
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
   // Trained advice may be waiting for the network's first download.
-  let download = $derived(isTrained(state.agent) ? waitingNote('', offline) : '');
+  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;

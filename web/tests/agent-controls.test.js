@@ -166,6 +166,24 @@ test('changing your seat at a guided setup takes the points you typed to the new
   assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000], 'the same seat moves nothing');
 });
 
+test("Watch, a guided game and both reviews show the worker's own download as Play's table does", async () => {
+  const { waitingNote } = await import('../src/lib/ui.js');
+  const app = component('../src/App.svelte');
+  const note = 'downloading the network 37%';
+  for (const [name, tag] of [['AgentWatch', 'AgentWatch'], ['GuidedPlay', 'GuidedPlay'], ['Review', 'Review'], ['GameReview', 'GameReview']]) {
+    const { source, ast } = component(`../src/lib/${name}.svelte`);
+    const download = find(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'download');
+    const shown = download.init.arguments[0];
+    const state = { waitingNote, workerNote: note, offline: null, isTrained: agent => agent === 'full',
+      state: { agent: 'full' }, watch: { lineup: ['full', 'club', 'club', 'club'] } };
+    assert.equal(vm.runInContext(source.slice(shown.start, shown.end), vm.createContext(state)), note, name);
+    // The page hands each the note.
+    const used = find(app.ast.fragment, node => node.type === 'Component' && node.name === tag);
+    assert.ok(used?.attributes.some(attribute => attribute.name === 'workerNote'), `App gives ${tag} the worker's note`);
+  }
+  assert.match(app.source, /reportLoading\(\(note\) => \{ if \(mounted\) workerNote = note; \}\);/);
+});
+
 test('a new guided game keeps the adviser the last one used', async () => {
   const guided = component('../src/lib/GuidedPlay.svelte');
   const declaration = find(guided.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === 'restart');

@@ -52,7 +52,7 @@
    * review's own time a position. Whatever it asks, the review waits for at
    * its gate, as it waits for the hand's notes (App).
    */
-  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, onclose, shortcuts = true, touch = false,
+  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, workerNote = '', onclose, shortcuts = true, touch = false,
     filter = $bindable('flagged'), place = $bindable(null), revealed = $bindable({}), hideMove = $bindable(false),
     hideTiles = $bindable(false) } = $props();
 
@@ -137,7 +137,7 @@
   let list = $derived(playlist(status.hands, filter));
   let reviewing = $derived(status.hands.find(hand => hand.status === 'reviewing') ?? null);
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
-  let download = $derived(waitingNote('', offline));
+  let download = $derived(waitingNote(workerNote, offline));
 
   // The decision on show: the player's place, or where the review lands
   // while they have none for this match.
