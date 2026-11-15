@@ -88,6 +88,8 @@ mod analysis;
 mod last_hand;
 #[path = "mortal_log.rs"]
 mod mortal_log;
+#[cfg(test)]
+mod mortal_planes_digest;
 mod yaku_view;
 
 /// Which of Mortal's moves our rules allow that seat, and, once a reach is
