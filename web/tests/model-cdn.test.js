@@ -91,6 +91,24 @@ test('CDN missing keys are 404, not cache hits, even with a validator', async ()
   const response = await worker.fetch(new Request(url, { headers: { 'If-None-Match': '*' } }), env);
   assert.equal(response.status, 404);
 });
+test('CDN refusals carry CORS headers for an allowed origin, so the page can read their status', async () => {
+  const targets = [
+    ['missing object', url, 'GET', true, 404],
+    ['invalid path', 'https://model.invalid/private/key', 'GET', false, 404],
+    ['malformed escape', 'https://model.invalid/models/g1/%zz', 'GET', false, 404],
+    ['unsupported method', url, 'POST', false, 405],
+  ];
+  for (const [name, target, method, missing, status] of targets) {
+    for (const [from, allowed] of [[origin, origin], ['https://elsewhere.invalid', null]]) {
+      const { env } = bucket({ missing });
+      const response = await worker.fetch(new Request(target, { method, headers: { Origin: from } }), env);
+      assert.equal(response.status, status, name);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'), allowed, `${name} from ${from}`);
+      assert.equal(response.headers.get('Vary'), allowed && 'Origin', `${name} from ${from}`);
+      assert.equal(response.headers.get('Cache-Control'), 'no-store', name);
+    }
+  }
+});
 test('CDN preflight, unsupported methods and invalid paths do not touch R2', async () => {
   const { env, seen } = bucket();
   for (const [target, method, expected] of [[url, 'OPTIONS', 204], [url, 'POST', 405], ['https://model.invalid/private/key', 'GET', 404]]) {
