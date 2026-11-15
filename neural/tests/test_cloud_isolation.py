@@ -335,6 +335,36 @@ class CloudIsolationTests(unittest.TestCase):
                     self.assertEqual(len(calls),1);self.assertNotIn('--resume',calls[0])
                     self.assertEqual(validate_checkpoint(volume/'new/latest.pt'),1)
 
+    def test_a_run_that_lost_its_latest_is_never_started_afresh_over_what_it_still_holds(self):
+        # Without its latest.pt a run counted as empty: a fresh start's
+        # publications replaced its log, generation marker and best, and
+        # rewrote each archive as the new lineage reached it.
+        app=controller()
+        def popen(command,**kwargs):
+            calls.append(command)
+            where=Path(command[command.index('--out')+1])
+            atomic_save({'generation':1},where/'latest.pt')
+            return SimpleNamespace(stdout=io.StringIO(json.dumps({'generation':0,'checkpoint_generation':1})+'\n'),
+                                   wait=lambda:0)
+        def held(run,name):
+            if name=='history':atomic_save({'generation':400},run/'history/gen-00400.pt')
+            elif name.endswith('.pt'):atomic_save({'generation':400},run/name)
+            else:run.mkdir(parents=True);(run/name).write_text('410')
+        for trainer in ('train','train_mortal','train_combined'):
+            for name in ('generation.txt','log.jsonl','best.pt','reference.pt','history'):
+                with self.subTest(trainer=trainer,held=name),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume';run=volume/'run'
+                    held(run,name)
+                    for start in ('zoo/mortal_298k','w1012-run/mortal-space','mortal-run/latest'):
+                        atomic_save({'generation':0},volume/f'{start}.pt')
+                    files=lambda:{path:path.read_bytes() for path in volume.rglob('*') if path.is_file()}
+                    before,calls=files(),[]
+                    with self.assertRaises(FileNotFoundError) as refused:
+                        self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=10)
+                    self.assertIn(name,str(refused.exception))
+                    self.assertEqual(calls,[])
+                    self.assertEqual(files(),before)
+
     def test_a_call_started_again_goes_on_from_what_it_published(self):
         # Modal starts a preempted call again on the same input. Resolved
         # again, a resume other than 'latest' copied its start in once more:

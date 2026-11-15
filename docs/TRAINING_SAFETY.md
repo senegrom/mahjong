@@ -52,10 +52,13 @@ resolved from the requested volume source enables resume. Same-run resume
 carries the saved reference, best checkpoint and history explicitly;
 cross-lineage starts do not inherit the target run's old reference or
 history. A resume name that resolves to nothing starts a new lineage (a
-fresh network, the published Mortal or a join) only in a run that holds no
-`latest.pt` yet; in one that does, the call fails before anything is copied,
-staged or started, because the new lineage's first publication would
-overwrite the run's checkpoints and log. Completed output is validated
+fresh network, the published Mortal or a join) only in a run that holds
+nothing a trainer published yet: no `latest.pt`, `generation.txt`,
+`log.jsonl`, `best.pt`, `reference.pt` or `history/`. In one that holds any
+of them, even without its `latest.pt`, the call fails before anything is
+copied, staged or started, because the new lineage's first publication
+would overwrite the run's checkpoints, log and generation marker, and its
+archives as it reached them. Completed output is validated
 before it is copied to the volume.
 
 The invocation owns and cleans up only its own temporary directory. Existing

@@ -126,23 +126,32 @@ def _checkpoint(run: str, name: str) -> Path:
     return VOLUME / f"{name}.pt"
 
 
+#: What a trainer's publications leave in a run. A run holding any of them is
+#: never started afresh (see `_resume_source`).
+RUN_STATE = ("latest.pt", "generation.txt", "log.jsonl", "best.pt", "reference.pt", "history")
+
+
 def _resume_source(run: str, resume: str) -> Path:
     """The checkpoint a trainer's block resumes from, found as `_checkpoint`
     finds it, so it may be another run's: a block can start a run from
     another lineage. When the name finds nothing the trainer starts a new
     one, from a fresh network, the published Mortal or a join, and that is
-    refused in a run that already holds a `latest.pt`. There the new
-    lineage's first publication overwrote the run's latest, best, reference
-    and log, which nothing can bring back, and every retry of the call did
-    it again; a typo was enough, or a generation that was never archived,
-    as only every tenth is."""
+    refused in a run that already holds anything a trainer published
+    (`RUN_STATE`), its latest.pt or not. There the new lineage's first
+    publication overwrote the run's latest, best, reference, log and
+    generation marker, and its archives as it reached them, which nothing
+    can bring back, and every retry of the call did it again; a typo was
+    enough, or a generation that was never archived, as only every tenth
+    is, or a run whose latest.pt alone had been lost."""
     source = _checkpoint(run, resume)
-    if not source.exists() and (VOLUME / run / "latest.pt").exists():
-        raise FileNotFoundError(
-            f"no checkpoint {resume!r} to resume from, in {VOLUME / run} or at {source}, and "
-            f"{run} already holds a latest.pt that a fresh start would overwrite: name a "
-            "checkpoint that exists, or a new run to start afresh"
-        )
+    if not source.exists():
+        held = [name for name in RUN_STATE if (VOLUME / run / name).exists()]
+        if held:
+            raise FileNotFoundError(
+                f"no checkpoint {resume!r} to resume from, in {VOLUME / run} or at {source}, and "
+                f"{run} already holds {', '.join(held)}, which a fresh start would overwrite: name a "
+                "checkpoint that exists, or a new run to start afresh"
+            )
     return source
 
 
@@ -760,8 +769,8 @@ def train(
     """Runs `generations` rounds of self-play and learning, resuming from the
     checkpoint of that name in the run's directory on the volume when it is
     there, and from a fresh network of `channels` by `blocks` when not; a
-    run that already holds a `latest.pt` is never started afresh (see
-    `_resume_source`).
+    run that already holds anything a trainer published is never started
+    afresh (see `_resume_source`).
 
     `until`, when given, is the generation to stop at rather than a count
     from wherever it resumes, as for `train_mortal`: a call that Modal
@@ -865,8 +874,8 @@ def train_mortal(
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
     checkpoint of that name in the run when it is there, and starts from
-    the published Mortal named otherwise, unless the run already holds a
-    `latest.pt` (see `_resume_source`). Its own function, so it runs
+    the published Mortal named otherwise, unless the run already holds
+    anything a trainer published (see `_resume_source`). Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
 
     `until`, when given, is the generation to stop at rather than a count
@@ -992,8 +1001,8 @@ def train_combined(
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's, unless the run already holds a
-    `latest.pt` (see `_resume_source`). `until`, `skip_forced`,
+    named, which may be any run's, unless the run already holds anything
+    a trainer published (see `_resume_source`). `until`, `skip_forced`,
     `baseline_from_play`, `check_baseline` and `preview_reach` are as for
     `train_mortal`.
 
