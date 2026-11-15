@@ -134,10 +134,10 @@ export function recordDiscard(position, seat, tile, riichi = false) {
   const order = nextOrder(p);
   player.discards.push({ tile, order, drawn: p.turn === seat && p.drawn === tile, riichi, claimed: false });
   if (riichi) { player.riichi = double ? 'double' : 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
+  else player.ippatsu = false;
   // The tile drawn on the turn of the declaration, where the hand is known:
   // Mortal reads the hand of that turn for as long as the riichi stands.
   if (riichi && known && p.turn === seat && p.drawn) player.riichi_draw = p.drawn;
-  else player.ippatsu = false;
   if (p.players.every(player => player.discards.length > 0)) p.first_turns = false;
   // Act means this seat already drew (including a replacement) or just
   // called pon/chii. Neither discard consumes another live-wall tile.

@@ -37,6 +37,26 @@ test('a riichi recorded from a known hand keeps the tile drawn that turn, and on
   assert.equal(recordDiscard(unknown, 0, '9p', true).players[0].riichi_draw, undefined);
 });
 
+test('a riichi keeps ippatsu whether or not its draw is known, and the next discard ends it', () => {
+  // An opponent's riichi, its hand unknown.
+  const unknown = emptyPosition();
+  Object.assign(unknown, { turn: 3, phase: 'call', pending: '5z', first_turns: false, wall: 50 });
+  const theirs = recordDiscard(unknown, 0, '9p', true);
+  assert.equal(theirs.players[0].ippatsu, true);
+  // A known hand, with its drawn tile marked and without.
+  for (const drawn of ['1m', null]) {
+    const p = readyAfterDraw();
+    p.players[0].hand = parseTiles('2345678m11p456s9p1m');
+    p.drawn = drawn;
+    const declared = recordDiscard(p, 0, '9p', true);
+    assert.equal(declared.players[0].ippatsu, true, `drawn ${drawn}`);
+    assert.equal(declared.players[0].riichi_draw, drawn ?? undefined);
+  }
+  // The declaring seat's next discard ends it.
+  const next = { ...structuredClone(theirs), turn: 0, phase: 'act', drawn: null };
+  assert.equal(recordDiscard(next, 0, '3s').players[0].ippatsu, false);
+});
+
 test('a quad a seat declares records the turn its discard will end, at the table and in a guided game', () => {
   const p = emptyPosition();
   p.players[1].discards.push({ tile: '9m', order: 0, drawn: true, riichi: false, claimed: false });
