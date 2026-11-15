@@ -752,7 +752,11 @@ class CloudIsolationTests(unittest.TestCase):
             atomic_save({'generation':3},volume/'run/teacher.pt')
             for function in (app.distil,app.rehead):
                 atomic_save({'generation':2},volume/'run/product.pt')
-                with self.subTest(function=function.__name__),                      patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)),                      patch.object(app,'_environment',return_value={}),                      patch.object(app.subprocess,'Popen',side_effect=popen) as started,                      redirect_stdout(io.StringIO()):
+                with self.subTest(function=function.__name__), \
+                     patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                     patch.object(app,'_environment',return_value={}), \
+                     patch.object(app.subprocess,'Popen',side_effect=popen) as started, \
+                     redirect_stdout(io.StringIO()):
                     with self.assertRaisesRegex(FileExistsError,'overwrite'):
                         function(teacher='teacher',run='run',name='product')
                     started.assert_not_called()
@@ -820,7 +824,7 @@ class CloudIsolationTests(unittest.TestCase):
                  patch.object(app.subprocess,'run',side_effect=run),redirect_stdout(io.StringIO()):
                 self.assertIn('exit=0 generation=0 from 0',app.train(run='run',generations=1))
                 report=app.smoke()
-            self.assertIn('warning ��',report)
+            self.assertIn('warning \ufffd\ufffd',report)
 
     def test_smoke_reports_a_part_stopped_by_its_timeout_goes_on_and_fails(self):
         # Each trainer was let run forty minutes inside a function of
