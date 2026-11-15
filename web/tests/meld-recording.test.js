@@ -75,7 +75,7 @@ test('extending a pon retains its original claimed tile and source', () => {
   const choice = { kind: 'extended-kan', tile: '2m' };
   const result = recordChoice(p, choice, [choice]);
   // With the turn it was declared on, the first discard of the hand still to come.
-  assert.deepEqual(result.players[0].melds[0], { kind: 'extended-kan', tile: '2m', from: 2, claimed_tile: '2m', order: 0 });
+  assert.deepEqual(result.players[0].melds[0], { kind: 'extended-kan', tile: '2m', from: 2, claimed_tile: '2m', declared_turn: 0 });
   assert.deepEqual(setTiles(result.players[0].melds[0]), ['2m', '2m', '2m', '2m']);
   assert.deepEqual(viewMelds(result.players[0]), [{ kind: 'extended-kan', tiles: ['2m', '2m', '2m', '2m'], from: 'across' }]);
 });
