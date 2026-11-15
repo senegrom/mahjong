@@ -54,7 +54,12 @@ declare riichi. Open hands also receive readiness markings. Only legal discards
 can have these borders: pending calls, disabled tiles, hidden faces, melds and
 completed-hand displays do not acquire them. The existing dora/ura-dora foil and
 red border, safety and selection cues are retained; overlapping marks use the
-existing striped ring so no cue hides another. The foil's sheen holds still for
+existing striped ring so no cue hides another. The foil's sheen, and the white
+dragon's reveal under it, are each a layer of their own while they move, so
+that a frame of either paints nothing of the page around it again; a dora's
+face is then put together apart from its neighbours, and where the screen
+scales the page by a fraction (125%) it may sit a fraction of a pixel from
+where a plain tile's would. The sheen holds still for
 the tenth of a second or so in which a desktop's graphics card answers a batch
 of a review, and goes on from where it was (see [WebGPU on
 desktops](ONNX_RUNTIME.md#webgpu-on-desktops)).
