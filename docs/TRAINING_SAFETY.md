@@ -218,7 +218,9 @@ placement`; the cloud's `train_combined` passes none of them on unless
   checkpoint, so a relaunch does not warm up again.
 - `--place-refit-every K` and `--place-refit-rounds M` (4): every K
   generations of the reward, U is fitted again on the run's last M rounds,
-  an eighth of their games held out, and kept only if it reads those games
+  an eighth of their games held out (each game's own eighth, the same at
+  every refit, so the U it would replace was fitted on none of them
+  whatever K and M are), and kept only if it reads those games
   at least as well as the U it would replace; the log's
   `place_model_refit` says how it read and whether it was kept. Rounds
   that seated none of some kind of player U reads are not fitted on, and

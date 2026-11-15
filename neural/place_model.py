@@ -367,6 +367,20 @@ def game_folds(games: np.ndarray, folds: int, seed: int = 0) -> np.ndarray:
     return draw[inverse]
 
 
+def own_folds(games: np.ndarray, folds: int, seed: int = 0) -> np.ndarray:
+    """A fold, 0 to `folds` - 1, for every row, every row of a game in the
+    same fold: drawn from the game's own number and `seed` alone (a
+    SplitMix64 hash), so a game keeps its fold whatever games it is drawn
+    with. `game_folds` draws by the game's place among the others, and
+    another set of games moves it to another fold."""
+    mixed = np.asarray(games).astype(np.uint64) ^ np.uint64(int(seed) % (1 << 64))
+    mixed = mixed + np.uint64(0x9E3779B97F4A7C15)
+    mixed = (mixed ^ (mixed >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    mixed = (mixed ^ (mixed >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    mixed = mixed ^ (mixed >> np.uint64(31))
+    return (mixed % np.uint64(folds)).astype(np.int64)
+
+
 def cross_entropy(model: PlaceModel, table: Boundaries, device: str = "cpu") -> float:
     """The mean cross-entropy of `model`'s places against `table`'s."""
     model.eval()
@@ -653,7 +667,7 @@ class PlacementRun:
 
     def refit(self, generation: int, device: str = "cpu", seed: int = 0) -> dict:
         """Fits U again on the rounds remembered, an eighth of their games
-        held out, and keeps the new one only where it reads those games at
+        held out (by `own_folds`, so the same games at every refit), and keeps the new one only where it reads those games at
         least as well as the one it would replace. Rounds that seated none
         of some kind of player U reads are not fitted on at all: a U fitted
         on them would read that kind through weights nothing taught, and
@@ -679,7 +693,11 @@ class PlacementRun:
                        "why": f"the rounds remembered seated no {missing}; U is kept as it was"}
             self.refits.append(summary)
             return summary
-        held = game_folds(table.games, 8, seed + generation) == 0
+        # Held out by each game's own fold, the same at every refit: a U
+        # adopted at an earlier refit was fitted on none of these games,
+        # however the rounds remembered then and now overlap, so it is not
+        # scored on games it was fitted on.
+        held = own_folds(table.games, 8, seed) == 0
         model = fit(table.take(~held), self.reward.model.members, hidden=self.reward.model.hidden,
                     seed=seed + generation, device=device)
         kept_out = table.take(held)
