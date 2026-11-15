@@ -252,12 +252,13 @@
   // goes back. They work where the player keeps keyboard shortcuts on, as
   // play's do, and not on a touch screen; never while a dialog is open over
   // the page, such as the settings' or the table's discards, nor in a field.
-  // Whatever the shortcuts, a held Enter presses the step bar's buttons and
-  // the reasoning's only once (heldEnter): held on Show answer or a tile of
-  // the live hand, it would press Next as the reveal handed focus there, and
-  // step past the answer it had just shown; held on "What would change its
-  // mind?", it would press Cancel as the search handed focus there, and the
-  // button again as Cancel handed it back.
+  // Whatever the shortcuts, a held Enter presses the step bar's buttons, the
+  // reasoning's and the review's controls only once (heldEnter): held on Show
+  // answer or a tile of the live hand, it would press Next as the reveal
+  // handed focus there, and step past the answer it had just shown; held on
+  // "What would change its mind?", it would press Cancel as the search handed
+  // focus there, and the button again as Cancel handed it back; and held on
+  // Stop, Continue and Stop by turns.
   function press(event) {
     if (heldEnter(event)) {
       event.preventDefault();
@@ -280,7 +281,10 @@
   // hand's own Review goes once that hand is under review. Focus that would
   // drop to the page goes where the button was instead: to the controls the
   // review has now, or to the name of the hand whose Review went; and when
-  // nothing is left to press, to Next, or Previous at the end.
+  // nothing is left to press, to Next, or Previous at the end. The second
+  // press of a double click or tap lands on the button that took the place of
+  // the one the first pressed, and was meant for that one: let go.
+  const again = event => event.detail > 1;
   let focusWas = null;
   $effect.pre(() => {
     void status;
@@ -364,19 +368,22 @@
     <p class="headline" class:visually-hidden={status.complete} role="status">{headline}</p>
     {#if detail}<p class="detail">{detail}</p>{/if}
     {#if status.busy || (done && !status.complete)}<progress max={total} value={done} aria-label="Decisions reviewed"></progress>{/if}
-    <div class="controls" bind:this={controls}>
+    <!-- Its buttons take each other's place, so each lets go of the second
+         press of a double click or tap, meant for the one it replaced, and
+         a held Enter presses them once (heldEnter). -->
+    <div class="controls" data-review-controls bind:this={controls}>
       {#if status.busy}
-        <button class="app-control" data-stop-review onclick={() => review.stop()}>Stop</button>
+        <button class="app-control" data-stop-review onclick={event => { if (!again(event)) review.stop(); }}>Stop</button>
       {:else if !status.complete && trainedAvailable}
         {#if status.held}
           <!-- Not "Next hand", which is the result's button that deals one. -->
-          <button class="app-control primary" data-next-hand onclick={() => review.resume()}>Review next hand</button>
-          <button class="app-control" data-rest onclick={() => review.resume({ patient: true })}>Review the rest</button>
+          <button class="app-control primary" data-next-hand onclick={event => { if (!again(event)) review.resume(); }}>Review next hand</button>
+          <button class="app-control" data-rest onclick={event => { if (!again(event)) review.resume({ patient: true }); }}>Review the rest</button>
         {:else}
           <!-- Continue answers Stop, in its place. Before the review is asked
                for, the button takes the name of the result's and the
                standings' buttons that start it. -->
-          <button class="app-control primary" data-continue onclick={() => review.review(undefined, { patient: true })}>
+          <button class="app-control primary" data-continue onclick={event => { if (!again(event)) review.review(undefined, { patient: true }); }}>
             {status.requested ? 'Continue' : status.over ? 'Review whole game' : 'Review game so far'}</button>
         {/if}
       {/if}

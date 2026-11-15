@@ -164,18 +164,19 @@ export function reviewKey(event, { hand = null, dialogOpen = false } = {}) {
   return key === '0' ? 'pick-drawn' : null;
 }
 
-/** Whether a keydown is Enter held down on a button of the review's step bar
- * or of Trained AI's reasoning, which the browser would press again at every
- * repeat. Enter presses a button as it goes down, and both hand focus on as
- * a button goes: a reveal to Next, so that held on Show answer or a tile of
- * the live hand it would step past the answer it had just shown; and "What
- * would change its mind?" to Cancel and Cancel back to it, so that held on
- * either it would start and stop the search by turns. So, as play's held
- * keys throw no tile, a held Enter presses them once. Space presses a button
- * as it is let go, once however long it is held, and the arrows step on as
- * they repeat. */
+/** Whether a keydown is Enter held down on a button of the review's step bar,
+ * of Trained AI's reasoning or of the review's own controls, which the
+ * browser would press again at every repeat. Enter presses a button as it
+ * goes down, and all three hand focus on as a button goes: a reveal to Next,
+ * so that held on Show answer or a tile of the live hand it would step past
+ * the answer it had just shown; "What would change its mind?" to Cancel and
+ * Cancel back to it, so that held on either it would start and stop the
+ * search by turns; and Stop to Continue and Continue back to Stop, so that it
+ * would stop and start the review by turns. So, as play's held keys throw no
+ * tile, a held Enter presses them once. Space presses a button as it is let
+ * go, once however long it is held, and the arrows step on as they repeat. */
 export function heldEnter(event) {
-  return Boolean(event.repeat && event.key === 'Enter' && event.target?.closest?.('[data-steps], [data-insight]'));
+  return Boolean(event.repeat && event.key === 'Enter' && event.target?.closest?.('[data-steps], [data-insight], [data-review-controls]'));
 }
 
 /** A called set as the table lays it out: its tiles, and `turned`, the slot

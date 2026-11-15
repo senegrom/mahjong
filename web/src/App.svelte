@@ -722,12 +722,16 @@
   // judges it, averaging over the suits, and the trend keeps which version
   // that was and that it averaged (review-trend.js). Its batches are
   // counted as they go to the worker, and it waits at the gate of the notes'
-  // spells and of its reasoning's, which is built with it for the match.
+  // spells and of its reasoning's, which is built with it for the match, and
+  // of the worker's batches: a batch the review let go at Stop runs on in the
+  // worker, and Continue waits for it here rather than in the worker's queue.
+  // Running, the review sends a batch only once its last is answered, so
+  // that gate is open then.
   function openGameReview() {
     try {
       if (matchReview) takeReviewOn(session.snapshot());
       else {
-        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch: reviewBatch, gate: anyGate(notesAsking, insightAsking), batchMost,
+        matchReview = new MatchReview(Game, session.snapshot(), { analyzeBatch: reviewBatch, gate: anyGate(notesAsking, insightAsking, workerBatches), batchMost,
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
