@@ -1456,6 +1456,20 @@ class CommandLineTests(unittest.TestCase):
                     self.assertEqual(code, 2)
             self.assertFalse((Path(folder) / "t").exists())
 
+    def test_a_checkpoint_its_run_replaces_is_refused_before_anything_is_registered(self):
+        """A run's latest or best is found again by every call, so the seeds
+        of a run that trains meanwhile would play other generations under
+        one name; named by the archive, a generation is one network."""
+        with tempfile.TemporaryDirectory() as folder:
+            for players in (("latest", "zoo/mortal_298k"), ("best.pt", "zoo/mortal_298k"),
+                            ("history/gen-03000", "fusion-long/latest"),
+                            ("history/gen-03000", "zoo/mortal_298k", "--also", "best")):
+                with self.subTest(players=players):
+                    code, err = self.run_main("series", "t", *players, "--local", folder)
+                    self.assertEqual(code, 2)
+                    self.assertIn("is whichever generation holds that name when each call begins", err)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
     def test_a_second_challenger_that_averages_must_be_named(self):
         with tempfile.TemporaryDirectory() as folder:
             for which in ("second", "both"):

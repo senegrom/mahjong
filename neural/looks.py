@@ -528,10 +528,28 @@ def rules_problem(report: dict) -> str | None:
     return None
 
 
+def moved_problem(reports: dict[int, dict]) -> str | None:
+    """Why a series' reports did not all play the same networks, if they
+    did not: each report says which generation each checkpoint it named
+    was when its call began (`generations`, see `modal_app.ruler`), and a
+    name found at two generations, a run's latest or best that moved while
+    the series played, made one series of two networks under one name.
+    Reports that say nothing of it, as the old duel's, are not held to it."""
+    seen: dict[str, tuple[int, object]] = {}
+    for seed in sorted(reports):
+        for name, generation in (reports[seed].get("generations") or {}).items():
+            first, before = seen.setdefault(name, (seed, generation))
+            if before != generation:
+                return (f"seed {first} played {name} at generation {before} and seed {seed} at {generation}: "
+                        "a series plays one network under each name")
+    return None
+
+
 def failed_check(reports: dict[int, dict], registered: dict | None = None) -> str | None:
     """The first report of a series, by seed, that fails the all-last dama
     rule's check (see `dama_problem`) or a late rule's (see
-    `late_problem`), and why: by the challengers the series was registered
+    `late_problem`), or reports that played one name at two generations
+    (see `moved_problem`), and why: by the challengers the series was registered
     to rule (`registered`, its `series.json`, see `neural.ruler_cloud`, whose
     late rule is the first challenger's), or, for a folder never registered,
     by what each report says. None when every report passes. A series with
@@ -539,6 +557,9 @@ def failed_check(reports: dict[int, dict], registered: dict | None = None) -> st
     so no look of it is read. A series registered to play the rules of the
     last hand at every seat (`last_hand_rules`), or a report whose incumbent
     followed them, is held to `rules_problem` instead."""
+    moved = moved_problem(reports)
+    if moved:
+        return moved
     following = late = None
     if registered:
         following = [registered.get("all_last_dama") in (which, "both") for which in ("first", "second")]

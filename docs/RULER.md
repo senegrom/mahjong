@@ -758,6 +758,11 @@ So `--against` a published ruler reads the usual 20 seeds; an effect of 0.006
 or less, read over 40, is measured with `--also`. A series that could not be
 read so is refused before anything is registered, as is one that asks with
 `--skip-forced` or `--preview-reach` by seating, where every call would fail.
+A series names its players by the generation (`history/gen-03000`), never a
+run's `latest` or `best`, which every call finds again: refused before
+anything is registered. Each report says which generation each name was when
+its call began, and a series whose reports played one name at two
+generations is refused, as a report failing its rules' check is.
 
 `--looks`, `--per-look` and `--bound` register another rule than the usual
 (see "Reading a series"): `--looks 1 --per-look 20 --bound 2.0`, as the rule

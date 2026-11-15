@@ -697,6 +697,13 @@ def names_of(series: Series) -> tuple[str, str]:
             + (looks.ruled(sample["incumbent_rules"]) if sample.get("incumbent_rules") else ""))
 
 
+def moves(checkpoint: str) -> bool:
+    """Whether a checkpoint so named is a run's latest or best, which its
+    run replaces as it trains, by its name in the run or its path from the
+    volume's root."""
+    return checkpoint.removesuffix(".pt").rsplit("/", 1)[-1] in ("latest", "best")
+
+
 def asking_problem(settings: dict) -> str | None:
     """Why a series cannot ask its players as `settings` say, if it cannot:
     found before anything is registered, where `modal_app.ruler` and
@@ -709,6 +716,13 @@ def asking_problem(settings: dict) -> str | None:
         return "--rows must be a positive whole number"
     if settings["games"] <= 0:
         return "--games must be a positive whole number"
+    for which, name in (("challenger", settings["challenger"]), ("incumbent", settings["incumbent"]),
+                        ("--also", settings["also"])):
+        if name and moves(name):
+            # Each call finds the name again, so the seeds of a run that
+            # trains meanwhile would play other generations under it.
+            return (f"the {which} {name} is whichever generation holds that name when each call begins: name "
+                    "the generation (history/gen-NNNNN)")
     if settings.get("average_suits") in ("second", "both") and not settings["also"]:
         return f"--average-suits {settings['average_suits']} names a second challenger: name it with --also"
     rule = settings.get("all_last_dama")
