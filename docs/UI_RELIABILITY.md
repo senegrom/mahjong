@@ -47,10 +47,8 @@ other: it is not sized but holds just those, never more than the batch before
 it. On a device that takes up to ten seconds a position, a batch then takes at
 most half its deadline, and whatever queues behind it waits about ten seconds
 at most. The first batch can include loading the network, so it is not
-measured: it is two positions at most whatever the device, within its twenty
-seconds below ten seconds a position, where eight would run out of time from
-five, and its time, never less than the device's, sizes the second. The
-second, the first one timed,
+measured, and the first two are at most eight whatever the device, which run
+out of time from five seconds a position; the second, the first one timed,
 may be the first's decisions Trained AI hesitated over, renamed. The review's
 reasoning about a decision asks in passes that take about as long, a table
 counted as 1.43 positions, those it hesitates over asked again in a pass of

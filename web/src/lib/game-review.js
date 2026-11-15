@@ -46,30 +46,14 @@ export const batchMostFor = runtime => (runtime === 'webgpu' ? GPU_BATCH : BATCH
  * that takes up to ten seconds a position, whether a pass asks the decisions
  * of a group or, renamed, those of them Trained AI hesitates over (suits.js),
  * each pass sent at the review's gate; on a slower one a pass is a single
- * position, which alone takes longer. Until the review has measured the
- * device its passes are UNMEASURED positions. */
+ * position, which alone takes longer. */
 export const BATCH_MS = 10000;
-/** Positions in a review's first forward pass, which can include loading the
- * network and is not counted. Two take a desktop a quarter of a second, and a
- * device of under ten seconds a position less than the twenty seconds a pass
- * of up to four has (policy.js), where eight, whose deadline is forty, would
- * run out on one of over five. The second pass, the one that measures the
- * device, is sized by the first's time, which is never less than the
- * device's own (MatchReview.timed). Two, not one: the card is considered
- * after WebAssembly has answered two passes of two or more, the second its
- * sample (gpu-batches.js), which that second pass is on a desktop. Only on
- * WebAssembly: a batch on the graphics card has a deadline and a fallback of
- * its own and answers two positions about as fast as GPU_BATCH, so there a
- * pass asks GPU_BATCH before anything is timed, as it did. */
-export const UNMEASURED = 2;
 /** The positions in each forward pass on a device that takes `positionMs` a
  * position (MatchReview.positionMs): `most`, BATCH unless it says GPU_BATCH
  * for the graphics card (batchMostFor), while that many take BATCH_MS at
  * most, and on a slower device as many as take BATCH_MS, at least one.
- * Before anything is measured, `unmeasured` of them, `most` unless it says
- * fewer. */
-export function batchFor(positionMs, { most = BATCH, unmeasured = most } = {}) {
-  if (positionMs == null) return Math.min(most, unmeasured);
+ * `most` before anything is measured. */
+export function batchFor(positionMs, { most = BATCH } = {}) {
   return positionMs > 0 ? Math.max(1, Math.min(most, Math.floor(BATCH_MS / positionMs))) : most;
 }
 /** A device slower than this a position reviews a hand at a time unless the
@@ -401,10 +385,6 @@ export class MatchReview {
     // them, so that a review stopped between a group's passes counts no
     // positions without their decisions.
     this.timedMs = null;
-    // The first pass's time a position, which can include loading the
-    // network: never less than the device's own, so it sizes the pass that
-    // measures the device, and nothing else.
-    this.boundMs = null;
     // Where batches ran when that time was last measured, as the most a
     // pass may ask says it: eight on WebAssembly, more on the graphics card.
     this.ranOn = null;
@@ -450,9 +430,6 @@ export class MatchReview {
    * reads it between the review's batches, a search sizing its passes or
    * saying how long it will take, reads no time of another place. */
   get positionMs() { return this.ranOn === this.batchMost() ? this.timedMs : null; }
-  /** The time a position the review's own passes are sized by: the one
-   * measured, or until then the first pass's (boundMs), or none. */
-  get sizingMs() { return this.positionMs ?? (this.ranOn === this.batchMost() ? this.boundMs : null); }
   /** The time a decision takes at the speed seen so far: as many positions as
    * the decisions judged have taken each, none for a forced move and two for
    * one Trained AI hesitated over (suits.js), one before any is judged. */
@@ -593,7 +570,7 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: () => batchFor(this.sizingMs, { most: this.batchMost(), unmeasured: this.batchMost() === BATCH ? UNMEASURED : undefined }), analyze: (positions, signal) => this.passGate(positions, signal) },
+      batch: { size: () => batchFor(this.positionMs, { most: this.batchMost() }), analyze: (positions, signal) => this.passGate(positions, signal) },
       // Told as each group begins and as its decisions are judged: its
       // positions count then, with them, and those of a group stopped before
       // its end, left pending, are dropped as the next group begins.
@@ -658,7 +635,7 @@ export class MatchReview {
    * the decisions of a group or, renamed, those Trained AI hesitated over: a
    * forward pass's time, which sizes the batches and says whether the device
    * is slow. The first batch of a review can include loading the network, so
-   * it is not counted, and only sizes the next (boundMs). Time spent at the gate is the notes' rather than the
+   * it is not counted. Time spent at the gate is the notes' rather than the
    * network's, so it is not counted either: the clock starts once the gate is
    * passed. Its positions wait for its group's decisions (pending). */
   async timed(positions, signal) {
@@ -675,11 +652,10 @@ export class MatchReview {
     // after its ten seconds and the batch answered on WebAssembly after
     // them, is a measure of neither, and would make a slow device of a fast
     // one.
-    if (runsOn !== this.ranOn) { this.timedMs = this.boundMs = null; this.ranOn = runsOn; }
+    if (runsOn !== this.ranOn) { this.timedMs = null; this.ranOn = runsOn; }
     // A single position is WebAssembly's wherever the batches run
     // (gpu-batches.js): on the card it is no measure of the card.
     const there = runsOn === most && (positions.length > 1 || runsOn === BATCH);
-    if (first && there) this.boundMs = each;
     if (!first && there) this.timedMs = this.timedMs == null ? each : (this.timedMs * 3 + each) / 4;
     return answers;
   }
