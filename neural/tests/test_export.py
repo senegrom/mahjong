@@ -189,6 +189,30 @@ class ExportTests(unittest.TestCase):
                 export.check_operators(rewritten)
             self.assertIn("free of Softplus", out.getvalue())
 
+    def test_the_worker_fixtures_fusion_is_written_as_the_sites_export_is(self):
+        """The small fusion CI runs through the production worker holds
+        Mortal's Mish. Written apart from the site's export it went out with
+        a Softplus, which check_operators refuses, and the browser worker
+        parity job failed on its own fixture."""
+        import onnx
+        from neural import combined, model, mortal_model
+        from neural.tests import export_worker_fixture as fixture
+
+        torch.manual_seed(81)
+        planes = torch.rand(4, export.BROWSER_PLANES, export.POSITIONS)
+        masks = torch.zeros(4, export.BROWSER_ACTIONS, dtype=torch.bool)
+        masks[:, :5] = True
+        net = combined.Combined(model.PolicyValueNet(8, 1, actions=export.BROWSER_ACTIONS), mortal_model.build(16, 1))
+        self.assertTrue(any(isinstance(part, torch.nn.Mish) for part in net.modules()), "the fixture's Mortal has a Mish")
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root:
+            path, wrapped = fixture.exported(Path(root), "fusion", net, True, planes, masks)
+            operators = {node.op_type for node in onnx.load(str(path)).graph.node}
+        self.assertNotIn("Softplus", operators)
+        self.assertLessEqual(operators, export.runtime_operators())
+        # The twin the fixture's answers are taken from is the network as trained.
+        self.assertTrue(any(isinstance(part, torch.nn.Mish) for part in wrapped.modules()))
+        self.assertFalse(any(isinstance(part, export.ExportMish) for part in wrapped.modules()))
+
     def test_missing_operator_config_is_not_silently_accepted(self):
         fake_onnx = SimpleNamespace(load=lambda _: SimpleNamespace(graph=SimpleNamespace(node=[])))
         with patch.dict(sys.modules, {"onnx": fake_onnx}), patch.object(export, "runtime_operators", return_value=None):

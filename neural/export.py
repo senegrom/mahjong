@@ -144,6 +144,24 @@ def export_activations(module):
             setattr(parent, name, child)
 
 
+def export_graph(wrapped, example: tuple, names: list[str], destination: Path) -> None:
+    """The playable network written to `destination` as the browser's graph.
+
+    The one place a graph is written, for the site's export and for the small
+    networks the tests export alike: one written apart went out with the
+    Softplus check_operators refuses. Mish is in its form free of Softplus
+    (export_activations) only while the exporter runs, so what a check then
+    compares the graph with is the network as trained.
+    """
+    with export_activations(wrapped):
+        torch.onnx.export(
+            wrapped, example, str(destination), input_names=names,
+            output_names=list(OUTPUTS),
+            dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
+            opset_version=17, dynamo=False,
+        )
+
+
 def check_operators(destination: Path, insist: bool = True) -> None:
     """Refuse missing kernels unless explicitly exporting to widen the runtime,
     and a Softplus among the graph's own nodes, which the WebGPU provider
@@ -399,15 +417,9 @@ def main() -> None:
     # an existing playable model on validation failures or interrupted copies.
     with tempfile.TemporaryDirectory(dir=destination.parent) as scratch:
         full = Path(scratch) / "float32.onnx"
-        # Mish goes out in a form free of Softplus (ExportMish), and comes
-        # back before check_runs compares the graph with the network.
-        with export_activations(wrapped):
-            torch.onnx.export(
-                wrapped, example, str(full), input_names=names,
-                output_names=list(OUTPUTS),
-                dynamic_axes={name: {0: "batch"} for name in (*names, *OUTPUTS)},
-                opset_version=17, dynamo=False,
-            )
+        # Mish goes out in a form free of Softplus (ExportMish), and is back
+        # before check_runs compares the graph with the network.
+        export_graph(wrapped, example, names, full)
         made = full if args.float32 else Path(scratch) / "int8.onnx"
         if not args.float32:
             quantise(full, made)

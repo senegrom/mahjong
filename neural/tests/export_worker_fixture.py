@@ -78,10 +78,9 @@ def exported(folder: Path, name: str, net, fused: bool, planes, masks):
     path = folder / (name + ".onnx")
     names = ["planes", "legal"] if fused else ["planes"]
     example = (planes[:1], masks[:1].float()) if fused else (planes[:1],)
-    torch.onnx.export(wrapped, example, str(path), input_names=names,
-                      output_names=list(export.OUTPUTS),
-                      dynamic_axes={key: {0: "batch"} for key in (*names, *export.OUTPUTS)},
-                      opset_version=17, dynamo=False)
+    # Written as the site's export writes it, Mish free of Softplus: the
+    # worker is held to graphs of the kind it is sent.
+    export.export_graph(wrapped, example, names, path)
     # Small freshly initialized networks share many equal constants. Remove
     # internal aliases with the exporter's own cleanup, never graph outputs.
     graph = onnx.load(str(path))
