@@ -560,6 +560,41 @@ class CloudIsolationTests(unittest.TestCase):
             self.assertEqual(sorted(path.name for path in target.iterdir()),
                              ['call.json','ledger.npz','place-model.pt','report.json'])
 
+    def test_a_volume_that_cannot_be_reloaded_costs_no_publication(self):
+        # The reload before each publication serves a safeguard: an open
+        # file (RuntimeError) or a request that failed outright, such as a
+        # dropped connection, must not end the call in the middle of a block.
+        app=controller()
+        record=lambda generation:json.dumps({'generation':generation,'checkpoint_generation':generation+1})
+        def reload():
+            failure=next(failures,None)
+            if failure is not None:raise failure
+        def popen(command,**kwargs):
+            where=Path(command[command.index('--out')+1])
+            def lines():
+                for generation in range(40,43):
+                    atomic_save({'generation':generation+1},where/'latest.pt')
+                    yield record(generation)+'\n'
+            return SimpleNamespace(stdout=lines(),wait=lambda timeout=None:0,poll=lambda:None,
+                                   terminate=lambda:None,kill=lambda:None)
+        for trainer in ('train','train_mortal','train_combined'):
+            with self.subTest(trainer=trainer),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);volume=root/'volume';run=volume/'run'
+                atomic_save({'generation':40},run/'latest.pt')
+                (run/'generation.txt').write_text('40')
+                failures=iter([None,ConnectionError('connection reset'),RuntimeError('open files'),
+                               ConnectionError('connection reset'),RuntimeError('open files')])
+                said=[]
+                with patch.object(app.modal,'current_function_call_id',lambda:'fc-this',create=True), \
+                     patch.object(app,'volume',SimpleNamespace(reload=reload,commit=lambda:None)), \
+                     patch.object(app,'print',lambda *parts,**options:said.append(' '.join(map(str,parts))),create=True):
+                    answer=self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=3)
+                self.assertIn('exit=0 generation=43 from 40',answer)
+                self.assertEqual(validate_checkpoint(run/'latest.pt'),43)
+                self.assertEqual((run/'generation.txt').read_text(),'43')
+                for name in ('ConnectionError','RuntimeError'):
+                    self.assertTrue(any(f'could not be reloaded before publishing ({name}' in line for line in said),name)
+
     def test_failed_rehead_and_distillation_cannot_publish_leftover_outputs(self):
         app=controller()
         with tempfile.TemporaryDirectory() as folder:

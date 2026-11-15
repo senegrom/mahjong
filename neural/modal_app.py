@@ -266,10 +266,13 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     if held is not None:
         try:
             volume.reload()
-        except RuntimeError as error:
-            # The check reads what this container last saw; publishing as
-            # before is better than failing the call over it.
-            print(f"the volume could not be reloaded before publishing ({error}); "
+        except Exception as error:  # noqa: BLE001
+            # The check is a safeguard and must never cost a publication:
+            # an open file, a connection that failed or any other error of
+            # the request leaves the container seeing the run as it last
+            # saw it, after its own last publication's commit, so the
+            # check below passes and the generation is published as before.
+            print(f"the volume could not be reloaded before publishing ({type(error).__name__}: {error}); "
                   "another writer would not be seen", flush=True)
         found = _run_state(target_run)
         if found != held["state"]:
