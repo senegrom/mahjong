@@ -583,10 +583,16 @@ in-training measurement, which plays the network's own argmax against the
 Club bots and only picks `best.pt`. It is off unless asked for: without the
 flag self-play hands the learner nothing new, the record and the checkpoint
 gain no key, and the cloud launches pass no flag
-(`cloud_requests.rule_arguments`). The rules need `--preview-reach`, and are
-refused without it: with the preview the reach's tile comes from the forward
-that chose the reach and nothing is told to the follower before the rules
-decide.
+(`cloud_requests.rule_arguments`). A checkpoint trained by them names them
+(see below), and resuming it by other rules, or by none, is refused before
+a round is played unless `--change-last-hand-rules` says so: a relaunch
+that forgot the flag would otherwise go on plain, and its checkpoints would
+say nothing of the rules the weights were trained by. The cloud's trainer
+passes no such switch, so there a run trained by the rules resumes only by
+them; a run never trained by them may take them up. The rules need
+`--preview-reach`, and are refused without it: with the preview the reach's
+tile comes from the forward that chose the reach and nothing is told to the
+follower before the rules decide.
 
 **What the rules read.** Self-play draws its moves, so each rule reads the
 move drawn, not the network's best, inside the learner's deciding

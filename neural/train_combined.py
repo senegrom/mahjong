@@ -705,7 +705,14 @@ def parse_args() -> argparse.Namespace:
         "in last, then all-last-dama throws undeclared a reach's tile that keeps it first. Each move a "
         "rule plays is recorded alone, at probability one, so the policy learns nothing from it and the "
         "critic still learns its position (see neural/selfplay_rules.py). Needs --preview-reach. The "
-        "seated others and the measurement play plain. None by default",
+        "seated others and the measurement play plain. None by default. A run resumed from a "
+        "checkpoint trained by other rules is refused unless --change-last-hand-rules is given",
+    )
+    parser.add_argument(
+        "--change-last-hand-rules", action="store_true",
+        help="resume a checkpoint trained by other --last-hand-rules than these, or by some where "
+        "none are named, and train it by these from here; without it such a resume is refused, so "
+        "that a relaunch that forgot the rules does not go on plain unannounced",
     )
     parser.add_argument(
         "--baseline-from-play", action="store_true",
@@ -922,6 +929,15 @@ def main() -> None:
         random_state = payload.get("random_state")
         entropy_log_coef = payload.get("entropy_log_coef")
         carried = {name: payload[name] for name in ("reward", "place_model") if name in payload}
+        # The last hand's rules come from the command line, and a relaunch
+        # that left them out would go on plain, its checkpoints saying
+        # nothing of the rules the weights were trained by.
+        trained_by = tuple((payload.get("training_controls") or {}).get("last_hand_rules") or ())
+        if trained_by and trained_by != rules and not args.change_last_hand_rules:
+            raise SystemExit(
+                f"{args.resume} was trained by the last hand's rules {' '.join(trained_by)}; resume it with "
+                f"--preview-reach --last-hand-rules {' '.join(trained_by)}, or give --change-last-hand-rules "
+                f"to train it by {' '.join(rules) or 'none'} from here")
         print(f"resumed from {args.resume} at generation {start}", flush=True)
     elif args.ours is not None and args.mortal is not None:
         net = combined.build(args.ours, args.mortal, device)
