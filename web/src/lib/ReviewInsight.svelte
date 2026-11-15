@@ -47,7 +47,7 @@
    * gave way; and Enter held down, whose repeats GameReview lets go of, as
    * it does on the step bar (heldEnter).
    */
-  let { insight = null, hand, step, positionMs = null, trainedAvailable = true } = $props();
+  let { insight = null, hand, step, positionMs = null, trainedAvailable = true, checkOpen = $bindable(false) } = $props();
 
   // The reasoning tells the panel when it changes; the panel reads it again.
   let version = $state(0);
@@ -99,9 +99,9 @@
   // one: let go.
   const again = event => event.detail > 1;
 
-  // Whether the check's workings are shown under the Why line, which stays as
-  // the player leaves it across steps, as the view's other folded parts do.
-  let checkOpen = $state(false);
+  // Whether the check's workings are shown under the Why line (checkOpen) is
+  // held by the view, as its other folded parts are, so that it stays as the
+  // player leaves it across steps, a decision without a view among them.
 
   let panel = $state(null);
   let said = $state('');
