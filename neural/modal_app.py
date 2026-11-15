@@ -374,8 +374,9 @@ def _generation_or_zoo(checkpoint: Path) -> str:
 TRAINER_CPUS = 16
 
 # The longest one call of a trainer may run. Modal ends it there, in the
-# middle of a generation if one is under way, and a retry starts again
-# from the last checkpoint published, the partial generation lost.
+# middle of a generation if one is under way, and a retry, where the caller
+# asked for retries, starts again from the last checkpoint published, the
+# partial generation lost.
 TRAINER_TIMEOUT = 24 * 60 * 60
 # What is kept in hand when a trainer is stopped ahead of the timeout (see
 # `_run_trainer`): a generation can run longer than the one before it, by
@@ -389,6 +390,11 @@ TRAINER_SPARE = 10 * 60
 # processors, is most of a generation, and an L40S played one in 9.5 minutes
 # against an H100's 9.0 for half the card's price. A card asked for at the
 # call (`with_options`) still wins, as a benchmark of another card does.
+# No retries are declared here: Modal hands a failed call back to its caller
+# unless the call asked for retries (`with_options(retries=...)`, as the
+# long-run watcher's do), and only a preempted container is started again
+# on the same input whatever the call asked for. A call launched without
+# retries that fails, or stops before its timeout, ends there.
 TRAINER = dict(
     gpu="L40S",
     cpu=TRAINER_CPUS,
@@ -402,9 +408,10 @@ TRAINER = dict(
 class StoppedBeforeTimeout(RuntimeError):
     """A trainer stopped on purpose between two generations, because the
     next would not have finished before the call's timeout. Raised so that
-    the call fails and Modal's retries start it again at once, in a fresh
-    container, from the checkpoint just published: a call that returned
-    instead would simply have ended, and nothing would start it again."""
+    the call fails and the retries its caller asked for start it again at
+    once, in a fresh container, from the checkpoint just published: a call
+    that returned instead would simply have ended, and nothing would start
+    it again. A call launched without retries (see `TRAINER`) ends here."""
 
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
@@ -655,7 +662,9 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     is; it stopped before learning or saving anything of the round.
 
     A call that cannot finish the run raises rather than answers, so that
-    Modal's retries resume it from the checkpoint published last. A call
+    the retries its caller asked for resume it from the checkpoint
+    published last (a call launched without retries ends with the raise:
+    see `TRAINER`). A call
     that returns has ended, and on 1 October a trainer killed at generation
     147 left the run standing for hours with nothing to start it again.
     So a trainer that exits with an error short of the generation it was to
