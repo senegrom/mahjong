@@ -774,7 +774,8 @@ def parse_args() -> argparse.Namespace:
         "--place-refit-every", type=int, default=0,
         help="with --reward placement, fit U again every this many generations, on the run's "
         "last --place-refit-rounds rounds, keeping the new one only if it reads an eighth of "
-        "their games, held out, at least as well; nought never",
+        "their games, held out, at least as well; nought never. A refit due before a resumed "
+        "process has played that many rounds waits until it has",
     )
     parser.add_argument(
         "--place-refit-rounds", type=int, default=4,

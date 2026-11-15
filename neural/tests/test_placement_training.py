@@ -416,6 +416,34 @@ class Refits(unittest.TestCase):
         self.assertIs(placing.reward, kept)
         self.assertEqual(placing.fields()["reward"]["refits"][-1], report)
 
+    def test_a_refit_due_before_its_rounds_are_remembered_waits_for_them(self):
+        """A run that resumed remembers only the rounds it has played since:
+        a refit that falls due on fewer rounds than it reads keeps U, says
+        so, and is made as soon as they are all remembered."""
+        args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=3,
+                               place_refit_rounds=2)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            args.place_model = write_u(Path(folder) / "u.pt")
+            placing = place_model.PlacementRun.begin(args, {}, 10, [])
+        kept = placing.reward
+        rng = np.random.default_rng(5)
+        # Resumed at 12, the generation before a refit.
+        placing.remember(self.ledger(rng, 300), 12)
+        self.assertTrue(placing.refit_due(12))
+        with patch.object(place_model, "fit", side_effect=AssertionError("fitted on one round of two")):
+            report = placing.refit(12)
+        self.assertFalse(report["adopted"])
+        self.assertEqual((report["rounds"], report["games"]), (1, 300))
+        self.assertIn("1 of the 2 rounds a refit reads are remembered", report["why"])
+        self.assertIs(placing.reward, kept)
+        self.assertEqual(placing.fields()["reward"]["refits"][-1], report)
+        placing.remember(self.ledger(rng, 300), 13)
+        self.assertTrue(placing.refit_due(13))
+        report = placing.refit(13)
+        self.assertEqual(report["rounds"], 2)
+        self.assertIn("new_cross_entropy", report)
+        self.assertEqual([g for g in range(14, 20) if placing.refit_due(g)], [15, 18])
+
     def test_a_run_refuses_a_u_that_never_saw_a_member_it_seats(self):
         args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=0,
                                place_refit_rounds=4)

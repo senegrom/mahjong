@@ -225,6 +225,9 @@ placement`; the cloud's `train_combined` passes none of them on unless
   U is kept: a U fitted on them would read that kind through weights no
   game taught. The Club sits out about one round in four, so two rounds
   both lack it one time in sixteen and four rounds one time in 256.
+  The rounds are remembered by the process, not the checkpoint: a refit
+  that falls due before a resumed run has played M rounds keeps U, says
+  so in `place_model_refit`, and is made as soon as it has.
   Likewise a run starting the reward refuses a U fitted on rounds that
   seated none of a member it seats (`fitted["unseen"]`).
 
