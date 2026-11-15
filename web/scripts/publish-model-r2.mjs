@@ -7,7 +7,9 @@
 //     --source <checkpoint> --origin https://<model host> \
 //     --reward hybrid | --reward placement --alpha <weight> [--version <a.b.c>]
 //
-// The version is 0.1.<generation> unless --version names another. --reward
+// Any other argument, or an option given twice or without its value, stops
+// it before anything is read. The version is 0.1.<generation> unless --version
+// names another. --reward
 // and --alpha name the reward the network learned from, as its trainer was
 // given them (neural/train_combined.py), which the page says beside the
 // network's value. Publishing a version that is listed already replaces that
@@ -36,9 +38,26 @@ const PRECISIONS = new Map([[1, 'float32'], [10, 'float16'], [16, 'bfloat16'], [
 // TensorProto fields that hold a tensor's values rather than its description.
 const TENSOR_DATA = new Set([4, 5, 6, 7, 9, 10, 11]);
 
-function option(name, fallback) {
-  const at = process.argv.indexOf(`--${name}`);
-  return at >= 0 && at + 1 < process.argv.length ? process.argv[at + 1] : fallback;
+const OPTIONS = ['generation', 'source', 'origin', 'version', 'reward', 'alpha'];
+
+/** The publication the command line asks for: the model's path, then
+ * `--name value` pairs of the known options. Throws on anything else, a
+ * mistyped option, one given twice or one without its value, so that none is
+ * silently left out: a lost --version would replace the network listed under
+ * the default one. */
+export function parseArguments(args) {
+  const [modelPath, ...rest] = args;
+  if (typeof modelPath !== 'string' || modelPath.startsWith('--')) throw new Error('Name the exported network to publish first.');
+  const request = { modelPath };
+  for (let at = 0; at < rest.length; at += 2) {
+    const name = rest[at].startsWith('--') ? rest[at].slice(2) : null;
+    if (!OPTIONS.includes(name)) throw new Error(`Unknown argument ${rest[at]}: the options are ${OPTIONS.map(o => `--${o}`).join(', ')}.`);
+    if (name in request) throw new Error(`--${name} is given twice.`);
+    const value = rest[at + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error(`--${name} needs a value.`);
+    request[name] = value;
+  }
+  return request;
 }
 
 const unreadable = () => new Error('The model is not a readable ONNX file.');
@@ -357,9 +376,7 @@ export async function publish({ modelPath, generation, source, origin, version, 
 
 const invoked = process.argv[1] ? process.argv[1].split(/[/\\]/).pop() : '';
 if (invoked === 'publish-model-r2.mjs') {
-  const network = await publish({ modelPath: process.argv[2], generation: option('generation'),
-    source: option('source'), origin: option('origin'), version: option('version'),
-    reward: option('reward'), alpha: option('alpha') });
+  const network = await publish(parseArguments(process.argv.slice(2)));
   process.stdout.write(`${JSON.stringify(network, null, 2)}\n`);
   const listed = await listedNetworks(MANIFEST);
   process.stdout.write(`Listed: ${listed.map((entry, index) => index ? entry.version : `${entry.version} (default)`).join(', ')}\n`);

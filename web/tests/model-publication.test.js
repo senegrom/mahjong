@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource, publish,
-  runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
+import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource,
+  parseArguments, publish, runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
@@ -118,6 +118,23 @@ test('the manifest records the precision the weights are stored in, or nothing i
   }
   assert.equal(uploads, 3);
   assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+});
+
+test('the command line is read whole: a mistyped, repeated or valueless option stops the publication', () => {
+  const given = ['new.onnx', '--generation', '3000', '--source', 'run/gen-3000', '--origin', 'https://model.invalid',
+    '--reward', 'placement', '--alpha', '0.05'];
+  assert.deepEqual(parseArguments([...given, '--version', '0.2.3000']), { modelPath: 'new.onnx', generation: '3000',
+    source: 'run/gen-3000', origin: 'https://model.invalid', reward: 'placement', alpha: '0.05', version: '0.2.3000' });
+  assert.equal(parseArguments(given).version, undefined);
+  for (const [args, reason] of [
+    [[...given, '--verison', '0.2.3000'], /Unknown argument --verison/],
+    [[...given, '--version'], /--version needs a value/],
+    [[...given.slice(0, 7), '--version', ...given.slice(7)], /--version needs a value/],
+    [[...given, '--generation', '3001'], /--generation is given twice/],
+    [[...given, 'second.onnx'], /Unknown argument second\.onnx/],
+    [given.slice(1), /Name the exported network/],
+    [[], /Name the exported network/],
+  ]) assert.throws(() => parseArguments(args), reason, args.join(' '));
 });
 
 // A TensorProto of ONNX element type `type`: its values stored inside when
