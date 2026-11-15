@@ -42,11 +42,15 @@ export const batchMostFor = runtime => (runtime === 'webgpu' ? GPU_BATCH : BATCH
  * time a position: half the twenty seconds the worker gives one decision
  * (policy.js), so that a pass ends well within its own deadline, which is
  * never shorter, and whatever is sent behind it, the hand's notes or the next
- * deal's first move, waits about ten seconds at most. That holds on a device
- * that takes up to ten seconds a position, whether a pass asks the decisions
- * of a group or, renamed, those of them Trained AI hesitates over (suits.js),
- * each pass sent at the review's gate; on a slower one a pass is a single
- * position, which alone takes longer. */
+ * deal's first move, waits about ten seconds at most. That holds once the
+ * review has measured the device, on one that takes up to ten seconds a
+ * position, whether a pass asks the decisions of a group or, renamed, those
+ * of them Trained AI hesitates over (suits.js), each pass sent at the
+ * review's gate; on a slower one a pass is a single position, which alone
+ * takes longer. The first two passes go before anything is measured (timed),
+ * eight positions whatever the device: they take eight times a position, and
+ * run out of their forty seconds from five seconds a position, so a slower
+ * device never reaches the sizing (UI_RELIABILITY.md). */
 export const BATCH_MS = 10000;
 /** The positions in each forward pass on a device that takes `positionMs` a
  * position (MatchReview.positionMs): `most`, BATCH unless it says GPU_BATCH
