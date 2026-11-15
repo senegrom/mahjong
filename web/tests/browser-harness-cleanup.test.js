@@ -134,8 +134,23 @@ test('a Chrome that fails to start has 60 s and is tried once more', async t => 
   for (const { arguments: [options] } of launch.mock.calls) {
     assert.equal(options.executablePath, 'custom-chrome');
     assert.equal(options.timeout, 60000);
-    assert.deepEqual(options.args, ['--no-sandbox', '--disable-dev-shm-usage', '--lang=en']);
+    assert.deepEqual(options.args, ['--no-sandbox', '--disable-dev-shm-usage', '--disable-features=WebGPUService', '--lang=en']);
   }
+});
+
+test('Chrome offers the page a graphics card only to the check that asks for it', async t => {
+  // A review's batches run on a card where Chrome offers one, so a check
+  // would test another page on a desktop that has one than in CI: Chrome's
+  // WebGPU service is off unless `card` says otherwise, which is no option
+  // of puppeteer's and is not passed on to it.
+  chromeBin(t, 'custom-chrome');
+  const launch = t.mock.method(puppeteer, 'launch', async () => ({}));
+  await launchChrome();
+  await launchChrome({ card: true, args: ['--enable-unsafe-webgpu'] });
+  const [plain, asked] = launch.mock.calls.map(({ arguments: [options] }) => options);
+  assert.deepEqual(plain.args, ['--no-sandbox', '--disable-dev-shm-usage', '--disable-features=WebGPUService']);
+  assert.deepEqual(asked.args, ['--no-sandbox', '--disable-dev-shm-usage', '--enable-unsafe-webgpu']);
+  assert.equal('card' in plain || 'card' in asked, false);
 });
 
 test('a Chrome that fails to start twice fails the launch', async t => {
