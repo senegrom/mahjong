@@ -200,7 +200,8 @@ def _resume_of_call(run: str, resume: str) -> tuple[Path, dict | None]:
 
 
 def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
-             published: dict[str, tuple[int, int, int]], marker: dict | None = None) -> int:
+             published: dict[str, tuple[int, int, int]], marker: dict | None = None,
+             *, new_lineage: bool = False) -> int:
     """Publish only copied, fully validated checkpoints of completed
     generations. `resumed_at` is the generation the block resumed from:
     archives past it belong to this timeline (see
@@ -208,10 +209,22 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     published of the run's best and reference so far, one mapping for the
     whole call, so that neither is copied again until it changes. `marker`,
     when given, is written as the run's `CALL_MARKER` after the checkpoints
-    and committed with them (see `_resume_of_call`)."""
+    and committed with them (see `_resume_of_call`).
+
+    `new_lineage` is for a block that did not resume from the run's own
+    lineage (see `_same_lineage`), so carried none of its best or
+    reference: the run's best.pt and reference.pt that the block's
+    workspace does not hold are the old lineage's and are removed. Left
+    there, the run's best stayed the old lineage's network, and the next
+    block, resumed from the run's own latest, carried the old reference in
+    and was leashed to the old lineage's start."""
     validate_run(target_run)
     actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at,
                                        published=published)
+    if new_lineage:
+        for name in ("best.pt", "reference.pt"):
+            if not (run / name).exists():
+                (VOLUME / target_run / name).unlink(missing_ok=True)
     if marker is not None:
         written = VOLUME / target_run / CALL_MARKER
         with staging_file(written) as staged:
@@ -223,10 +236,14 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
 
 def _same_lineage(run: str, source: Path) -> bool:
     """Whether a checkpoint a block resumes from is the run's own: its
-    latest or best, or one of its archives under `history/`. Resuming from
-    anything else starts another lineage, which must not inherit the run's
-    log, best or leash."""
-    return source.is_relative_to(VOLUME / run)
+    latest, best or reference, or one of its archives under `history/`.
+    Resuming from anything else starts another lineage, which must not
+    inherit the run's log, best or leash: another run's checkpoint, and a
+    distillation's or a re-heading's product kept in the run's folder too
+    (`<run>/<name>.pt`), which no generation of the run's log describes."""
+    own = VOLUME / run
+    return ((source.parent == own and source.name in ("latest.pt", "best.pt", "reference.pt"))
+            or source.is_relative_to(own / "history"))
 
 
 def _carry_log(run: str, where: Path, generation: int) -> None:
@@ -261,7 +278,9 @@ def _carry(run: str, source: Path, where: Path, *, leashed: bool = False) -> int
     the rest of what the block continues comes too: the run's best, its
     log cut at that generation, and, for a leashed trainer, the policy the
     run is leashed to. A start from another lineage inherits none of it:
-    not the run's baseline, its record or its leash."""
+    not the run's baseline, its record or its leash, and its publications
+    remove the old lineage's best and reference from the run (see
+    `_publish`)."""
     generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
     if _same_lineage(run, source):
         for name in ("best.pt", "reference.pt") if leashed else ("best.pt",):
@@ -560,7 +579,8 @@ def _stopped_on_rule_check(where: Path, run: str, seen: int) -> str:
     return answer
 
 
-def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None) -> str:
+def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None,
+                 *, new_lineage: bool = False) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
@@ -587,7 +607,8 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
 
     `marker`, from `_resume_of_call`, goes to the run with the call's first
     publication, so that the attempt Modal starts after it goes on from
-    what this one published."""
+    what this one published. `new_lineage` is for a block that did not
+    resume from the run's own lineage (see `_publish`)."""
     environment = _environment(TRAINER_CPUS, compiled=True)
     print(" ".join(command), flush=True)
     began = time.time()
@@ -620,7 +641,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run, started_at, published, marker)
+                    seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
                     marker = None
                     # Whatever the generation compiled, kept at once.
                     _save_cache()
@@ -648,7 +669,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     # generation whose record could not be read has not been published at
     # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
-        seen = _publish(where, seen, run, started_at, published, marker)
+        seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
     elif code == RULE_CHECK_EXIT and seen > started_at:
         # A trainer a check of the last hand's rules stopped ended before it
         # learned or saved the round it refused, so the workspace holds the
@@ -658,7 +679,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
         # the refused round exists to publish. The call must still end as a
         # rule check's stop, so a failure here is only said.
         try:
-            seen = _publish(where, seen, run, started_at, published, marker)
+            seen = _publish(where, seen, run, started_at, published, marker, new_lineage=new_lineage)
         except Exception as error:  # noqa: BLE001
             print(f"the last completed generation {seen} was not published again ({type(error).__name__}: "
                   f"{error}); the volume keeps what was published as each record arrived", flush=True)
@@ -843,7 +864,7 @@ def train(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
 
 
 @app.function(**TRAINER)
@@ -944,7 +965,7 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
 
 
 @app.function(**TRAINER)
@@ -1153,7 +1174,7 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source))
 
 
 @app.function(

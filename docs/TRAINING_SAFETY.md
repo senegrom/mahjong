@@ -51,7 +51,12 @@ existing local `latest.pt` is never a reason to resume. Only a checkpoint
 resolved from the requested volume source enables resume. Same-run resume
 carries the saved reference, best checkpoint and history explicitly;
 cross-lineage starts do not inherit the target run's old reference or
-history. A resume name that resolves to nothing starts a new lineage (a
+history, and their publications remove the run's old `best.pt` and
+`reference.pt`, so that the next block, resumed from the run's own latest,
+is neither leashed to the old lineage's start nor measured against its best.
+Only the run's `latest.pt`, `best.pt`, `reference.pt` and `history/` count
+as its own lineage: a distillation's or re-heading's product kept in the
+run's folder starts another. A resume name that resolves to nothing starts a new lineage (a
 fresh network, the published Mortal or a join) only in a run that holds
 nothing a trainer published yet: no `latest.pt`, `generation.txt`,
 `log.jsonl`, `best.pt`, `reference.pt` or `history/`. In one that holds any

@@ -300,6 +300,40 @@ class CloudIsolationTests(unittest.TestCase):
                 self.assertIn('latest.pt',seen['files'])
                 self.assertFalse(seen['files']&{'log.jsonl','best.pt','reference.pt'})
 
+    def test_a_new_lineage_takes_the_old_ones_best_and_reference_out_of_the_run(self):
+        # Publication only ever added the best and reference a workspace
+        # held, so after a start from another run's checkpoint, or from a
+        # product kept in the run's own folder, the run's best stayed the
+        # old lineage's, and the next block, resumed from the run's latest,
+        # carried the old reference in and was leashed to the old start.
+        app=controller()
+        def popen(command,**kwargs):
+            where=Path(command[command.index('--out')+1])
+            seen.append({path.name for path in where.iterdir()})
+            start=validate_checkpoint(where/'latest.pt')
+            atomic_save({'generation':start+1,'lineage':'B'},where/'latest.pt')
+            return SimpleNamespace(stdout=io.StringIO(json.dumps({'generation':start,'checkpoint_generation':start+1})+'\n'),
+                                   wait=lambda:0)
+        for trainer in ('train','train_mortal','train_combined'):
+            for source in ('other/latest','product'):
+                with self.subTest(trainer=trainer,source=source),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);volume=root/'volume';run=volume/'run'
+                    atomic_save({'generation':40,'lineage':'A'},run/'latest.pt')
+                    atomic_save({'generation':35,'lineage':'A'},run/'best.pt')
+                    atomic_save({'generation':0,'lineage':'A'},run/'reference.pt')
+                    (run/'log.jsonl').write_text(''.join(json.dumps({'generation':g})+'\n' for g in range(40)))
+                    atomic_save({'generation':12,'lineage':'B'},volume/f'{source}.pt' if '/' in source else run/f'{source}.pt')
+                    seen=[]
+                    self.launch(app,trainer,volume,root/'scratch',popen,run='run',resume=source,generations=1)
+                    self.assertFalse(seen[0]&{'log.jsonl','best.pt','reference.pt'})
+                    self.assertEqual(validate_checkpoint(run/'latest.pt'),13)
+                    self.assertFalse((run/'best.pt').exists())
+                    self.assertFalse((run/'reference.pt').exists())
+                    # The next block is the new lineage's own, and carries nothing of the old.
+                    self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=1)
+                    self.assertFalse(seen[1]&{'best.pt','reference.pt'})
+                    self.assertEqual(validate_checkpoint(run/'latest.pt'),14)
+
     def test_a_resume_that_names_nothing_never_starts_a_run_that_exists_afresh(self):
         # A typo, or a generation that was never archived, started a fresh
         # network under the run's name, and its first publication replaced
