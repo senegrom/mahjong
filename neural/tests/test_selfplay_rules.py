@@ -1073,7 +1073,7 @@ class CloudTests(unittest.TestCase):
 
                 return SimpleNamespace(stdout=printed(), wait=lambda: cloud_requests.RULE_CHECK_EXIT)
 
-            def publish(where, seen, *_args):
+            def publish(where, seen, *_args, **_kwargs):
                 log = where / "log.jsonl"
                 logs.append(log.read_text(encoding="utf-8") if log.exists() else "")
                 return seen
