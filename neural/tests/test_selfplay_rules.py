@@ -900,6 +900,33 @@ class TrainerTests(unittest.TestCase):
                 player = zoo.load_player(out / "latest.pt", "cpu")
                 self.assertIsInstance(player, train_combined.combined.Combined)
 
+    def test_a_run_trained_by_the_rules_resumes_without_them_only_when_told_to(self):
+        """A relaunch that leaves the rules out is refused before a round is
+        played; told to change them, it trains plain from there, as it is
+        told. A run never trained by them may take them up."""
+        ruled = ["--preview-reach", "--last-hand-rules", DAMA, DECLINE]
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ("first", "again", "plain", "same"):
+                (root / name).mkdir()
+            _asked, code, _printed, out = trainer_run(root / "first", ruled, lambda _kwargs: ruled_round())
+            self.assertIsNone(code)
+            resumed = ["--resume", str(out / "latest.pt")]
+            for flags, why in (([], f"was trained by the last hand's rules {DAMA} {DECLINE}"),
+                               (["--preview-reach", "--last-hand-rules", DAMA], "--change-last-hand-rules")):
+                with self.subTest(flags=flags):
+                    asked, code, _printed, _out = trainer_run(root / "again", flags, lambda _kwargs: fake_round(),
+                                                              resumed)
+                    self.assertIn(why, str(code))
+                    self.assertEqual(asked, [])
+            asked, code, _printed, _out = trainer_run(root / "plain", ["--change-last-hand-rules"],
+                                                      lambda _kwargs: fake_round(), resumed)
+            self.assertIsNone(code)
+            self.assertEqual([kwargs.get("last_hand_rules") for kwargs in asked], [None])
+            asked, code, _printed, _out = trainer_run(root / "same", ruled, lambda _kwargs: ruled_round(), resumed)
+            self.assertIsNone(code)
+            self.assertEqual([kwargs.get("last_hand_rules") for kwargs in asked], [BOTH])
+
     def test_a_round_played_without_the_rules_it_was_told_is_never_learned(self):
         for name, round_of in (
             ("without the last hand's rules", lambda _kwargs: fake_round()),
@@ -1046,7 +1073,7 @@ class CloudTests(unittest.TestCase):
 
                 return SimpleNamespace(stdout=printed(), wait=lambda: cloud_requests.RULE_CHECK_EXIT)
 
-            def publish(where, seen, *_args):
+            def publish(where, seen, *_args, **_kwargs):
                 log = where / "log.jsonl"
                 logs.append(log.read_text(encoding="utf-8") if log.exists() else "")
                 return seen

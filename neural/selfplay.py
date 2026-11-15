@@ -102,8 +102,9 @@ def explore(
     logits: torch.Tensor, legal: torch.Tensor, epsilon: float, rng,
     generator: torch.Generator | None = None,
 ) -> tuple:
-    """A move from the policy, or now and then a legal one at random, and
-    the probability the *behaviour* gave whatever came out.
+    """A move from the policy, or now and then a legal one at random, the
+    policy's own log-probability of whatever came out, forced or not, and
+    which rows exploration forced.
 
     Why this exists. The value head and the reader of the hands learn only
     from the positions self-play reaches, which the policy's own choices

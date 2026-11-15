@@ -6,6 +6,8 @@ and one small run of the whole of it, end to end, on the processor.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import math
 import tempfile
@@ -181,6 +183,24 @@ class Seeds(unittest.TestCase):
                                         "--seat-share", "0.5", "--seed", "4321", "--device", "cpu",
                                         "--out", str(out)])
             self.assertFalse(out.exists())
+
+
+class ProbeOpponent(unittest.TestCase):
+    def test_a_roster_without_a_network_to_probe_against_is_refused_before_the_round(self):
+        """The probes' opponent was looked for only once the round was
+        played, U fitted and the gradients taken. The checkpoint named
+        does not exist, so only a refusal before loading passes."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            out = Path(folder) / "out"
+            with contextlib.redirect_stderr(io.StringIO()) as said, self.assertRaises(SystemExit):
+                placement_pretest.main([str(Path(folder) / "missing.pt"), "--opponents", "club",
+                                        "--seat-share", "0.5", "--seed", "4323", "--device", "cpu",
+                                        "--out", str(out)])
+            self.assertIn("--probe-opponent", said.getvalue())
+            self.assertFalse(out.exists())
+        args = placement_pretest.parse_args(["missing.pt", "--opponents", "club", "zoo--mortal_298k.pt",
+                                             "--out", "out"])
+        self.assertEqual(args.probe_opponent, Path("zoo--mortal_298k.pt"))
 
 
 class SmallRun(unittest.TestCase):

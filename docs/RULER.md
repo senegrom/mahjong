@@ -721,40 +721,83 @@ compares two generations names both when it is registered. The generations
 measured lately are all far ahead of published Mortal (910 crossed the bound
 at the first look, z +5.95): a series of one of them against Mortal stops
 after five seeds, and two such series read against each other afterwards
-never get past their first look. There are two ways to name the second.
+never get past their first look.
+
+Two networks are compared with the rules of the last hand at every seat
+(`--last-hand-rules`, see "Networks measured with the rules"), never plain:
+in fixed rows with the reach's tile asked with the reach, on an app deployed
+from a checkout that holds the rules, never on `mahjong-train`. Plain series
+remain only for a rule's own series, one checkpoint with it against itself
+without it, for reading the old plain rulers kept with `keep`, and for the
+timing check below. There are three ways to name the second network.
+
+As the incumbent, the first network in one seat against three of the
+second, as in "Networks measured with the rules":
+
+```sh
+python -m neural.ruler_cloud series ruled-g3500-vs-g3000 history/gen-03500 history/gen-03000 \
+    --last-hand-rules --run fusion-place-ruled \
+    --questions fixed --graphs --skip-forced --preview-reach \
+    --expected 0.006 --app <the app> --local E:/tmp-claude/mahjong/rulers
+```
 
 With `--also`, both challengers are played in every call, against the same
 incumbent on the same deals, and the rule reads the first against the
 second, deal by deal:
 
 ```sh
-python -m neural.ruler_cloud series g1010-g910 history/gen-01010 zoo/mortal_298k \
-    --also history/gen-00910 --run fusion-long --expected 0.006 \
-    --questions fixed --graphs --skip-forced --preview-reach --local E:/tmp-claude/mahjong/rulers
+python -m neural.ruler_cloud series ruled-g3500-g3000 history/gen-03500 zoo/mortal_298k \
+    --also history/gen-03000 --last-hand-rules --run fusion-place-ruled --expected 0.006 \
+    --questions fixed --graphs --skip-forced --preview-reach --app <the app> \
+    --local E:/tmp-claude/mahjong/rulers
 ```
 
 With `--against`, one challenger is played and the rule reads it against the
-challenger of a published ruler, deal by deal on the same seeds. Asked by
-seating, a series plays the old duel's games, so the published ruler stands
-for the second arm and only the new challenger is paid for. The published
-ruler is kept as a series from its call file first, while Modal still holds
-its calls (about a fortnight: the ruler of 110, spawned on 29 September, was
-gone by 14 October):
+challenger of another series of single rulers, deal by deal on the same
+seeds, so that only the new challenger is paid for: a series registered with
+`--last-hand-rules` against the same incumbent that played every seed the
+rule reads (one that stopped at its first look holds only five), named here
+`<ruled series>`:
+
+```sh
+python -m neural.ruler_cloud series ruled-g3600-vs-mortal history/gen-03600 zoo/mortal_298k \
+    --against <ruled series> --last-hand-rules --run fusion-place-ruled \
+    --questions fixed --graphs --skip-forced --preview-reach --app <the app> \
+    --local E:/tmp-claude/mahjong/rulers
+```
+
+The other series must sit in the same `--local` folder (or on the volume)
+and hold a report for every seed the rule reads, of as many deals, against
+the same incumbent (of the same run, for one of a run's own), asked the same
+way, and with the rules of the last hand at every seat as this one has them
+(#224): its players and this series' must both follow them or neither. So
+no ruler published before the rules, all of them plain and asked by seating,
+can stand for the second arm of a series with the rules. Every report of it
+must pass its rules' check, as its own launcher holds it to: a series is
+refused against one that fails, and a series registered against it stops
+before its next look once one does. `--against` a series of twenty seeds
+reads the usual 20; an effect of 0.006 or less, read over 40, needs one of
+forty or is measured with `--also`. A series that could not be read so is
+refused before anything is registered, as is one that asks with
+`--skip-forced` or `--preview-reach` by seating, where every call would fail.
+
+The old rulers measured plain by the old duel are kept as series of their
+own from their call files, while Modal still holds their calls (about a
+fortnight: the ruler of 110, spawned on 29 September, was gone by 14
+October), so that the plain series measured before the rules can still be
+read against them (`looks <tag> --against g910`; an old duel's report counts
+as asked by seating):
 
 ```sh
 python -m neural.ruler_cloud keep g910 E:/tmp-claude/mahjong/modal-call-duelmany-fusionlong-g910-vs-mortal.txt \
     --local E:/tmp-claude/mahjong/rulers
-python -m neural.ruler_cloud series g1010-vs-g910 history/gen-01010 zoo/mortal_298k --against g910 \
-    --graphs --run fusion-long --local E:/tmp-claude/mahjong/rulers
 ```
 
-The kept ruler must sit in the same `--local` folder and hold a report for
-every seed the rule reads, of as many deals, against the same incumbent, and
-asked the same way: a ruler measured the old way counts as asked by seating.
-So `--against` a published ruler reads the usual 20 seeds; an effect of 0.006
-or less, read over 40, is measured with `--also`. A series that could not be
-read so is refused before anything is registered, as is one that asks with
-`--skip-forced` or `--preview-reach` by seating, where every call would fail.
+A series names its players by the generation (`history/gen-03000`), never a
+run's `latest` or `best`, which every call finds again: refused before
+anything is registered. Each report says which generation each name was when
+its call began, and a series whose reports played one name at two
+generations is refused, as a report failing its rules' check is.
 
 `--looks`, `--per-look` and `--bound` register another rule than the usual
 (see "Reading a series"): `--looks 1 --per-look 20 --bound 2.0`, as the rule
@@ -762,6 +805,14 @@ series above were registered, reads one look after twenty seeds at |z| > 2.0,
 and a bound left out is Pocock's for the looks. `--app` names the deployed app
 the calls are spawned on, `mahjong-train` unless another is named, which the
 series then keeps; the rules of the last hand are played only on another.
+
+A series' registration (`series.json`, `design.json`) is kept in its
+`--local` folder and beside its reports on the volume. A folder that lacks it
+takes it from the volume, so a series registered from another folder is
+resumed, or registered again, only as it was registered, and read by its own
+rule and comparison. A folder whose registration is not the volume's is
+refused, as is a tag whose reports, here or on the volume, have no
+registration: register a new tag.
 
 `looks <tag>` mirrors what the volume kept (`rulers/<tag>/seed-<seed>.json`)
 and prints the looks so far, by the comparison the series was registered
@@ -780,7 +831,9 @@ incumbent (of the same run, for an archive or the latest or best of a run's
 own), asked the same way, the rules of the last hand at both or neither, and
 as many deals a seed, each taken from its registration or, for a folder never
 registered, from its reports. A pair that did not is refused before any look
-is read. `python -m neural.looks <folder>` reads a local folder of reports,
+is read. A look whose seeds are all in for the series but not for the one it
+is read against, such as a ruler kept with `keep` in another folder, which is
+never on the volume, names the seeds the other lacks. `python -m neural.looks <folder>` reads a local folder of reports,
 the old duel's included, by the comparison the series was registered with,
 so a series registered with `--against` is read against the series of that
 tag beside it; `--against <folder>` reads it against another, held to the
