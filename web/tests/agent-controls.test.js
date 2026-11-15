@@ -77,6 +77,23 @@ test('changing the meld kind immediately applies the correct call direction', ()
   assert.equal(state.position.players[0].melds[0].from, 3);
 });
 
+test('physical play keeps a Trained agent in its select, disabled, while the network is unavailable', () => {
+  const select = find(physical.ast.fragment, node => node.name === 'select'
+    && node.attributes?.some(a => a.name === 'aria-label' && a.value?.[0]?.data === 'Physical play agent'));
+  const shown = find(select, node => node.type === 'IfBlock');
+  const option = find(shown.consequent, node => node.name === 'option');
+  const disabled = option.attributes.find(a => a.name === 'disabled')?.value?.expression;
+  const run = (expression, state) => vm.runInContext(physical.source.slice(expression.start, expression.end),
+    vm.createContext({ isTrained: key => key === 'full', ...state }));
+  for (const [agent, listed] of [['full', true], ['club', false]]) {
+    const state = { key: 'full', agent, trainedAvailable: false };
+    assert.equal(run(shown.test, state), listed, `the Trained option is listed only while it is the pick (${agent})`);
+    assert.ok(disabled && run(disabled, state), 'and cannot be picked again while unavailable');
+  }
+  assert.equal(run(shown.test, { key: 'full', agent: 'club', trainedAvailable: true }), true);
+  assert.equal(run(disabled, { key: 'full', agent: 'club', trainedAvailable: true }), false);
+});
+
 test('watch pace reschedules with the newly selected delay', () => {
   const delays = [];
   const state = { speed: 1400, watch: { delay: 1400, schedule() { delays.push(this.delay); } } };

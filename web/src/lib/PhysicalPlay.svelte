@@ -165,7 +165,7 @@
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-    <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable}<option value={key}>{agentName(key)}</option>{/if}{/each}</select></label>
+    <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable || agent === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{agentName(key)}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
