@@ -140,7 +140,8 @@ jobs:
         if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: npm run check
-      # Only the memory regression, a unit test, reads it.
+      # Only the memory regression, a unit test, reads it. The step also asks
+      # the host for every other listed network and fails if one is missing.
       - name: Prepare verified network for the memory regression
         if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web

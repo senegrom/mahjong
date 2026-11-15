@@ -306,7 +306,10 @@ The memory regression loads the default network through the reduced runtime
 three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
 `node scripts/prepare-test-network.mjs <path>` fetches and verifies against the
 manifest. CI always supplies it and fails without it; a local run without it
-skips that one test.
+skips that one test. The same script then asks the host for every other
+listed network by HEAD, as the page would, and fails when one does not answer
+200 with the page's CORS header and gzip encoding; it does not fetch or hash
+their bytes.
 
 The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
 between releases, so `web/package.json` pins the package to exactly the ONNX
