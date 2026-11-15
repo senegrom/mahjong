@@ -212,7 +212,9 @@ def design(expected: float | None = None, what: str = "", first_seed: int = FIRS
     five seeds a look, four looks, twenty seeds; ten a look, forty seeds,
     when the effect looked for is 0.006 or less, where twenty seeds (an
     error about 0.0034 on the difference of two rulers of one lineage)
-    would find it about half the time. None designs for the usual 20.
+    would find it only about a third of the time (34% by Pocock's four
+    looks, see `stopping`) and forty seeds 61% (docs/RULER.md's table of
+    power). None designs for the usual 20.
     `looks`, `per_look` and `bound` register another rule in their place,
     a bound of nought being Pocock's for the looks."""
     small = expected is not None and abs(expected) <= SMALL_EFFECT
