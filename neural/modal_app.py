@@ -1978,12 +1978,13 @@ def _written(output: str | bytes | None) -> str:
     return output.decode(errors="replace") if isinstance(output, bytes) else output
 
 
-def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
+def _smoke_part(name: str, command: list[str], kept: int) -> tuple[list[str], bool]:
     """Runs one of the smoke test's trainers for at most
     `SMOKE_PART_TIMEOUT` seconds, and answers what the report says of it:
     how it ended, the last `kept` characters it wrote, and its stderr when
-    it failed or was stopped. Printed as soon as it is known, so a part
-    that finished is in the log whatever becomes of the next."""
+    it failed or was stopped, and whether it did either. Printed as soon as
+    it is known, so a part that finished is in the log whatever becomes of
+    the next."""
     try:
         result = subprocess.run(
             command,
@@ -1998,7 +1999,8 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
             timeout=SMOKE_PART_TIMEOUT,
         )
         part = [f"{name} exit={result.returncode}", (result.stdout or "")[-kept:]]
-        if result.returncode != 0:
+        failed = result.returncode != 0
+        if failed:
             part.append((result.stderr or "")[-2500:])
     except subprocess.TimeoutExpired as stopped:
         part = [
@@ -2006,8 +2008,9 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
             _written(stopped.stdout)[-kept:],
             _written(stopped.stderr)[-2500:],
         ]
+        failed = True
     print("\n".join(part), flush=True)
-    return part
+    return part, failed
 
 
 @app.function(
@@ -2023,7 +2026,11 @@ def smoke() -> str:
     the same reasons the real run would. Each part of the report is
     printed as soon as it is known as well as returned: the container's
     output is what streams back to a `modal run`, and a return value alone
-    shows nothing."""
+    shows nothing. A trainer that exited with an error or was stopped by
+    its timeout fails the call once both have been tried, with the report
+    as the error's message: answered as text, `modal run ...::smoke` ended
+    well whichever trainer crashed, and a script that went by its status
+    went ahead."""
     import torch
 
     import libriichi
@@ -2040,7 +2047,8 @@ def smoke() -> str:
     print("\n".join(report), flush=True)
     out = SMOKE_OUT
     out.mkdir(parents=True, exist_ok=True)
-    report += _smoke_part("train", [
+    failed = []
+    part, stopped = _smoke_part("train", [
         sys.executable, "-m", "neural.train",
         "--generations", "1", "--games", "24", "--batch", "512", "--epochs", "1",
         "--measure-every", "1", "--measure-games", "8",
@@ -2048,6 +2056,8 @@ def smoke() -> str:
         "--amp", "--compile",
         "--out", str(out),
     ], kept=2500)
+    report += part
+    failed += ["train"] if stopped else []
     # Mortal's fine-tuning too, from the published Mortal on the volume,
     # into scratch: nothing is published.
     volume.reload()
@@ -2055,16 +2065,20 @@ def smoke() -> str:
     if origin.exists():
         local = out / "origin.pt"
         shutil.copyfile(origin, local)
-        report += _smoke_part("train_mortal", [
+        part, stopped = _smoke_part("train_mortal", [
             sys.executable, "-m", "neural.train_mortal",
             "--mortal", str(local), "--rounds", "1", "--games", "16", "--batch", "512",
             "--measure-every", "1", "--measure-games", "8",
             "--amp", "--compile", "--out", str(out / "mortal"),
         ], kept=1500)
+        report += part
+        failed += ["train_mortal"] if stopped else []
     else:
         missing = f"no Mortal at {origin}; its trainer not tried"
         print(missing, flush=True)
         report.append(missing)
+    if failed:
+        raise RuntimeError(f"smoke test failed: {', '.join(failed)}\n" + "\n".join(report))
     return "\n".join(report)
 
 

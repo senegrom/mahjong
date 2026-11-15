@@ -769,9 +769,11 @@ class CloudIsolationTests(unittest.TestCase):
                 report=app.smoke()
             self.assertIn('warning ��',report)
 
-    def test_smoke_reports_a_part_stopped_by_its_timeout_and_goes_on(self):
+    def test_smoke_reports_a_part_stopped_by_its_timeout_goes_on_and_fails(self):
         # Each trainer was let run forty minutes inside a function of
         # forty-five, and one that ran its time out raised past the report.
+        # The report is whole, and the call still fails: answered as text,
+        # a crashed or stopped trainer ended `modal run ...::smoke` well.
         import torch
         app=controller()
         self.assertLess(2*app.SMOKE_PART_TIMEOUT,app.SMOKE_TIMEOUT)
@@ -790,8 +792,11 @@ class CloudIsolationTests(unittest.TestCase):
             with patch.object(app,'VOLUME',volume),patch.object(app,'SMOKE_OUT',root/'smoke'), \
                  patch.object(app,'_environment',return_value={}),patch.object(app,'print',log,create=True), \
                  patch.object(torch.cuda,'is_available',return_value=False), \
-                 patch.object(app.subprocess,'run',side_effect=run):
-                report=app.smoke()
+                 patch.object(app.subprocess,'run',side_effect=run), \
+                 self.assertRaises(RuntimeError) as failed:
+                app.smoke()
+            report=str(failed.exception)
+            self.assertTrue(report.startswith('smoke test failed: train\n'),report)
             self.assertEqual([call[:2] for call in calls],[('neural.train',app.SMOKE_PART_TIMEOUT),
                                                           ('neural.train_mortal',app.SMOKE_PART_TIMEOUT)])
             for said in (f'train stopped after {app.SMOKE_PART_TIMEOUT}s','round 1 played','still compiling',
