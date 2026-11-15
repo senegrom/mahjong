@@ -37,7 +37,10 @@ export const playedNetwork = () => playing;
 
 /** The version the player picked, or undefined while they play the default.
  * A service worker of another build reads it against its own list, as that
- * build's page will, so a waiting update saves the network its page plays. */
+ * build's page will, so a waiting update saves the network its page plays;
+ * except a build that makes a new network the default, whose page forgets
+ * every pick of an earlier settings record and plays its default, which its
+ * worker cannot tell from this. */
 export const pickedVersion = () => picked;
 
 /** How the page names the network it plays: "Trained 0.1.3000". */

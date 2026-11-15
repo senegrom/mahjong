@@ -56,7 +56,9 @@ const networkUrl = network => `${network.origin}/${network.object}`;
 // one its player picked. Every message from a page names that pick, which is
 // read here against this build's own list, as this build's page reads it: a
 // version this build does not list, or none, is its default. So a waiting
-// update answers for the network its own page will play.
+// update answers for the network its own page will play, unless this build
+// makes a new network the default: its page then forgets every earlier pick
+// and plays the default, which no message says.
 const networkFor = version => CONFIG.networks.find(network => network.version === version) ?? CONFIG.networks[0];
 const requestedKey = () => new URL('__offline_meta__/ai-requested', scope);
 // The worker never downloads the network. An install, activation or message

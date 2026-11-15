@@ -506,12 +506,13 @@ test('the worker never deletes a network its build lists, though others were sav
     .map(([body, generation]) => kept(next, body, generation))), [true, true, true, false]);
 });
 
-test('a waiting update answers for the network its own page will play for the player\'s pick', async () => {
+test('a waiting update answers for the network its own list gives the player\'s pick', async () => {
   const old = listingWorker([['g810', 810], ['g410', 410]]);
   await old.install(); await download(old); await pageSaves(old, 'g410', undefined, '0.1.410');
-  // The next build still lists 410, behind a newer default: a player who
-  // picked 410 has nothing more to save, and one who picked nothing will
-  // play the new default.
+  // The next build still lists 410, behind a newer default: it answers for
+  // 410, already saved, to a player who picked 410, and one who picked nothing
+  // will play the new default. A build that also forgets earlier picks plays
+  // its default for the first player too, which its worker cannot tell.
   const keeps = listingWorker([['g900', 900], ['g410', 410]], { files: { ...bodies, 'app.js': 'next UI' }, caches: old.caches });
   await keeps.install();
   const picked = await status(keeps, '0.1.410');
