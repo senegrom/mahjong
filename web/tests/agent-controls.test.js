@@ -153,6 +153,19 @@ test('a watch whose network cannot load deals the same table again with Club in 
   assert.match(watch.source, /\{#if watch\?\.lineup\.some\(isTrained\)\}<button data-watch-club[^>]*onclick=\{watchWithClub\}>Watch with Club instead<\/button>/);
 });
 
+test('changing your seat at a guided setup takes the points you typed to the new wind', () => {
+  const guided = component('../src/lib/GuidedPlay.svelte');
+  const game = { position: emptyPosition() };
+  const state = { edit: fn => fn(game) };
+  game.position.players[0].score = 25000;
+  game.position.players[2].score = 28000;
+  change(guided, 'Your seat', state, '1');
+  assert.equal(game.position.seat, 1);
+  assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000]);
+  change(guided, 'Your seat', state, '1');
+  assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000], 'the same seat moves nothing');
+});
+
 test('a new guided game keeps the adviser the last one used', async () => {
   const guided = component('../src/lib/GuidedPlay.svelte');
   const declaration = find(guided.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === 'restart');

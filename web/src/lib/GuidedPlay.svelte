@@ -152,7 +152,7 @@
         <p class="eyebrow">1 · Table setup</p><h3>Your points and seat?</h3>
         <p>Start with your points and seat wind. Then enter your first 13 tiles and the dora indicator.</p>
         <div class="fields">
-          <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { s.position.seat = Number(e.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
+          <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { const seat = Number(e.currentTarget.value), players = s.position.players; [players[seat].score, players[s.position.seat].score] = [players[s.position.seat].score, players[seat].score]; s.position.seat = seat; })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
           <label>Your points<input aria-label="Your points" type="number" step="100" bind:value={() => mine.score, value => edit(s => { s.position.players[s.position.seat].score = value ?? null; })} /></label>
         </div>
         <details><summary>Round, other scores and sticks</summary><div class="fields">
