@@ -719,6 +719,35 @@ class CloudIsolationTests(unittest.TestCase):
             self.assertEqual(answer,'halfway\nfinished\n')
             self.assertFalse((volume/'run/product.pt').exists())
 
+    def test_a_byte_that_is_not_utf8_never_ends_a_trainer_or_the_smoke_test(self):
+        # The trainer's output and the smoke test's were decoded strictly,
+        # so one undecodable byte in a warning raised in the controller,
+        # which killed the trainer partway or ended the smoke test without
+        # its report. The child is a real process writing such bytes.
+        import torch
+        app=controller()
+        script=("import sys\n"
+                "sys.stdout.buffer.write(b'warning \\x81\\xff\\n'); sys.stdout.flush()\n"
+                "sys.stderr.buffer.write(b'note \\x81\\xff\\n')\n")
+        start=subprocess.Popen
+        ran=subprocess.run
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'generation':0},volume/'zoo/mortal_298k.pt')
+            def popen(command,**kwargs):
+                return start([sys.executable,'-c',script],**{**kwargs,'cwd':folder})
+            def run(command,**kwargs):
+                return ran([sys.executable,'-c',script],**{**kwargs,'cwd':folder})
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                 patch.object(app,'SMOKE_OUT',root/'smoke'), \
+                 patch.object(app,'_environment',return_value=dict(os.environ)),patch.object(app,'_save_cache'), \
+                 patch.object(torch.cuda,'is_available',return_value=False), \
+                 patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 patch.object(app.subprocess,'run',side_effect=run),redirect_stdout(io.StringIO()):
+                self.assertIn('exit=0 generation=0 from 0',app.train(run='run',generations=1))
+                report=app.smoke()
+            self.assertIn('warning ��',report)
+
     def test_smoke_reports_a_part_stopped_by_its_timeout_and_goes_on(self):
         # Each trainer was let run forty minutes inside a function of
         # forty-five, and one that ran its time out raised past the report.

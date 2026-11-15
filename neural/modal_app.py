@@ -703,6 +703,11 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # One undecodable byte in a warning or a native message must not
+            # end the reader, and with it the trainer, partway through a
+            # generation, as it would at every retry if it recurred.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )) as process:
             assert process.stdout is not None
@@ -1950,6 +1955,10 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
             env=_environment(compiled=True),
             capture_output=True,
             text=True,
+            # As for the trainers: a byte that is not UTF-8 must not end the
+            # test without its report.
+            encoding="utf-8",
+            errors="replace",
             timeout=SMOKE_PART_TIMEOUT,
         )
         part = [f"{name} exit={result.returncode}", (result.stdout or "")[-kept:]]
