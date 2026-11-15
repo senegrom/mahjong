@@ -391,6 +391,10 @@ try {
         }
       }, steps - 1);
       await page.waitForSelector('.agent-watch .screen .buttons .primary');
+      // The result scrolls itself into view and takes focus a frame after it
+      // mounts (ScoreScreen's reveal); nothing is measured before it has, or
+      // that scroll could move the button between the check and the press.
+      await page.waitForFunction(() => document.activeElement?.matches('.agent-watch .screen'));
       assert.equal(await page.$('.standings'), null, `the game has not ended before the press ${where}`);
       const sheet = await page.$eval('.agent-watch .screen', el => getComputedStyle(el).position === 'fixed');
       assert.equal(sheet, width <= 760, `the result is a sheet up to 760 pixels wide, and only there, ${where}`);

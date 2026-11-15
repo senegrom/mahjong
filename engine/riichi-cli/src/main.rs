@@ -37,7 +37,7 @@ use riichi_core::{TileSet, Wind};
 
 /// What `help` prints, and what a mistyped command line is answered with.
 const USAGE: &str = "usage: riichi-cli <arena|fuzz|hand|log|dump|duel> [--games N] [--seed N]
-  duel also takes [--dora-worth N] [--defender-dora N]";
+  duel also takes [--dora-worth N] [--defender-dora N]; each defaults to the club player's";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -73,7 +73,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "duel" => {
-            // What is being tried, against the club player as it stands.
+            // What is being tried, against the club player as it stands
+            // unless --defender-dora changes that too. Dora worth is the only
+            // thing the two styles can differ in, so copying the challenger's
+            // into the defender would play a style against itself.
             let mut challenger = Style::club();
             if let Some(worth) = value(&args, "--dora-worth") {
                 challenger.dora_worth = worth as i64;
@@ -81,8 +84,6 @@ fn main() -> ExitCode {
             let mut defender = Style::club();
             if let Some(worth) = value(&args, "--defender-dora") {
                 defender.dora_worth = worth as i64;
-            } else {
-                defender.dora_worth = challenger.dora_worth;
             }
             duel::duel(games, seed, challenger, defender);
             ExitCode::SUCCESS

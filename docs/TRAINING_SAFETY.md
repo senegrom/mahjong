@@ -514,13 +514,19 @@ verification and are not implied by that test.
 All three self-play trainers accept `--target-kl` and `--baseline-batch`,
 and the cloud training functions and the main cloud launcher forward them.
 The KL guard is opt-in (`0`, the default, keeps the full update budget). For
-example, as a CPU smoke run:
+example, as a smoke run:
 
 ```sh
-python -m neural.train --rounds 1 --games 1 --channels 8 --blocks 1 \
-  --batch 32 --epochs 2 --replay-steps 1 --measure-games 1 \
-  --baseline-batch 16 --target-kl 0.02 --out runs/smoke
+CUDA_VISIBLE_DEVICES=-1 python -m neural.train --rounds 1 --games 1 \
+  --channels 8 --blocks 1 --batch 32 --epochs 2 --replay-steps 1 \
+  --measure-games 1 --baseline-batch 16 --target-kl 0.02 --out runs/smoke
 ```
+
+The trainers have no device option: they play and learn on the graphics card
+whenever torch sees one. `CUDA_VISIBLE_DEVICES=-1` hides the card, which keeps
+the run on the processor and off a card that a training run or a timed
+measurement holds. In PowerShell set `$env:CUDA_VISIBLE_DEVICES='-1'` first;
+an empty value there is dropped and hides nothing.
 
 A smoke configuration checks correctness, not playing strength; choose
 production settings by held-out comparisons. Nonfinite learning rates and

@@ -60,6 +60,25 @@ fn help_and_no_command_print_the_usage_and_succeed() {
     }
 }
 
+/// A dora worth given to the challenger alone is tried against the club
+/// player as it stands, not against a copy of itself, which would measure
+/// nothing.
+#[test]
+fn a_duel_tries_the_challengers_dora_worth_against_the_club_player() {
+    let output = run(&["duel", "--games", "1", "--seed", "1", "--dora-worth", "20"]);
+    assert!(output.status.success(), "{output:?}");
+    let said = String::from_utf8_lossy(&output.stdout);
+    let line = |name: &str| {
+        said.lines()
+            .find(|line| line.starts_with(name))
+            .unwrap_or_else(|| panic!("no {name} line: {said}"))
+            .to_string()
+    };
+    assert!(line("challenger:").contains("dora_worth: 20"), "{said}");
+    assert!(line("defender:").contains("dora_worth: 12"), "{said}");
+    assert!(!said.contains("the two styles are the same"), "{said}");
+}
+
 /// The gates as CI spells them still pass, at a size a test can afford.
 #[test]
 fn a_well_formed_gate_still_runs() {

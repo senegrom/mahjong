@@ -25,7 +25,8 @@ listed again.
 
 `neural.export` checks the graph's operators; the publication tool
 `web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
-precision from the exported weights and refusing to run without the source
+precision from the exported weights, refusing an export whose weights are in a
+side file or that holds none, and refusing to run without the source
 checkpoint's name or the reward the network learned from, given as its trainer
 was given it: `--reward hybrid`, or `--reward placement --alpha <weight>`.
 Every network it keeps listed keeps its reward, and it does not write over a
@@ -166,13 +167,20 @@ declined:
   carries `data-card-at-work` (`CARD_AT_WORK`), and under it a dora's sheen
   and the white dragon's reveal hold still (`Tile.svelte`), where they are,
   and go on from there when the batch is answered, a tenth of a second or so
-  later. Both move by being painted again, and each frame of either has the
-  browser paint the part of the page around it again, every tile's picture
-  in it, on the one thread of its graphics process that also runs the card's
-  work. With six dora in view in a review that thread was busy for all of
-  two seconds traced, the page drew 44 frames a second, and a batch of eight
-  took the card 4.5 s, longer than WebAssembly takes; with the sheens still
-  it took 70 ms (Chrome on a desktop, 12 November 2026).
+  later. Both move by being painted again, on the one thread of the
+  browser's graphics process that also runs the card's work. Painted with
+  the page, each frame of either had the browser paint the part of the page
+  around it again, every tile's picture in it: with six dora in view in a
+  review that thread was busy for all of two seconds traced, the page drew
+  44 frames a second, and a batch of eight took the card 4.5 s, longer than
+  WebAssembly takes; with the sheens still it took 70 ms (Chrome on a
+  desktop, 12 November 2026). Each is now a layer of its own
+  (`will-change: transform` in `Tile.svelte`), so a frame paints the sheen
+  alone: the thread is busy for under a fifth of the time in that review and
+  a twentieth at the table, the page draws about 210 frames a second, and
+  the card answers a batch in 60 to 130 ms whether the sheens hold still or
+  not (the same desktop, 15 November 2026). They hold still all the same,
+  for the browser or the card that paints them at the card's cost.
 
 `policyRuntime()` in `gpu-batches.js` says 'webgpu' once the card is ready
 and 'wasm' otherwise. While it says 'webgpu' a review asks up to 64 positions
@@ -304,7 +312,10 @@ The memory regression loads the default network through the reduced runtime
 three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
 `node scripts/prepare-test-network.mjs <path>` fetches and verifies against the
 manifest. CI always supplies it and fails without it; a local run without it
-skips that one test.
+skips that one test. The same script then asks the host for every other
+listed network by HEAD, as the page would, and fails when one does not answer
+200 with the page's CORS header and gzip encoding; it does not fetch or hash
+their bytes.
 
 The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
 between releases, so `web/package.json` pins the package to exactly the ONNX

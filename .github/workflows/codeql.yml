@@ -1,8 +1,8 @@
 name: CodeQL (advanced)
 
-# Prerequisite: Settings > Advanced Security > CodeQL analysis > Switch to advanced.
-# Default setup rejects advanced uploads. Keep this repair unmerged until the
-# setting is migrated and every scan succeeds; never remove required checks.
+# The repository's CodeQL configuration, to be kept. It needs the advanced
+# setup (Settings > Advanced Security > CodeQL analysis), which is enabled: the
+# default setup rejects advanced uploads. Never remove required checks.
 on:
   push:
     branches: [main]

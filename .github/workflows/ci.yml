@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03
         with:
           toolchain: 1.98.1
           components: clippy, rustfmt
@@ -55,6 +55,11 @@ jobs:
           ./target/release/riichi-cli fuzz --games 500 --seed "$FUZZ_SEED"
       - name: Arena sanity check
         run: ./target/release/riichi-cli arena --games 20 --seed 1
+      # Cargo refuses a crate whose rust-version is older than a dependency's
+      # on the releases its manifest says are enough. Seconds, from the lock.
+      - name: Declared Rust versions
+        if: ${{ !cancelled() }}
+        run: python3 engine/rust-versions.py
 
   # The npm audit on its own: an advisory or a registry outage fails this job
   # alone, and every test still reports. Publishing needs it all the same.
@@ -102,7 +107,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
@@ -140,7 +145,8 @@ jobs:
         if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
         run: npm run check
-      # Only the memory regression, a unit test, reads it.
+      # Only the memory regression, a unit test, reads it. The step also asks
+      # the host for every other listed network and fails if one is missing.
       - name: Prepare verified network for the memory regression
         if: ${{ !cancelled() && matrix.checks && steps.site.outcome == 'success' }}
         working-directory: web
@@ -202,7 +208,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03
         with:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0

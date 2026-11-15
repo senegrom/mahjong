@@ -233,11 +233,14 @@ fn pick_situation(rng: &mut Rng, winning: Tile, concealed: bool, seen: &TileSet)
         };
         situation.ippatsu = rng.below(4) == 0;
     }
-    // The last tile of the wall and a replacement tile after a quad are
-    // different tiles, so a hand cannot be won on both; likewise the last
-    // discard of the hand is not the tile that extends somebody's triplet.
-    // Generating the impossible pair would only test the scorer against a
-    // position no game can reach.
+    // The last discard of the hand is never the tile that extends somebody's
+    // triplet, since no quad may be declared once the wall is empty. A
+    // replacement tile can be drawn with the wall empty, after a quad
+    // declared with one live tile left, and then the hand reads as both
+    // After a Quad and Under the Sea, which do not combine (EMA section
+    // 4.2.1). riichi-core's game tests play that position; the dump keeps
+    // the two apart, so the hands it draws stay the ones each seed has
+    // always drawn.
     match situation.win_by {
         WinBy::SelfDraw => {
             if rng.below(20) == 0 {

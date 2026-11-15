@@ -102,8 +102,9 @@ impl Yaku {
     ///
     /// The dragon yaku carries the tile it was made of, and one of each is
     /// listed here; nothing depends on which, since they share a name and a
-    /// value. Adding a yaku without adding it here fails the test that
-    /// checks this list against the rulebook, which is the point of it.
+    /// value. tests/every_yaku.rs checks that every variant of the enum is
+    /// listed here, through a match with no catch-all that a new variant
+    /// does not compile past, and that the names listed are the rulebook's.
     pub const ALL: [Yaku; 41] = [
         Yaku::Riichi,
         Yaku::Ippatsu,
@@ -221,7 +222,21 @@ impl Yaku {
                 }
             }
 
-            _ => 13, // Yakuman are paid from their own table, not by han.
+            // Yakuman are paid from their own table, not by han. They are
+            // named rather than caught by a wildcard, so that a yaku added
+            // later does not compile without a value of its own.
+            Yaku::KokushiMusou
+            | Yaku::ChuurenPoutou
+            | Yaku::Tenhou
+            | Yaku::Chiihou
+            | Yaku::SuuAnkou
+            | Yaku::SuuKantsu
+            | Yaku::Ryuuiisou
+            | Yaku::Chinroutou
+            | Yaku::Tsuuiisou
+            | Yaku::Daisangen
+            | Yaku::ShouSuushii
+            | Yaku::DaiSuushii => 13,
         }
     }
 

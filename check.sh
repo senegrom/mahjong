@@ -2,7 +2,7 @@
 # Rules-engine checks; --web also runs npm run verify, the checks of CI's npm
 # audit and web app jobs.
 # Dependencies must already be installed. Browser checks use CHROME_BIN when set,
-# and the binding smoke test runs under PYTHON when set, python3 otherwise (on
+# and the Python scripts run under PYTHON when set, python3 otherwise (on
 # Windows python3 is often only the Microsoft Store alias).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -15,6 +15,8 @@ echo "== formatting"
 cargo fmt --all --check
 echo "== lints"
 cargo clippy --locked --workspace --all-targets -- -D warnings
+echo "== declared Rust versions"
+"${PYTHON:-python3}" engine/rust-versions.py
 echo "== tests"
 cargo test --locked --workspace
 echo "== observation engine tests"
