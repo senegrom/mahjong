@@ -39,8 +39,16 @@ let memoryLimitMiB = MEMORY_LIMITS_MIB[0];
 let nextId = 1;
 const waiting = new Map();
 let onProgress = null;
+let onLoading = null;
 
 export function reportProgress(callback) { onProgress = callback; }
+
+/** Tells `callback` what the worker last said of its network while it loads
+ * it, downloading it itself where the page did not save it first, and ''
+ * once it holds it or is ended: what Watch, a guided game and the reviews
+ * show beside their own "thinking", as Play's table shows the notes given to
+ * reportProgress. */
+export function reportLoading(callback) { onLoading = callback; }
 
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
   generation++;
@@ -53,6 +61,7 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   old?.terminate();
   for (const pending of waiting.values()) pending.reject(reason);
   waiting.clear();
+  onLoading?.('');
   // A review's batches waiting on the graphics card are dropped the same way;
   // the card's own worker stays (gpu-batches.js).
   resetCard(reason);
@@ -71,6 +80,7 @@ function stillLoading(current) {
  * waiting are queued there from now, each timed by its backstop until the
  * worker begins it. */
 function networkLoaded() {
+  if (!loaded) onLoading?.('');
   loaded = true;
   clearTimeout(loading);
   for (const request of waiting.values()) request.queued();
@@ -129,6 +139,7 @@ function ensureWorker() {
         current.terminate();
         memoryLimitMiB = larger;
         onProgress?.('retrying the agent with more memory');
+        onLoading?.('retrying the agent with more memory');
         try { for (const request of waiting.values()) request.dispatch(); }
         catch (failure) { resetPolicy(failure); }
       } else {
@@ -148,7 +159,7 @@ function ensureWorker() {
       // "… is thinking" with "network ready" on every later move, so they
       // stop here; a worker replaced after a memory failure starts unloaded.
       if (!loaded) {
-        if (ready) networkLoaded(); else stillLoading(current);
+        if (ready) networkLoaded(); else { stillLoading(current); onLoading?.(progress); }
         onProgress?.(progress);
       }
       // The worker says the network is ready as it begins each request, so

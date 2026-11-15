@@ -20,15 +20,25 @@ export function chromePath() {
   return found;
 }
 
+// The page runs a review's batches on a desktop's graphics card where Chrome
+// offers it one (gpu-batches.js), and CI's Chrome offers none. On a desktop
+// with a card the checks' Chrome did, and the checks that walk a review's
+// batches met the card's as well, in other sizes, and failed there alone.
+// Without its WebGPU service Chrome offers no adapter and still draws on the
+// card, so a check sees the page it sees in CI (webgpu-check.mjs holds
+// Chrome to that).
+const NO_CARD = '--disable-features=WebGPUService';
+
 /** Headless Chrome with the flags a CI container needs; options add to them.
  * Chrome has 60 s to start, not puppeteer's 30, and one that fails to start is
  * tried once more: in CI a Chrome once did not answer within 30 s, and the
- * check failed before any case ran. */
-export async function launchChrome({ args = [], ...options } = {}) {
+ * check failed before any case ran. It offers the page no graphics card to
+ * compute on unless `card` says to, which only the card's own check does. */
+export async function launchChrome({ args = [], card = false, ...options } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
   const executablePath = chromePath();
   const launch = () => puppeteer.launch({ executablePath, headless: true, timeout: 60000, ...options,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', ...args] });
+    args: ['--no-sandbox', '--disable-dev-shm-usage', ...(card ? [] : [NO_CARD]), ...args] });
   try {
     return await launch();
   } catch (error) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parse } from 'svelte/compiler';
-import { emptyPosition } from '../src/lib/physical-position.js';
+import { emptyPosition, withoutStaleDraw } from '../src/lib/physical-position.js';
 
 function component(path) {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -77,6 +77,23 @@ test('changing the meld kind immediately applies the correct call direction', ()
   assert.equal(state.position.players[0].melds[0].from, 3);
 });
 
+test('physical play keeps a Trained agent in its select, disabled, while the network is unavailable', () => {
+  const select = find(physical.ast.fragment, node => node.name === 'select'
+    && node.attributes?.some(a => a.name === 'aria-label' && a.value?.[0]?.data === 'Physical play agent'));
+  const shown = find(select, node => node.type === 'IfBlock');
+  const option = find(shown.consequent, node => node.name === 'option');
+  const disabled = option.attributes.find(a => a.name === 'disabled')?.value?.expression;
+  const run = (expression, state) => vm.runInContext(physical.source.slice(expression.start, expression.end),
+    vm.createContext({ isTrained: key => key === 'full', ...state }));
+  for (const [agent, listed] of [['full', true], ['club', false]]) {
+    const state = { key: 'full', agent, trainedAvailable: false };
+    assert.equal(run(shown.test, state), listed, `the Trained option is listed only while it is the pick (${agent})`);
+    assert.ok(disabled && run(disabled, state), 'and cannot be picked again while unavailable');
+  }
+  assert.equal(run(shown.test, { key: 'full', agent: 'club', trainedAvailable: true }), true);
+  assert.equal(run(disabled, { key: 'full', agent: 'club', trainedAvailable: true }), false);
+});
+
 test('watch pace reschedules with the newly selected delay', () => {
   const delays = [];
   const state = { speed: 1400, watch: { delay: 1400, schedule() { delays.push(this.delay); } } };
@@ -134,6 +151,66 @@ test('a watch whose network cannot load deals the same table again with Club in 
   assert.deepEqual(started, [['club', 'beginner', 'club', 'club']], 'the failed game\'s own seats, Trained ones as Club');
   // Offered beside Retry agent, and only when a seat is Trained.
   assert.match(watch.source, /\{#if watch\?\.lineup\.some\(isTrained\)\}<button data-watch-club[^>]*onclick=\{watchWithClub\}>Watch with Club instead<\/button>/);
+});
+
+test('changing your seat at a guided setup takes the points you typed to the new wind', () => {
+  const guided = component('../src/lib/GuidedPlay.svelte');
+  const game = { position: emptyPosition() };
+  const state = { edit: fn => fn(game) };
+  game.position.players[0].score = 25000;
+  game.position.players[2].score = 28000;
+  change(guided, 'Your seat', state, '1');
+  assert.equal(game.position.seat, 1);
+  assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000]);
+  change(guided, 'Your seat', state, '1');
+  assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000], 'the same seat moves nothing');
+});
+
+test('the typed-in modes ask the engine only as it takes what a draft keeps of a riichi and a kan', () => {
+  // A draft keeps two facts the engine is told only where it and its replay
+  // take them (analysisOf): a table handed to the engine any other way would
+  // be told none, or be refused for one an edit made unfit.
+  for (const path of ['../src/lib/PhysicalPlay.svelte', '../src/lib/GuidedPlay.svelte']) {
+    const { source } = component(path);
+    assert.doesNotMatch(source, /new PhysicalAnalysis\(/, `${path} builds no engine of its own`);
+    assert.match(source, /analysisOf\(PhysicalAnalysis, /, path);
+  }
+});
+
+test('physical play\'s editor leaves a riichi it moved no draw of the turn it left, and any other change its draw', () => {
+  // Every change to the table goes through the component's own edit, run
+  // here as it is written.
+  const declaration = find(physical.ast.instance.content, node => node.type === 'FunctionDeclaration' && node.id?.name === 'edit');
+  assert.ok(declaration, 'the table is changed through edit');
+  const state = { closed: false, loaded: true, saveConflict: false, unreadable: false, history: [], numericEdit: null, failure: '',
+    position: emptyPosition(), withoutStaleDraw, structuredClone, JSON };
+  state.snapshot = () => JSON.parse(JSON.stringify(state.position));
+  const edit = vm.runInContext(`(${physical.source.slice(declaration.start, declaration.end)})`, vm.createContext(state));
+  Object.assign(state.position.players[0], { riichi: 'riichi', drew_at_riichi: '1m', discards: [
+    { tile: '9p', order: 0, drawn: false, riichi: true, claimed: false }, { tile: '4z', order: 4, drawn: true, riichi: false, claimed: false }] });
+  assert.equal(edit(p => { p.players[0].hand = ['1m']; }), true);
+  assert.equal(state.position.players[0].drew_at_riichi, '1m');
+  assert.equal(edit(p => { p.players[0].discards[0].riichi = false; p.players[0].discards[1].riichi = true; }), true);
+  assert.equal(state.position.players[0].drew_at_riichi, undefined);
+  assert.equal(state.history.at(-1).players[0].drew_at_riichi, '1m', 'Undo brings the table back with it');
+});
+
+test("Watch, a guided game and both reviews show the worker's own download as Play's table does", async () => {
+  const { waitingNote } = await import('../src/lib/ui.js');
+  const app = component('../src/App.svelte');
+  const note = 'downloading the network 37%';
+  for (const [name, tag] of [['AgentWatch', 'AgentWatch'], ['GuidedPlay', 'GuidedPlay'], ['Review', 'Review'], ['GameReview', 'GameReview']]) {
+    const { source, ast } = component(`../src/lib/${name}.svelte`);
+    const download = find(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'download');
+    const shown = download.init.arguments[0];
+    const state = { waitingNote, workerNote: note, offline: null, isTrained: agent => agent === 'full',
+      state: { agent: 'full' }, watch: { lineup: ['full', 'club', 'club', 'club'] } };
+    assert.equal(vm.runInContext(source.slice(shown.start, shown.end), vm.createContext(state)), note, name);
+    // The page hands each the note.
+    const used = find(app.ast.fragment, node => node.type === 'Component' && node.name === tag);
+    assert.ok(used?.attributes.some(attribute => attribute.name === 'workerNote'), `App gives ${tag} the worker's note`);
+  }
+  assert.match(app.source, /reportLoading\(\(note\) => \{ if \(mounted\) workerNote = note; \}\);/);
 });
 
 test('a new guided game keeps the adviser the last one used', async () => {

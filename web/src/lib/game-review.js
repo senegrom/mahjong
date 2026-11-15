@@ -42,11 +42,15 @@ export const batchMostFor = runtime => (runtime === 'webgpu' ? GPU_BATCH : BATCH
  * time a position: half the twenty seconds the worker gives one decision
  * (policy.js), so that a pass ends well within its own deadline, which is
  * never shorter, and whatever is sent behind it, the hand's notes or the next
- * deal's first move, waits about ten seconds at most. That holds on a device
- * that takes up to ten seconds a position, whether a pass asks the decisions
- * of a group or, renamed, those of them Trained AI hesitates over (suits.js),
- * each pass sent at the review's gate; on a slower one a pass is a single
- * position, which alone takes longer. */
+ * deal's first move, waits about ten seconds at most. That holds once the
+ * review has measured the device, on one that takes up to ten seconds a
+ * position, whether a pass asks the decisions of a group or, renamed, those
+ * of them Trained AI hesitates over (suits.js), each pass sent at the
+ * review's gate; on a slower one a pass is a single position, which alone
+ * takes longer. The first two passes go before anything is measured (timed),
+ * eight positions whatever the device: they take eight times a position, and
+ * run out of their forty seconds from five seconds a position, so a slower
+ * device never reaches the sizing (UI_RELIABILITY.md). */
 export const BATCH_MS = 10000;
 /** The positions in each forward pass on a device that takes `positionMs` a
  * position (MatchReview.positionMs): `most`, BATCH unless it says GPU_BATCH
@@ -409,14 +413,15 @@ export class MatchReview {
     return Boolean(last) && last.end < this.snapshot.commands.length;
   }
   /** The order the hands are asked about when none are named: the newest
-   * first, then the rest from the first deal. While the match is under way
-   * that is the hand just played, whose result the player came from, and
-   * once it is over the final hand. Either way it is the hand the review
-   * opens on (landing), so the first hand the player looks at is the first
-   * one answered. */
+   * with a decision of the player's first, then the rest from the first
+   * deal. While the match is under way that is usually the hand just played,
+   * whose result the player came from, and once it is over the final hand.
+   * Either way it is the hand the review opens on (landing), so the first
+   * hand the player looks at is the first one answered. */
   get order() {
     const indices = this.hands.map(hand => hand.index);
-    return [...indices.slice(-1), ...indices.slice(0, -1)];
+    const opened = this.hands.findLast(hand => hand.frames.length)?.index ?? indices.at(-1);
+    return indices.length ? [opened, ...indices.filter(index => index !== opened)] : [];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
@@ -542,8 +547,10 @@ export class MatchReview {
         }
         this.report();
         // A slow device holds after each hand: the player chooses whether to
-        // go on, one hand or the rest, knowing how long it would take.
-        if (this.slow && !this.patient && this.queue.length) this.held = true;
+        // go on, one hand or the rest, knowing how long it would take. A hand
+        // in which the player made no decision asked nothing, and is no hand
+        // to hold after.
+        if (this.slow && !this.patient && hand.frames.length && this.queue.length) this.held = true;
         this.notify();
       }
     } finally {

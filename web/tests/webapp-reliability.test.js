@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { parse } from 'svelte/compiler';
 import { watchModelAvailability } from '../src/lib/model-availability.js';
+import { withoutStaleDraw } from '../src/lib/physical-position.js';
 import { loadModule } from './fixtures/load-module.js';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -170,7 +171,7 @@ function editor() {
     seat: 0, turn: 0, phase: 'act', first_turns: true, after_quad: false, indicators: [],
     players: Array.from({ length: 4 }, () => ({ score: 31000, hand: [], melds: [], discards: [], riichi: 'none', ippatsu: false, furiten: false })) });
   const context = vm.createContext({
-    structuredClone, emptyPosition, $state: value => value, $effect() {}, $props: () => ({}),
+    structuredClone, emptyPosition, withoutStaleDraw, $state: value => value, $effect() {}, $props: () => ({}),
     onMount() {}, onDestroy() {}, PhysicalAnalysis: class {},
   });
   const script = physicalSource.slice(physicalScript.start, physicalScript.end).replace(/^\s*import .*;$/gm, '');

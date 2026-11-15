@@ -1187,6 +1187,53 @@ test('a review asks about the newest hand first, the hand just played or the fin
   } finally { finished.dispose(); }
 });
 
+test('a review stopped and continued by turns waits in the page for the batch it let go, so one batch at most is with the worker', async () => {
+  // As the page has it: the review's batches counted as they go to the
+  // worker (countedBatches), and its gate shut while one is there.
+  const { anyGate, countedBatches } = await import('../src/lib/review-insight-policy.js');
+  const batches = new Asking(), held = [];
+  const worker = positions => new Promise(resolve => { held.push(() => resolve(positions.map(position => decisive(position.mask)))); });
+  const review = new MatchReview(Game, game, { analyzeBatch: countedBatches(worker, batches), gate: anyGate(batches) });
+  try {
+    review.review();
+    await until(() => held.length === 1, 'the first batch is sent');
+    // Enter held on Stop, or a double click: Stop and Continue by turns.
+    for (let press = 0; press < 6; press++) {
+      review.stop();
+      review.review(undefined, { patient: true });
+      await turn();
+    }
+    assert.equal(review.busy, true);
+    assert.equal(held.length, 1, 'nothing more is sent while the batch let go is with the worker');
+    held.shift()();
+    await until(() => held.length === 1, 'the next goes once the worker has answered it');
+    await turn();
+    assert.equal(held.length, 1);
+  } finally { review.dispose(); }
+});
+
+test('where the newest hand asked the player nothing, a review asks first about the hand it opens on, and a slow device holds only after a hand with decisions', async () => {
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    // The final hand as if it had ended before the player's first decision.
+    const indices = review.hands.map(hand => hand.index), last = indices.at(-1);
+    review.hands.at(-1).frames = [];
+    const opened = landing(review.hands, 'every').hand;
+    assert.equal(opened, indices.at(-2));
+    assert.deepEqual(review.order, [opened, ...indices.slice(0, -2), last], 'the hand on show first, the rest from the first deal');
+    // On a slow device, the hand without decisions is passed on to the next.
+    const reviewed = [];
+    review.reviewHand = async hand => { reviewed.push(hand.index); hand.decisions = []; hand.status = 'done'; };
+    review.timedMs = SLOW_MS + 100;
+    review.ranOn = BATCH;
+    assert.equal(review.slow, true);
+    review.review([last, 0, 1]);
+    await settled(review);
+    assert.deepEqual(reviewed, [last, 0]);
+    assert.equal(review.held, true);
+  } finally { review.dispose(); }
+});
+
 test('a review taken on to later hands keeps what it reviewed, and asks only about the new hands, the newest first', async () => {
   const hands = scanMatch(Game, game), later = savedAfter(game, hands[3].end);
   const order = [], sizes = [];

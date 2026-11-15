@@ -876,8 +876,10 @@ async function reviewed(page) {
 }
 
 /** The order a whole game's review asks about the tile-throwing game's
- * hands: its final hand first, then the rest from the first deal. */
-const wholeOrder = [hands.at(-1).index, ...hands.slice(0, -1).map(hand => hand.index)];
+ * hands: the final hand the player made a decision in first, the hand the
+ * review opens on, then the rest from the first deal. */
+const finalAsked = hands.findLast(hand => hand.frames.length).index;
+const wholeOrder = [finalAsked, ...hands.map(hand => hand.index).filter(index => index !== finalAsked)];
 /** The batches a review sent once reviewWholeGame had set it going again,
  * where its first hand, the first of `order`, is asked from its first group
  * a second time. Its Stop lets go of the batch under way, but the worker
@@ -1005,11 +1007,11 @@ try {
     await reviewed(page);
     await page.waitForFunction(() => document.activeElement?.matches('[data-steps] :is([data-next], [data-previous])'), { timeout: 5000 });
 
-    // Every batch, in the order the review asks: a finished game's final
-    // hand first, then the rest from the first deal.
+    // Every batch, in the order the review asks: the hand it opens on, a
+    // finished game's final hand with a decision, first, then the rest from
+    // the first deal.
     const batches = await page.evaluate(() => window.reviewBatches);
-    const indices = hands.map(hand => hand.index);
-    const { first, second, walked, renamed } = walkBatches(batches, [indices.at(-1), ...indices.slice(0, -1)]);
+    const { first, second, walked, renamed } = walkBatches(batches, wholeOrder);
     assert.equal(walked, batches.length, 'no batch is missing or extra');
     // Trained AI hesitated over some decisions, and asked their renamed
     // games, each the renamed game of its own position (walkBatches).

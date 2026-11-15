@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { analysisOf, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
@@ -76,7 +76,8 @@
     const before = snapshot();
     const next = structuredClone(before);
     try {
-      const result = change(next) ?? next;
+      // A riichi the editor moved or took back keeps no draw of the turn it left.
+      const result = withoutStaleDraw(before, change(next) ?? next);
       if (JSON.stringify(result) === JSON.stringify(before)) return true;
       if (group === null || group !== numericEdit) history = [...history.slice(-29), before];
       numericEdit = group;
@@ -118,7 +119,7 @@
     let engine;
     busy = true; failure = ''; analysis = null;
     try {
-      engine = new PhysicalAnalysis(input);
+      engine = analysisOf(PhysicalAnalysis, input);
       const result = await evaluateAgent(engine, agent, owner.signal);
       if (request !== owner || owner.signal.aborted || key !== JSON.stringify(position) + agent) return;
       analysis = result; analyzedKey = key;
@@ -165,7 +166,7 @@
   <p class="intro">Enter the table in front of you. Include the drawn tile in the concealed hand; leave unknown hands empty. Tap entered tiles to remove them. All draws and calls are recorded by you.</p>
   <div class="physical-toolbar">
     <label>Analyse seat<select value={position.seat} onchange={event => edit(p => { p.seat = Number(event.currentTarget.value); if (p.phase === 'act') { p.turn = p.seat; p.drawn = null; p.just_claimed = null; } })} aria-label="Analyse seat">{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
-    <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable}<option value={key}>{agentName(key)}</option>{/if}{/each}</select></label>
+    <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable || agent === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{agentName(key)}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}

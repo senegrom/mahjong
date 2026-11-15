@@ -55,7 +55,8 @@ function request(type, progress, target = worker) {
     };
     // The version the player picked, not the network this page resolved it
     // to: a waiting update reads it against its own list, as its page will,
-    // and one that no longer lists it answers with its own default.
+    // and one that no longer lists it answers with its own default. An update
+    // that forgets earlier picks plays its default all the same (saveUpdate).
     try { target.postMessage({ type, version: pickedVersion() }, [channel.port2]); }
     catch (error) { finish(error); }
   });
@@ -115,9 +116,12 @@ async function persistentStorage() {
 /** An update installs with the game alone and waits for this version's
  * windows to close. When Trained was requested, save the update's runtime and
  * network now, while this version runs, so the update does not start without
- * them on a plane: the network its page will play for this player's pick,
- * which its worker names. Should this not finish, the update's own page saves
- * them. */
+ * them on a plane: the network its worker names for this player's pick, which
+ * is the one its page will play unless the update makes a new network the
+ * default. Such an update's page forgets every earlier pick and plays its
+ * default, which its worker cannot tell, so for a player who had picked
+ * another network nothing new is saved here. Should this not finish, or save
+ * nothing, the update's own page saves what it plays once it runs online. */
 async function saveUpdate(registration) {
   const next = registration.waiting;
   if (!next || updatesSaved.has(next) || !navigator.onLine) return;

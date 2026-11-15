@@ -60,6 +60,13 @@ try {
     await available(page);
     assert.equal(await page.$eval(physical, el => el.value), 'beginner');
   });
+  await check('a Trained Physical agent stays on show, disabled, when the network goes away', 'physical', async page => {
+    await available(page);
+    assert.equal(await page.$eval(physical, el => el.value), 'full');
+    await page.click('[data-unavailable]');
+    await page.waitForFunction(select => document.querySelector(`${select} option[value="full"]`)?.disabled, {}, physical);
+    assert.equal(await page.$eval(physical, el => el.value), 'full', 'the field never goes blank');
+  });
   await check('explicit Physical Club selection survives a later trained result', 'physical', async page => {
     await page.select(physical, 'club');
     await available(page);

@@ -134,8 +134,11 @@ update's runtime and network are saved while you play; if that does not
 finish, the update saves them itself once it starts, with the status panel
 showing progress (see [cache lifetime and
 upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)). The update plays the
-network you picked while it still lists it, and its own default otherwise;
-until that network is saved, **Offline: game ready** is shown and Trained
+network you picked while it still lists it, and its own default otherwise. An
+update that makes a new network the default forgets every earlier pick and
+plays that default, which is saved ahead only if you had picked nothing;
+otherwise the update saves it once it runs while connected. Until the network
+it plays is saved, **Offline: game ready** is shown and Trained
 opponents need a connection. Check for **Offline: game + AI ready** after an
 update before flying. The previous network stays stored until the new one is
 saved. No downloaded model is replaced merely because a newer UI was published.

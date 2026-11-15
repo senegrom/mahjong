@@ -267,7 +267,7 @@ test("the hand's notes shut the review's gate before their first question, and o
   }
 });
 
-test("the page gives the review of the game so far the gate that the hand's notes and the review's reasoning shut, and counts its batches with the reasoning's passes", async () => {
+test("the page gives the review of the game so far the gate that the hand's notes, the review's reasoning and a batch with the worker shut, and counts its batches with the reasoning's passes", async () => {
   // The page's own wiring, from its source: what it tells the notes to call
   // as they begin to ask, the gate it gives the review and what the review's
   // batches go through, each run on the spells the page counts; and the
@@ -305,9 +305,13 @@ test("the page gives the review of the game so far the gate that the hand's note
   const reviewBatch = run(batch.type === 'Identifier' ? declared(batch.name) : batch);
   const asked = reviewBatch([]);
   assert.ok(workerBatches.gate() instanceof Promise, "the review's batch is counted while it is with the worker");
+  // The review's own gate waits for it too: a batch let go at Stop runs on in
+  // the worker, and Continue sends the next only once it is answered.
+  assert.ok(shut() instanceof Promise, 'shut while a batch is with the worker');
   answer([]);
   assert.deepEqual(await asked, []);
   assert.equal(workerBatches.gate(), null, 'and no longer once answered');
+  assert.equal(shut(), null, 'open again then');
 });
 
 test("the page has the review tell its screen when its batches move to the graphics card or back", () => {

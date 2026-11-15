@@ -2,6 +2,7 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
+  import { analysisOf } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
@@ -14,7 +15,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { trainedAvailable, storage, hints = true, offline = null } = $props();
+  let { trainedAvailable, storage, hints = true, offline = null, workerNote = '' } = $props();
   let game = $state(emptyGuided());
   let state = $derived(game.state);
   let position = $derived(state.position);
@@ -38,7 +39,7 @@
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
   // Trained advice may be waiting for the network's first download.
-  let download = $derived(isTrained(state.agent) ? waitingNote('', offline) : '');
+  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;
@@ -73,7 +74,7 @@
     try { game = editGuided(snapshot(), change); failure = ''; }
     catch (error) { failure = error.message ?? String(error); }
   }
-  function validate(p) { const engine = new PhysicalAnalysis(p); engine.free(); }
+  function validate(p) { analysisOf(PhysicalAnalysis, p).free(); }
   function act(event) {
     if (blocked) return false;
     try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
@@ -87,7 +88,7 @@
     busy = true; failure = ''; analysis = null;
     let engine;
     try {
-      engine = new PhysicalAnalysis(p);
+      engine = analysisOf(PhysicalAnalysis, p);
       const result = await evaluateAgent(engine, agent, owner.signal);
       if (closed || request !== owner || owner.signal.aborted || key !== decisionKey()) return;
       analysis = result; analyzedKey = key;
@@ -152,7 +153,7 @@
         <p class="eyebrow">1 · Table setup</p><h3>Your points and seat?</h3>
         <p>Start with your points and seat wind. Then enter your first 13 tiles and the dora indicator.</p>
         <div class="fields">
-          <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { s.position.seat = Number(e.currentTarget.value); })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
+          <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { const seat = Number(e.currentTarget.value), players = s.position.players; [players[seat].score, players[s.position.seat].score] = [players[s.position.seat].score, players[seat].score]; s.position.seat = seat; })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
           <label>Your points<input aria-label="Your points" type="number" step="100" bind:value={() => mine.score, value => edit(s => { s.position.players[s.position.seat].score = value ?? null; })} /></label>
         </div>
         <details><summary>Round, other scores and sticks</summary><div class="fields">

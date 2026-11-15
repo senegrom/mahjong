@@ -59,6 +59,9 @@
   // folded a list under the player's press.
   let linesOpen = $state(false);
   let numbersOpen = $state(false);
+  // The workings of the Why line's check, held here for the same reason: the
+  // Why line goes from the page at a decision without a view.
+  let checkOpen = $state(false);
   // Every move of the view, where the player asked for them at this
   // decision; the next decision leads with the few again.
   let everyMoveAt = $state(null);
@@ -262,7 +265,7 @@
           </table>
         </details>
       {/if}
-      {#if insight}<ReviewInsight {insight} {hand} {step} {positionMs} {trainedAvailable} />{/if}
+      {#if insight}<ReviewInsight {insight} {hand} {step} {positionMs} {trainedAvailable} bind:checkOpen />{/if}
     </section>
   {/if}
 </div>

@@ -113,6 +113,17 @@ test("a verdict a check failed is a button whose tooltip is the check's workings
   assert.doesNotMatch(plain, /data-why-check|title=/);
 });
 
+test("the check's workings stay open across a decision without a view, since the view holds whether they are open", () => {
+  const html = panel(had, { checkOpen: true });
+  assert.equal(attribute(/<button type="button" class="verdict[^"]*"([^>]*)>/.exec(html)[1], 'aria-expanded'), 'true');
+  assert.match(html, /<p class="workings[^"]*" data-why-workings="">/);
+  // The panel goes from the page at an only move or a hidden one; the view
+  // stays, and hands the panel the player's choice again when it comes back.
+  const replay = readFileSync(new URL('../src/lib/DecisionReplay.svelte', import.meta.url), 'utf8');
+  assert.match(replay, /let checkOpen = \$state\(false\);/);
+  assert.match(replay, /<ReviewInsight [^>]*bind:checkOpen \/>/);
+});
+
 test('until the Why line is had, neither it nor the button is drawn, and the status line waits in the page, empty', () => {
   for (const state of [{ ...had, why: null }, { ...had, why: { state: 'asking', result: null } }]) {
     const html = panel(state);

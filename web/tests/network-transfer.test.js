@@ -38,7 +38,8 @@ function fixture(t, { cached, headers = {}, fault, network } = {}) {
     };
   } };
   t.after(() => { if (previous === undefined) delete globalThis.caches; else globalThis.caches = previous; });
-  return { fetches: () => fetches, deleted: () => deleted, held: () => held?.bytes, headers: () => held?.headers, reads: () => reads };
+  return { fetches: () => fetches, deleted: () => deleted, held: () => held?.bytes, headers: () => held?.headers, reads: () => reads,
+    heal: () => { fault = undefined; } };
 }
 
 test('bytes for the runtime must have the right size AND digest; the stored record is written with them', async t => {
@@ -92,6 +93,27 @@ test('all cache failures allow verified online bytes, but never claim durability
       await assert.rejects(verifiedNetworkBytes({ url, expect, requireStored: true }), { name: 'NetworkStorageError' });
     }
   });
+});
+
+test('a stored network that could not be read once stays for the next try, and a download replaces it', async t => {
+  for (const fault of ['body', 'match']) await t.test(fault, async t => {
+    // Offline, the read fails, for want of memory say: the move fails, and the network is kept.
+    const f = fixture(t, { cached: good, headers: record, fault, network: () => { throw new Error('offline'); } });
+    await assert.rejects(verifiedNetworkBytes({ url, expect }), /offline/);
+    assert.equal(f.deleted(), 0);
+    assert.deepEqual(f.held(), good);
+    // The next try reads it.
+    f.heal();
+    assert.equal(await hasStoredNetwork(url, expect), true);
+    assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  });
+  // Online, the download that follows an unreadable entry writes over it.
+  const online = fixture(t, { cached: good.slice(1), fault: 'body' });
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  assert.equal(online.fetches(), 1);
+  assert.deepEqual(online.held(), good);
+  online.heal();
+  assert.equal(await hasStoredNetwork(url, expect), true);
 });
 
 test('downloads with mismatched bytes never enter the cache', async t => {

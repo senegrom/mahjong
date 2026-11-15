@@ -950,7 +950,12 @@ stays as the player leaves it, open or folded, as the review goes on. These
 buttons replace one another as the review goes, so focus is handed on rather
 than dropped: from **Stop** to **Continue** and back, from a hand's **Review**
 to the hand's name once that hand is under review, and to Next, or Previous at
-the end, when nothing is left to press. The review needs the network: while it
+the end, when nothing is left to press. Enter held down on **Stop**,
+**Continue** or a hold's two buttons presses it once, and there the second
+press of a double click or tap, which lands on the button that took the first
+one's place, is let go. A batch stopped by **Stop**
+still runs to its end in the worker, and **Continue** sends the next only once
+it has. The review needs the network: while it
 cannot be reached the screen says so and waits ("Waiting until Trained AI can
 be reached.", as a review not yet asked for starts by itself once it can be;
 once asked for, "Trained AI cannot be reached right now.", and **Continue**

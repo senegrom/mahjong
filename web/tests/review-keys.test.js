@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { parse } from 'svelte/compiler';
 import { REVIEW_WIDE, heldEnter, reviewKey } from '../src/lib/ui.js';
 
 /** An element of the page, inside a field where `field` says so, as
@@ -45,19 +48,55 @@ test("a review's keys are left alone with Ctrl, Alt or Meta held, while text is 
   assert.equal(REVIEW_WIDE, '(min-width: 1100px) and (min-height: 600px)');
 });
 
-test("a held Enter presses a button of the review's step bar or of Trained AI's reasoning once, and is left alone anywhere else", () => {
+test("a held Enter presses a button of the review's step bar, of Trained AI's reasoning or of the review's controls once, and is left alone anywhere else", () => {
   // A button inside the element `around` names, as `closest` finds it,
-  // matching the selector as the page's own does, either of its parts.
+  // matching the selector as the page's own does, any of its parts.
   const inside = around => ({ closest: selector => (selector.split(', ').includes(around) ? {} : null) });
   const bar = inside('[data-steps]'), reasoning = inside('[data-insight]');
   assert.equal(heldEnter(key('Enter', { repeat: true, target: bar })), true, 'held on the bar');
   // "What would change its mind?" and Cancel hand focus to each other, so a
   // held Enter would start and stop the search by turns.
   assert.equal(heldEnter(key('Enter', { repeat: true, target: reasoning })), true, "held on the reasoning's buttons");
+  // Stop and Continue take each other's place, so a held Enter would stop and
+  // start the review by turns.
+  assert.equal(heldEnter(key('Enter', { repeat: true, target: inside('[data-review-controls]') })), true, "held on the review's controls");
   assert.equal(heldEnter(key('Enter', { repeat: false, target: bar })), false, 'pressed once, it presses');
   assert.equal(heldEnter(key('Enter', { repeat: false, target: reasoning })), false, 'pressed once, it presses there too');
   assert.equal(heldEnter(key('ArrowRight', { repeat: true, target: bar })), false, 'held arrows step on');
   assert.equal(heldEnter(key(' ', { repeat: true, target: reasoning })), false, 'Space presses as it is let go');
   assert.equal(heldEnter(key('Enter', { repeat: true })), false, 'held anywhere else');
   assert.equal(heldEnter(key('Enter', { repeat: true, target: null })), false, 'with nothing focused');
+});
+
+test("the review's controls, which take each other's place, let go of the second press of a double click or tap", () => {
+  // The page's own handlers, from its source, pressed on a stand-in review.
+  const source = readFileSync(new URL('../src/lib/GameReview.svelte', import.meta.url), 'utf8');
+  const ast = parse(source, { modern: true });
+  const all = (node, predicate, found = []) => {
+    if (!node || typeof node !== 'object') return found;
+    if (predicate(node)) found.push(node);
+    for (const [name, value] of Object.entries(node)) if (name !== 'parent') all(value, predicate, found);
+    return found;
+  };
+  const [controls] = all(ast.fragment, node => node.type === 'RegularElement' && node.attributes.some(a => a.name === 'data-review-controls'));
+  assert.ok(controls, 'the controls are marked for heldEnter');
+  const buttons = all(controls, node => node.type === 'RegularElement' && node.name === 'button');
+  assert.deepEqual(buttons.map(button => button.attributes.find(a => a.name.startsWith('data-'))?.name),
+    ['data-stop-review', 'data-next-hand', 'data-rest', 'data-continue']);
+  const [again] = all(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'again'
+    && node.init?.type === 'ArrowFunctionExpression');
+  assert.ok(again);
+  for (const button of buttons) {
+    const pressed = [];
+    const review = new Proxy({}, { get: (_, name) => () => pressed.push(name) });
+    const context = vm.createContext({ review });
+    context.again = vm.runInContext(source.slice(again.init.start, again.init.end), context);
+    const handler = button.attributes.find(a => a.name === 'onclick').value.expression;
+    const click = vm.runInContext(`(${source.slice(handler.start, handler.end)})`, context);
+    click({ detail: 2 });
+    assert.deepEqual(pressed, [], 'the second press of a double click');
+    click({ detail: 1 });
+    click({ detail: 0 });
+    assert.equal(pressed.length, 2, 'a click, and Enter or Space');
+  }
 });

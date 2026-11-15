@@ -16,7 +16,7 @@ const policy = globals => loadModule('policy.js', {
   networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
   // Batches stay on WebAssembly here; the graphics card's routing has tests of its own (webgpu.test.js).
   batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {}, ...globals,
-}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 test('a page that plays another listed network probes and asks for that one alone', async t => {
   const older = NETWORKS.find(network => network.version === '0.1.410');
@@ -269,6 +269,38 @@ test('a network still arriving is not cut off by the decision deadline', async t
   worker.say(id, { action: 1 });
   assert.equal(await decision, 1);
   assert.ok(notes.includes('downloading the network 10%'), 'the player sees the download');
+});
+
+test("the worker's own download is told to every mode while it loads, whatever Play is doing, and nothing once it holds the network", async t => {
+  const { api, ask, workers } = loadingClient(t);
+  const said = [];
+  api.reportLoading(note => said.push(note));
+  const decision = ask();
+  await setImmediate();
+  const [worker] = workers, { id } = worker.messages[0];
+  worker.say(id, { progress: 'downloading the network 37%' });
+  worker.say(id, { progress: 'loading the network' });
+  worker.say(id, { progress: 'network ready', ready: true });
+  worker.say(id, { action: 1 });
+  assert.equal(await decision, 1);
+  assert.deepEqual(said, ['downloading the network 37%', 'loading the network', '']);
+  // The worker says it is ready again as it begins each later request: no
+  // note, and nothing said.
+  const next = ask();
+  await setImmediate();
+  worker.say(worker.messages[1].id, { progress: 'network ready', ready: true });
+  worker.say(worker.messages[1].id, { action: 0 });
+  assert.equal(await next, 0);
+  assert.equal(said.length, 3, JSON.stringify(said));
+  // A worker ended while it loads leaves no note behind.
+  api.resetPolicy();
+  const again = ask().catch(() => {});
+  await setImmediate();
+  workers[1].say(workers[1].messages[0].id, { progress: 'downloading the network 5%' });
+  api.resetPolicy();
+  await again;
+  assert.equal(said.at(-1), '');
+  api.reportLoading(null);
 });
 
 test('a move is timed once the network is loaded, and a worker that misses it is replaced', async t => {

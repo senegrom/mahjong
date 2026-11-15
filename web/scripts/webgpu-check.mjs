@@ -89,7 +89,21 @@ async function positions() {
 try {
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   const base = `http://127.0.0.1:${server.address().port}/mahjong/`;
-  browser = await launchChrome({ args });
+  // Every other check's Chrome is launched to offer the page no card, so
+  // that the page it tests is the one CI tests; with a card offered, the
+  // checks that walk a review's batches fail on a desktop that has one.
+  await check('the other checks\' Chrome offers the page no graphics card', async () => {
+    const plain = await launchChrome();
+    try {
+      const probe = await plain.newPage();
+      await probe.goto(`${base}webgpu-check.html`, { waitUntil: 'load' });
+      const offered = await probe.evaluate(async () => Boolean(await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' })));
+      assert.equal(offered, false, 'launchChrome() without `card` must leave requestAdapter() with nothing (browser-harness.mjs)');
+    } finally {
+      await plain.close();
+    }
+  });
+  browser = await launchChrome({ args, card: true });
   const context = await openContext(browser);
   const page = await context.newPage();
   await page.goto(`${base}webgpu-check.html`, { waitUntil: 'load' });

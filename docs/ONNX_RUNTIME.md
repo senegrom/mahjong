@@ -200,6 +200,11 @@ positions, where Chrome gives a real adapter (it skips elsewhere, CI
 included), given a network exported without Softplus in
 `MAHJONG_WEBGPU_NETWORK`: a first batch and the sample on WebAssembly, the
 card's bring-up through the page's own gates, then every position on both.
+Every other browser check's Chrome is launched to offer the page no card
+(`launchChrome` in `scripts/browser-harness.mjs`, by turning Chrome's WebGPU
+service off, which leaves its drawing on the card), so that a check tests the
+same page on a desktop with a card as in CI; the WebGPU check asks for the
+card (`card: true`) and holds the others' Chrome to offering none.
 
 ## Verification and memory
 
