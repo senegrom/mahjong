@@ -63,7 +63,10 @@ jobs:
   compile:
     name: test Python trainer
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The trainer's tests alone take 13 to 23 minutes, by the runner's speed,
+    # after two or three of setup: at 25 a slow runner was cancelled a minute
+    # short of the end (main, 15 November 2026).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

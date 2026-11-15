@@ -51,11 +51,26 @@ existing local `latest.pt` is never a reason to resume. Only a checkpoint
 resolved from the requested volume source enables resume. Same-run resume
 carries the saved reference, best checkpoint and history explicitly;
 cross-lineage starts do not inherit the target run's old reference or
-history. A resume name that resolves to nothing starts a new lineage (a
-fresh network, the published Mortal or a join) only in a run that holds no
-`latest.pt` yet; in one that does, the call fails before anything is copied,
-staged or started, because the new lineage's first publication would
-overwrite the run's checkpoints and log. Completed output is validated
+history, and their publications set the run's old `best.pt` and
+`reference.pt` aside, so that the next block, resumed from the run's own
+latest, is neither leashed to the old lineage's start nor measured against
+its best. They are renamed in the run's folder to
+`best-before-g<generation>.pt` and `reference-before-g<generation>.pt`,
+the generation being the one the new lineage's block started from, with
+`-2`, `-3`, ... added to a name already taken, so that nothing is replaced:
+a best is a copy of whichever generation measured best, and only every
+tenth generation is archived. A file set aside can be duelled or resumed
+from by its name, and does not stop a fresh start in the run. Only the
+run's `latest.pt`, `best.pt`, `reference.pt` and `history/` count as its
+own lineage: a distillation's or re-heading's product kept in the run's
+folder, or a file set aside, starts another. A resume name that resolves to nothing starts a new lineage (a
+fresh network, the published Mortal or a join) only in a run that holds
+nothing a trainer published yet: no `latest.pt`, `generation.txt`,
+`log.jsonl`, `best.pt`, `reference.pt` or `history/`. In one that holds any
+of them, even without its `latest.pt`, the call fails before anything is
+copied, staged or started, because the new lineage's first publication
+would overwrite the run's checkpoints, log and generation marker, and its
+archives as it reached them. Completed output is validated
 before it is copied to the volume.
 
 The invocation owns and cleans up only its own temporary directory. Existing
@@ -63,8 +78,17 @@ scratch directories, volume checkpoints, and compiler caches are not deleted.
 Replay is local to the invocation and starts empty on the next cloud call;
 it remains available across generations within that call. Compiler caches
 remain separately shared. Use a new run identity to start an independent
-lineage. Simultaneous publishers for the same volume run are not supported;
-this change does not add a distributed run lock or a transactional volume.
+lineage. Simultaneous publishers for the same volume run are not supported,
+and there is no distributed run lock or transactional volume. Modal runs one
+container of a trainer at a time only for one set of options, and a launcher
+gives each run options of its own, so a second call on a run that is
+training gets a container of its own. Each trainer's call therefore notes
+the run's `generation.txt` and the call its `call.json` names when it
+resolves its resume, reloads the volume before every publication, and
+publishes nothing once either has changed by another call's hand: it stops
+its trainer and answers "stopped: another call published to ..." rather
+than fail, so that no retry starts it as a second writer again. Whichever
+of two calls finds the other's publication first stops.
 
 Opponents named for a cloud run are resolved as a whole population before
 anything is staged: one missing checkpoint aborts the invocation rather than
@@ -218,13 +242,18 @@ placement`; the cloud's `train_combined` passes none of them on unless
   checkpoint, so a relaunch does not warm up again.
 - `--place-refit-every K` and `--place-refit-rounds M` (4): every K
   generations of the reward, U is fitted again on the run's last M rounds,
-  an eighth of their games held out, and kept only if it reads those games
+  an eighth of their games held out (each game's own eighth, the same at
+  every refit, so the U it would replace was fitted on none of them
+  whatever K and M are), and kept only if it reads those games
   at least as well as the U it would replace; the log's
   `place_model_refit` says how it read and whether it was kept. Rounds
   that seated none of some kind of player U reads are not fitted on, and
   U is kept: a U fitted on them would read that kind through weights no
   game taught. The Club sits out about one round in four, so two rounds
   both lack it one time in sixteen and four rounds one time in 256.
+  The rounds are remembered by the process, not the checkpoint: a refit
+  that falls due before a resumed run has played M rounds keeps U, says
+  so in `place_model_refit`, and is made as soon as it has.
   Likewise a run starting the reward refuses a U fitted on rounds that
   seated none of a member it seats (`fitted["unseen"]`).
 
@@ -243,7 +272,11 @@ decisions and the South's apart (`return_variance_east`,
 `python -m neural.placement_pretest` (on Modal: `placement_pretest`) plays
 one round of a checkpoint at its run's tables, keeping the ledger, and
 writes `report.json`, `ledger.npz` and `place-model.pt` (U fitted on the
-whole round, which a fork starts from). It reads:
+whole round, which a fork starts from). The cloud function writes them to
+`<run>/<name>`, `<run>/pretest-g<generation>` when unnamed, and refuses a
+folder there that already holds anything before its child starts, so a
+second pre-test of the same generation never replaces the U the first
+report vetted; it is named afresh instead. It reads:
 
 1. **U's calibration**, every game held out once (`--folds`): the mean U
    against the mean bonus by stage (with U's explained share beside the
@@ -440,7 +473,11 @@ inputs 3, the warm-up 1, the oracle's term and its control 8, the readings
 before it plays. In the pass, a chunk without room is taken again at half
 its rows and the rest of the pass read at that size. `--out` must be empty
 or absent, and the cloud function refuses a `noise-pretest/<name>` that
-already holds anything before its child starts. The round's ledger, every
+already holds anything before its child starts, unless the call's own
+earlier attempt left it: within a Modal call both pre-tests write
+`call.json`, naming the call, into their folder before anything else, and
+a call Modal starts again after a preemption removes what its interrupted
+attempt kept and writes it again. The round's ledger, every
 decision's baselines and a report are written before the gradient pass,
 each file under a hidden name renamed into place once whole, and the cloud
 function copies whatever the child wrote to the volume whether or not it
@@ -584,10 +621,16 @@ in-training measurement, which plays the network's own argmax against the
 Club bots and only picks `best.pt`. It is off unless asked for: without the
 flag self-play hands the learner nothing new, the record and the checkpoint
 gain no key, and the cloud launches pass no flag
-(`cloud_requests.rule_arguments`). The rules need `--preview-reach`, and are
-refused without it: with the preview the reach's tile comes from the forward
-that chose the reach and nothing is told to the follower before the rules
-decide.
+(`cloud_requests.rule_arguments`). A checkpoint trained by them names them
+(see below), and resuming it by other rules, or by none, is refused before
+a round is played unless `--change-last-hand-rules` says so: a relaunch
+that forgot the flag would otherwise go on plain, and its checkpoints would
+say nothing of the rules the weights were trained by. The cloud's trainer
+passes no such switch, so there a run trained by the rules resumes only by
+them; a run never trained by them may take them up. The rules need
+`--preview-reach`, and are refused without it: with the preview the reach's
+tile comes from the forward that chose the reach and nothing is told to the
+follower before the rules decide.
 
 **What the rules read.** Self-play draws its moves, so each rule reads the
 move drawn, not the network's best, inside the learner's deciding

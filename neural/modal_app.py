@@ -12,7 +12,17 @@ sees. Self-play is those two, and both must match the checkpoint exactly.
 
     modal deploy neural/modal_app.py
     modal run neural/modal_app.py::smoke
-    modal run --detach neural/modal_app.py::train --generations 40
+    modal run --detach neural/modal_app.py --generations 40
+
+The last runs `main`, the app's local entrypoint, which trains the default
+run by `train` with its other options at their defaults. `modal run` builds
+its options from a function's type hints and has none for a list, so
+`modal run ...::train`, and the same for the other trainers and the two
+pre-tests, stops before anything is launched ("Parameter `opponents` has
+unparseable annotation"). Those are called from Python once the app is
+deployed, `modal.Function.from_name("mahjong-train", "train").spawn(...)`
+with any of their options, as the launchers do. A call made either way is
+not retried unless it asks to be (see `TRAINER`).
 
 Runs live side by side on the volume, each in its own directory: `w1012-run`
 is the lineage that sees Mortal's planes, and `w320-run` the retired one
@@ -126,23 +136,35 @@ def _checkpoint(run: str, name: str) -> Path:
     return VOLUME / f"{name}.pt"
 
 
+#: What a trainer's publications leave in a run. A run holding any of them is
+#: never started afresh (see `_resume_source`). An old lineage's best or
+#: reference set aside (`best-before-g40.pt`, see `_set_aside`) is not among
+#: them: no publication writes to that name, so a fresh start beside it
+#: loses nothing.
+RUN_STATE = ("latest.pt", "generation.txt", "log.jsonl", "best.pt", "reference.pt", "history")
+
+
 def _resume_source(run: str, resume: str) -> Path:
     """The checkpoint a trainer's block resumes from, found as `_checkpoint`
     finds it, so it may be another run's: a block can start a run from
     another lineage. When the name finds nothing the trainer starts a new
     one, from a fresh network, the published Mortal or a join, and that is
-    refused in a run that already holds a `latest.pt`. There the new
-    lineage's first publication overwrote the run's latest, best, reference
-    and log, which nothing can bring back, and every retry of the call did
-    it again; a typo was enough, or a generation that was never archived,
-    as only every tenth is."""
+    refused in a run that already holds anything a trainer published
+    (`RUN_STATE`), its latest.pt or not. There the new lineage's first
+    publication overwrote the run's latest, best, reference, log and
+    generation marker, and its archives as it reached them, which nothing
+    can bring back, and every retry of the call did it again; a typo was
+    enough, or a generation that was never archived, as only every tenth
+    is, or a run whose latest.pt alone had been lost."""
     source = _checkpoint(run, resume)
-    if not source.exists() and (VOLUME / run / "latest.pt").exists():
-        raise FileNotFoundError(
-            f"no checkpoint {resume!r} to resume from, in {VOLUME / run} or at {source}, and "
-            f"{run} already holds a latest.pt that a fresh start would overwrite: name a "
-            "checkpoint that exists, or a new run to start afresh"
-        )
+    if not source.exists():
+        held = [name for name in RUN_STATE if (VOLUME / run / name).exists()]
+        if held:
+            raise FileNotFoundError(
+                f"no checkpoint {resume!r} to resume from, in {VOLUME / run} or at {source}, and "
+                f"{run} already holds {', '.join(held)}, which a fresh start would overwrite: name a "
+                "checkpoint that exists, or a new run to start afresh"
+            )
     return source
 
 
@@ -190,8 +212,51 @@ def _resume_of_call(run: str, resume: str) -> tuple[Path, dict | None]:
     return source, {"call": call, "resume": resume, "source": str(source) if source.exists() else None}
 
 
+class AnotherWriter(RuntimeError):
+    """Another call published to the run a trainer's call publishes to,
+    after this call last saw it (see `_publish`)."""
+
+
+def _run_state(run: str) -> tuple[str | None, str | None]:
+    """What says who last published to a run: its `generation.txt`, and the
+    call its `CALL_MARKER` names (None for either it does not hold)."""
+    folder = VOLUME / run
+    try:
+        generation = (folder / "generation.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        generation = None
+    try:
+        marked = json.loads((folder / CALL_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marked = None
+    return generation, marked.get("call") if isinstance(marked, dict) else None
+
+
+def _set_aside(saved: Path, resumed_at: int) -> None:
+    """Moves an old lineage's best.pt or reference.pt out of the names the
+    run's own lineage is read by, to `<stem>-before-g<resumed_at>.pt` in the
+    same folder (`best-before-g40.pt`), `resumed_at` being the generation
+    the new lineage's block started from; `-2`, `-3`, ... are added to a
+    name already taken, so nothing is ever replaced. A best is a copy of
+    whichever generation measured best, and only every tenth generation is
+    archived, so deleting it could lose the only copy of that network. The
+    file kept can be duelled or resumed from by its name, as any product in
+    the run's folder can, and counts as another lineage there (see
+    `_same_lineage`)."""
+    if not saved.exists():
+        return
+    stem = f"{saved.stem}-before-g{resumed_at}"
+    kept, count = saved.with_name(f"{stem}.pt"), 1
+    while kept.exists():
+        count += 1
+        kept = saved.with_name(f"{stem}-{count}.pt")
+    os.rename(saved, kept)
+    print(f"the old lineage's {saved.name} set aside as {saved.parent.name}/{kept.name}", flush=True)
+
+
 def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
-             published: dict[str, tuple[int, int, int]], marker: dict | None = None) -> int:
+             published: dict[str, tuple[int, int, int]], marker: dict | None = None,
+             *, new_lineage: bool = False, held: dict | None = None) -> int:
     """Publish only copied, fully validated checkpoints of completed
     generations. `resumed_at` is the generation the block resumed from:
     archives past it belong to this timeline (see
@@ -199,25 +264,76 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     published of the run's best and reference so far, one mapping for the
     whole call, so that neither is copied again until it changes. `marker`,
     when given, is written as the run's `CALL_MARKER` after the checkpoints
-    and committed with them (see `_resume_of_call`)."""
+    and committed with them (see `_resume_of_call`).
+
+    `new_lineage` is for a block that did not resume from the run's own
+    lineage (see `_same_lineage`), so carried none of its best or
+    reference: the run's best.pt and reference.pt that the block's
+    workspace does not hold are the old lineage's and are set aside under
+    names of their own (see `_set_aside`). Left there, the run's best
+    stayed the old lineage's network, and the next block, resumed from the
+    run's own latest, carried the old reference in and was leashed to the
+    old lineage's start.
+
+    `held`, when given, holds under "state" what `_run_state` said of the
+    run when this call resolved its resume, or after its own last
+    publication, and is brought up to date here. Nothing keeps a run to one
+    writer: Modal runs one container of a trainer at a time only for one
+    set of options, and a launcher gives every run options of its own, so
+    a second call on a run that is training (a `modal run` by hand, a
+    bench, another launcher) got a container of its own, and the two
+    published over each other every generation, the latest alternating
+    between two timelines and the log keeping the last committer's. So
+    the volume is reloaded before each publication, and a run that another
+    call has published to since raises `AnotherWriter` and publishes
+    nothing: whichever of two calls finds the other's publication first
+    stops, and the run goes on as one timeline."""
     validate_run(target_run)
+    if held is not None:
+        try:
+            volume.reload()
+        except Exception as error:  # noqa: BLE001
+            # The check is a safeguard and must never cost a publication:
+            # an open file, a connection that failed or any other error of
+            # the request leaves the container seeing the run as it last
+            # saw it, after its own last publication's commit, so the
+            # check below passes and the generation is published as before.
+            print(f"the volume could not be reloaded before publishing ({type(error).__name__}: {error}); "
+                  "another writer would not be seen", flush=True)
+        found = _run_state(target_run)
+        if found != held["state"]:
+            raise AnotherWriter(
+                f"another call published to {target_run} while this one trained: its generation.txt says "
+                f"{found[0]} and its marker names call {found[1]}, where this call last saw {held['state'][0]} "
+                f"and {held['state'][1]}; this call's generation {generation} was not published"
+            )
     actual = publish_training_snapshot(run, VOLUME / target_run, generation, resumed_at,
                                        published=published)
+    if new_lineage:
+        for name in ("best.pt", "reference.pt"):
+            if not (run / name).exists():
+                _set_aside(VOLUME / target_run / name, resumed_at)
     if marker is not None:
         written = VOLUME / target_run / CALL_MARKER
         with staging_file(written) as staged:
             staged.write_text(json.dumps(marker, indent=1) + "\n", encoding="utf-8")
             os.replace(staged, written)
     volume.commit()
+    if held is not None:
+        held["state"] = (str(actual), marker["call"] if marker is not None else held["state"][1])
     return actual
 
 
 def _same_lineage(run: str, source: Path) -> bool:
     """Whether a checkpoint a block resumes from is the run's own: its
-    latest or best, or one of its archives under `history/`. Resuming from
-    anything else starts another lineage, which must not inherit the run's
-    log, best or leash."""
-    return source.is_relative_to(VOLUME / run)
+    latest, best or reference, or one of its archives under `history/`.
+    Resuming from anything else starts another lineage, which must not
+    inherit the run's log, best or leash: another run's checkpoint, and a
+    distillation's or a re-heading's product kept in the run's folder too
+    (`<run>/<name>.pt`), which no generation of the run's log describes."""
+    own = VOLUME / run
+    return ((source.parent == own and source.name in ("latest.pt", "best.pt", "reference.pt"))
+            or source.is_relative_to(own / "history"))
 
 
 def _carry_log(run: str, where: Path, generation: int) -> None:
@@ -252,7 +368,9 @@ def _carry(run: str, source: Path, where: Path, *, leashed: bool = False) -> int
     the rest of what the block continues comes too: the run's best, its
     log cut at that generation, and, for a leashed trainer, the policy the
     run is leashed to. A start from another lineage inherits none of it:
-    not the run's baseline, its record or its leash."""
+    not the run's baseline, its record or its leash, and its publications
+    set the old lineage's best and reference aside in the run (see
+    `_publish`)."""
     generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
     if _same_lineage(run, source):
         for name in ("best.pt", "reference.pt") if leashed else ("best.pt",):
@@ -295,8 +413,9 @@ def _generation_or_zoo(checkpoint: Path) -> str:
 TRAINER_CPUS = 16
 
 # The longest one call of a trainer may run. Modal ends it there, in the
-# middle of a generation if one is under way, and a retry starts again
-# from the last checkpoint published, the partial generation lost.
+# middle of a generation if one is under way, and a retry, where the caller
+# asked for retries, starts again from the last checkpoint published, the
+# partial generation lost.
 TRAINER_TIMEOUT = 24 * 60 * 60
 # What is kept in hand when a trainer is stopped ahead of the timeout (see
 # `_run_trainer`): a generation can run longer than the one before it, by
@@ -304,11 +423,17 @@ TRAINER_TIMEOUT = 24 * 60 * 60
 # the compiler cache take a while themselves.
 TRAINER_SPARE = 10 * 60
 
-# What the three trainers run on, one container at a time each: an L40S, and
+# What the three trainers run on, one container at a time for each set of
+# options a caller asks for (so not one a run: see `_publish`): an L40S, and
 # no other card without the owner's word (19 October 2026). Self-play, on the
 # processors, is most of a generation, and an L40S played one in 9.5 minutes
 # against an H100's 9.0 for half the card's price. A card asked for at the
 # call (`with_options`) still wins, as a benchmark of another card does.
+# No retries are declared here: Modal hands a failed call back to its caller
+# unless the call asked for retries (`with_options(retries=...)`, as the
+# long-run watcher's do), and only a preempted container is started again
+# on the same input whatever the call asked for. A call launched without
+# retries that fails, or stops before its timeout, ends there.
 TRAINER = dict(
     gpu="L40S",
     cpu=TRAINER_CPUS,
@@ -322,9 +447,10 @@ TRAINER = dict(
 class StoppedBeforeTimeout(RuntimeError):
     """A trainer stopped on purpose between two generations, because the
     next would not have finished before the call's timeout. Raised so that
-    the call fails and Modal's retries start it again at once, in a fresh
-    container, from the checkpoint just published: a call that returned
-    instead would simply have ended, and nothing would start it again."""
+    the call fails and the retries its caller asked for start it again at
+    once, in a fresh container, from the checkpoint just published: a call
+    that returned instead would simply have ended, and nothing would start
+    it again. A call launched without retries (see `TRAINER`) ends here."""
 
 
 LOCAL_CACHE = Path("/tmp/inductor-cache")
@@ -551,7 +677,16 @@ def _stopped_on_rule_check(where: Path, run: str, seen: int) -> str:
     return answer
 
 
-def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None) -> str:
+def _stopped_by_another_writer(other: AnotherWriter) -> str:
+    """The answer of a trainer's call that found another call publishing
+    to its run (see `_publish`)."""
+    answer = f"stopped: {other}"
+    print(answer, flush=True)
+    return answer
+
+
+def _run_trainer(command: list[str], where: Path, run: str, called: float, marker: dict | None = None,
+                 *, new_lineage: bool = False, held: tuple[str | None, str | None] | None = None) -> str:
     """Runs a trainer over the workspace `where` and publishes it to the
     run as it goes: each generation as its record arrives, so a preempted
     container costs a single round, and the last once the trainer exits
@@ -566,7 +701,9 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     is; it stopped before learning or saving anything of the round.
 
     A call that cannot finish the run raises rather than answers, so that
-    Modal's retries resume it from the checkpoint published last. A call
+    the retries its caller asked for resume it from the checkpoint
+    published last (a call launched without retries ends with the raise:
+    see `TRAINER`). A call
     that returns has ended, and on 1 October a trainer killed at generation
     147 left the run standing for hours with nothing to start it again.
     So a trainer that exits with an error short of the generation it was to
@@ -578,7 +715,14 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
 
     `marker`, from `_resume_of_call`, goes to the run with the call's first
     publication, so that the attempt Modal starts after it goes on from
-    what this one published."""
+    what this one published. `new_lineage` is for a block that did not
+    resume from the run's own lineage (see `_publish`).
+
+    `held` is what `_run_state` said of the run when the call resolved its
+    resume. A run that another call has published to since this one last
+    saw it is not published to (see `_publish`): the trainer is stopped and
+    the call answers, starting "stopped: another call", rather than raise,
+    so that no retry of it starts a second writer again."""
     environment = _environment(TRAINER_CPUS, compiled=True)
     print(" ".join(command), flush=True)
     began = time.time()
@@ -588,6 +732,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     # A fresh record for every call, so its first publication copies the
     # run's best and reference whatever an earlier call published.
     published: dict[str, tuple[int, int, int]] = {}
+    publishing = {"new_lineage": new_lineage, "held": None if held is None else {"state": held}}
     print(f"the checkpoint says generation {started_at}", flush=True)
     try:
         with managed_process(subprocess.Popen(
@@ -597,6 +742,11 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # One undecodable byte in a warning or a native message must not
+            # end the reader, and with it the trainer, partway through a
+            # generation, as it would at every retry if it recurred.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )) as process:
             assert process.stdout is not None
@@ -611,7 +761,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
                         seen = int(record.get("checkpoint_generation", record["generation"] + 1))
                     except Exception:
                         continue
-                    seen = _publish(where, seen, run, started_at, published, marker)
+                    seen = _publish(where, seen, run, started_at, published, marker, **publishing)
                     marker = None
                     # Whatever the generation compiled, kept at once.
                     _save_cache()
@@ -631,6 +781,10 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
         print(stopped, flush=True)
         _save_cache()
         raise
+    except AnotherWriter as other:
+        # The trainer has been stopped on the way out, as above.
+        _save_cache()
+        return _stopped_by_another_writer(other)
     _save_cache()
     # A last publication once the trainer has exited cleanly. The trainer
     # prints a generation's record before it appends it to the log, so the
@@ -639,7 +793,10 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
     # generation whose record could not be read has not been published at
     # all. Skipped when no generation finished: there is nothing to add.
     if code == 0 and seen > started_at:
-        seen = _publish(where, seen, run, started_at, published, marker)
+        try:
+            seen = _publish(where, seen, run, started_at, published, marker, **publishing)
+        except AnotherWriter as other:
+            return _stopped_by_another_writer(other)
     elif code == RULE_CHECK_EXIT and seen > started_at:
         # A trainer a check of the last hand's rules stopped ended before it
         # learned or saved the round it refused, so the workspace holds the
@@ -649,7 +806,7 @@ def _run_trainer(command: list[str], where: Path, run: str, called: float, marke
         # the refused round exists to publish. The call must still end as a
         # rule check's stop, so a failure here is only said.
         try:
-            seen = _publish(where, seen, run, started_at, published, marker)
+            seen = _publish(where, seen, run, started_at, published, marker, **publishing)
         except Exception as error:  # noqa: BLE001
             print(f"the last completed generation {seen} was not published again ({type(error).__name__}: "
                   f"{error}); the volume keeps what was published as each record arrived", flush=True)
@@ -716,6 +873,33 @@ def _run_child(command: list[str], tail: int | None = None) -> str:
     return output
 
 
+#: A run's own checkpoints, which a trainer's publications write and the next
+#: block resumes from: never a distillation's or a re-heading's product.
+TRAINED = ("latest", "best", "reference")
+
+
+def _product_name(name: str) -> None:
+    """Refuses a product's name that is not one folder name, or that is one
+    of the run's own checkpoints (`TRAINED`): `<run>/latest.pt` replaced by
+    a product left the run's log, generation marker and history describing
+    a network it no longer held, and the next block resumed from the
+    product. Checked before any work."""
+    validate_run(name)
+    if name in TRAINED:
+        raise ValueError(f"{name!r} is one of a run's own checkpoints ({', '.join(TRAINED)}): name the product "
+                         "something else")
+
+
+def _product_free(run: str, name: str, overwrite: bool) -> None:
+    """Refuses a product whose `<run>/<name>.pt` is already there, unless
+    `overwrite` says to replace it, before the child starts: an earlier
+    product of that name was replaced without a word."""
+    taken = VOLUME / run / f"{name}.pt"
+    if taken.exists() and not overwrite:
+        raise FileExistsError(f"{taken} is already there: name the product afresh, or pass overwrite=True "
+                              "to replace it")
+
+
 def _publish_product(out: Path, run: str, name: str) -> str:
     """A distillation's or a re-heading's product, the `latest.pt` its
     child saved in `out`, validated on its way to the run's directory as
@@ -760,8 +944,8 @@ def train(
     """Runs `generations` rounds of self-play and learning, resuming from the
     checkpoint of that name in the run's directory on the volume when it is
     there, and from a fresh network of `channels` by `blocks` when not; a
-    run that already holds a `latest.pt` is never started afresh (see
-    `_resume_source`).
+    run that already holds anything a trainer published is never started
+    afresh (see `_resume_source`).
 
     `until`, when given, is the generation to stop at rather than a count
     from wherever it resumes, as for `train_mortal`: a call that Modal
@@ -782,6 +966,7 @@ def train(
     with workspace(run) as where:
         volume.reload()
         started_from = None
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         if source.exists():
             started_from = str(source)
@@ -834,7 +1019,8 @@ def train(
             where, opponents, opponent_share, lambda name: _checkpoint(run, name)
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(**TRAINER)
@@ -865,8 +1051,8 @@ def train_mortal(
     """Fine-tunes a published Mortal on our rules by self-play, in a run
     directory of its own: see `neural/train_mortal.py`. Resumes from the
     checkpoint of that name in the run when it is there, and starts from
-    the published Mortal named otherwise, unless the run already holds a
-    `latest.pt` (see `_resume_source`). Its own function, so it runs
+    the published Mortal named otherwise, unless the run already holds
+    anything a trainer published (see `_resume_source`). Its own function, so it runs
     beside the other lineage's training rather than queueing behind it.
 
     `until`, when given, is the generation to stop at rather than a count
@@ -898,6 +1084,7 @@ def train_mortal(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         command = [
             sys.executable, "-m", "neural.train_mortal", *rounds,
@@ -935,7 +1122,8 @@ def train_mortal(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(**TRAINER)
@@ -992,8 +1180,8 @@ def train_combined(
     fusion head, in a run directory of its own: see
     `neural/train_combined.py`. Resumes from the checkpoint of that name
     in the run when it is there, and otherwise joins the two checkpoints
-    named, which may be any run's, unless the run already holds a
-    `latest.pt` (see `_resume_source`). `until`, `skip_forced`,
+    named, which may be any run's, unless the run already holds anything
+    a trainer published (see `_resume_source`). `until`, `skip_forced`,
     `baseline_from_play`, `check_baseline` and `preview_reach` are as for
     `train_mortal`.
 
@@ -1075,6 +1263,7 @@ def train_combined(
     controls = training_control_arguments(target_kl, baseline_batch)
     with workspace(run) as where:
         volume.reload()
+        held = _run_state(run)
         source, marker = _resume_of_call(run, resume)
         if place_model:
             # U, as the trainer reads it, beside the checkpoint it starts from.
@@ -1144,7 +1333,8 @@ def train_combined(
             seat_share=seat_share,
         )
         command += controls
-        return _run_trainer(command, where, run, called, marker)
+        return _run_trainer(command, where, run, called, marker, new_lineage=not _same_lineage(run, source),
+                            held=held)
 
 
 @app.function(
@@ -1180,7 +1370,18 @@ def placement_pretest(
     Its report, the round's ledger and U fitted on the whole round go to
     the run's directory under `name`, `pretest-g<generation>` when it is
     empty; a fork starts from that U (`train_combined`'s `place_model`).
-    The answer is the child's output, ending with its verdict."""
+    A folder there that already holds anything is refused before the child
+    starts, unless this call's own earlier attempt left it (see
+    `_claim_folder`). The answer is the child's output, ending with its
+    verdict.
+
+    `opponents` must be named: the child plays its probes against the
+    first of them that is not the Club, and the default seat share seats
+    them. A roster that names no such network is refused here, before
+    anything is staged; the child found out only after its round."""
+    if not any(other != "club" for other in opponents or []):
+        raise ValueError("opponents must name a network other than the club: the probes are played against "
+                         "the first one, and the run's tables seat them (for example ['zoo/mortal_298k', 'club'])")
     validate_cloud_request(1, opponents, 0.0, seat_share)
     if name:
         validate_run(name)
@@ -1191,6 +1392,11 @@ def placement_pretest(
             raise FileNotFoundError(f"no checkpoint at {source}")
         local = where / "checkpoint.pt"
         generation = copy_checkpoint(source, local)
+        target = VOLUME / run / (name or f"pretest-g{generation}")
+        # One folder a call, as for the noise pre-test: a second pre-test of
+        # the same generation, with other alphas or another seed, replaced
+        # the first's report, ledger and U, the one a fork settles by.
+        _claim_folder(target)
         print(f"pre-test of {source}, generation {generation}", flush=True)
         out = where / "out"
         command = [
@@ -1203,8 +1409,7 @@ def placement_pretest(
         if alphas:
             command += ["--alphas", *(str(float(alpha)) for alpha in alphas)]
         answer = _run_child(command, tail=6000)
-        target = VOLUME / run / (name or f"pretest-g{generation}")
-        target.mkdir(parents=True, exist_ok=True)
+        _mark_folder(target)
         for kept in ("report.json", "ledger.npz"):
             shutil.copyfile(out / kept, target / kept)
         copy_checkpoint(out / "place-model.pt", target / "place-model.pt")
@@ -1215,6 +1420,44 @@ def placement_pretest(
 #: Where the noise pre-test writes on the volume, and the only place: one
 #: folder a call, named by the caller.
 NOISE_RUN = "noise-pretest"
+
+
+def _claim_folder(target: Path) -> None:
+    """Refuses a measurement's folder on the volume that already holds
+    anything, before its child starts: one folder a call, since an earlier
+    call's files beside this one's would be read as this one's. The one
+    folder taken is one this call's own earlier attempt left, as its
+    `CALL_MARKER` says (see `_mark_folder`): Modal starts a preempted call
+    again on the same input, and the attempt it stopped kept what its child
+    had written on the way out, so its restart was refused by its own
+    files. Those are removed, and the restart writes them again."""
+    if not (target.exists() and any(target.iterdir())):
+        return
+    call = _current_call()
+    try:
+        marked = json.loads((target / CALL_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marked = None
+    if call is not None and isinstance(marked, dict) and marked.get("call") == call:
+        print(f"{target} holds what an earlier attempt of this call kept: removed, to be written again", flush=True)
+        shutil.rmtree(target)
+        volume.commit()
+        return
+    raise FileExistsError(f"{target} already holds an earlier call's files; name this call afresh")
+
+
+def _mark_folder(target: Path) -> None:
+    """Makes a measurement's folder on the volume and, within a Modal call,
+    writes `CALL_MARKER` in it naming the call, before any output is kept
+    there, so that the call's restart knows the folder for its own (see
+    `_claim_folder`)."""
+    target.mkdir(parents=True, exist_ok=True)
+    call = _current_call()
+    if call is None:
+        return
+    with staging_file(target / CALL_MARKER) as staged:
+        staged.write_text(json.dumps({"call": call}) + "\n", encoding="utf-8")
+        os.replace(staged, target / CALL_MARKER)
 
 
 def _keep_outputs(out: Path, target: Path, failed: bool) -> None:
@@ -1229,7 +1472,7 @@ def _keep_outputs(out: Path, target: Path, failed: bool) -> None:
         written = sorted(path for path in out.iterdir()
                          if path.is_file() and not fnmatch.fnmatch(path.name, ".*.partial")) if out.is_dir() else []
         if written:
-            target.mkdir(parents=True, exist_ok=True)
+            _mark_folder(target)
             for path in written:
                 shutil.copyfile(path, target / path.name)
             volume.commit()
@@ -1271,6 +1514,8 @@ def noise_pretest(
     for at most `critic_epochs`, and the gradient's noise summed over
     `groups` groups of deals, `gradient_chunk` rows at a time. A pre-test
     whose preflight projects more than `max_minutes` stops before it plays.
+    `opponents` has no usable default: the default `seat_share` seats
+    them by player, and is refused without them.
 
     It writes only `noise-pretest/<name>` on the volume, `g<generation>`
     when `name` is empty: whatever the child wrote, its report, the round's
@@ -1278,7 +1523,9 @@ def noise_pretest(
     child succeeded, so a child that fails in its last pass, the gradient's,
     still leaves the round's readings and the report it wrote before it. A
     folder there that already holds anything is refused before the child
-    starts. The answer is the child's output, ending with its verdict."""
+    starts, unless this call's own earlier attempt left it (see
+    `_claim_folder`). The answer is the child's output, ending with its
+    verdict."""
     validate_cloud_request(1, opponents, 0.0, seat_share)
     if name:
         validate_run(name)
@@ -1290,10 +1537,7 @@ def noise_pretest(
         local = where / "checkpoint.pt"
         generation = copy_checkpoint(source, local)
         target = VOLUME / NOISE_RUN / (name or f"g{generation}")
-        if target.exists() and any(target.iterdir()):
-            # One folder a call: an earlier call's files beside this one's
-            # would be read as this one's.
-            raise FileExistsError(f"{target} already holds an earlier call's files; name this call afresh")
+        _claim_folder(target)
         print(f"noise pre-test of {source}, generation {generation}", flush=True)
         out = where / "out"
         command = [
@@ -1639,6 +1883,7 @@ def distil(
     attention: bool = True,
     run: str = DEFAULT_RUN,
     name: str = "distilled",
+    overwrite: bool = False,
 ) -> str:
     """Teaches a network another's moves, or the heuristic player's.
 
@@ -1660,14 +1905,18 @@ def distil(
 
     The result goes to the run's directory under `name`, so it can be
     duelled before anything decides to train on from it. A `name` that is
-    not one directory name raises `ValueError`, and a missing checkpoint
-    `FileNotFoundError`, both before anything runs; a failed run raises
+    not one directory name, or names one of the run's own checkpoints
+    (latest, best, reference), raises `ValueError`, and a missing
+    checkpoint `FileNotFoundError`, both before anything runs, as does
+    `FileExistsError` for a product of that name already there unless
+    `overwrite` is true; a failed run raises
     `CalledProcessError` carrying its output, and publishes nothing.
     """
     # Checked before the hours of work it names, not after them.
-    validate_run(name)
+    _product_name(name)
     with workspace(run) as where:
         volume.reload()
+        _product_free(run, name, overwrite)
         local = where / "inputs"
         local.mkdir()
         out = where / "out"
@@ -1713,6 +1962,7 @@ def rehead(
     temperature: float = 1.0,
     run: str = DEFAULT_RUN,
     name: str = "mortal-space",
+    overwrite: bool = False,
 ) -> str:
     """Teaches one of our networks to answer in Mortal's action space.
 
@@ -1720,15 +1970,18 @@ def rehead(
     replaced, by one over Mortal's forty-six moves, and taught to say what
     the old head said. See `neural/rehead.py`. The result goes to the run's
     directory under `name`, to be duelled against the teacher before
-    anything is built on it. A `name` that is not one directory name raises
-    `ValueError`, and a missing checkpoint `FileNotFoundError`, both before
-    anything runs; a failed run raises `CalledProcessError` carrying its
+    anything is built on it. A `name` that is not one directory name, or
+    names one of the run's own checkpoints (latest, best, reference),
+    raises `ValueError`, and a missing checkpoint `FileNotFoundError`, both
+    before anything runs, as does `FileExistsError` for a product of that
+    name already there unless `overwrite` is true; a failed run raises `CalledProcessError` carrying its
     output, and publishes nothing.
     """
     # Checked before the hours of work it names, not after them.
-    validate_run(name)
+    _product_name(name)
     with workspace(run) as where:
         volume.reload()
+        _product_free(run, name, overwrite)
         out = where / "out"
         source = _checkpoint(run, teacher)
         if not source.exists():
@@ -1775,12 +2028,13 @@ def _written(output: str | bytes | None) -> str:
     return output.decode(errors="replace") if isinstance(output, bytes) else output
 
 
-def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
+def _smoke_part(name: str, command: list[str], kept: int) -> tuple[list[str], bool]:
     """Runs one of the smoke test's trainers for at most
     `SMOKE_PART_TIMEOUT` seconds, and answers what the report says of it:
     how it ended, the last `kept` characters it wrote, and its stderr when
-    it failed or was stopped. Printed as soon as it is known, so a part
-    that finished is in the log whatever becomes of the next."""
+    it failed or was stopped, and whether it did either. Printed as soon as
+    it is known, so a part that finished is in the log whatever becomes of
+    the next."""
     try:
         result = subprocess.run(
             command,
@@ -1788,10 +2042,15 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
             env=_environment(compiled=True),
             capture_output=True,
             text=True,
+            # As for the trainers: a byte that is not UTF-8 must not end the
+            # test without its report.
+            encoding="utf-8",
+            errors="replace",
             timeout=SMOKE_PART_TIMEOUT,
         )
         part = [f"{name} exit={result.returncode}", (result.stdout or "")[-kept:]]
-        if result.returncode != 0:
+        failed = result.returncode != 0
+        if failed:
             part.append((result.stderr or "")[-2500:])
     except subprocess.TimeoutExpired as stopped:
         part = [
@@ -1799,8 +2058,9 @@ def _smoke_part(name: str, command: list[str], kept: int) -> list[str]:
             _written(stopped.stdout)[-kept:],
             _written(stopped.stderr)[-2500:],
         ]
+        failed = True
     print("\n".join(part), flush=True)
-    return part
+    return part, failed
 
 
 @app.function(
@@ -1816,7 +2076,11 @@ def smoke() -> str:
     the same reasons the real run would. Each part of the report is
     printed as soon as it is known as well as returned: the container's
     output is what streams back to a `modal run`, and a return value alone
-    shows nothing."""
+    shows nothing. A trainer that exited with an error or was stopped by
+    its timeout fails the call once both have been tried, with the report
+    as the error's message: answered as text, `modal run ...::smoke` ended
+    well whichever trainer crashed, and a script that went by its status
+    went ahead."""
     import torch
 
     import libriichi
@@ -1833,7 +2097,8 @@ def smoke() -> str:
     print("\n".join(report), flush=True)
     out = SMOKE_OUT
     out.mkdir(parents=True, exist_ok=True)
-    report += _smoke_part("train", [
+    failed = []
+    part, stopped = _smoke_part("train", [
         sys.executable, "-m", "neural.train",
         "--generations", "1", "--games", "24", "--batch", "512", "--epochs", "1",
         "--measure-every", "1", "--measure-games", "8",
@@ -1841,6 +2106,8 @@ def smoke() -> str:
         "--amp", "--compile",
         "--out", str(out),
     ], kept=2500)
+    report += part
+    failed += ["train"] if stopped else []
     # Mortal's fine-tuning too, from the published Mortal on the volume,
     # into scratch: nothing is published.
     volume.reload()
@@ -1848,16 +2115,20 @@ def smoke() -> str:
     if origin.exists():
         local = out / "origin.pt"
         shutil.copyfile(origin, local)
-        report += _smoke_part("train_mortal", [
+        part, stopped = _smoke_part("train_mortal", [
             sys.executable, "-m", "neural.train_mortal",
             "--mortal", str(local), "--rounds", "1", "--games", "16", "--batch", "512",
             "--measure-every", "1", "--measure-games", "8",
             "--amp", "--compile", "--out", str(out / "mortal"),
         ], kept=1500)
+        report += part
+        failed += ["train_mortal"] if stopped else []
     else:
         missing = f"no Mortal at {origin}; its trainer not tried"
         print(missing, flush=True)
         report.append(missing)
+    if failed:
+        raise RuntimeError(f"smoke test failed: {', '.join(failed)}\n" + "\n".join(report))
     return "\n".join(report)
 
 

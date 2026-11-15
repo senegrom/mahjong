@@ -297,6 +297,25 @@ class CommandLineTests(unittest.TestCase):
             (root / "design.json").unlink()
             self.assertIn("(Pocock, 5% two-sided over all looks)", self.run_main(root))
 
+    def test_a_series_whose_reports_played_a_name_at_two_generations_is_refused(self):
+        """A run's latest replaced while the series played: the seeds read
+        as one challenger were two networks. Reports that say nothing of
+        their generations, as the old duel's, are not held to it."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            looks.Design(first_seed=7, step=1, per_look=1, looks=2).save(root / "design.json")
+            for seed, generation in ((7, 3010), (8, 3013)):
+                (root / f"seed-{seed}.json").write_text(json.dumps(report(
+                    seed, [2.0] * 30, challenger="latest", incumbent="zoo/mortal_298k",
+                    generations={"latest": generation, "zoo/mortal_298k": 0})))
+            with self.assertRaises(SystemExit) as stop:
+                self.run_main(root)
+            self.assertIn("seed 7 played latest at generation 3010 and seed 8 at 3013", str(stop.exception.code))
+            self.assertIn("none of its looks is read", str(stop.exception.code))
+        self.assertIsNone(looks.moved_problem({7: report(7, [2.0]), 8: report(8, [2.0])}))
+        self.assertIsNone(looks.moved_problem({seed: report(seed, [2.0], generations={"history/gen-03000": 3000})
+                                               for seed in (7, 8)}))
+
     def test_a_series_with_a_report_that_fails_the_all_last_check_is_refused(self):
         """By the arms the series was registered to rule, if it was, or else
         by what each report says: the arms played otherwise where the rule

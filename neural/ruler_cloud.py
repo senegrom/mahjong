@@ -9,7 +9,9 @@ time, waits for them, reads the look, and spawns the next only if the rule
 says to go on, so a series that stops at its first look pays for five seeds
 rather than twenty. It can be stopped and run again: the calls it spawned are
 in `calls.txt`, and the reports are kept on the volume (`rulers/<tag>/`, see
-`modal_app.ruler`) and mirrored locally.
+`modal_app.ruler`) and mirrored locally, the registration with them into a
+folder that lacks it: a tag is one series wherever it is run from, and a
+folder registered otherwise than the volume is refused.
 
 The rule stops a series on the comparison it was registered with:
 
@@ -215,6 +217,8 @@ LOCAL = "the folder the series' folders are kept in, outside the checkout"
 #: fixed rows comes after them, named with its rows.
 OLD, SEATING, GRAPHED = "old duel", "ruler, seating", "ruler, seating, graphs"
 WAYS = (OLD, SEATING, GRAPHED)
+#: A series' registration, as its folder and the volume keep it.
+REGISTRATION = ("series.json", "design.json")
 
 
 def say(*words) -> None:
@@ -294,12 +298,16 @@ class Series:
         write_whole(self.folder / f"seed-{report['seed']}.json", json.dumps(report, indent=1))
 
 
-def write_whole(path: Path, text: str) -> None:
+def write_whole(path: Path, text: str | bytes) -> None:
     """Writes `text` to `path` whole or not at all: staged beside it and put
     in its place, so a kill mid-write leaves what was there before, and a
-    launcher run again never reads a file cut short."""
+    launcher run again never reads a file cut short. Bytes are written as
+    they are, as a file copied from the volume."""
     staged = path.with_suffix(".partial")
-    staged.write_text(text, encoding="utf-8")
+    if isinstance(text, bytes):
+        staged.write_bytes(text)
+    else:
+        staged.write_text(text, encoding="utf-8")
     staged.replace(path)
 
 
@@ -307,13 +315,33 @@ def upload(modal, series: Series) -> None:
     """Puts the series' registration beside its reports on the volume."""
     volume = modal.Volume.from_name(VOLUME)
     with volume.batch_upload(force=True) as batch:
-        for name in ("series.json", "design.json"):
+        for name in REGISTRATION:
             batch.put_file(str(series.folder / name), f"{RULERS}/{series.tag}/{name}")
 
 
+def registration_problem(series: Series, theirs: dict[str, bytes]) -> str | None:
+    """Why the registration the volume holds for the series' tag (`theirs`,
+    each file's bytes by name) is not the one its folder holds, if it is
+    not: other settings, or another rule (every field of it but when it was
+    written down, as `Series.register` compares them)."""
+    if json.loads(theirs["series.json"]) != series.settings():
+        return "other settings"
+    design = series.folder / "design.json"
+    if "design.json" in theirs and design.exists():
+        mine, other = (json.loads(text) for text in (design.read_text(encoding="utf-8"), theirs["design.json"]))
+        if {**mine, "registered": ""} != {**other, "registered": ""}:
+            return "another rule"
+    return None
+
+
 def mirror(modal, series: Series) -> int:
-    """Copies the series' reports the volume holds and the folder does not.
-    Answers how many it copied."""
+    """Copies the series' reports the volume holds and the folder does not,
+    and the registration the volume holds (`series.json`, `design.json`)
+    when the folder holds none, so that a series registered from another
+    folder is read by its own rule and comparison, and registered again only
+    as it was (see `Series.register`). A folder whose registration is not
+    the volume's is refused: the reports on the volume were played for the
+    other. Answers how many reports it copied."""
     volume = modal.Volume.from_name(VOLUME)
     have = {path.name for path in series.folder.glob("seed-*.json")}
     copied = 0
@@ -321,12 +349,26 @@ def mirror(modal, series: Series) -> int:
         entries = volume.listdir(f"{RULERS}/{series.tag}")
     except modal.exception.NotFoundError:
         return 0
-    for entry in entries:
-        name = entry.path.rstrip("/").rsplit("/", 1)[-1]
+    names = [entry.path.rstrip("/").rsplit("/", 1)[-1] for entry in entries]
+
+    def read(name: str) -> bytes:
+        return b"".join(volume.read_file(f"{RULERS}/{series.tag}/{name}"))
+
+    if "series.json" in names:
+        theirs = {name: read(name) for name in REGISTRATION if name in names}
+        if (series.folder / "series.json").exists():
+            problem = registration_problem(series, theirs)
+            if problem:
+                raise SystemExit(f"{series.tag} is registered on the volume with {problem} than in {series.folder}, "
+                                 "and its reports there were played for that registration: register a new tag")
+        else:
+            series.folder.mkdir(parents=True, exist_ok=True)
+            for name, text in theirs.items():
+                write_whole(series.folder / name, text)
+    for name in names:
         if not name.startswith("seed-") or name in have:
             continue
-        text = b"".join(volume.read_file(f"{RULERS}/{series.tag}/{name}")).decode("utf-8")
-        series.keep(json.loads(text))
+        series.keep(json.loads(read(name)))
         copied += 1
     return copied
 
@@ -581,8 +623,11 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
                   "again to resume the series, which asks about the call again.")
     shown = 0
     while True:
-        # Before any look is read: one read of an invalid series is one too many.
+        # Before any look is read: one read of an invalid series is one too
+        # many, and so is one against an invalid series.
         refuse_failed_check(series, settings)
+        if settings.get("against"):
+            refuse_failed_check(series.beside(settings["against"]))
         taken, state = looks.read(rule, differences_of(series, settings))
         if len(taken) > shown:
             print(looks.describe(rule, taken, state, names), flush=True)
@@ -590,15 +635,12 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
         if state != "waiting":
             return state
         wanted = order[: (len(taken) + 1) * rule.per_look]
-        if settings.get("against") and set(wanted) <= set(series.reports()):
-            # The look's own seeds are in and it waits all the same: the
-            # series it is read against lacks some, which no call of this
-            # one can bring. Registration refuses such a series; this is
-            # one whose reports went missing since.
-            others = series.beside(settings["against"]).reports()
-            missing = ", ".join(str(seed) for seed in wanted if seed not in others)
-            raise SystemExit(f"{series.tag}: the seeds of look {len(taken) + 1} are in, "
-                             f"but {settings['against']} holds no report for {missing}")
+        lacking = settings.get("against") and against_lacks(series, series.beside(settings["against"]), rule,
+                                                            len(taken))
+        if lacking:
+            # Registration refuses such a series; this is one whose
+            # reports went missing since.
+            raise SystemExit(f"{series.tag}: {lacking}")
         try:
             ready = settle(modal, series, settings, wanted, heard)
         except unasked(modal) as error:
@@ -607,6 +649,21 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
             ready = False
         if not ready:
             time.sleep(poll)
+
+
+def against_lacks(series: Series, against: Series, rule: looks.Design, taken: int) -> str | None:
+    """Why the look after the `taken` looks of `series`, read against
+    `against`, waits though every seed of its own is in, if it does: the
+    seeds of it `against` holds no report for, which no call of `series`
+    can bring."""
+    wanted = rule.seeds[: (taken + 1) * rule.per_look]
+    if not set(wanted) <= set(series.reports()):
+        return None
+    others = against.reports()
+    missing = [str(seed) for seed in wanted if seed not in others]
+    if not missing:
+        return None
+    return f"the seeds of look {taken + 1} are in, but {against.tag} holds no report for {', '.join(missing)}"
 
 
 def keep_calls(modal, series: Series, lines: list[str]) -> tuple[int, list[str]]:
@@ -652,6 +709,13 @@ def names_of(series: Series) -> tuple[str, str]:
             + (looks.ruled(sample["incumbent_rules"]) if sample.get("incumbent_rules") else ""))
 
 
+def moves(checkpoint: str) -> bool:
+    """Whether a checkpoint so named is a run's latest or best, which its
+    run replaces as it trains, by its name in the run or its path from the
+    volume's root."""
+    return checkpoint.removesuffix(".pt").rsplit("/", 1)[-1] in ("latest", "best")
+
+
 def asking_problem(settings: dict) -> str | None:
     """Why a series cannot ask its players as `settings` say, if it cannot:
     found before anything is registered, where `modal_app.ruler` and
@@ -664,6 +728,13 @@ def asking_problem(settings: dict) -> str | None:
         return "--rows must be a positive whole number"
     if settings["games"] <= 0:
         return "--games must be a positive whole number"
+    for which, name in (("challenger", settings["challenger"]), ("incumbent", settings["incumbent"]),
+                        ("--also", settings["also"])):
+        if name and moves(name):
+            # Each call finds the name again, so the seeds of a run that
+            # trains meanwhile would play other generations under it.
+            return (f"the {which} {name} is whichever generation holds that name when each call begins: name "
+                    "the generation (history/gen-NNNNN)")
     if settings.get("average_suits") in ("second", "both") and not settings["also"]:
         return f"--average-suits {settings['average_suits']} names a second challenger: name it with --also"
     rule = settings.get("all_last_dama")
@@ -713,8 +784,8 @@ def asking_problem(settings: dict) -> str | None:
 def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | None:
     """Why the series of `settings` cannot be read against `other` by `rule`,
     if it cannot: `other` must be a series of single rulers holding a report
-    of as many deals for every seed the rule reads, played against the same
-    incumbent and asked the same way. A ruler asked in fixed rows plays other
+    of as many deals for every seed the rule reads, each passing its rules'
+    check, played against the same incumbent and asked the same way. A ruler asked in fixed rows plays other
     games than one asked by seating, whose games are the old duel's, so a
     folder never registered, an old ruler kept with `keep`, counts as asked
     by seating."""
@@ -731,6 +802,11 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
             return "it is a series of paired rulers; a series is read against one of single rulers"
         if reports[seed].get("games_per_seat") != settings["games"]:
             return f"it played {reports[seed].get('games_per_seat')} deals at seed {seed}, not {settings['games']}"
+    # A report of it that fails its rules' check makes it invalid, as its
+    # own launcher and a reading against it find (see `refuse_failed_check`).
+    problem = looks.failed_check(reports, other.settings())
+    if problem:
+        return problem
     # The table each was played at, as a reading against it checks it too
     # (see `reading`): the incumbent, its run, the asking and the rules of
     # the last hand. A folder never registered says so by its reports.
@@ -803,7 +879,8 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     if path.exists():
         rule = looks.Design.load(path)
     else:
-        rule = looks.design()
+        # Not registered, so it says when it was not.
+        rule = replace(looks.design(), registered="")
         lines.append(f"no design at {path}: read by the usual rule, which was not registered for it")
     registered = series.settings().get("against", "")
     if against is None and registered:
@@ -839,6 +916,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
         names = names_of(series)
     taken, state = looks.read(rule, by_seed)
     lines.append(looks.describe(rule, taken, state, names))
+    lacking = state == "waiting" and against is not None and against_lacks(series, against, rule, len(taken))
+    if lacking:
+        # Not waiting for anything this series' calls bring: the other's
+        # reports are neither here nor on the volume, as a ruler kept with
+        # `keep` in another folder is not.
+        lines.append(f"{lacking}, here or on the volume")
     return lines
 
 
@@ -1173,6 +1256,14 @@ def main() -> None:
     rule = looks.design(args.expected, what_of(settings), args.first_seed, looks=args.looks,
                         per_look=args.per_look, bound=args.bound)
     require_ruler(modal, app_of(settings))
+    # The tag's registration and reports from the volume, before anything is
+    # registered: registered from another folder, the series is registered
+    # again only as it was, and reports with no registration may have been
+    # played for anything.
+    mirror(modal, series)
+    if not series.settings() and series.reports():
+        raise SystemExit(f"{series.tag} holds {len(series.reports())} reports, here or on the volume, and no "
+                         "registration of what they played: register a new tag")
     if args.against:
         other = series.beside(args.against)
         mirror(modal, other)

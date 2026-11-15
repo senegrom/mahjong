@@ -416,6 +416,71 @@ class Refits(unittest.TestCase):
         self.assertIs(placing.reward, kept)
         self.assertEqual(placing.fields()["reward"]["refits"][-1], report)
 
+    def test_a_refit_due_before_its_rounds_are_remembered_waits_for_them(self):
+        """A run that resumed remembers only the rounds it has played since:
+        a refit that falls due on fewer rounds than it reads keeps U, says
+        so, and is made as soon as they are all remembered."""
+        args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=3,
+                               place_refit_rounds=2)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            args.place_model = write_u(Path(folder) / "u.pt")
+            placing = place_model.PlacementRun.begin(args, {}, 10, [])
+        kept = placing.reward
+        rng = np.random.default_rng(5)
+        # Resumed at 12, the generation before a refit.
+        placing.remember(self.ledger(rng, 300), 12)
+        self.assertTrue(placing.refit_due(12))
+        with patch.object(place_model, "fit", side_effect=AssertionError("fitted on one round of two")):
+            report = placing.refit(12)
+        self.assertFalse(report["adopted"])
+        self.assertEqual((report["rounds"], report["games"]), (1, 300))
+        self.assertIn("1 of the 2 rounds a refit reads are remembered", report["why"])
+        self.assertIs(placing.reward, kept)
+        self.assertEqual(placing.fields()["reward"]["refits"][-1], report)
+        placing.remember(self.ledger(rng, 300), 13)
+        self.assertTrue(placing.refit_due(13))
+        report = placing.refit(13)
+        self.assertEqual(report["rounds"], 2)
+        self.assertIn("new_cross_entropy", report)
+        self.assertEqual([g for g in range(14, 20) if placing.refit_due(g)], [15, 18])
+
+    def test_a_refit_scores_the_u_it_would_replace_only_on_games_that_u_was_not_fitted_on(self):
+        """Refits closer together than the rounds they read: the games held
+        out at the second are none of those the first fitted on."""
+        args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=1,
+                               place_refit_rounds=2)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            args.place_model = write_u(Path(folder) / "u.pt")
+            placing = place_model.PlacementRun.begin(args, {}, 0, [])
+        rng = np.random.default_rng(6)
+        fitted = []
+        real = place_model.fit
+
+        def fit(table, *rest, **options):
+            fitted.append(set(table.games.tolist()))
+            return real(table, *rest, **options)
+
+        scored = []
+        real_score = place_model.cross_entropy
+
+        def cross_entropy(model, table, *rest):
+            scored.append(set(table.games.tolist()))
+            return real_score(model, table, *rest)
+
+        with patch.object(place_model, "fit", side_effect=fit), \
+                patch.object(place_model, "cross_entropy", side_effect=cross_entropy):
+            for generation in (0, 1, 2):
+                placing.remember(self.ledger(rng, 200), generation)
+                if placing.refit_due(generation) and len(placing.recent) == 2:
+                    placing.refit(generation)
+        self.assertEqual(len(fitted), 2)
+        self.assertTrue(scored[-1])
+        self.assertFalse(scored[-1] & fitted[0])
+        # A game's fold is its own, whatever games it is drawn with.
+        games = np.arange(1000, dtype=np.int64) + (7 << 32)
+        self.assertEqual(place_model.own_folds(games, 8, 3)[:10].tolist(),
+                         place_model.own_folds(games[:10], 8, 3).tolist())
+
     def test_a_run_refuses_a_u_that_never_saw_a_member_it_seats(self):
         args = SimpleNamespace(alpha=0.0, place_model=None, value_warm_up=0, place_refit_every=0,
                                place_refit_rounds=4)

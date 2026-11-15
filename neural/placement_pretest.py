@@ -116,6 +116,14 @@ def parse_args(argv=None) -> argparse.Namespace:
         parser.error("--top must be above nought and at most one")
     if args.seat_share and args.opponent_share:
         parser.error("seat others by game or by player, not both")
+    # The probes' opponent, resolved before anything is played: found only
+    # when the probes were read, its absence ended a pre-test after its
+    # round, U and the gradients.
+    if args.probe_opponent is None:
+        args.probe_opponent = next((path for path in args.opponents if str(path) != "club"), None)
+        if args.probe_opponent is None:
+            parser.error("name the published Mortal the probes are played against (--probe-opponent), "
+                         "or seat one among --opponents")
     return args
 
 

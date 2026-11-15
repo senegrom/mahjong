@@ -14,8 +14,10 @@ tile the reach really throws, drawn from the reach's preview in the same
 forward (`preview_reach`, which the rules need: without it a reach is told to
 the follower before its tile is drawn). Decline comes first because a
 declined self-draw can leave a riichi as the move, and dama must judge that
-riichi; the ruler seats one rule a player only because each series measured
-one. A declined ron becomes the pass, as the ruler's does; a declined
+riichi. A ruler asked for both (`neural.ruler --last-hand-rules`) seats them
+on one player in this same order, dama wrapped around decline
+(`all_last.dama(around_decline=True)`); `--all-last-dama` or `--late-rule`
+alone seats one, as each rule's own series measured it. A declined ron becomes the pass, as the ruler's does; a declined
 self-draw becomes the argmax of the same forward's logits with the win
 struck, as the ruler's does (`late_rules.py`, the turn's branch of
 `decline_last`). It is not drawn from the remaining moves, because a move so

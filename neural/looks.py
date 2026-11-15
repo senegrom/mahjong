@@ -212,7 +212,9 @@ def design(expected: float | None = None, what: str = "", first_seed: int = FIRS
     five seeds a look, four looks, twenty seeds; ten a look, forty seeds,
     when the effect looked for is 0.006 or less, where twenty seeds (an
     error about 0.0034 on the difference of two rulers of one lineage)
-    would find it about half the time. None designs for the usual 20.
+    would find it only about a third of the time (34% by Pocock's four
+    looks, see `stopping`) and forty seeds 61% (docs/RULER.md's table of
+    power). None designs for the usual 20.
     `looks`, `per_look` and `bound` register another rule in their place,
     a bound of nought being Pocock's for the looks."""
     small = expected is not None and abs(expected) <= SMALL_EFFECT
@@ -526,10 +528,28 @@ def rules_problem(report: dict) -> str | None:
     return None
 
 
+def moved_problem(reports: dict[int, dict]) -> str | None:
+    """Why a series' reports did not all play the same networks, if they
+    did not: each report says which generation each checkpoint it named
+    was when its call began (`generations`, see `modal_app.ruler`), and a
+    name found at two generations, a run's latest or best that moved while
+    the series played, made one series of two networks under one name.
+    Reports that say nothing of it, as the old duel's, are not held to it."""
+    seen: dict[str, tuple[int, object]] = {}
+    for seed in sorted(reports):
+        for name, generation in (reports[seed].get("generations") or {}).items():
+            first, before = seen.setdefault(name, (seed, generation))
+            if before != generation:
+                return (f"seed {first} played {name} at generation {before} and seed {seed} at {generation}: "
+                        "a series plays one network under each name")
+    return None
+
+
 def failed_check(reports: dict[int, dict], registered: dict | None = None) -> str | None:
     """The first report of a series, by seed, that fails the all-last dama
     rule's check (see `dama_problem`) or a late rule's (see
-    `late_problem`), and why: by the challengers the series was registered
+    `late_problem`), or reports that played one name at two generations
+    (see `moved_problem`), and why: by the challengers the series was registered
     to rule (`registered`, its `series.json`, see `neural.ruler_cloud`, whose
     late rule is the first challenger's), or, for a folder never registered,
     by what each report says. None when every report passes. A series with
@@ -537,6 +557,9 @@ def failed_check(reports: dict[int, dict], registered: dict | None = None) -> st
     so no look of it is read. A series registered to play the rules of the
     last hand at every seat (`last_hand_rules`), or a report whose incumbent
     followed them, is held to `rules_problem` instead."""
+    moved = moved_problem(reports)
+    if moved:
+        return moved
     following = late = None
     if registered:
         following = [registered.get("all_last_dama") in (which, "both") for which in ("first", "second")]
@@ -559,14 +582,15 @@ def failed_check(reports: dict[int, dict], registered: dict | None = None) -> st
 def describe(rule: Design, looks: list[Look], state: str, names: tuple[str, str]) -> str:
     """The looks as a table, and what they say, in words. A bound other than
     Pocock's for the rule's looks and error is said to be the one
-    registered."""
+    registered, and when the rule was registered is said unless it never
+    was (`registered` empty, a rule read in place of a missing design)."""
     first, second = names
     pocock = rule.bound == pocock_bound(rule.looks, rule.alpha)
     lines = [
         f"rule: {rule.per_look} seeds a look, {rule.looks} looks ({rule.per_look * rule.looks} seeds from "
         f"{rule.first_seed}, every {rule.step}), stop when |z| > {rule.bound} "
         + (f"(Pocock, {rule.alpha:.0%} two-sided over all looks)" if pocock else "(the bound registered)")
-        + f"; registered {rule.registered}"
+        + (f"; registered {rule.registered}" if rule.registered else "")
         + (f"; expected {rule.expected:+.4f}" if rule.expected is not None else ""),
     ]
     if rule.what:
@@ -599,7 +623,7 @@ def main() -> None:
     if path.exists():
         rule = Design.load(path)
     else:
-        rule = design()
+        rule = replace(design(), registered="")
         print(f"no design at {path}: reading by the usual rule, which was not registered for this series")
     # What a series was registered to play, if `neural.ruler_cloud` registered it.
     def registration(folder: Path) -> dict | None:

@@ -744,6 +744,63 @@ class CloudLaunch(unittest.TestCase):
             self.assertEqual(list((root / "scratch").iterdir()), [])
         self.assertEqual(asked, [])
 
+    def test_a_call_started_again_after_an_interrupt_takes_back_its_own_folder(self):
+        """Modal interrupts a preempted container and starts the call again
+        on the same input. The interrupted attempt kept what its child had
+        written, and its restart was refused by those files. Another call
+        of the same name is still refused."""
+        from neural.tests.test_cloud_isolation import child, controller
+
+        app = controller()
+        asked = []
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            root = Path(folder)
+            volume = self.volume(root)
+            target = volume / "noise-pretest" / "a005-g2820"
+
+            def interrupted(command, **_kwargs):
+                asked.append("interrupted")
+                out = Path(command[command.index("--out") + 1])
+                out.mkdir(parents=True)
+                for name in ("ledger.npz", "report.json", "stale.npz"):
+                    (out / name).write_text("first", encoding="utf-8")
+
+                def lines():
+                    yield '{"phase": "play"}\n'
+                    raise KeyboardInterrupt
+
+                return SimpleNamespace(stdout=lines(), stderr=io.StringIO(), poll=lambda: None,
+                                       terminate=lambda: None, wait=lambda timeout=None: -2)
+
+            def finished(command, **_kwargs):
+                asked.append("finished")
+                out = Path(command[command.index("--out") + 1])
+                out.mkdir(parents=True)
+                for name in self.WRITTEN:
+                    (out / name).write_text("again", encoding="utf-8")
+                return child(stdout='VERDICT {"oracle": {"verdict": "kill"}}\n')
+
+            def attempt(call, popen):
+                with patch.object(app.modal, "current_function_call_id", lambda: call, create=True):
+                    return self.launch(app, volume, root / "scratch", popen,
+                                       checkpoint="fusion-place-a005/history/gen-02820", name="a005-g2820",
+                                       opponents=["zoo/mortal_298k", "club"])
+
+            with self.assertRaises(KeyboardInterrupt):
+                attempt("fc-first", interrupted)
+            self.assertEqual(sorted(path.name for path in target.iterdir()),
+                             ["call.json", "ledger.npz", "report.json", "stale.npz"])
+            answer = attempt("fc-first", finished)
+            self.assertTrue(answer.rstrip().endswith(f"wrote {target}"))
+            # The restart's files alone, nothing of the attempt it replaced.
+            self.assertEqual(sorted(path.name for path in target.iterdir()), sorted(("call.json", *self.WRITTEN)))
+            for name in self.WRITTEN:
+                self.assertEqual((target / name).read_text(encoding="utf-8"), "again")
+            with self.assertRaisesRegex(FileExistsError, "afresh"):
+                attempt("fc-other", finished)
+            self.assertEqual(json.loads((target / "call.json").read_text(encoding="utf-8")), {"call": "fc-first"})
+        self.assertEqual(asked, ["interrupted", "finished"])
+
     def test_a_missing_checkpoint_or_a_bad_name_fails_before_any_work(self):
         from neural.tests.test_cloud_isolation import controller
 

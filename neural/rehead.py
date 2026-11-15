@@ -188,6 +188,13 @@ def main() -> None:
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
+    # The new head's first weights, the teacher's sampled moves and the
+    # order of the minibatches come from torch's generators, which every
+    # process seeds otherwise: seeded from --seed, as the trainers are (see
+    # `ppo_loop.setup`), one command line re-heads one network.
+    torch.manual_seed(args.seed)
+    if device == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
     log_path = args.out / "log.jsonl"
 
     payload = torch.load(args.teacher, map_location=device, weights_only=True)
