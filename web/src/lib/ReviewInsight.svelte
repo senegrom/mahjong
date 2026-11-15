@@ -84,8 +84,9 @@
 
   // About how long the search takes, beside the button in a few characters
   // and in its name in words (searchTime), at the review's time a position as
-  // it stood when the decision came on show, kept while it is on show
-  // (keptTime), so that neither follows the review's later batches.
+  // it stood when the decision came on show, kept while it is on show and
+  // the review has one (keptTime), so that neither follows the review's
+  // later batches.
   let timed = null;
   let speed = $derived.by(() => {
     timed = keptTime(timed, subject, positionMs);

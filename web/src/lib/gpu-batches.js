@@ -26,17 +26,18 @@
  *    WebAssembly instead, in passes of WebAssembly's own size (WASM_PASS):
  *    the caller gets an answer, or its own abort.
  *  - A decline in the bring-up that is about the device (no adapter or a
- *    software one, slow, disagreeing, a session or run that failed, its
- *    BRING_UP_MS gone) is remembered in localStorage for this runtime folder
- *    and this network's digest, so a later visit does not try again until
- *    either changes or a week has passed (DECLINE_LASTS_MS); `?gpu=on`
- *    forgets it. A runtime the browser could not fetch, or not within
- *    RUNTIME_MS, a network not saved on this device, and a worker that did
- *    not load, decline the card for this visit only. So does whatever fails
- *    once the card serves: the device has passed by then, and a card lost
- *    over a sleep, or busy with another program, says nothing lasting of
- *    it. `?gpu=off` never tries. Why the card was declined is said in the
- *    console once.
+ *    software one, slow, disagreeing, a session or run that failed, a worker
+ *    that had answered and then failed, its BRING_UP_MS gone) is remembered
+ *    in localStorage for this runtime folder and this network's digest, so a
+ *    later visit does not try again until either changes or a week has
+ *    passed (DECLINE_LASTS_MS); `?gpu=on` forgets it. A runtime the browser
+ *    could not fetch, or not within RUNTIME_MS, a network not saved on this
+ *    device, and a worker that did not load, one that fails before it has
+ *    said anything, decline the card for this visit only. So does whatever
+ *    fails once the card serves: the device has passed by then, and a card
+ *    lost over a sleep, or busy with another program, says nothing lasting
+ *    of it. `?gpu=off` never tries. Why the card was declined is said in
+ *    the console once.
  *
  * While the card runs a batch the page is told (`onWork`), and holds still
  * whatever it paints again every frame, a dora's sheen (Tile.svelte). The
@@ -147,9 +148,12 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
 
   function startWorker() {
     const current = createWorker();
+    // Whether this worker has said anything yet: one that has, loaded.
+    let heard = false;
     worker = current;
     current.onmessage = ({ data }) => {
       if (worker !== current) return;
+      heard = true;
       const request = pending.get(data.id);
       if (!request) return;
       if (data.fetched) { request.fetched?.(); return; }
@@ -159,7 +163,9 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
     };
     // A worker that did not load, its file gone with a new build or out of
     // reach, or whose answer could not be read, says nothing of the device.
-    current.onerror = event => { if (worker === current) decline(`the card's worker failed: ${event?.message ?? 'no reason given'}`, false); };
+    // One that had loaded, and said so by answering, and then fails outside
+    // any request, as the runtime does where it gives up, is the device's.
+    current.onerror = event => { if (worker === current) decline(`the card's worker failed: ${event?.message ?? 'no reason given'}`, heard); };
     current.onmessageerror = () => { if (worker === current) decline('the card\'s worker sent an unreadable answer', false); };
   }
 

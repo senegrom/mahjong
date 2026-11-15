@@ -355,9 +355,10 @@ test('a worker that does not load, or whose answer cannot be read, declines the 
     ['its file is gone', worker => worker.onerror({ message: 'Failed to load script' }), /the card's worker failed: Failed to load script/],
     ['its answer is unreadable', worker => worker.onmessageerror({}), /sent an unreadable answer/],
   ]) {
-    // In the bring-up, and once the card serves.
+    // In the bring-up, where a worker that did not load has said nothing,
+    // and once the card serves.
     for (const serving of [false, true]) {
-      const s = setup({ answer: message => (message.open ? (serving ? { opened: true } : null)
+      const s = setup({ fetched: serving, answer: message => (message.open ? (serving ? { opened: true } : null)
         : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
       await bringUp(s);
       assert.equal(s.card.state(), serving ? 'ready' : 'starting', name);
@@ -368,6 +369,33 @@ test('a worker that does not load, or whose answer cannot be read, declines the 
       assert.equal(s.storage.entries.size, 0, `${name}: nothing is said of the device`);
       assert.equal((await s.ask(8)).length, 8);
     }
+  }
+});
+
+test('a worker that had answered and then fails outside any request in the bring-up is the device\'s, and remembered', async () => {
+  // It said that its runtime is in hand, so its file loaded; what fails then
+  // without an answer, as the runtime does where it gives up, is not the
+  // connection's. An answer that could not be read still says nothing.
+  for (const [name, fail, remembers] of [
+    ['the runtime gives up', worker => worker.onerror({ message: 'RuntimeError: Aborted(OOM)' }), true],
+    ['its answer is unreadable', worker => worker.onmessageerror({}), false],
+  ]) {
+    const s = setup({ answer: message => (message.open ? null : { analyses: Array.from({ length: message.count }, plainAnswer) }) });
+    await bringUp(s);
+    assert.equal(s.card.state(), 'starting', name);
+    fail(s.workers[0]);
+    await settle();
+    assert.equal(s.card.state(), 'declined', name);
+    assert.equal(s.storage.entries.size, remembers ? 1 : 0, name);
+    if (!remembers) continue;
+    const record = JSON.parse([...s.storage.entries.values()][0]);
+    assert.equal(record.reason, 'the card\'s worker failed: RuntimeError: Aborted(OOM)');
+    assert.equal(record.network, READY.sha256);
+    // The next visit does not try again.
+    const next = setup({ storage: s.storage });
+    await bringUp(next);
+    assert.equal(next.workers.length, 0);
+    assert.equal(next.card.state(), 'declined');
   }
 });
 
@@ -765,9 +793,13 @@ test('the page sends single decisions to its WebAssembly worker alone, and batch
 });
 
 /** The card's worker, with a stand-in runtime, adapter, stored network and fetch. */
-function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3), fetchStatus = 200, createError = null, runError = null,
-  inputs = ['planes', 'legal'] } = {}) {
-  const messages = [], imports = [], created = [], reads = [], fetches = [], fed = [];
+function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3), fetchStatus = 200, importError = null, createError = null,
+  runError = null, inputs = ['planes', 'legal'] } = {}) {
+  const messages = [], imports = [], created = [], reads = [], fetches = [], fed = [], addresses = [];
+  // The addresses the worker makes of its own, each noted as it is made.
+  class Addressed extends URL {
+    static createObjectURL(blob) { const made = URL.createObjectURL(blob); addresses.push(made); return made; }
+  }
   class Tensor {
     constructor(type, data, dims) { Object.assign(this, { type, data, dims }); }
     dispose() {}
@@ -787,15 +819,15 @@ function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3),
     } };
   } } };
   const self = { postMessage: message => messages.push(message), navigator: { gpu: gpu(adapterGiven) } };
-  loadModule('gpu-batch.worker.js', { self, URL, Blob, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
+  loadModule('gpu-batch.worker.js', { self, URL: Addressed, Blob, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
     webgpuAdapter, storedNetworkBytes: async read => { reads.push(read); return stored; },
     fetch: async url => { fetches.push(String(url)); return new Response('runtime', { status: fetchStatus }); },
-    loadRuntime: async url => { imports.push(url); return runtime; },
+    loadRuntime: async url => { imports.push(url); if (importError) throw importError; return runtime; },
   }, [], { "import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href)": "loadRuntime(new URL('ort.min.mjs', webgpu).href)" });
   const send = data => { self.onmessage({ data }); return settle(); };
   const open = { url: 'https://cdn.invalid/models/g3000/x', expect: { bytes: 3, sha256: 'a'.repeat(64) }, scope: 'https://test.invalid/mahjong/',
     webgpu: 'https://test.invalid/mahjong/ort-webgpu/aaaa/' };
-  return { send, open, messages, imports, created, reads, fetches, fed, runtime };
+  return { send, open, messages, imports, created, reads, fetches, fed, runtime, addresses };
 }
 
 test('the card\'s worker opens the stored network on WebGPU alone and answers batches with their analyses and time', async () => {
@@ -845,6 +877,8 @@ test('the card\'s worker says why it cannot serve, and whether that is the devic
     ['a software adapter', { adapterGiven: adapter({ architecture: 'swiftshader' }) }, /no graphics card adapter/, true],
     ['a network not saved', { stored: null }, /not saved on this device/, false],
     ['a runtime it cannot fetch', { fetchStatus: 503 }, /could not be fetched: .*HTTP 503/, false],
+    ['a runtime whose own file does not load', { importError: new Error('Failed to fetch dynamically imported module') },
+      /could not be fetched: Failed to fetch dynamically imported module/, false],
     ['a session that fails', { createError: new Error('no kernel') }, /could not be opened on the card: no kernel/, true],
   ]) {
     const w = cardWorker(options);
@@ -855,7 +889,9 @@ test('the card\'s worker says why it cannot serve, and whether that is the devic
     if (name !== 'a session that fails') assert.equal(w.created.length, 0, `${name}: no session is made`);
     // Only with the runtime in hand does it say so: before that the time is not the device's.
     assert.equal(w.messages.some(message => message.fetched), name === 'a session that fails', name);
-    if (w.created.length) assert.equal(resolveObjectURL(w.created[0].paths.wasm), undefined, `${name}: the address of the runtime's WebAssembly is given up`);
+    // Wherever it stops, the address it made of the runtime's WebAssembly is given up.
+    assert.equal(w.addresses.length, ['a runtime whose own file does not load', 'a session that fails'].includes(name) ? 1 : 0, name);
+    for (const address of w.addresses) assert.equal(resolveObjectURL(address), undefined, `${name}: the address of the runtime's WebAssembly is given up`);
   }
   const failing = cardWorker({ runError: new Error('device lost') });
   await failing.send({ id: 1, open: failing.open });

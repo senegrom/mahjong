@@ -145,7 +145,8 @@ declined:
   callers waiting on the card with its reason, as it drops the WebAssembly
   worker's, and keeps the card's worker.
 - A decline in the bring-up that is about the device (no adapter or a
-  software one, disagreeing, slow, a session or a run that failed, its 60
+  software one, disagreeing, slow, a session or a run that failed, a worker
+  that had answered and then failed outside any request, its 60
   seconds gone) is kept in localStorage under `mahjong-webgpu-declined:<page folder>`, with the
   runtime folder, the network's SHA-256 and the date: a later visit does not
   try again until a new runtime or a new network comes or a week has passed
@@ -155,8 +156,8 @@ declined:
   question, and any other a bring-up beside the review. A runtime the
   browser could not fetch, offline before it was ever saved, or not within
   its ten minutes, a network not saved on this device or not readable
-  there, and a worker whose own file did not load, decline the card for this
-  visit only. So does whatever fails once the card serves, a run that fails
+  there, and a worker whose own file did not load, which fails before it has
+  said anything, decline the card for this visit only. So does whatever fails once the card serves, a run that fails
   or a batch out of time: the device has passed by then, and a card lost
   over a sleep, or busy with another program, says nothing lasting of it.
   Storage that refuses changes nothing but that. Why the card was declined

@@ -572,7 +572,7 @@ test('the button says about how long a search takes, from the tables it asks fir
   assert.deepEqual([searchTime(counts, null), searchTime(counts, 0), searchTime({ tables: 0, most: 0 }, 157)], [null, null, null]);
 });
 
-test("the button's time is the review's speed as it stood when the decision came on show, kept while it stays on show", () => {
+test("the button's time is the review's speed as it stood when the decision came on show, kept while it stays on show and the review has one", () => {
   let kept = keptTime(null, '3:4', 157);
   assert.deepEqual(kept, { at: '3:4', ms: 157 });
   kept = keptTime(kept, '3:4', 170);
@@ -582,6 +582,13 @@ test("the button's time is the review's speed as it stood when the decision came
   kept = keptTime(null, '3:4', null);
   assert.deepEqual(kept, { at: '3:4', ms: null });
   assert.deepEqual(keptTime(kept, '3:4', 160), { at: '3:4', ms: 160 });
+  // The review has no time any more: its batches run elsewhere than where the
+  // kept one was measured, on WebAssembly since the graphics card was
+  // declined. The kept time is let go, for the decision on show too, and the
+  // first measured there is taken.
+  kept = keptTime({ at: '3:4', ms: 6 }, '3:4', null);
+  assert.deepEqual(kept, { at: '3:4', ms: null }, 'a time measured on a card since declined times no search');
+  assert.deepEqual(keptTime(kept, '3:4', 124), { at: '3:4', ms: 124 });
 });
 
 test("the search is not offered below the margin floor, nor where the Why line finds that Trained AI does not answer the decision's table as the review recorded", async () => {

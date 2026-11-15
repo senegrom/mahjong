@@ -310,6 +310,33 @@ test("the page gives the review of the game so far the gate that the hand's note
   assert.equal(workerBatches.gate(), null, 'and no longer once answered');
 });
 
+test("the page has the review tell its screen when its batches move to the graphics card or back", () => {
+  // The review's time a position is none once its batches run elsewhere than
+  // where it was measured, and its screen keeps what it last read: a search
+  // would be timed by a card since declined. From the page's own source,
+  // what it does when it hears the runtime change.
+  const appSource = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8');
+  const script = parse(appSource, { modern: true }).instance.content;
+  const heard = find(script, node => node.type === 'CallExpression' && node.callee?.name === 'reportRuntime')?.arguments[0];
+  assert.ok(heard, 'the page hears each change of runtime');
+  const told = [];
+  const context = vm.createContext({ mounted: true, trainedRuntime: 'webgpu', matchReview: null });
+  const hear = vm.runInContext(`(${appSource.slice(heard.start, heard.end)})`, context);
+  // The review reads where its batches run as it is told, so the page knows it by then.
+  context.matchReview = { notify: () => told.push(context.trainedRuntime) };
+  hear('wasm');
+  assert.equal(context.trainedRuntime, 'wasm');
+  assert.deepEqual(told, ['wasm'], 'the review tells its screen, once the page has the runtime');
+  // No review yet: only the runtime is kept. A page that has gone hears nothing.
+  context.matchReview = null;
+  hear('webgpu');
+  assert.equal(context.trainedRuntime, 'webgpu');
+  Object.assign(context, { mounted: false, matchReview: { notify: () => told.push('gone') } });
+  hear('wasm');
+  assert.equal(context.trainedRuntime, 'webgpu');
+  assert.deepEqual(told, ['wasm']);
+});
+
 test("with Trained AI's move hidden, the hand's notes edge every decision alike, agreed or not, until the answers are shown", () => {
   // The notes keep the answers back: their rows take the edge that neither
   // agrees nor differs, and without the setting they do not.

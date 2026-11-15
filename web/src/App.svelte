@@ -361,7 +361,14 @@
       onChange: available => { if (mounted) trainedAvailable = available; },
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
-    reportRuntime((value) => { if (mounted) trainedRuntime = value; });
+    // Where a review's batches run decides its time a position, which is none
+    // once they run elsewhere than where it was measured (MatchReview): its
+    // screen keeps what it last read, so the review tells it to read again.
+    reportRuntime((value) => {
+      if (!mounted) return;
+      trainedRuntime = value;
+      matchReview?.notify();
+    });
     const startup = new AbortController();
     // Full-package caching has its own honest status. An unavailable unused
     // face set must not prevent a game with the selected graphics opening.

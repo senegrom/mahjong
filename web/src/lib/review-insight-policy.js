@@ -258,9 +258,13 @@ export function searchTime({ tables, most }, positionMs) {
  * decision came on show, or as first measured after, and kept while the
  * decision stays on show, whatever the review measures meanwhile. Otherwise
  * the button's words, and the name a screen reader says again as it changes,
- * would follow every batch the review times. `kept` is what was kept before. */
+ * would follow every batch the review times. It is let go once the review
+ * has none: its batches then run elsewhere than where the time was measured
+ * (MatchReview.positionMs), a graphics card declined or come up meanwhile,
+ * and a search timed by it would be promised a hundred times too fast or too
+ * slow. `kept` is what was kept before. */
 export function keptTime(kept, at, positionMs) {
-  return kept?.at === at && kept.ms != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
+  return kept?.at === at && kept.ms != null && positionMs != null ? kept : { at, ms: positionMs > 0 ? positionMs : null };
 }
 
 /** Waits until the page has drawn what was changed before it: a frame, then a

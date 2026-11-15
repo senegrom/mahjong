@@ -739,7 +739,11 @@ first to the most it may ask, each 1.43 positions on average, those Trained
 AI hesitates over asked twice, at the review's own time a position as it
 stood when the decision came on show, so the words do not change under the
 player ("What would change its mind? · about 8–14 s"; one figure where both
-round alike, "about 1 s", and minutes from a minute, "about 4–5 min"). It asks Trained AI about the table changed in one
+round alike, "about 1 s", and minutes from a minute, "about 4–5 min"). Where
+the review's batches have moved to the graphics card or back since that time
+was measured, the review has none until it measures one there, the page has
+it tell its screen, and the button says no time meanwhile, for the decision
+on show too: a time from the other runtime would be a hundred times out. It asks Trained AI about the table changed in one
 thing the player could see, a tile of the hand, a discard, the dora
 indicator, a riichi, the score or the round, only as a game can reach it, and
 never the wall, the dealer or a call taken back; pairs of changes only where
