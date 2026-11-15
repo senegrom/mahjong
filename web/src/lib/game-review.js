@@ -409,14 +409,15 @@ export class MatchReview {
     return Boolean(last) && last.end < this.snapshot.commands.length;
   }
   /** The order the hands are asked about when none are named: the newest
-   * first, then the rest from the first deal. While the match is under way
-   * that is the hand just played, whose result the player came from, and
-   * once it is over the final hand. Either way it is the hand the review
-   * opens on (landing), so the first hand the player looks at is the first
-   * one answered. */
+   * with a decision of the player's first, then the rest from the first
+   * deal. While the match is under way that is usually the hand just played,
+   * whose result the player came from, and once it is over the final hand.
+   * Either way it is the hand the review opens on (landing), so the first
+   * hand the player looks at is the first one answered. */
   get order() {
     const indices = this.hands.map(hand => hand.index);
-    return [...indices.slice(-1), ...indices.slice(0, -1)];
+    const opened = this.hands.findLast(hand => hand.frames.length)?.index ?? indices.at(-1);
+    return indices.length ? [opened, ...indices.filter(index => index !== opened)] : [];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
   get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
@@ -542,8 +543,10 @@ export class MatchReview {
         }
         this.report();
         // A slow device holds after each hand: the player chooses whether to
-        // go on, one hand or the rest, knowing how long it would take.
-        if (this.slow && !this.patient && this.queue.length) this.held = true;
+        // go on, one hand or the rest, knowing how long it would take. A hand
+        // in which the player made no decision asked nothing, and is no hand
+        // to hold after.
+        if (this.slow && !this.patient && hand.frames.length && this.queue.length) this.held = true;
         this.notify();
       }
     } finally {

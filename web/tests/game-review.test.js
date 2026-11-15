@@ -1187,6 +1187,28 @@ test('a review asks about the newest hand first, the hand just played or the fin
   } finally { finished.dispose(); }
 });
 
+test('where the newest hand asked the player nothing, a review asks first about the hand it opens on, and a slow device holds only after a hand with decisions', async () => {
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    // The final hand as if it had ended before the player's first decision.
+    const indices = review.hands.map(hand => hand.index), last = indices.at(-1);
+    review.hands.at(-1).frames = [];
+    const opened = landing(review.hands, 'every').hand;
+    assert.equal(opened, indices.at(-2));
+    assert.deepEqual(review.order, [opened, ...indices.slice(0, -2), last], 'the hand on show first, the rest from the first deal');
+    // On a slow device, the hand without decisions is passed on to the next.
+    const reviewed = [];
+    review.reviewHand = async hand => { reviewed.push(hand.index); hand.decisions = []; hand.status = 'done'; };
+    review.timedMs = SLOW_MS + 100;
+    review.ranOn = BATCH;
+    assert.equal(review.slow, true);
+    review.review([last, 0, 1]);
+    await settled(review);
+    assert.deepEqual(reviewed, [last, 0]);
+    assert.equal(review.held, true);
+  } finally { review.dispose(); }
+});
+
 test('a review taken on to later hands keeps what it reviewed, and asks only about the new hands, the newest first', async () => {
   const hands = scanMatch(Game, game), later = savedAfter(game, hands[3].end);
   const order = [], sizes = [];
