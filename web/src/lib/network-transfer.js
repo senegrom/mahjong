@@ -11,12 +11,12 @@ export { NETWORK_CACHE, hasStoredNetwork, networkCacheName, pruneNetworkCache, v
 const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
 
 /** The stored network's bytes where they are the ones expected, or null.
- * An entry read whole and found to be other bytes is deleted. One that
- * could not be read at all is deleted too, for the page's own reader, which
- * then downloads the network again, unless `keepUnread`: the graphics
- * card's worker reads a second copy beside the page's, and its failure, of
- * memory for one, says nothing of the entry, which offline play depends on;
- * there the error is thrown. */
+ * Only an entry read whole and found to be other bytes is deleted. One that
+ * could not be read at all is left as it is: a failure to read, of memory
+ * for one, says nothing of the entry, which offline play depends on, and a
+ * download that follows writes over it. The page's own reader then answers
+ * null, and downloads the network again; with `keepUnread`, for the
+ * graphics card's worker, which never downloads, the error is thrown. */
 async function verifiedCached(cache, url, expect, { keepUnread = false } = {}) {
   if (!cache) return null;
   try {
@@ -27,6 +27,7 @@ async function verifiedCached(cache, url, expect, { keepUnread = false } = {}) {
   } catch (error) {
     if (keepUnread) throw error;
     /* An unreadable cache is not a prerequisite for online play. */
+    return null;
   }
   try { await cache.delete(url); } catch { /* Never turn a cache error into trusted bytes. */ }
   return null;
