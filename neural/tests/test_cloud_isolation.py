@@ -504,6 +504,24 @@ class CloudIsolationTests(unittest.TestCase):
                     self.assertEqual((run/'generation.txt').read_text(),'41')
                     self.assertEqual(json.loads((run/'call.json').read_text())['call'],'fc-other')
 
+    def test_a_placement_pretest_without_a_network_to_probe_against_is_refused_before_any_work(self):
+        # Its own defaults were refused only by the seat share's check, and
+        # a roster of the Club alone played the round, fitted U and took the
+        # gradients before the child found no network for its probes.
+        app=controller()
+        asked=[]
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume'
+            atomic_save({'generation':1010},volume/'fusion-long/latest.pt')
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=root/'scratch')), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=asked.append), \
+                 redirect_stdout(io.StringIO()):
+                for opponents in (None,['club'],[]):
+                    with self.subTest(opponents=opponents),self.assertRaisesRegex(ValueError,'other than the club'):
+                        app.placement_pretest(**({} if opponents is None else {'opponents':opponents}))
+            self.assertFalse((root/'scratch').exists())
+        self.assertEqual(asked,[])
+
     def test_a_second_placement_pretest_of_one_generation_is_refused_before_its_child(self):
         # Its report, ledger and U were copied over the first's, so a fork
         # settled by a U that the report it was vetted by never described.

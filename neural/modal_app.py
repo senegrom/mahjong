@@ -1333,7 +1333,16 @@ def placement_pretest(
     empty; a fork starts from that U (`train_combined`'s `place_model`).
     A folder there that already holds anything is refused before the child
     starts, unless this call's own earlier attempt left it (see
-    `_claim_folder`). The answer is the child's output, ending with its verdict."""
+    `_claim_folder`). The answer is the child's output, ending with its
+    verdict.
+
+    `opponents` must be named: the child plays its probes against the
+    first of them that is not the Club, and the default seat share seats
+    them. A roster that names no such network is refused here, before
+    anything is staged; the child found out only after its round."""
+    if not any(other != "club" for other in opponents or []):
+        raise ValueError("opponents must name a network other than the club: the probes are played against "
+                         "the first one, and the run's tables seat them (for example ['zoo/mortal_298k', 'club'])")
     validate_cloud_request(1, opponents, 0.0, seat_share)
     if name:
         validate_run(name)
@@ -1466,6 +1475,8 @@ def noise_pretest(
     for at most `critic_epochs`, and the gradient's noise summed over
     `groups` groups of deals, `gradient_chunk` rows at a time. A pre-test
     whose preflight projects more than `max_minutes` stops before it plays.
+    `opponents` has no usable default: the default `seat_share` seats
+    them by player, and is refused without them.
 
     It writes only `noise-pretest/<name>` on the volume, `g<generation>`
     when `name` is empty: whatever the child wrote, its report, the round's
