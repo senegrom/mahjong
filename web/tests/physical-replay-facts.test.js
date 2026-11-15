@@ -50,6 +50,20 @@ test('a riichi recorded from a known hand keeps the tile drawn that turn, and on
   assert.equal(recordDiscard(unknown, 0, '9p', true).players[0].drew_at_riichi, undefined);
 });
 
+test('a riichi declared without a known draw keeps none of an earlier declaration the editor took back', () => {
+  // The table's editor can take a riichi back and leave what its turn drew;
+  // declared again with no drawn tile marked, the seat keeps no draw, and a
+  // plain discard leaves a standing riichi's draw alone.
+  const edited = readyAfterDraw(null);
+  edited.players[0].drew_at_riichi = '7z';
+  const again = recordDiscard(edited, 0, '9p', true);
+  assert.equal(again.players[0].riichi, 'riichi');
+  assert.equal('drew_at_riichi' in again.players[0], false);
+  const standing = recordDiscard(readyAfterDraw(), 0, '9p', true);
+  const later = recordDiscard(standing, 1, '2s');
+  assert.equal(later.players[0].drew_at_riichi, '1m');
+});
+
 test('a riichi keeps ippatsu whether or not its draw is known, and the next discard ends it', () => {
   // An opponent's riichi, its hand unknown.
   const unknown = emptyPosition();

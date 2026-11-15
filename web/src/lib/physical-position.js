@@ -167,8 +167,13 @@ export function recordDiscard(position, seat, tile, riichi = false) {
   if (riichi) { player.riichi = double ? 'double' : 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
   else player.ippatsu = false;
   // The tile drawn on the turn of the declaration, where the hand is known:
-  // Mortal reads the hand of that turn for as long as the riichi stands.
-  if (riichi && known && p.turn === seat && p.drawn) player.drew_at_riichi = p.drawn;
+  // Mortal reads the hand of that turn for as long as the riichi stands. A
+  // declaration whose draw is not known keeps none, nor that of an earlier
+  // one the table's editor took back.
+  if (riichi) {
+    if (known && p.turn === seat && p.drawn) player.drew_at_riichi = p.drawn;
+    else delete player.drew_at_riichi;
+  }
   if (p.players.every(player => player.discards.length > 0)) p.first_turns = false;
   // Act means this seat already drew (including a replacement) or just
   // called pon/chii. Neither discard consumes another live-wall tile.
