@@ -25,7 +25,8 @@ listed again.
 
 `neural.export` checks the graph's operators; the publication tool
 `web/scripts/publish-model-r2.mjs` writes the delivery manifest, reading the
-precision from the exported weights and refusing to run without the source
+precision from the exported weights, refusing an export whose weights are in a
+side file or that holds none, and refusing to run without the source
 checkpoint's name or the reward the network learned from, given as its trainer
 was given it: `--reward hybrid`, or `--reward placement --alpha <weight>`.
 Every network it keeps listed keeps its reward, and it does not write over a

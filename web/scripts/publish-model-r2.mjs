@@ -81,7 +81,12 @@ function* fields(bytes, start, end) {
  * rather than assumed: the element type of the initializers holding the most
  * bytes (ModelProto.graph is field 7, GraphProto.initializer field 5 and
  * TensorProto.data_type field 2). An int8 export keeps float scales and
- * biases beside its int8 weights; the weights outweigh them. */
+ * biases beside its int8 weights; the weights outweigh them.
+ *
+ * Only a file that holds its weights is published: the page fetches this one
+ * file, so an initializer kept in a side file (TensorProto.external_data field
+ * 13, data_location field 14 set to EXTERNAL) is refused, as is a graph whose
+ * initializers hold no bytes at all. */
 export function weightPrecision(bytes) {
   const stored = new Map();
   for (const graph of fields(bytes, 0, bytes.length)) {
@@ -92,11 +97,15 @@ export function weightPrecision(bytes) {
       for (const part of fields(bytes, tensor.start, tensor.end)) {
         if (part.field === 2 && part.value !== undefined) type = part.value;
         else if (TENSOR_DATA.has(part.field) && part.start !== undefined) size += part.end - part.start;
+        else if (part.field === 13 || (part.field === 14 && part.value === 1)) {
+          throw new Error("The network's weights are in a side file; export them inside the ONNX file.");
+        }
       }
       stored.set(type, (stored.get(type) ?? 0) + size);
     }
   }
   const [largest] = [...stored].sort((a, b) => b[1] - a[1]);
+  if (largest && largest[1] === 0) throw new Error('The network holds no weights.');
   if (!largest || !PRECISIONS.has(largest[0])) throw new Error("Could not tell the precision of the network's weights.");
   return PRECISIONS.get(largest[0]);
 }
