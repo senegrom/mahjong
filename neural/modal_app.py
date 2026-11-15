@@ -137,7 +137,10 @@ def _checkpoint(run: str, name: str) -> Path:
 
 
 #: What a trainer's publications leave in a run. A run holding any of them is
-#: never started afresh (see `_resume_source`).
+#: never started afresh (see `_resume_source`). An old lineage's best or
+#: reference set aside (`best-before-g40.pt`, see `_set_aside`) is not among
+#: them: no publication writes to that name, so a fresh start beside it
+#: loses nothing.
 RUN_STATE = ("latest.pt", "generation.txt", "log.jsonl", "best.pt", "reference.pt", "history")
 
 
@@ -229,6 +232,28 @@ def _run_state(run: str) -> tuple[str | None, str | None]:
     return generation, marked.get("call") if isinstance(marked, dict) else None
 
 
+def _set_aside(saved: Path, resumed_at: int) -> None:
+    """Moves an old lineage's best.pt or reference.pt out of the names the
+    run's own lineage is read by, to `<stem>-before-g<resumed_at>.pt` in the
+    same folder (`best-before-g40.pt`), `resumed_at` being the generation
+    the new lineage's block started from; `-2`, `-3`, ... are added to a
+    name already taken, so nothing is ever replaced. A best is a copy of
+    whichever generation measured best, and only every tenth generation is
+    archived, so deleting it could lose the only copy of that network. The
+    file kept can be duelled or resumed from by its name, as any product in
+    the run's folder can, and counts as another lineage there (see
+    `_same_lineage`)."""
+    if not saved.exists():
+        return
+    stem = f"{saved.stem}-before-g{resumed_at}"
+    kept, count = saved.with_name(f"{stem}.pt"), 1
+    while kept.exists():
+        count += 1
+        kept = saved.with_name(f"{stem}-{count}.pt")
+    os.rename(saved, kept)
+    print(f"the old lineage's {saved.name} set aside as {saved.parent.name}/{kept.name}", flush=True)
+
+
 def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
              published: dict[str, tuple[int, int, int]], marker: dict | None = None,
              *, new_lineage: bool = False, held: dict | None = None) -> int:
@@ -244,10 +269,11 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     `new_lineage` is for a block that did not resume from the run's own
     lineage (see `_same_lineage`), so carried none of its best or
     reference: the run's best.pt and reference.pt that the block's
-    workspace does not hold are the old lineage's and are removed. Left
-    there, the run's best stayed the old lineage's network, and the next
-    block, resumed from the run's own latest, carried the old reference in
-    and was leashed to the old lineage's start.
+    workspace does not hold are the old lineage's and are set aside under
+    names of their own (see `_set_aside`). Left there, the run's best
+    stayed the old lineage's network, and the next block, resumed from the
+    run's own latest, carried the old reference in and was leashed to the
+    old lineage's start.
 
     `held`, when given, holds under "state" what `_run_state` said of the
     run when this call resolved its resume, or after its own last
@@ -286,7 +312,7 @@ def _publish(run: Path, generation: int, target_run: str, resumed_at: int,
     if new_lineage:
         for name in ("best.pt", "reference.pt"):
             if not (run / name).exists():
-                (VOLUME / target_run / name).unlink(missing_ok=True)
+                _set_aside(VOLUME / target_run / name, resumed_at)
     if marker is not None:
         written = VOLUME / target_run / CALL_MARKER
         with staging_file(written) as staged:
@@ -343,7 +369,7 @@ def _carry(run: str, source: Path, where: Path, *, leashed: bool = False) -> int
     log cut at that generation, and, for a leashed trainer, the policy the
     run is leashed to. A start from another lineage inherits none of it:
     not the run's baseline, its record or its leash, and its publications
-    remove the old lineage's best and reference from the run (see
+    set the old lineage's best and reference aside in the run (see
     `_publish`)."""
     generation = copy_checkpoint(source, where / "latest.pt", require_generation=True)
     if _same_lineage(run, source):

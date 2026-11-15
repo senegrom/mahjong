@@ -327,16 +327,51 @@ class CloudIsolationTests(unittest.TestCase):
                     atomic_save({'generation':0,'lineage':'A'},run/'reference.pt')
                     (run/'log.jsonl').write_text(''.join(json.dumps({'generation':g})+'\n' for g in range(40)))
                     atomic_save({'generation':12,'lineage':'B'},volume/f'{source}.pt' if '/' in source else run/f'{source}.pt')
+                    old={name:(run/f'{name}.pt').read_bytes() for name in ('best','reference')}
                     seen=[]
                     self.launch(app,trainer,volume,root/'scratch',popen,run='run',resume=source,generations=1)
                     self.assertFalse(seen[0]&{'log.jsonl','best.pt','reference.pt'})
                     self.assertEqual(validate_checkpoint(run/'latest.pt'),13)
                     self.assertFalse((run/'best.pt').exists())
                     self.assertFalse((run/'reference.pt').exists())
+                    # Set aside, not deleted: a best may be the only copy of its network.
+                    for name,data in old.items():
+                        self.assertEqual((run/f'{name}-before-g12.pt').read_bytes(),data)
                     # The next block is the new lineage's own, and carries nothing of the old.
                     self.launch(app,trainer,volume,root/'scratch',popen,run='run',generations=1)
                     self.assertFalse(seen[1]&{'best.pt','reference.pt'})
                     self.assertEqual(validate_checkpoint(run/'latest.pt'),14)
+                    # A second new lineage from the same start loses nothing either:
+                    # its predecessor's best and reference take the next free names.
+                    atomic_save({'generation':14,'lineage':'B best'},run/'best.pt')
+                    atomic_save({'generation':12,'lineage':'B start'},run/'reference.pt')
+                    second={name:(run/f'{name}.pt').read_bytes() for name in ('best','reference')}
+                    self.launch(app,trainer,volume,root/'scratch',popen,run='run',resume=source,generations=1)
+                    self.assertFalse(seen[2]&{'log.jsonl','best.pt','reference.pt'})
+                    for name in ('best','reference'):
+                        self.assertEqual((run/f'{name}-before-g12.pt').read_bytes(),old[name])
+                        self.assertEqual((run/f'{name}-before-g12-2.pt').read_bytes(),second[name])
+                        self.assertFalse((run/f'{name}.pt').exists())
+                    # A file set aside is another lineage's, and its name is taken for a product.
+                    self.assertFalse(app._same_lineage('run',run/'best-before-g12.pt'))
+                    with patch.object(app,'VOLUME',volume),self.assertRaises(FileExistsError):
+                        app._product_free('run','best-before-g12',False)
+
+    def test_a_run_holding_only_files_set_aside_may_start_afresh_beside_them(self):
+        # No publication writes to a set-aside name, so a fresh start loses nothing there.
+        app=controller()
+        def popen(command,**kwargs):
+            where=Path(command[command.index('--out')+1])
+            atomic_save({'generation':1},where/'latest.pt')
+            return SimpleNamespace(stdout=io.StringIO(json.dumps({'generation':0,'checkpoint_generation':1})+'\n'),
+                                   wait=lambda:0)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';run=volume/'run'
+            atomic_save({'generation':35,'lineage':'A'},run/'best-before-g12.pt')
+            kept=(run/'best-before-g12.pt').read_bytes()
+            self.launch(app,'train',volume,root/'scratch',popen,run='run',generations=1)
+            self.assertEqual(validate_checkpoint(run/'latest.pt'),1)
+            self.assertEqual((run/'best-before-g12.pt').read_bytes(),kept)
 
     def test_a_resume_that_names_nothing_never_starts_a_run_that_exists_afresh(self):
         # A typo, or a generation that was never archived, started a fresh
