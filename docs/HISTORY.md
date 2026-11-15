@@ -71,8 +71,9 @@ last version of each as a file of its own.
   [TRAINING_SAFETY.md](TRAINING_SAFETY.md).
 - [CUSTOM_OPPONENTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/CUSTOM_OPPONENTS.md):
   custom tables, now a section of [AGENT_MODES.md](AGENT_MODES.md). It said
-  saves of formats 1 to 3 replay recorded neural answers; any save from before
-  format 5 holding a trained move is refused.
+  saves of formats 1 to 3 replay recorded neural answers. Since #147 (October
+  2026) no save from before format 5 resumes, whatever it holds; see
+  [UI_RELIABILITY.md](UI_RELIABILITY.md#saves-across-windows-legacy-records-and-calls).
 - [HAND_RESULTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/HAND_RESULTS.md)
   and [DISCARD_HINTS.md](https://github.com/senegrom/mahjong/blob/b34d169ad6341b273866970b93a9793ffef8c2fb/docs/DISCARD_HINTS.md):
   hand results, waits, mjai accounting and discard previews, now sections of
