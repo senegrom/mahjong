@@ -117,8 +117,9 @@ Scoring
 ### 1.2 What the engine deliberately leaves out
 
 Audited against chapters 1 to 4 of the rulebook in September 2026. Every
-rule software can decide is implemented and tested, with these exceptions,
-each of which is a referee's judgement rather than a decidable rule:
+rule software can decide is implemented and tested, with these exceptions.
+The first three are a referee's judgement rather than a decidable rule; the
+last two are deliberate choices of this game:
 
 - **Dead hands (3.3.14) and chombo (3.4.6).** Both are penalties for
   mistakes the software does not let a player make: it never deals the wrong
@@ -135,7 +136,9 @@ each of which is a referee's judgement rather than a decidable rule:
   the same window on a discard and claims are settled by the rulebook's
   priority, which is what "if it's unclear whether calls are simultaneous or
   not, consider they are" amounts to.
-- **Riichi needs 1,000 points in hand.** The rules let a player borrow
+- **Riichi needs 1,000 points in hand.** This is a house rule, decided on
+  purpose, not the rulebook's: section 3.3.10 asks only for a concealed
+  waiting hand and a tile in the wall, and the rules let a player borrow
   sticks and keep playing below zero (4.1.4, 5.6). The engine requires the
   bet up front, which is the common house reading and simpler to show.
 - **The deal and the wall are abstracted.** Tiles are dealt thirteen at a

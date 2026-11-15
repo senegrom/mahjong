@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource, publish,
-  runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
+import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource,
+  parseArguments, publish, runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
@@ -118,6 +118,55 @@ test('the manifest records the precision the weights are stored in, or nothing i
   }
   assert.equal(uploads, 3);
   assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+});
+
+test('the command line is read whole: a mistyped, repeated or valueless option stops the publication', () => {
+  const given = ['new.onnx', '--generation', '3000', '--source', 'run/gen-3000', '--origin', 'https://model.invalid',
+    '--reward', 'placement', '--alpha', '0.05'];
+  assert.deepEqual(parseArguments([...given, '--version', '0.2.3000']), { modelPath: 'new.onnx', generation: '3000',
+    source: 'run/gen-3000', origin: 'https://model.invalid', reward: 'placement', alpha: '0.05', version: '0.2.3000' });
+  assert.equal(parseArguments(given).version, undefined);
+  for (const [args, reason] of [
+    [[...given, '--verison', '0.2.3000'], /Unknown argument --verison/],
+    [[...given, '--version'], /--version needs a value/],
+    [[...given.slice(0, 7), '--version', ...given.slice(7)], /--version needs a value/],
+    [[...given, '--generation', '3001'], /--generation is given twice/],
+    [[...given, 'second.onnx'], /Unknown argument second\.onnx/],
+    [given.slice(1), /Name the exported network/],
+    [[], /Name the exported network/],
+  ]) assert.throws(() => parseArguments(args), reason, args.join(' '));
+});
+
+// A TensorProto of ONNX element type `type`: its values stored inside when
+// `data` is given, in a side file (data_location 1 and its external_data
+// entries) when `outside`, or neither.
+function tensor(type, { data, outside = false } = {}) {
+  return Buffer.concat([Buffer.from([2 * 8, type]), data === undefined ? Buffer.alloc(0) : message(9, Buffer.from(data)),
+    outside ? Buffer.concat([message(13, Buffer.concat([message(1, 'location'), message(2, 'network.onnx.data')])),
+      Buffer.from([14 * 8, 1])]) : Buffer.alloc(0)]);
+}
+const graph = tensors => message(7, Buffer.concat([node('Conv'), ...tensors.map(item => message(5, item))]));
+
+test('a network whose weights are in a side file, or that holds none, is refused before uploading', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  let uploads = 0;
+  const request = { modelPath, manifestPath, generation: 36, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
+    upload: () => { uploads++; } };
+  await fs.writeFile(manifestPath, 'previous manifest');
+  for (const [tensors, reason] of [
+    [[tensor(1, { outside: true })], /side file/],
+    [[tensor(1, { outside: true }), tensor(1, { data: 'a small bias' }), tensor(7, { data: 'shape' })], /side file/],
+    [[tensor(1), tensor(1)], /holds no weights/],
+  ]) {
+    await fs.writeFile(modelPath, graph(tensors));
+    await assert.rejects(publish(request), reason);
+  }
+  assert.equal(uploads, 0);
+  assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+  await fs.writeFile(modelPath, graph([tensor(1, { data: 'weights inside' }), tensor(7, { data: 'shape' })]));
+  await fs.rm(manifestPath);
+  assert.equal((await publish(request)).precision, 'float32');
+  assert.equal(uploads, 1);
 });
 
 test('the manifest says whether the graph runs whole on WebGPU, read from its operators', async t => {

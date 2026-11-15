@@ -7,7 +7,9 @@
 //     --source <checkpoint> --origin https://<model host> \
 //     --reward hybrid | --reward placement --alpha <weight> [--version <a.b.c>]
 //
-// The version is 0.1.<generation> unless --version names another. --reward
+// Any other argument, or an option given twice or without its value, stops
+// it before anything is read. The version is 0.1.<generation> unless --version
+// names another. --reward
 // and --alpha name the reward the network learned from, as its trainer was
 // given them (neural/train_combined.py), which the page says beside the
 // network's value. Publishing a version that is listed already replaces that
@@ -36,9 +38,26 @@ const PRECISIONS = new Map([[1, 'float32'], [10, 'float16'], [16, 'bfloat16'], [
 // TensorProto fields that hold a tensor's values rather than its description.
 const TENSOR_DATA = new Set([4, 5, 6, 7, 9, 10, 11]);
 
-function option(name, fallback) {
-  const at = process.argv.indexOf(`--${name}`);
-  return at >= 0 && at + 1 < process.argv.length ? process.argv[at + 1] : fallback;
+const OPTIONS = ['generation', 'source', 'origin', 'version', 'reward', 'alpha'];
+
+/** The publication the command line asks for: the model's path, then
+ * `--name value` pairs of the known options. Throws on anything else, a
+ * mistyped option, one given twice or one without its value, so that none is
+ * silently left out: a lost --version would replace the network listed under
+ * the default one. */
+export function parseArguments(args) {
+  const [modelPath, ...rest] = args;
+  if (typeof modelPath !== 'string' || modelPath.startsWith('--')) throw new Error('Name the exported network to publish first.');
+  const request = { modelPath };
+  for (let at = 0; at < rest.length; at += 2) {
+    const name = rest[at].startsWith('--') ? rest[at].slice(2) : null;
+    if (!OPTIONS.includes(name)) throw new Error(`Unknown argument ${rest[at]}: the options are ${OPTIONS.map(o => `--${o}`).join(', ')}.`);
+    if (name in request) throw new Error(`--${name} is given twice.`);
+    const value = rest[at + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error(`--${name} needs a value.`);
+    request[name] = value;
+  }
+  return request;
 }
 
 const unreadable = () => new Error('The model is not a readable ONNX file.');
@@ -81,7 +100,12 @@ function* fields(bytes, start, end) {
  * rather than assumed: the element type of the initializers holding the most
  * bytes (ModelProto.graph is field 7, GraphProto.initializer field 5 and
  * TensorProto.data_type field 2). An int8 export keeps float scales and
- * biases beside its int8 weights; the weights outweigh them. */
+ * biases beside its int8 weights; the weights outweigh them.
+ *
+ * Only a file that holds its weights is published: the page fetches this one
+ * file, so an initializer kept in a side file (TensorProto.external_data field
+ * 13, data_location field 14 set to EXTERNAL) is refused, as is a graph whose
+ * initializers hold no bytes at all. */
 export function weightPrecision(bytes) {
   const stored = new Map();
   for (const graph of fields(bytes, 0, bytes.length)) {
@@ -92,11 +116,15 @@ export function weightPrecision(bytes) {
       for (const part of fields(bytes, tensor.start, tensor.end)) {
         if (part.field === 2 && part.value !== undefined) type = part.value;
         else if (TENSOR_DATA.has(part.field) && part.start !== undefined) size += part.end - part.start;
+        else if (part.field === 13 || (part.field === 14 && part.value === 1)) {
+          throw new Error("The network's weights are in a side file; export them inside the ONNX file.");
+        }
       }
       stored.set(type, (stored.get(type) ?? 0) + size);
     }
   }
   const [largest] = [...stored].sort((a, b) => b[1] - a[1]);
+  if (largest && largest[1] === 0) throw new Error('The network holds no weights.');
   if (!largest || !PRECISIONS.has(largest[0])) throw new Error("Could not tell the precision of the network's weights.");
   return PRECISIONS.get(largest[0]);
 }
@@ -348,9 +376,7 @@ export async function publish({ modelPath, generation, source, origin, version, 
 
 const invoked = process.argv[1] ? process.argv[1].split(/[/\\]/).pop() : '';
 if (invoked === 'publish-model-r2.mjs') {
-  const network = await publish({ modelPath: process.argv[2], generation: option('generation'),
-    source: option('source'), origin: option('origin'), version: option('version'),
-    reward: option('reward'), alpha: option('alpha') });
+  const network = await publish(parseArguments(process.argv.slice(2)));
   process.stdout.write(`${JSON.stringify(network, null, 2)}\n`);
   const listed = await listedNetworks(MANIFEST);
   process.stdout.write(`Listed: ${listed.map((entry, index) => index ? entry.version : `${entry.version} (default)`).join(', ')}\n`);
