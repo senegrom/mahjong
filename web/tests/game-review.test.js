@@ -1417,6 +1417,26 @@ test('a review whose network plays on the graphics card asks passes of up to GPU
   assert.ok(wide.length < narrow.length, 'fewer passes');
 });
 
+test('before anything is timed, a review asks two positions a pass on WebAssembly and as many as the card takes on the graphics card', async () => {
+  // The small first pass is for WebAssembly's deadline alone; a batch on the
+  // card has its own, and answers two positions about as fast as sixty-four.
+  const first = async most => {
+    const sizes = [];
+    const review = new MatchReview(Game, game, { batchMost: () => most, analyzeBatch: async positions => {
+      sizes.push(positions.length);
+      return positions.map(position => decisive(position.mask));
+    } });
+    try {
+      const longest = review.hands.reduce((best, hand) => (hand.frames.length > best.frames.length ? hand : best));
+      review.review([longest.index]);
+      await settled(review);
+      return sizes[0];
+    } finally { review.dispose(); }
+  };
+  assert.equal(await first(BATCH), UNMEASURED);
+  assert.ok(await first(GPU_BATCH) > BATCH, 'the card is asked a full pass at once');
+});
+
 test('the review\'s time a position is measured afresh where its batches run changes, and no batch counts during which it did', async () => {
   // MatchReview.timed alone, on a stand-in: its clock, the worker's time for a batch, and the most a pass may ask,
   // eight on WebAssembly and sixty-four on the graphics card, which is all the review hears of where its batches run.

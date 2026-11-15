@@ -57,7 +57,10 @@ export const BATCH_MS = 10000;
  * device, is sized by the first's time, which is never less than the
  * device's own (MatchReview.timed). Two, not one: the card is considered
  * after WebAssembly has answered two passes of two or more, the second its
- * sample (gpu-batches.js), which that second pass is on a desktop. */
+ * sample (gpu-batches.js), which that second pass is on a desktop. Only on
+ * WebAssembly: a batch on the graphics card has a deadline and a fallback of
+ * its own and answers two positions about as fast as GPU_BATCH, so there a
+ * pass asks GPU_BATCH before anything is timed, as it did. */
 export const UNMEASURED = 2;
 /** The positions in each forward pass on a device that takes `positionMs` a
  * position (MatchReview.positionMs): `most`, BATCH unless it says GPU_BATCH
@@ -590,7 +593,7 @@ export class MatchReview {
     if (notes.length !== hand.frames.length) throw new Error('This hand could not be replayed');
     const rows = await reviewWithStrong(engine, notes, null, {
       signal, skipForced: true,
-      batch: { size: () => batchFor(this.sizingMs, { most: this.batchMost(), unmeasured: UNMEASURED }), analyze: (positions, signal) => this.passGate(positions, signal) },
+      batch: { size: () => batchFor(this.sizingMs, { most: this.batchMost(), unmeasured: this.batchMost() === BATCH ? UNMEASURED : undefined }), analyze: (positions, signal) => this.passGate(positions, signal) },
       // Told as each group begins and as its decisions are judged: its
       // positions count then, with them, and those of a group stopped before
       // its end, left pending, are dropped as the next group begins.
