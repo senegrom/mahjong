@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { analysisInput, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
@@ -118,7 +118,7 @@
     let engine;
     busy = true; failure = ''; analysis = null;
     try {
-      engine = new PhysicalAnalysis(input);
+      engine = new PhysicalAnalysis(analysisInput(input));
       const result = await evaluateAgent(engine, agent, owner.signal);
       if (request !== owner || owner.signal.aborted || key !== JSON.stringify(position) + agent) return;
       analysis = result; analyzedKey = key;

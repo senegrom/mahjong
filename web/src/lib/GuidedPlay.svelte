@@ -2,6 +2,7 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
+  import { analysisInput } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
@@ -73,7 +74,7 @@
     try { game = editGuided(snapshot(), change); failure = ''; }
     catch (error) { failure = error.message ?? String(error); }
   }
-  function validate(p) { const engine = new PhysicalAnalysis(p); engine.free(); }
+  function validate(p) { const engine = new PhysicalAnalysis(analysisInput(p)); engine.free(); }
   function act(event) {
     if (blocked) return false;
     try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
@@ -87,7 +88,7 @@
     busy = true; failure = ''; analysis = null;
     let engine;
     try {
-      engine = new PhysicalAnalysis(p);
+      engine = new PhysicalAnalysis(analysisInput(p));
       const result = await evaluateAgent(engine, agent, owner.signal);
       if (closed || request !== owner || owner.signal.aborted || key !== decisionKey()) return;
       analysis = result; analyzedKey = key;

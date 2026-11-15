@@ -39,7 +39,9 @@ export function parsePhysical(text) {
       && p.players.every(player => player && Array.isArray(player.hand) && Array.isArray(player.melds)
         && Array.isArray(player.discards) && player.hand.every(tile => TILE_TYPES.includes(tile))
         && number(player.score) && ['none', 'riichi', 'double'].includes(player.riichi) && flag(player.ippatsu) && flag(player.furiten)
+        && optionalTile(player.riichi_draw)
         && player.melds.every(m => m && TILE_TYPES.includes(m.tile) && number(m.from) && optionalTile(m.claimed_tile)
+          && (m.order == null || (Number.isInteger(m.order) && m.order >= 0 && m.order < 400))
           && ['chii', 'pon', 'kan', 'extended-kan', 'concealed-kan'].includes(m.kind))
         && player.discards.every(d => d && TILE_TYPES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
       && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) return p;
@@ -60,6 +62,37 @@ export function missingNumber(position) {
     if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${WINDS[index]}'s discards an order number`;
   }
   return null;
+}
+
+/** The order number the next discard at the table will carry. */
+function nextOrder(position) {
+  return Math.max(-1, ...position.players.flatMap(player => player.discards.map(entry => entry.order))) + 1;
+}
+
+const SELF_QUADS = ['concealed-kan', 'extended-kan'];
+
+/** The position as the engine is asked it: as recorded, less the two facts
+ * of Mortal's replay that no longer hold after an edit, which the engine
+ * would refuse. A seat's riichi draw (`riichi_draw`, the tile it drew on the
+ * turn it declared) is kept for the seat while it is in riichi, whichever
+ * seat is analysed, and told only for the seat analysed. A quad's turn
+ * (`order`, that of the discard that turn ended with, or of the turn being
+ * played) is told while the set is still a quad of the seat's own and that
+ * discard still its own, or the turn still being played. Without them the
+ * engine guesses, as for a position typed in. */
+export function analysisInput(position) {
+  const p = structuredClone(position), made = nextOrder(p);
+  const playingOn = (p.phase === 'act' && p.after_quad) || (p.phase === 'call' && SELF_QUADS.includes(p.pending_kind));
+  p.players.forEach((player, index) => {
+    if (player.riichi_draw != null && (index !== p.seat || player.riichi === 'none')) delete player.riichi_draw;
+    for (const meld of player.melds) {
+      if (meld.order == null) continue;
+      const ended = player.discards.some(entry => entry.order === meld.order);
+      const played = playingOn && index === p.turn && meld.order === made;
+      if (!SELF_QUADS.includes(meld.kind) || !(ended || played)) delete meld.order;
+    }
+  });
+  return p;
 }
 
 function remove(hand, tile, required = true) {
@@ -98,9 +131,12 @@ export function recordDiscard(position, seat, tile, riichi = false) {
   if (riichi && player.riichi !== 'none') throw new Error('This player has already declared riichi');
   if (riichi && player.score < 1000) throw new Error('Riichi needs 1,000 points');
   const double = p.first_turns && player.discards.length === 0;
-  const order = Math.max(-1, ...p.players.flatMap(player => player.discards.map(entry => entry.order))) + 1;
+  const order = nextOrder(p);
   player.discards.push({ tile, order, drawn: p.turn === seat && p.drawn === tile, riichi, claimed: false });
   if (riichi) { player.riichi = double ? 'double' : 'riichi'; player.ippatsu = true; player.score -= 1000; p.riichi_sticks++; }
+  // The tile drawn on the turn of the declaration, where the hand is known:
+  // Mortal reads the hand of that turn for as long as the riichi stands.
+  if (riichi && known && p.turn === seat && p.drawn) player.riichi_draw = p.drawn;
   else player.ippatsu = false;
   if (p.players.every(player => player.discards.length > 0)) p.first_turns = false;
   // Act means this seat already drew (including a replacement) or just
@@ -147,11 +183,12 @@ export function recordChoice(position, choice, choices) {
     p.just_claimed = choice.kind === 'kan' ? null : offered;
   } else if (choice.kind === 'concealed-kan') {
     for (let i = 0; i < 4; i++) remove(player.hand, choice.tile);
-    player.melds.push({ kind: choice.kind, tile: choice.tile, from: 0 });
+    // A quad's turn is that of the discard the turn will end with.
+    player.melds.push({ kind: choice.kind, tile: choice.tile, from: 0, order: nextOrder(p) });
   } else if (choice.kind === 'extended-kan') {
     const meld = player.melds.find(m => m.kind === 'pon' && m.tile === choice.tile);
     if (!meld) throw new Error('The pon is missing');
-    remove(player.hand, choice.tile); meld.kind = choice.kind;
+    remove(player.hand, choice.tile); meld.kind = choice.kind; meld.order = nextOrder(p);
   } else throw new Error('Unknown choice');
   p.first_turns = false;
   if (['pon', 'chii', 'kan'].includes(choice.kind)) p.players.forEach(player => { player.ippatsu = false; });

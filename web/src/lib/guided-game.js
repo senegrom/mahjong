@@ -262,13 +262,15 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       checkKan(p);
       const player = p.players[state.nextSeat];
       if (!['concealed-kan', 'extended-kan'].includes(event.kind)) throw new Error('Choose the kind of kan');
+      // A quad's turn is that of the discard the turn will end with.
+      const order = Math.max(-1, ...p.players.flatMap(seat => seat.discards.map(entry => entry.order))) + 1;
       if (event.kind === 'extended-kan') {
         const meld = player.melds.find(m => m.kind === 'pon' && m.tile === event.tile);
         if (!meld) throw new Error('This opponent has no matching pon to extend');
-        meld.kind = 'extended-kan';
+        meld.kind = 'extended-kan'; meld.order = order;
       } else {
         if (player.melds.length >= 4) throw new Error('This opponent already has four sets');
-        player.melds.push({ kind: 'concealed-kan', tile: event.tile, from: 0 });
+        player.melds.push({ kind: 'concealed-kan', tile: event.tile, from: 0, order });
       }
       // Count the opponent's unobserved draw before the kan, then the
       // replacement separately when their next event is entered.
