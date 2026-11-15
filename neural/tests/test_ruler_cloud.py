@@ -10,7 +10,8 @@ its own seed, never one whose call failed on an argument the app does not
 take and never one in Modal's queue, and says the queue by Modal's count;
 it gives a call Modal cannot be asked about an hour of polls and then stops
 without spawning its seed again, keeps every report locally and reads what
-the volume kept; a report that fails the all-last dama check or a late
+the volume kept, its registration too, so that a tag is one series from
+any folder; a report that fails the all-last dama check or a late
 rule's stops the series for good, kept, with no seed spawned again and no
 look read; what it may not play or read is refused before anything is
 registered, the all-last dama rule or a late rule on the live app, on two
@@ -156,8 +157,11 @@ class Modal:
 
     @contextlib.contextmanager
     def batch_upload(self, force=False):
-        yield SimpleNamespace(put_file=lambda local, remote: self.uploaded.update(
-            {remote: Path(local).read_text(encoding="utf-8")}))
+        def put_file(local, remote):
+            self.uploaded[remote] = Path(local).read_text(encoding="utf-8")
+            self.files[remote] = Path(local).read_bytes()
+
+        yield SimpleNamespace(put_file=put_file)
 
 
 @contextlib.contextmanager
@@ -790,6 +794,8 @@ class SeriesTests(unittest.TestCase):
         lines = ruler_cloud.reading(modal, series)
         self.assertIn("not registered", lines[0])
         self.assertIn("stopped at look 1: a is the stronger", lines[1])
+        # A rule never registered says no time it was registered at.
+        self.assertNotIn("; registered", lines[1])
         nothing = ruler_cloud.Series(self.root / "nothing")
         nothing.folder.mkdir()
         self.assertEqual(ruler_cloud.mirror(modal, nothing), 0)
@@ -1337,6 +1343,75 @@ class CommandLineTests(unittest.TestCase):
             code, err = self.run_main(*arguments, "--app", "")
             self.assertEqual(code, 2)
             self.assertIn("--app names a deployed app", err)
+
+    def test_a_tag_is_one_series_whatever_folder_it_is_run_from(self):
+        """Registered from one folder, a tag is registered from another only
+        as it was, taking its registration from the volume; registered
+        otherwise there, it is refused before anything is spawned or
+        uploaded, rather than read from the first registration's reports,
+        and so is a folder whose own registration is not the volume's."""
+        def answer(name, arguments):
+            return single_report(arguments["seed"], placements(arguments["seed"], 7, 2.0), arguments["challenger"])
+
+        series = ("series", "g35-vs-mortal", "history/gen-03500", "zoo/mortal_298k", "--run", "fusion-place-ruled")
+        modal = Modal(answer)
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second, \
+                tempfile.TemporaryDirectory() as third, patch.object(ruler_cloud.time, "sleep"):
+            code, _err = self.run_main(*series, "--local", first, modal=modal)
+            self.assertEqual((code, len(modal.spawned)), (0, 5))
+            registered = dict(modal.uploaded)
+            code, _err = self.run_main("series", "g35-vs-mortal", "history/gen-03600", "zoo/mortal_298k", "--run",
+                                       "fusion-place-ruled", "--local", second, modal=modal)
+            self.assertIn("g35-vs-mortal was registered with other challenger", code)
+            self.assertEqual((len(modal.spawned), modal.uploaded), (5, registered))
+            # Another rule is refused as surely.
+            code, _err = self.run_main(*series, "--expected", "0.004", "--local", third, modal=modal)
+            self.assertIn("g35-vs-mortal was registered with another rule", code)
+            # Run as it was registered, it resumes, by its own rule.
+            code, _err = self.run_main(*series, "--local", third, modal=modal)
+            self.assertEqual((code, len(modal.spawned), modal.uploaded), (0, 5, registered))
+            # A folder whose own registration is not the volume's.
+            modal.files["rulers/g35-vs-mortal/series.json"] = json.dumps(
+                {**json.loads(registered["rulers/g35-vs-mortal/series.json"]), "games": 500}).encode()
+            code, _err = self.run_main(*series, "--local", first, modal=modal)
+            self.assertIn(f"g35-vs-mortal is registered on the volume with other settings than in "
+                          f"{Path(first) / 'g35-vs-mortal'}", code)
+            self.assertEqual(len(modal.spawned), 5)
+
+    def test_reports_with_no_registration_are_not_taken_by_a_new_one(self):
+        modal = Modal(lambda name, arguments: None)
+        for seed in looks.design().seeds[:5]:
+            modal.files[f"rulers/g35-vs-mortal/seed-{seed}.json"] = json.dumps(
+                single_report(seed, placements(seed, 7, 2.0), "history/gen-03500")).encode()
+        with tempfile.TemporaryDirectory() as folder:
+            code, _err = self.run_main("series", "g35-vs-mortal", "history/gen-03600", "zoo/mortal_298k",
+                                       "--local", folder, modal=modal)
+            self.assertIn("g35-vs-mortal holds 5 reports, here or on the volume, and no registration", code)
+            self.assertFalse((Path(folder) / "g35-vs-mortal" / "series.json").exists())
+        self.assertEqual((modal.spawned, modal.uploaded), ([], {}))
+
+    def test_a_series_is_read_from_another_folder_by_its_registered_rule(self):
+        """A rule of one look of twenty, five seeds in: read from a folder
+        that never held its registration, it waits for its only look, as
+        from the folder that registered it, rather than stopping by the
+        usual rule."""
+        modal = Modal(lambda name, arguments: paired_report(arguments["seed"], 0.3), queue=("running",) * 1000)
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            series = ruler_cloud.Series(Path(first) / "g1010-g910")
+            settings = {**SETTINGS, "challenger": "history/gen-01010", "also": "history/gen-00910"}
+            series.register(settings, looks.design(None, ruler_cloud.what_of(settings), looks=1, per_look=20,
+                                                   bound=2.0))
+            ruler_cloud.upload(modal, series)
+            for seed in looks.design().seeds[:5]:
+                modal.files[f"rulers/g1010-g910/seed-{seed}.json"] = json.dumps(paired_report(seed, 0.3)).encode()
+            elsewhere = ruler_cloud.Series(Path(second) / "g1010-g910")
+            self.assertEqual(ruler_cloud.mirror(modal, elsewhere), 5)
+            lines = ruler_cloud.reading(modal, elsewhere)
+            self.assertEqual(len(lines), 1)
+            self.assertIn("rule: 20 seeds a look, 1 looks", lines[0])
+            self.assertIn("(the bound registered)", lines[0])
+            self.assertIn("waiting for the seeds of look 1", lines[0])
+            self.assertEqual(elsewhere.settings(), settings)
 
     def test_a_rule_of_one_look_is_registered_as_asked(self):
         """`--looks 1 --per-look 20 --bound 2.0` registers exactly that rule,

@@ -561,14 +561,15 @@ def failed_check(reports: dict[int, dict], registered: dict | None = None) -> st
 def describe(rule: Design, looks: list[Look], state: str, names: tuple[str, str]) -> str:
     """The looks as a table, and what they say, in words. A bound other than
     Pocock's for the rule's looks and error is said to be the one
-    registered."""
+    registered, and when the rule was registered is said unless it never
+    was (`registered` empty, a rule read in place of a missing design)."""
     first, second = names
     pocock = rule.bound == pocock_bound(rule.looks, rule.alpha)
     lines = [
         f"rule: {rule.per_look} seeds a look, {rule.looks} looks ({rule.per_look * rule.looks} seeds from "
         f"{rule.first_seed}, every {rule.step}), stop when |z| > {rule.bound} "
         + (f"(Pocock, {rule.alpha:.0%} two-sided over all looks)" if pocock else "(the bound registered)")
-        + f"; registered {rule.registered}"
+        + (f"; registered {rule.registered}" if rule.registered else "")
         + (f"; expected {rule.expected:+.4f}" if rule.expected is not None else ""),
     ]
     if rule.what:
@@ -601,7 +602,7 @@ def main() -> None:
     if path.exists():
         rule = Design.load(path)
     else:
-        rule = design()
+        rule = replace(design(), registered="")
         print(f"no design at {path}: reading by the usual rule, which was not registered for this series")
     # What a series was registered to play, if `neural.ruler_cloud` registered it.
     def registration(folder: Path) -> dict | None:

@@ -9,7 +9,9 @@ time, waits for them, reads the look, and spawns the next only if the rule
 says to go on, so a series that stops at its first look pays for five seeds
 rather than twenty. It can be stopped and run again: the calls it spawned are
 in `calls.txt`, and the reports are kept on the volume (`rulers/<tag>/`, see
-`modal_app.ruler`) and mirrored locally.
+`modal_app.ruler`) and mirrored locally, the registration with them into a
+folder that lacks it: a tag is one series wherever it is run from, and a
+folder registered otherwise than the volume is refused.
 
 The rule stops a series on the comparison it was registered with:
 
@@ -215,6 +217,8 @@ LOCAL = "the folder the series' folders are kept in, outside the checkout"
 #: fixed rows comes after them, named with its rows.
 OLD, SEATING, GRAPHED = "old duel", "ruler, seating", "ruler, seating, graphs"
 WAYS = (OLD, SEATING, GRAPHED)
+#: A series' registration, as its folder and the volume keep it.
+REGISTRATION = ("series.json", "design.json")
 
 
 def say(*words) -> None:
@@ -294,12 +298,16 @@ class Series:
         write_whole(self.folder / f"seed-{report['seed']}.json", json.dumps(report, indent=1))
 
 
-def write_whole(path: Path, text: str) -> None:
+def write_whole(path: Path, text: str | bytes) -> None:
     """Writes `text` to `path` whole or not at all: staged beside it and put
     in its place, so a kill mid-write leaves what was there before, and a
-    launcher run again never reads a file cut short."""
+    launcher run again never reads a file cut short. Bytes are written as
+    they are, as a file copied from the volume."""
     staged = path.with_suffix(".partial")
-    staged.write_text(text, encoding="utf-8")
+    if isinstance(text, bytes):
+        staged.write_bytes(text)
+    else:
+        staged.write_text(text, encoding="utf-8")
     staged.replace(path)
 
 
@@ -307,13 +315,33 @@ def upload(modal, series: Series) -> None:
     """Puts the series' registration beside its reports on the volume."""
     volume = modal.Volume.from_name(VOLUME)
     with volume.batch_upload(force=True) as batch:
-        for name in ("series.json", "design.json"):
+        for name in REGISTRATION:
             batch.put_file(str(series.folder / name), f"{RULERS}/{series.tag}/{name}")
 
 
+def registration_problem(series: Series, theirs: dict[str, bytes]) -> str | None:
+    """Why the registration the volume holds for the series' tag (`theirs`,
+    each file's bytes by name) is not the one its folder holds, if it is
+    not: other settings, or another rule (every field of it but when it was
+    written down, as `Series.register` compares them)."""
+    if json.loads(theirs["series.json"]) != series.settings():
+        return "other settings"
+    design = series.folder / "design.json"
+    if "design.json" in theirs and design.exists():
+        mine, other = (json.loads(text) for text in (design.read_text(encoding="utf-8"), theirs["design.json"]))
+        if {**mine, "registered": ""} != {**other, "registered": ""}:
+            return "another rule"
+    return None
+
+
 def mirror(modal, series: Series) -> int:
-    """Copies the series' reports the volume holds and the folder does not.
-    Answers how many it copied."""
+    """Copies the series' reports the volume holds and the folder does not,
+    and the registration the volume holds (`series.json`, `design.json`)
+    when the folder holds none, so that a series registered from another
+    folder is read by its own rule and comparison, and registered again only
+    as it was (see `Series.register`). A folder whose registration is not
+    the volume's is refused: the reports on the volume were played for the
+    other. Answers how many reports it copied."""
     volume = modal.Volume.from_name(VOLUME)
     have = {path.name for path in series.folder.glob("seed-*.json")}
     copied = 0
@@ -321,12 +349,26 @@ def mirror(modal, series: Series) -> int:
         entries = volume.listdir(f"{RULERS}/{series.tag}")
     except modal.exception.NotFoundError:
         return 0
-    for entry in entries:
-        name = entry.path.rstrip("/").rsplit("/", 1)[-1]
+    names = [entry.path.rstrip("/").rsplit("/", 1)[-1] for entry in entries]
+
+    def read(name: str) -> bytes:
+        return b"".join(volume.read_file(f"{RULERS}/{series.tag}/{name}"))
+
+    if "series.json" in names:
+        theirs = {name: read(name) for name in REGISTRATION if name in names}
+        if (series.folder / "series.json").exists():
+            problem = registration_problem(series, theirs)
+            if problem:
+                raise SystemExit(f"{series.tag} is registered on the volume with {problem} than in {series.folder}, "
+                                 "and its reports there were played for that registration: register a new tag")
+        else:
+            series.folder.mkdir(parents=True, exist_ok=True)
+            for name, text in theirs.items():
+                write_whole(series.folder / name, text)
+    for name in names:
         if not name.startswith("seed-") or name in have:
             continue
-        text = b"".join(volume.read_file(f"{RULERS}/{series.tag}/{name}")).decode("utf-8")
-        series.keep(json.loads(text))
+        series.keep(json.loads(read(name)))
         copied += 1
     return copied
 
@@ -803,7 +845,8 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
     if path.exists():
         rule = looks.Design.load(path)
     else:
-        rule = looks.design()
+        # Not registered, so it says when it was not.
+        rule = replace(looks.design(), registered="")
         lines.append(f"no design at {path}: read by the usual rule, which was not registered for it")
     registered = series.settings().get("against", "")
     if against is None and registered:
@@ -1173,6 +1216,14 @@ def main() -> None:
     rule = looks.design(args.expected, what_of(settings), args.first_seed, looks=args.looks,
                         per_look=args.per_look, bound=args.bound)
     require_ruler(modal, app_of(settings))
+    # The tag's registration and reports from the volume, before anything is
+    # registered: registered from another folder, the series is registered
+    # again only as it was, and reports with no registration may have been
+    # played for anything.
+    mirror(modal, series)
+    if not series.settings() and series.reports():
+        raise SystemExit(f"{series.tag} holds {len(series.reports())} reports, here or on the volume, and no "
+                         "registration of what they played: register a new tag")
     if args.against:
         other = series.beside(args.against)
         mirror(modal, other)

@@ -763,6 +763,14 @@ and a bound left out is Pocock's for the looks. `--app` names the deployed app
 the calls are spawned on, `mahjong-train` unless another is named, which the
 series then keeps; the rules of the last hand are played only on another.
 
+A series' registration (`series.json`, `design.json`) is kept in its
+`--local` folder and beside its reports on the volume. A folder that lacks it
+takes it from the volume, so a series registered from another folder is
+resumed, or registered again, only as it was registered, and read by its own
+rule and comparison. A folder whose registration is not the volume's is
+refused, as is a tag whose reports, here or on the volume, have no
+registration: register a new tag.
+
 `looks <tag>` mirrors what the volume kept (`rulers/<tag>/seed-<seed>.json`)
 and prints the looks so far, by the comparison the series was registered
 with. `looks <tag> --against <other>` reads it against another series instead,
