@@ -5,7 +5,7 @@ import init, { Game, PhysicalAnalysis, settle_physical } from '../src/wasm/riich
 import { MatchSession } from '../src/lib/session.js';
 import { scanMatch } from '../src/lib/game-review.js';
 import { handTables } from '../src/lib/review-insight-policy.js';
-import { analysisInput, emptyPosition, parsePhysical, parseTiles, recordChoice, recordDiscard, recordDraw } from '../src/lib/physical-position.js';
+import { analysisInput, analysisOf, emptyPosition, parsePhysical, parseTiles, recordChoice, recordDiscard, recordDraw, withoutStaleDraw } from '../src/lib/physical-position.js';
 import { emptyGuided, guidedEvent, parseGuided, GUIDED_FORMAT } from '../src/lib/guided-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -16,13 +16,14 @@ await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', 
 // `riichi_draw`), and the turn of a quad a seat declared itself (a set's
 // `declared_turn`, the engine's `order`: the number of the discard the turn
 // ends with). A draft keeps them under names the engine does not read, and
-// only analysisInput gives them to the engine.
+// only analysisInput gives them to the engine, which is asked with them only
+// where it takes them (analysisOf).
 
 /** The engine as the page asks it (GuidedPlay, PhysicalPlay). */
-const validate = p => { new PhysicalAnalysis(analysisInput(p)).free(); };
+const validate = p => { analysisOf(PhysicalAnalysis, p).free(); };
 const act = (game, event) => guidedEvent(game, event, validate, settle_physical);
 const asked = (p, read) => {
-  const engine = new PhysicalAnalysis(analysisInput(p));
+  const engine = analysisOf(PhysicalAnalysis, p);
   try { return read(engine); } finally { engine.free(); }
 };
 const choicesOf = p => asked(p, engine => engine.agent_choices());
@@ -154,23 +155,41 @@ test('the engine is told a riichi draw for the seat analysed alone, and a quad t
   assert.equal(analysisInput(playing).players[0].melds[0].order, 3);
 });
 
-test("an added kan whose pon's discard was renumbered after it is guessed, not refused", () => {
-  // South adds to its pon of East's 9m as a move, plays on a turn, and East's
-  // claimed 9m is then given a later number in the editor.
+/** South, analysed, has a pon of East's 9m (order 0) and threw 1z after it
+ * (order 1); a round later it declares a quad as a move, `kind` of `tile`
+ * with `hand` held and `drawn` drawn, throws its replacement (order 5), the
+ * table plays a round on and South draws again. */
+function quadAfterPon(kind, tile, hand, drawn) {
   const p = emptyPosition();
-  Object.assign(p, { seat: 1, turn: 1, phase: 'act', first_turns: false, wall: 55, indicators: ['7z'], drawn: '9m' });
+  Object.assign(p, { seat: 1, turn: 1, phase: 'act', first_turns: false, wall: 55, indicators: ['7z'], drawn });
   p.players[0].discards = [thrown('9m', 0, { claimed: true }), thrown('4z', 4)];
   p.players[1].discards = [thrown('1z', 1)];
   p.players[2].discards = [thrown('2z', 2)];
   p.players[3].discards = [thrown('3z', 3)];
   p.players[1].melds = [{ kind: 'pon', tile: '9m', from: 3, claimed_tile: '9m' }];
-  p.players[1].hand = parseTiles('123p456p789p1s9m');
+  p.players[1].hand = parseTiles(hand);
   const choices = choicesOf(p);
-  let q = recordChoice(p, choices.find(choice => choice.kind === 'extended-kan'), choices);
+  let q = recordChoice(p, choices.find(choice => choice.kind === kind && choice.tile === tile), choices);
   q.indicators.push('6z');
   q = recordDiscard(recordDraw(q, 1, '5z'), 1, '5z');
-  for (const [seat, tile] of [[2, '6z'], [3, '6z'], [0, '5z']]) q = recordDiscard(q, seat, tile);
-  q = recordDraw(q, 1, '2s');
+  for (const [seat, thrownTile] of [[2, '6z'], [3, '6z'], [0, '5z']]) q = recordDiscard(q, seat, thrownTile);
+  return recordDraw(q, 1, '2s');
+}
+const addedKan = () => quadAfterPon('extended-kan', '9m', '123p456p789p1s9m', '9m');
+/** The table less both facts, as a draft held it before they were kept. */
+function bare(position) {
+  const p = structuredClone(position);
+  for (const player of p.players) {
+    delete player.drew_at_riichi;
+    for (const meld of player.melds) delete meld.declared_turn;
+  }
+  return p;
+}
+
+test("an added kan whose pon's discard was renumbered after it is guessed, not refused", () => {
+  // South adds to its pon of East's 9m as a move, plays on a turn, and East's
+  // claimed 9m is then given a later number in the editor.
+  const q = addedKan();
   assert.equal(analysisInput(q).players[1].melds[0].order, 5);
   validate(q);
   const edited = structuredClone(q);
@@ -181,9 +200,53 @@ test("an added kan whose pon's discard was renumbered after it is guessed, not r
   const told = analysisInput(edited);
   told.players[1].melds[0].order = 5;
   assert.throws(() => new PhysicalAnalysis(told), /records a turn before its pon was called/);
+  // The engine pairs a triplet with a claimed discard of the set's own tile,
+  // whatever tile the set was first recorded as taking: the kan retyped 8m in
+  // the editor, East's claimed 9m removed and an 8m typed in, claimed and
+  // numbered after the kan's turn, the turn is left out too.
+  const retyped = structuredClone(q);
+  retyped.players[1].melds[0].tile = '8m';
+  retyped.players[0].discards.splice(0, 1);
+  retyped.players[0].discards.push(thrown('8m', 9, { claimed: true }));
+  assert.equal(retyped.players[1].melds[0].claimed_tile, '9m', 'the editor leaves what the set first took');
+  assert.equal(analysisInput(retyped).players[1].melds[0].order, undefined);
+  new PhysicalAnalysis(analysisInput(retyped)).free();
 });
 
-test('a draft keeps the facts under its own names: older drafts read as before, and the engine\'s names are never kept', () => {
+test("a quad's turn that Mortal's replay will not take costs a table none of its advice", () => {
+  // The replay tells a quad on a turn that began with a draw, and a discard
+  // that follows a call is none. Which discard follows a call is the
+  // engine's own pairing of sets and discards to say, so the page cannot
+  // tell: it asks the engine, and tells the table without the turn where
+  // the replay refuses it, as the table was told before a draft kept one.
+  for (const [name, table] of [['an added kan', addedKan()],
+    ['a concealed kan', quadAfterPon('concealed-kan', '1s', '123p456p1s1s1s7p1s', '1s')]]) {
+    const turn = table.players[1].melds.find(meld => meld.kind !== 'pon').declared_turn;
+    assert.equal(turn, 5, name);
+    assert.ok(same(planesOf(table), playedPlanes(analysisInput(table))), `${name}: the table as recorded is told with its turn`);
+    // The editor renumbers the 1z South threw after its pon: the discard of
+    // the quad's turn is now South's first after the call.
+    const edited = structuredClone(table);
+    edited.players[1].discards[0].order = 12;
+    const told = analysisInput(edited);
+    assert.equal(told.players[1].melds.find(meld => meld.kind !== 'pon').order, 5, `${name}: nothing the page sees is wrong with the turn`);
+    const refused = new PhysicalAnalysis(told);
+    try { assert.throws(() => refused.agent_observation_mortal(), /cannot be replayed as a hand/, name); } finally { refused.free(); }
+    // As the page asks: the table without the turn, with advice from every adviser.
+    assert.ok(same(planesOf(edited), playedPlanes(bare(edited))), `${name}: told as before the turn was kept`);
+    assert.ok(choicesOf(edited).length > 0, name);
+    validate(edited);
+  }
+  // A table the engine refuses with or without the facts is refused as before.
+  const broken = addedKan();
+  broken.players[1].hand.push('1m');
+  let message = null;
+  try { new PhysicalAnalysis(bare(broken)).free(); } catch (error) { message = String(error.message ?? error); }
+  assert.ok(message, 'the table is refused without the facts');
+  assert.throws(() => validate(broken), error => String(error.message ?? error) === message);
+});
+
+test('a draft keeps the facts under its own names: older drafts read as before, and the engine is told none of its own names from a draft', () => {
   const draft = position => JSON.stringify({ version: 1, position });
   const old = emptyPosition();
   old.players[0].melds.push({ kind: 'concealed-kan', tile: '1m', from: 0 });
@@ -199,13 +262,40 @@ test('a draft keeps the facts under its own names: older drafts read as before, 
     spoil(bad);
     assert.equal(parsePhysical(draft(bad)), null, JSON.stringify(bad.players[0]));
   }
-  // The engine's own names in a draft are dropped as it is read, so the
-  // settlement and an older page, which hand the draft to the engine as it
-  // is, never see them.
+  // The engine's own names are no draft's. No page writes them, and one
+  // that held them reads as it is, like any key a draft does not know; the
+  // engine is told the facts from the draft's own names alone.
   const named = structuredClone(old);
+  named.players[0].discards.push(thrown('9p', 7, { drawn: true, riichi: true }));
+  named.players[0].riichi = 'riichi';
   named.players[0].melds[0].order = 7;
-  named.players[2].riichi_draw = '5p';
-  assert.deepEqual(parsePhysical(draft(named)), old);
+  named.players[0].riichi_draw = '5p';
+  assert.deepEqual(parsePhysical(draft(named)), named);
+  const told = analysisInput(named);
+  assert.equal(told.players[0].melds[0].order, undefined);
+  assert.equal(told.players[0].riichi_draw, undefined);
+});
+
+test('a riichi the editor moves or takes back keeps no draw of the turn it left', () => {
+  // East declared on 9p having drawn 1m, and a turn later threw 4z.
+  const declared = recordDiscard(readyAfterDraw(), 0, '9p', true);
+  declared.players[0].hand.push('4z');
+  const later = recordDiscard({ ...structuredClone(declared), turn: 0, phase: 'act', drawn: '4z' }, 0, '4z');
+  assert.equal(later.players[0].drew_at_riichi, '1m');
+  const edit = change => { const next = structuredClone(later); change(next.players[0]); return withoutStaleDraw(later, next); };
+  // The mark moved to the 4z: the 1m was not drawn on that turn.
+  assert.equal(edit(east => { east.discards[0].riichi = false; east.discards[1].riichi = true; }).players[0].drew_at_riichi, undefined);
+  // The declaration taken back, and the discard that made it removed.
+  assert.equal(edit(east => { east.riichi = 'none'; }).players[0].drew_at_riichi, undefined);
+  assert.equal(edit(east => { east.discards.splice(0, 1); }).players[0].drew_at_riichi, undefined);
+  // What leaves the declaration where it was leaves the draw: another
+  // discard, the hand, an ordinary riichi made a double one.
+  assert.equal(edit(east => { east.discards[1].tile = '3z'; }).players[0].drew_at_riichi, '1m');
+  assert.equal(edit(east => { east.hand.pop(); }).players[0].drew_at_riichi, '1m');
+  assert.equal(edit(east => { east.riichi = 'double'; }).players[0].drew_at_riichi, '1m');
+  // A riichi recorded as a move brings its own draw, which is kept.
+  const before = readyAfterDraw();
+  assert.equal(withoutStaleDraw(before, recordDiscard(before, 0, '9p', true)).players[0].drew_at_riichi, '1m');
 });
 
 /** East, the player, draws 1m and declares riichi on 9p from the adviser's list. */

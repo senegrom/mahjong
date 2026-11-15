@@ -237,7 +237,10 @@ discard is not marked Claimed rather than advise on a table without that set.
 A riichi or a kan recorded as a move also keeps what that replay reads, as a
 played game does: the tile drawn on the turn of the declaration, for a hand
 entered, and the turn of the kan. Sets and discards entered or edited by hand
-carry neither, and the replay guesses them.
+carry neither, and the replay guesses them. An edit can leave either unfit
+for the table it was recorded at: a riichi moved to another discard keeps no
+draw, and a turn the engine or its replay will not take is left out, so the
+table is advised on as it was before these were kept.
 Beginner and Club read the sets as entered. After kan, enter the real
 replacement tile and newly exposed indicator. No random wall or unknown hand
 is manufactured. Passed wins record furiten; kan robbery preserves ippatsu

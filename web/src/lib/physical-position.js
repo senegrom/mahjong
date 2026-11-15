@@ -44,16 +44,7 @@ export function parsePhysical(text) {
           && (m.declared_turn == null || (Number.isInteger(m.declared_turn) && m.declared_turn >= 0 && m.declared_turn < MAX_ORDER))
           && ['chii', 'pon', 'kan', 'extended-kan', 'concealed-kan'].includes(m.kind))
         && player.discards.every(d => d && TILE_TYPES.includes(d.tile) && number(d.order) && flag(d.drawn) && flag(d.riichi) && flag(d.claimed)))
-      && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) {
-      // The engine's own names for the two facts (analysisInput) are never
-      // kept in a draft: the settlement and an older page hand the draft to
-      // the engine as it is.
-      for (const player of p.players) {
-        delete player.riichi_draw;
-        for (const meld of player.melds) delete meld.order;
-      }
-      return p;
-    }
+      && Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4 && Number.isInteger(p.turn) && p.turn >= 0 && p.turn < 4) return p;
   } catch { /* An unreadable draft must not stop the normal game. */ }
   return null;
 }
@@ -100,7 +91,10 @@ const SELF_QUADS = ['concealed-kan', 'extended-kan'];
  * seat analysed alone while it is in riichi; a quad's turn while the set is
  * still a quad of the seat's own, that discard still its own or the turn
  * still being played, and for an added kan still after the discard its pon
- * took. Without them the engine guesses, as for a position typed in. */
+ * took. Without them the engine guesses, as for a position typed in. The
+ * engine's own two names are never a draft's: whatever a draft holds under
+ * them is left out. Mortal's replay refuses a turn on one ground more, which
+ * only the engine's pairing of sets and discards knows (analysisOf). */
 export function analysisInput(position) {
   const p = structuredClone(position), made = nextOrder(p);
   const playingOn = (p.phase === 'act' && p.after_quad) || (p.phase === 'call' && SELF_QUADS.includes(p.pending_kind));
@@ -116,14 +110,60 @@ export function analysisInput(position) {
       if (turn == null || !SELF_QUADS.includes(meld.kind)) continue;
       const ended = player.discards.some(entry => entry.order === turn);
       const played = playingOn && index === p.turn && turn === made;
-      // The discard an added kan's pon took, from the seat it came from.
+      // The discard an added kan's pon took, from the seat it came from: the
+      // engine pairs a triplet with a claimed discard of the set's own tile.
       const supplier = p.players[(index + meld.from) % 4];
-      const early = meld.kind === 'extended-kan' && supplier.discards.some(entry => entry.claimed
-        && entry.tile === (meld.claimed_tile ?? meld.tile) && entry.order >= turn);
+      const early = meld.kind === 'extended-kan' && Boolean(supplier?.discards.some(entry => entry.claimed
+        && entry.tile === meld.tile && entry.order >= turn));
       if ((ended || played) && !early) meld.order = turn;
     }
   });
   return p;
+}
+
+/** The engine for a typed-in table, which the caller frees; `Analysis` is the
+ * engine's PhysicalAnalysis. The table is told with the two facts
+ * (analysisInput) only where the engine takes them, building the table and
+ * replaying it for Mortal, and otherwise without them, as every table was
+ * told before a draft kept them. An edit after the move can leave a fact
+ * that fits the table no longer, in ways only the engine's own pairing of
+ * sets and discards knows: a quad's turn on a discard that now follows a
+ * call makes Mortal's replay refuse the whole table. So the engine itself is
+ * asked, and a fact never costs a table the advice it had without it. */
+export function analysisOf(Analysis, position) {
+  const told = analysisInput(position);
+  if (told.players.some(player => player.riichi_draw != null || player.melds.some(meld => meld.order != null))) {
+    let engine = null;
+    try {
+      engine = new Analysis(told);
+      engine.agent_observation_mortal();
+      return engine;
+    } catch {
+      engine?.free();
+    }
+    for (const player of told.players) {
+      delete player.riichi_draw;
+      for (const meld of player.melds) delete meld.order;
+    }
+  }
+  return new Analysis(told);
+}
+
+/** A typed-in table after a change to it, `after`, less a riichi draw the
+ * change left without its declaration. The draw is of the turn a seat
+ * declared on, and the table's editor can move the declaration to another
+ * discard, or take it back and put it elsewhere, without touching the draw,
+ * which would then be told of a turn it was not drawn on. A change that
+ * records a draw itself (recordDiscard) keeps its own. */
+export function withoutStaleDraw(before, after) {
+  const declared = seat => (seat.riichi === 'none' ? null : seat.discards.find(entry => entry.riichi)?.order ?? null);
+  after.players.forEach((player, index) => {
+    const was = before.players[index];
+    if (player.drew_at_riichi != null && player.drew_at_riichi === was?.drew_at_riichi && declared(player) !== declared(was)) {
+      delete player.drew_at_riichi;
+    }
+  });
+  return after;
 }
 
 function remove(hand, tile, required = true) {

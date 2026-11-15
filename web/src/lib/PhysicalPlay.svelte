@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { analysisInput, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+  import { analysisOf, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import TileEntry from './TileEntry.svelte';
@@ -76,7 +76,8 @@
     const before = snapshot();
     const next = structuredClone(before);
     try {
-      const result = change(next) ?? next;
+      // A riichi the editor moved or took back keeps no draw of the turn it left.
+      const result = withoutStaleDraw(before, change(next) ?? next);
       if (JSON.stringify(result) === JSON.stringify(before)) return true;
       if (group === null || group !== numericEdit) history = [...history.slice(-29), before];
       numericEdit = group;
@@ -118,7 +119,7 @@
     let engine;
     busy = true; failure = ''; analysis = null;
     try {
-      engine = new PhysicalAnalysis(analysisInput(input));
+      engine = analysisOf(PhysicalAnalysis, input);
       const result = await evaluateAgent(engine, agent, owner.signal);
       if (request !== owner || owner.signal.aborted || key !== JSON.stringify(position) + agent) return;
       analysis = result; analyzedKey = key;

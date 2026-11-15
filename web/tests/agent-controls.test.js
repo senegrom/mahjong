@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parse } from 'svelte/compiler';
-import { emptyPosition } from '../src/lib/physical-position.js';
+import { emptyPosition, withoutStaleDraw } from '../src/lib/physical-position.js';
 
 function component(path) {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -164,6 +164,35 @@ test('changing your seat at a guided setup takes the points you typed to the new
   assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000]);
   change(guided, 'Your seat', state, '1');
   assert.deepEqual(game.position.players.map(player => player.score), [30000, 25000, 28000, 30000], 'the same seat moves nothing');
+});
+
+test('the typed-in modes ask the engine only as it takes what a draft keeps of a riichi and a kan', () => {
+  // A draft keeps two facts the engine is told only where it and its replay
+  // take them (analysisOf): a table handed to the engine any other way would
+  // be told none, or be refused for one an edit made unfit.
+  for (const path of ['../src/lib/PhysicalPlay.svelte', '../src/lib/GuidedPlay.svelte']) {
+    const { source } = component(path);
+    assert.doesNotMatch(source, /new PhysicalAnalysis\(/, `${path} builds no engine of its own`);
+    assert.match(source, /analysisOf\(PhysicalAnalysis, /, path);
+  }
+});
+
+test('physical play\'s editor leaves a riichi it moved no draw of the turn it left, and any other change its draw', () => {
+  // Every change to the table goes through the component's own edit, run
+  // here as it is written.
+  const declaration = find(physical.ast.instance.content, node => node.type === 'FunctionDeclaration' && node.id?.name === 'edit');
+  assert.ok(declaration, 'the table is changed through edit');
+  const state = { closed: false, loaded: true, saveConflict: false, unreadable: false, history: [], numericEdit: null, failure: '',
+    position: emptyPosition(), withoutStaleDraw, structuredClone, JSON };
+  state.snapshot = () => JSON.parse(JSON.stringify(state.position));
+  const edit = vm.runInContext(`(${physical.source.slice(declaration.start, declaration.end)})`, vm.createContext(state));
+  Object.assign(state.position.players[0], { riichi: 'riichi', drew_at_riichi: '1m', discards: [
+    { tile: '9p', order: 0, drawn: false, riichi: true, claimed: false }, { tile: '4z', order: 4, drawn: true, riichi: false, claimed: false }] });
+  assert.equal(edit(p => { p.players[0].hand = ['1m']; }), true);
+  assert.equal(state.position.players[0].drew_at_riichi, '1m');
+  assert.equal(edit(p => { p.players[0].discards[0].riichi = false; p.players[0].discards[1].riichi = true; }), true);
+  assert.equal(state.position.players[0].drew_at_riichi, undefined);
+  assert.equal(state.history.at(-1).players[0].drew_at_riichi, '1m', 'Undo brings the table back with it');
 });
 
 test("Watch, a guided game and both reviews show the worker's own download as Play's table does", async () => {
