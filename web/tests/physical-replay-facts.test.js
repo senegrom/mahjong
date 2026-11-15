@@ -349,6 +349,23 @@ test('a guided hand in which the player declared riichi settles whoever ends it,
     confirmed_no_furiten: true }));
 });
 
+test('a fact the engine will not build a table with is left out as one its replay refuses is', () => {
+  // The page's copy of the engine's rules is exact, so no table it records
+  // comes here; a draw the engine cannot read stands for whatever the engine
+  // may come to refuse that the page does not know of.
+  // East declared on 9p having drawn 1m; the table plays a round and East draws.
+  let position = recordDiscard(readyAfterDraw(), 0, '9p', true);
+  for (const [seat, tile] of [[1, '1z'], [2, '2z'], [3, '3z']]) position = recordDiscard(position, seat, tile);
+  position = recordDraw(position, 0, '5z');
+  validate(position);
+  assert.equal(analysisInput(position).players[0].riichi_draw, '1m');
+  position.players[0].drew_at_riichi = '0m';
+  assert.equal(analysisInput(position).players[0].riichi_draw, '0m');
+  assert.throws(() => new PhysicalAnalysis(analysisInput(position)));
+  const engine = analysisOf(PhysicalAnalysis, position);
+  try { assert.ok(same(Array.from(engine.agent_observation_mortal()), playedPlanes(bare(position)))); } finally { engine.free(); }
+});
+
 /** A game the player plays with Club's moves, declaring every riichi it can. */
 function clubGame(seed) {
   const match = new MatchSession(Game, seed, 'club');
