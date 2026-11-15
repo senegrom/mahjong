@@ -453,8 +453,11 @@ impl Hand {
 
         // Riichi: concealed, waiting, and at least one tile left in the wall
         // (EMA 2025 section 3.3.10, changed from four in the 2016 edition).
-        // The cheap check first: a hand can only be waiting after a discard
-        // if the whole hand is at most tenpai already.
+        // The 1,000 points for the bet are this game's house rule, not the
+        // rulebook's, which lets a player go below zero for it (section
+        // 4.1.4); docs/PLAN.md section 1.2 says why. The cheap check first:
+        // a hand can only be waiting after a discard if the whole hand is at
+        // most tenpai already.
         if player.is_concealed()
             && self.wall.remaining() >= 1
             && player.score >= 1000

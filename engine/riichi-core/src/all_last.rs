@@ -857,8 +857,9 @@ mod tests {
         }
     }
 
-    /// EMA 2025 section 3.3.10: riichi needs 1,000 points, a tile in the
-    /// wall and a concealed hand. Without one there is nothing to ask.
+    /// Riichi needs a tile in the wall and a concealed hand (EMA 2025
+    /// section 3.3.10), and, by this game's own house rule, 1,000 points to
+    /// bet. Without one there is nothing to ask.
     #[test]
     fn with_no_riichi_open_nothing_is_asked() {
         let mut poor = probe(0);
