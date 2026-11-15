@@ -635,15 +635,12 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
         if state != "waiting":
             return state
         wanted = order[: (len(taken) + 1) * rule.per_look]
-        if settings.get("against") and set(wanted) <= set(series.reports()):
-            # The look's own seeds are in and it waits all the same: the
-            # series it is read against lacks some, which no call of this
-            # one can bring. Registration refuses such a series; this is
-            # one whose reports went missing since.
-            others = series.beside(settings["against"]).reports()
-            missing = ", ".join(str(seed) for seed in wanted if seed not in others)
-            raise SystemExit(f"{series.tag}: the seeds of look {len(taken) + 1} are in, "
-                             f"but {settings['against']} holds no report for {missing}")
+        lacking = settings.get("against") and against_lacks(series, series.beside(settings["against"]), rule,
+                                                            len(taken))
+        if lacking:
+            # Registration refuses such a series; this is one whose
+            # reports went missing since.
+            raise SystemExit(f"{series.tag}: {lacking}")
         try:
             ready = settle(modal, series, settings, wanted, heard)
         except unasked(modal) as error:
@@ -652,6 +649,21 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
             ready = False
         if not ready:
             time.sleep(poll)
+
+
+def against_lacks(series: Series, against: Series, rule: looks.Design, taken: int) -> str | None:
+    """Why the look after the `taken` looks of `series`, read against
+    `against`, waits though every seed of its own is in, if it does: the
+    seeds of it `against` holds no report for, which no call of `series`
+    can bring."""
+    wanted = rule.seeds[: (taken + 1) * rule.per_look]
+    if not set(wanted) <= set(series.reports()):
+        return None
+    others = against.reports()
+    missing = [str(seed) for seed in wanted if seed not in others]
+    if not missing:
+        return None
+    return f"the seeds of look {taken + 1} are in, but {against.tag} holds no report for {', '.join(missing)}"
 
 
 def keep_calls(modal, series: Series, lines: list[str]) -> tuple[int, list[str]]:
@@ -904,6 +916,12 @@ def reading(modal, series: Series, against: Series | None = None) -> list[str]:
         names = names_of(series)
     taken, state = looks.read(rule, by_seed)
     lines.append(looks.describe(rule, taken, state, names))
+    lacking = state == "waiting" and against is not None and against_lacks(series, against, rule, len(taken))
+    if lacking:
+        # Not waiting for anything this series' calls bring: the other's
+        # reports are neither here nor on the volume, as a ruler kept with
+        # `keep` in another folder is not.
+        lines.append(f"{lacking}, here or on the volume")
     return lines
 
 

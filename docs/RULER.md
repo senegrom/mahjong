@@ -796,7 +796,9 @@ incumbent (of the same run, for an archive or the latest or best of a run's
 own), asked the same way, the rules of the last hand at both or neither, and
 as many deals a seed, each taken from its registration or, for a folder never
 registered, from its reports. A pair that did not is refused before any look
-is read. `python -m neural.looks <folder>` reads a local folder of reports,
+is read. A look whose seeds are all in for the series but not for the one it
+is read against, such as a ruler kept with `keep` in another folder, which is
+never on the volume, names the seeds the other lacks. `python -m neural.looks <folder>` reads a local folder of reports,
 the old duel's included, by the comparison the series was registered with,
 so a series registered with `--against` is read against the series of that
 tag beside it; `--against <folder>` reads it against another, held to the

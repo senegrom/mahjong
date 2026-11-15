@@ -912,6 +912,23 @@ class AgainstTests(unittest.TestCase):
             ruler_cloud.run_series(modal, series, dict(AGAINST), rule, poll=0)
         self.assertEqual(len(modal.spawned), 5)
 
+    def test_a_reading_whose_look_waits_only_for_the_other_series_says_what_it_lacks(self):
+        """Every seed of the series' first look is in, and the kept ruler it
+        was registered against, whose folder lost a report, holds no copy on
+        the volume: the reading names the seed the other lacks, as the
+        launcher does, rather than only waiting; with no report of it at all,
+        it is refused."""
+        modal, series, _state, _out = self.play(0.3)
+        (self.kept.folder / "seed-9200003.json").unlink()
+        lines = ruler_cloud.reading(modal, series)
+        self.assertIn("waiting for the seeds of look 1", lines[-2])
+        self.assertEqual(lines[-1], "the seeds of look 1 are in, but g910 holds no report for 9200003, here or on "
+                                    "the volume")
+        for path in self.kept.folder.glob("seed-*.json"):
+            path.unlink()
+        with self.assertRaisesRegex(SystemExit, "g1010 cannot be read against g910: it holds no reports"):
+            ruler_cloud.reading(modal, series)
+
     def test_what_could_not_be_read_against_it_is_said(self):
         rule = looks.design()
 
