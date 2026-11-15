@@ -623,8 +623,11 @@ def run_series(modal, series: Series, settings: dict, rule: looks.Design, poll: 
                   "again to resume the series, which asks about the call again.")
     shown = 0
     while True:
-        # Before any look is read: one read of an invalid series is one too many.
+        # Before any look is read: one read of an invalid series is one too
+        # many, and so is one against an invalid series.
         refuse_failed_check(series, settings)
+        if settings.get("against"):
+            refuse_failed_check(series.beside(settings["against"]))
         taken, state = looks.read(rule, differences_of(series, settings))
         if len(taken) > shown:
             print(looks.describe(rule, taken, state, names), flush=True)
@@ -755,8 +758,8 @@ def asking_problem(settings: dict) -> str | None:
 def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | None:
     """Why the series of `settings` cannot be read against `other` by `rule`,
     if it cannot: `other` must be a series of single rulers holding a report
-    of as many deals for every seed the rule reads, played against the same
-    incumbent and asked the same way. A ruler asked in fixed rows plays other
+    of as many deals for every seed the rule reads, each passing its rules'
+    check, played against the same incumbent and asked the same way. A ruler asked in fixed rows plays other
     games than one asked by seating, whose games are the old duel's, so a
     folder never registered, an old ruler kept with `keep`, counts as asked
     by seating."""
@@ -773,6 +776,11 @@ def against_problem(settings: dict, rule: looks.Design, other: Series) -> str | 
             return "it is a series of paired rulers; a series is read against one of single rulers"
         if reports[seed].get("games_per_seat") != settings["games"]:
             return f"it played {reports[seed].get('games_per_seat')} deals at seed {seed}, not {settings['games']}"
+    # A report of it that fails its rules' check makes it invalid, as its
+    # own launcher and a reading against it find (see `refuse_failed_check`).
+    problem = looks.failed_check(reports, other.settings())
+    if problem:
+        return problem
     # The table each was played at, as a reading against it checks it too
     # (see `reading`): the incumbent, its run, the asking and the rules of
     # the last hand. A folder never registered says so by its reports.

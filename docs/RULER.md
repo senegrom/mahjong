@@ -751,6 +751,9 @@ python -m neural.ruler_cloud series g1010-vs-g910 history/gen-01010 zoo/mortal_2
 The kept ruler must sit in the same `--local` folder and hold a report for
 every seed the rule reads, of as many deals, against the same incumbent, and
 asked the same way: a ruler measured the old way counts as asked by seating.
+Every report of it must pass its rules' check, as its own launcher holds it
+to: a series is refused against one that fails, and a series registered
+against it stops before its next look once one does.
 So `--against` a published ruler reads the usual 20 seeds; an effect of 0.006
 or less, read over 40, is measured with `--also`. A series that could not be
 read so is refused before anything is registered, as is one that asks with

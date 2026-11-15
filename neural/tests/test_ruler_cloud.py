@@ -955,9 +955,32 @@ class AgainstTests(unittest.TestCase):
         registered = ruler_cloud.Series(self.root / "g910-registered")
         registered.register({**ruled, "against": ""}, rule)
         for seed in rule.seeds:
-            registered.keep(old_ruler(seed))
+            registered.keep({**old_ruler(seed), **RULES_ACCOUNT, "incumbent_rules": dict(RULES_ACCOUNT)})
         self.assertIsNone(ruler_cloud.against_problem(ruled, rule, registered))
         self.assertIn("this series' do not", ruler_cloud.against_problem(AGAINST, rule, registered))
+
+    def test_a_series_is_never_read_against_one_whose_report_fails_its_check(self):
+        """As its own launcher stops it and a reading against it refuses it:
+        refused at registration, and a series registered against it before
+        the report came stops before its next look, spawning nothing."""
+        rule = looks.design()
+        ruled = {**AGAINST, "last_hand_rules": True}
+        other = ruler_cloud.Series(self.root / "g910-ruled")
+        other.register({**ruled, "against": ""}, rule)
+        for seed in rule.seeds:
+            other.keep({**old_ruler(seed), **RULES_ACCOUNT, "incumbent_rules": dict(RULES_ACCOUNT)})
+        settings = {**ruled, "against": "g910-ruled"}
+        self.assertIsNone(ruler_cloud.against_problem(settings, rule, other))
+        series = ruler_cloud.Series(self.root / "g1010-ruled")
+        rule = series.register(settings, rule)
+        other.keep(old_ruler(9_400_009))
+        self.assertIn("seed 9400009's report fails the rules' check", ruler_cloud.against_problem(settings, rule, other))
+        modal = Modal(lambda name, arguments: single_report(
+            arguments["seed"], placements(arguments["seed"], 3, 2.0), "history/gen-01010"))
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as stop:
+            ruler_cloud.run_series(modal, series, settings, rule, poll=0)
+        self.assertIn("g910-ruled: seed 9400009's report fails the rules' check", str(stop.exception.code))
+        self.assertEqual(modal.spawned, [])
 
 
 class QueueTests(unittest.TestCase):
