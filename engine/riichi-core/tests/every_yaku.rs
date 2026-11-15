@@ -11,6 +11,8 @@
 //! with the han the rulebook gives, open and closed where those differ.
 //! Sections 4.2.1 to 4.2.6.
 
+use std::mem::discriminant;
+
 use riichi_core::hand::{ClaimedFrom, Meld, MeldKind, TileSet};
 use riichi_core::score::{score, Riichi, Situation, WinBy};
 use riichi_core::tile::Tile;
@@ -448,10 +450,85 @@ fn the_dragon_and_wind_yakuman() {
     assert_eq!(han_for(&yaku, "Little Four Winds"), None);
 }
 
+/// Every variant of the enum is in `Yaku::ALL`, which the test below reads
+/// as the engine's whole set. The match in `listed` has no catch-all, so a
+/// variant added to the enum stops this file compiling until it is listed
+/// here too, and then this fails until it is in `Yaku::ALL`.
+#[test]
+fn every_variant_of_the_enum_is_in_the_list_of_all_yaku() {
+    macro_rules! every_variant {
+        ($($variant:ident $(($example:expr))?),* $(,)?) => {{
+            fn listed(yaku: Yaku) {
+                match yaku {
+                    $(Yaku::$variant { .. } => {})*
+                }
+            }
+            let _ = listed;
+            [$(Yaku::$variant $(($example))?),*]
+        }};
+    }
+    let variants = every_variant![
+        Riichi,
+        Ippatsu,
+        MenzenTsumo,
+        Pinfu,
+        Iipeiko,
+        Tanyao,
+        YakuhaiDragon(tile("5z")),
+        YakuhaiSeatWind,
+        YakuhaiRoundWind,
+        Rinshan,
+        Chankan,
+        Haitei,
+        Houtei,
+        DoubleRiichi,
+        Chiitoitsu,
+        Sanshoku,
+        Ittsuu,
+        Chanta,
+        SanshokuDoukou,
+        SanAnkou,
+        SanKantsu,
+        Toitoi,
+        Shousangen,
+        Honroutou,
+        Ryanpeikou,
+        Honitsu,
+        Junchan,
+        Renhou,
+        Chinitsu,
+        KokushiMusou,
+        ChuurenPoutou,
+        Tenhou,
+        Chiihou,
+        SuuAnkou,
+        SuuKantsu,
+        Ryuuiisou,
+        Chinroutou,
+        Tsuuiisou,
+        Daisangen,
+        ShouSuushii,
+        DaiSuushii,
+    ];
+    for variant in variants {
+        assert!(
+            Yaku::ALL
+                .iter()
+                .any(|listed| discriminant(listed) == discriminant(&variant)),
+            "{variant:?} is missing from Yaku::ALL"
+        );
+    }
+    assert_eq!(
+        variants.len(),
+        Yaku::ALL.len(),
+        "and nothing is listed twice"
+    );
+}
+
 /// Nothing in the rulebook's list is missing from the engine, and nothing
-/// in the engine is missing from the rulebook. The count is the check: the
-/// tests above name every one of them, so a yaku added without a test here
-/// makes this fail and say so.
+/// in the engine is missing from the rulebook: the names in `Yaku::ALL`
+/// are exactly the forty-one the rulebook gives. Whether each yaku is
+/// scored is for the hand tests above, which this does not count.
 #[test]
 fn the_engine_knows_exactly_the_rulebooks_yaku() {
     let named = [

@@ -88,6 +88,8 @@ mod analysis;
 mod last_hand;
 #[path = "mortal_log.rs"]
 mod mortal_log;
+#[cfg(test)]
+mod mortal_planes_digest;
 mod yaku_view;
 
 /// Which of Mortal's moves our rules allow that seat, and, once a reach is
@@ -400,12 +402,16 @@ pub struct StandingView {
     pub place: usize,
     /// The seat they hold in the last hand, which is what the table shows.
     pub seat: String,
-    /// Points at the table when the game ended.
+    /// Points at the table when the game ended, without the riichi bets
+    /// still on the table.
     pub score: i32,
-    /// The winner bonus their place earned, or the penalty it cost.
+    /// The winner bonus their place earned, or the penalty it cost, plus,
+    /// for the leader, the riichi bets still on the table, split on a tie for
+    /// the lead (EMA 3.7.1). It is `total` less the points over the return
+    /// score, which is how the page's Bonus column shows it.
     pub uma: i32,
     /// What the game was worth to them: points less the return score, plus
-    /// the bonus.
+    /// `uma`.
     pub total: i32,
     /// Whether this is the person playing.
     pub you: bool,

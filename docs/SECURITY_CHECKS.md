@@ -19,7 +19,7 @@ Build the training extension with `cargo build --locked -p riichi-py` and run
 `python3 engine/riichi-py/smoke-test.py`, as CI does on Linux; the script also
 finds the library under its Windows and macOS names. This loads the real
 extension, checks its observation and legality buffers, and exercises a batch
-of legal moves. The Python binding requires Rust 1.83 or newer; CI and the
+of legal moves. The Python binding requires Rust 1.85 or newer; CI and the
 Modal training image use Rust 1.98.1.
 
 In `web/`, run `npm ci` and then `npm run verify`, which runs the checks of
@@ -46,9 +46,9 @@ the runtime rebuild's tools. `onnxruntime-web` gets a pull request of its own,
 which fails until the runtime is rebuilt at that release (see
 [ONNX_RUNTIME.md](ONNX_RUNTIME.md)).
 The root Python binding uses PyO3
-0.29.2 and explicitly retains the previous GIL requirement. The vendored
-observation engine has its own dependency versions and must pass its own
-audit; a clean root audit makes no claim about that separate lockfile.
+0.30.1 and explicitly retains the previous GIL requirement. The vendored
+observation engine has its own dependency versions (PyO3 0.29.3, which numpy
+0.29 holds it to) and must pass its own audit; a clean root audit makes no claim about that separate lockfile.
 
 The Modal training image (`neural/modal_app.py`) is built with the tools CI
 tests: Rust 1.98.1, PyTorch 2.8.0, the packages pinned in the python-engines
