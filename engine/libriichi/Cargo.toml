@@ -5,7 +5,8 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 # Built and audited as a separate workspace for the `libriichi` Python module.
-# Keep its Python bindings on the patched dependency family used by riichi-py.
+# Its Python bindings stay on pyo3 0.29, the release numpy 0.29 builds on, while
+# riichi-py and this crate's build-time pyo3-build-config have moved to 0.30.
 [workspace]
 
 [profile.release]
