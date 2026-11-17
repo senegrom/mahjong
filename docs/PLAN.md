@@ -141,6 +141,11 @@ last two are deliberate choices of this game:
   waiting hand and a tile in the wall, and the rules let a player borrow
   sticks and keep playing below zero (4.1.4, 5.6). The engine requires the
   bet up front, which is the common house reading and simpler to show.
+  Looked at again in November 2026 and kept: Mortal's own engine asks for
+  the 1,000 points too (`libriichi`, `state/update.rs`), so neither Mortal
+  nor any network trained here has met a table where a seat below 1,000 may
+  declare, and the rulebook's reading would ask Trained AI for a decision it
+  has never seen, in a spot that is rare.
 - **The deal and the wall are abstracted.** Tiles are dealt thirteen at a
   time rather than in blocks of four, and the wall is a shuffled sequence
   rather than a broken square. Under a shuffled wall, where the wall is

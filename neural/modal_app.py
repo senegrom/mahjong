@@ -434,6 +434,16 @@ TRAINER_SPARE = 10 * 60
 # long-run watcher's do), and only a preempted container is started again
 # on the same input whatever the call asked for. A call launched without
 # retries that fails, or stops before its timeout, ends there.
+#
+# That is meant, and was looked at again in November 2026 when the owner left
+# it to be decided. Retries declared here would start every failed call again
+# on the card, watched or not, at the owner's cost and with its first error
+# out of sight. Nor is a retry a repair: on 24 October 2026 the ten retries a
+# call had asked for all ran in the one container where an import of torch
+# had broken, each failing on the half-imported module, and the watcher's
+# next call, in a fresh container, ran. A caller that means a block to go on
+# says so at the call, and `test_cards` holds every function of the app to
+# declaring none.
 TRAINER = dict(
     gpu="L40S",
     cpu=TRAINER_CPUS,
@@ -1963,6 +1973,7 @@ def rehead(
     run: str = DEFAULT_RUN,
     name: str = "mortal-space",
     overwrite: bool = False,
+    first_round: int = -1,
 ) -> str:
     """Teaches one of our networks to answer in Mortal's action space.
 
@@ -1976,9 +1987,21 @@ def rehead(
     before anything runs, as does `FileExistsError` for a product of that
     name already there unless `overwrite` is true; a failed run raises `CalledProcessError` carrying its
     output, and publishes nothing.
+
+    A student taught further (`resume`) says the round it goes on from,
+    `first_round`: the rounds it has been taught, the `rounds` of the calls
+    that made it, since only a call that ran them all published it. A
+    round's deals come from the seed and the round's number, so one resumed
+    at round 0 was dealt the rounds it had learnt a second time; a `resume`
+    without a `first_round` raises `ValueError` before anything runs.
     """
     # Checked before the hours of work it names, not after them.
     _product_name(name)
+    if resume and first_round < 0:
+        raise ValueError(
+            "a resumed re-heading needs first_round, the rounds its student has been taught, or it is "
+            "dealt those rounds again (see neural/rehead.py)"
+        )
     with workspace(run) as where:
         volume.reload()
         _product_free(run, name, overwrite)
@@ -1996,6 +2019,8 @@ def rehead(
             "--temperature", str(temperature),
             "--out", str(out),
         ]
+        if first_round >= 0:
+            command += ["--first-round", str(first_round)]
         if resume:
             found = _checkpoint(run, resume)
             if not found.exists():
