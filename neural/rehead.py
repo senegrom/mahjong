@@ -26,7 +26,9 @@ so.
 
 A student this wrote can be taught further (`--resume`), and then says the
 round it goes on from (`--first-round`): a round's deals come from `--seed`
-and the round's number.
+and the round's number. It is taught on, not continued exactly: the
+optimiser starts afresh, and torch's generators are seeded as a first run's
+are.
 """
 
 from __future__ import annotations

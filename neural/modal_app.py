@@ -1989,8 +1989,9 @@ def rehead(
     output, and publishes nothing.
 
     A student taught further (`resume`) says the round it goes on from,
-    `first_round`: the rounds it has been taught, the `rounds` of the calls
-    that made it, since only a call that ran them all published it. A
+    `first_round`: the one after the last round the calls that made it
+    played, which is the sum of their `rounds` where the first began at
+    round 0, since only a call that ran all its rounds published it. A
     round's deals come from the seed and the round's number, so one resumed
     at round 0 was dealt the rounds it had learnt a second time; a `resume`
     without a `first_round` raises `ValueError` before anything runs.
@@ -1999,8 +2000,8 @@ def rehead(
     _product_name(name)
     if resume and first_round < 0:
         raise ValueError(
-            "a resumed re-heading needs first_round, the rounds its student has been taught, or it is "
-            "dealt those rounds again (see neural/rehead.py)"
+            "a resumed re-heading needs first_round, the round after the last its student was taught, "
+            "or it is dealt the rounds it has learnt again (see neural/rehead.py)"
         )
     with workspace(run) as where:
         volume.reload()

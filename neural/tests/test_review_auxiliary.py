@@ -79,7 +79,8 @@ class AuxiliaryEntryTests(unittest.TestCase):
                         teacher=PolicyValueNet(8,1,MORTAL_PLANES,attention=False,actions=78)
                         teacher_path=root/'teacher.pt'
                         atomic_save({'model':teacher.state_dict(),'generation':0,**teacher.payload_fields()},teacher_path)
-                        command+=['--teacher',str(teacher_path)]
+                        # A student taught further says the round it goes on from.
+                        command+=['--teacher',str(teacher_path),'--first-round','1']
                     sparse=Planes.from_follower(np.zeros(n+1,np.int64),[],[])
                     masks=np.ones((n,width),bool)
                     labels=np.arange(n,dtype=np.int64)%2
