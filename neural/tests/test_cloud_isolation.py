@@ -676,7 +676,7 @@ class CloudIsolationTests(unittest.TestCase):
                         ('distil teacher',lambda:app.distil(teacher='missing',run='run')),
                         ('distil student',lambda:app.distil(teacher='teacher',student='missing',run='run')),
                         ('rehead teacher',lambda:app.rehead(teacher='missing',run='run')),
-                        ('rehead student',lambda:app.rehead(teacher='teacher',resume='missing',run='run'))):
+                        ('rehead student',lambda:app.rehead(teacher='teacher',resume='missing',run='run',first_round=40))):
                     with self.subTest(name=name),self.assertRaises(FileNotFoundError):
                         call()
                 self.assertEqual(calls,[])
@@ -689,6 +689,37 @@ class CloudIsolationTests(unittest.TestCase):
                 self.assertEqual(app.arena(which='teacher',run='run'),'generation 3\n{"placement": 2.4}')
             self.assertEqual([command[:3] for command in calls],[[sys.executable,'-m','neural.arena']]*2)
             self.assertEqual(list(scratch.iterdir()),[])
+
+    def test_a_rehead_taught_further_says_the_round_it_goes_on_from(self):
+        # A round's deals come from the seed and the round's number, so a
+        # student taught further from round 0 was dealt the rounds it had
+        # learnt a second time. The call says the round, or stops before
+        # anything runs.
+        app=controller()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);volume=root/'volume';scratch=root/'scratch'
+            atomic_save({'generation':3},volume/'run/teacher.pt')
+            atomic_save({'generation':0},volume/'run/student.pt')
+            calls=[]
+            def popen(command,**kwargs):
+                calls.append(command)
+                out=Path(command[command.index('--out')+1]);atomic_save({'generation':0},out/'latest.pt')
+                return child()
+            with patch.object(app,'VOLUME',volume),patch.object(app,'workspace',partial(cloud_runs.workspace,root=scratch)), \
+                 patch.object(app,'_environment',return_value={}),patch.object(app.subprocess,'Popen',side_effect=popen), \
+                 redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError,'first_round'):
+                    app.rehead(teacher='teacher',resume='student',run='run',name='further')
+                self.assertEqual(calls,[])
+                # Not even a workspace was made for it.
+                self.assertFalse(scratch.exists())
+                self.assertIn('wrote run/further.pt',
+                              app.rehead(teacher='teacher',resume='student',run='run',name='further',first_round=40))
+                self.assertIn('wrote run/fresh.pt',app.rehead(teacher='teacher',run='run',name='fresh'))
+            further,fresh=calls
+            self.assertEqual(further[further.index('--first-round')+1],'40')
+            self.assertEqual(Path(further[further.index('--resume')+1]).name,'student.pt')
+            self.assertNotIn('--first-round',fresh);self.assertNotIn('--resume',fresh)
 
     def test_failed_duels_raise_instead_of_returning_text(self):
         # A caller pooling many duels reads each answer as the table's JSON

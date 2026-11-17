@@ -9,7 +9,11 @@ card, which the owner asked for of the L4 and the A10G, must be.
 The settings are read as Modal receives them: the app is loaded with a
 stand-in for the Modal client whose `App.function` keeps every function's
 keywords, however they were written, a `gpu=` in the decorator or a dict of
-shared settings spread into it."""
+shared settings spread into it.
+
+Read the same way, no function declares retries: a failed call on a card
+ends, and is started again only by a caller that asked for that at the call
+(decided in November 2026, see `TRAINER` in the app)."""
 
 from __future__ import annotations
 
@@ -114,6 +118,18 @@ class CardTests(unittest.TestCase):
                                                                    for keyword in decorator.keywords)
                             for decorator in node.decorator_list)]
         self.assertEqual(sorted(trainers), ["train", "train_combined", "train_mortal"])
+
+    def test_no_function_has_modal_start_a_failed_call_again(self):
+        # Retries declared on a function start every failed call of it again
+        # on the card, watched or not (see `TRAINER` in the app). A caller
+        # that means its call to go on asks for them at the call
+        # (`with_options`), which is outside this test, as a card asked for
+        # there is.
+        registered = settings()
+        self.assertGreaterEqual(set(registered), {"train", "train_mortal", "train_combined"})
+        for name, keywords in registered.items():
+            with self.subTest(function=name):
+                self.assertNotIn("retries", keywords)
 
 
 if __name__ == "__main__":

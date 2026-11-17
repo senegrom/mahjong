@@ -23,6 +23,12 @@ rather than a change of player, and a duel against the original should say
 so.
 
     python -m neural.rehead --teacher w1012-run/latest.pt --out runs/rehead
+
+A student this wrote can be taught further (`--resume`), and then says the
+round it goes on from (`--first-round`): a round's deals come from `--seed`
+and the round's number. It is taught on, not continued exactly: the
+optimiser starts afresh, and torch's generators are seeded as a first run's
+are.
 """
 
 from __future__ import annotations
@@ -53,8 +59,12 @@ ACTIONS = riichi_py.ACTIONS
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--teacher", type=Path, required=True, help="the network to re-head")
-    parser.add_argument("--resume", type=Path, default=None, help="a student this wrote before")
-    parser.add_argument("--rounds", type=int, default=40)
+    parser.add_argument("--resume", type=Path, default=None,
+                        help="a student this wrote before; it needs --first-round")
+    parser.add_argument("--first-round", type=int, default=None,
+                        help="the number of the first round played (0 unless said): for a resumed student, "
+                        "the one after the last in its log.jsonl")
+    parser.add_argument("--rounds", type=int, default=40, help="rounds played by this run")
     parser.add_argument("--games", type=int, default=64, help="tables per round")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch", type=int, default=2048)
@@ -63,6 +73,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260910)
     parser.add_argument("--out", type=Path, default=Path("E:/tmp-claude/mahjong/rehead"))
     return parser.parse_args()
+
+
+def first_round_of(args: argparse.Namespace) -> int:
+    """The number of the first round this run plays.
+
+    A round's deals come from `--seed` and the round's number, so a student
+    resumed at round 0 was dealt the rounds it had already learnt, and its
+    log counted them a second time. A resumed re-heading says where it goes
+    on, and one that does not is refused before anything is written."""
+    first = args.first_round
+    if first is not None and (type(first) is not int or first < 0):
+        raise ValueError("first-round must be zero or a positive integer")
+    if args.resume is not None and first is None:
+        raise ValueError(
+            "a resumed re-heading needs --first-round, the round after the last in its student's "
+            "log.jsonl, or it is dealt the rounds it has learnt again"
+        )
+    return first or 0
 
 
 def student_from(teacher: PolicyValueNet, device: str) -> PolicyValueNet:
@@ -185,6 +213,7 @@ def collect(
 def main() -> None:
     args = parse_args()
     validate_auxiliary_options(args)
+    first_round = first_round_of(args)
     torch.set_num_threads(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args.out.mkdir(parents=True, exist_ok=True)
@@ -227,7 +256,7 @@ def main() -> None:
         flush=True,
     )
 
-    for round_index in range(args.rounds):
+    for round_index in range(first_round, first_round + args.rounds):
         began = time.time()
         planes, masks, targets, declared = collect(
             teacher, args.games, args.seed + round_index * 977, device, args.temperature

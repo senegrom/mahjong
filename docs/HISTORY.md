@@ -12,8 +12,10 @@ design decisions, and test reports without presenting them as current claims:
   architecture, web app, AI opponents, evaluation and compute. PLAN.md now
   keeps only its rules and engine reference. Much of the rest was planned
   and never built, or has been superseded: the status table's 192 by 10
-  int8 network (the manifest names a float32 fusion of 116 MB), WebGPU
-  (the policy worker runs onnxruntime-web's WASM backend), the Strong and
+  int8 network (the manifest names a float32 fusion of 116 MB), WebGPU for
+  play (every move is asked of onnxruntime-web's WASM backend; since
+  November 2026 a review's batches run on a desktop's graphics card, see
+  [WebGPU on desktops](ONNX_RUNTIME.md#webgpu-on-desktops)), the Strong and
   Expert tiers (the app has Beginner, Club and Trained), and a
   `docs/RULES_DECISIONS.md` that was never written. The search of milestone
   M4 measured no better than the plain policy in every variant tried, and
