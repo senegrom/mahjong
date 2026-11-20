@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 /** Where an artist face draws its painting on the game's 300 × 400 tile.
  *
  * Every face clips one raster to the rounded tile. By default the raster's box
@@ -68,4 +71,34 @@ export function placeStudyImage(study, box) {
   const shared = imageAttributes(faceImage());
   if (text.split(shared).length !== 2) throw new Error('Expected one picture in the shared box');
   return Buffer.from(text.replace(shared, imageAttributes(box)), 'utf8');
+}
+
+/** The picture a face ships.
+ *
+ * A face's approved pixels are a lossless crop of its study, kept beside the
+ * face as approved/<Name>.png and never published. What the page is sent is
+ * that crop scaled to the box the face draws it in, a pixel to each of the
+ * face's 300 by 400 units, as WebP (face_raster.py, which needs Python with
+ * Pillow; PYTHON names the interpreter where `python` is not it). The game
+ * draws a face at most 60 CSS pixels wide, so nothing a player sees is lost,
+ * and a face costs some 10 to 80 KB to send rather than up to 4 MB. */
+export const RASTER_MIME = 'image/webp';
+
+/** The raster's size for a face's picture box: the whole pixels that cover it. */
+export function rasterSize(box) {
+  return { width: Math.ceil(box.width), height: Math.ceil(box.height) };
+}
+
+/** The crop saved at `cropPath` as the WebP its face ships, drawn in `box`. */
+export function faceRaster(cropPath, box) {
+  const { width, height } = rasterSize(box);
+  const script = fileURLToPath(new URL('./face_raster.py', import.meta.url));
+  const bytes = execFileSync(process.env.PYTHON ?? 'python', [script, cropPath, String(width), String(height)], { maxBuffer: 8 * 1024 * 1024 });
+  return { bytes, width, height };
+}
+
+/** The raster a face's SVG embeds, as its bytes and media type, or null. */
+export function embeddedRaster(svg) {
+  const match = String(svg).match(/href="data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)"/);
+  return match ? { mimeType: match[1], bytes: Buffer.from(match[2], 'base64') } : null;
 }

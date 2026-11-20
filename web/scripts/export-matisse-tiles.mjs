@@ -4,9 +4,12 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES, tileFile, tileWords } from '../src/lib/tiles.js';
-import { faceImage, fitRecord, imageAttributes } from './face-fit.mjs';
+import { RASTER_MIME, faceImage, faceRaster, fitRecord, imageAttributes } from './face-fit.mjs';
 
-// Export the approved source pixels, without regenerating or redrawing them.
+// Export the approved source pixels, without regenerating or redrawing them:
+// each face's lossless crop is kept as approved/<Name>.png, which is not
+// published, and its SVG ships that crop at the face's own size as WebP
+// (face-fit.mjs).
 // Run from any directory: node web/scripts/export-matisse-tiles.mjs
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const out = path.join(root, 'web/public/tiles/matisse');
@@ -78,16 +81,22 @@ const definitions = [
   ['Haku', '5z', 'White dragon', 'approved', 'white-dragon-a-tidal-approved.png', [0, 0, 1086, 1448], 'Tidal A: a full-bleed cobalt-blue surround with a loose asymmetric inner edge frames the quiet ivory ribbon dragon. The complete approved 3:4 artwork is preserved with the shared bleed and rounded clipping. The matching silver dora state uses the same full canvas and crop.'],
 ];
 
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
 function exportCrop(source, crop, png, svg, label, fit) {
   const [x, y, width, height] = crop;
   // Mechanical lossless extraction only: keep the artwork's native dimensions.
   const raster = execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 16 * 1024 * 1024 });
   writeFileSync(path.join(out, png), raster, { flush: true });
   const { radius, preserveAspectRatio } = facePresentation;
-  const image = imageAttributes(faceImage(fit, [width, height]));
-  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${image} preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`;
+  const box = faceImage(fit, [width, height]);
+  const image = imageAttributes(box);
+  // What the page is sent: the crop at the size of the box it is drawn in.
+  const shipped = faceRaster(path.join(out, png), box);
+  const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${image} preserveAspectRatio="${preserveAspectRatio}" href="data:${RASTER_MIME};base64,${shipped.bytes.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), svgText);
-  return svgText;
+  // What a manifest records of a face as it ships, beside its lossless crop.
+  return { pngSha256: sha256(raster), rasterMimeType: RASTER_MIME, rasterSha256: sha256(shipped.bytes), raster: { width: shipped.width, height: shipped.height } };
 }
 
 const manifest = { version: 2, canvas: { width: 300, height: 400 }, facePresentation, tiles: [], placeholders: [] };
@@ -103,16 +112,16 @@ for (const [name, tile, label, status, sourceName, crop, notes] of definitions) 
   const png = `${group}/${name}.png`;
   const svg = `${group}/${name}.svg`;
   const fit = fits[tile];
-  exportCrop(source, crop, png, svg, label, fit);
+  const shipped = exportCrop(source, crop, png, svg, label, fit);
   const entry = { name, tile, label, status, png, svg, source, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, source))).digest('hex'), crop: { x, y, width, height },
-    ...(fit && { fit: fitRecord(fit, [width, height]) }), notes };
+    ...(fit && { fit: fitRecord(fit, [width, height]) }), ...shipped, notes };
   if (name === 'Haku') {
     const foilSource = `${sourceDir}/white-dragon-a-tidal-silver.png`;
     const foilCrop = [0, 0, 1086, 1448];
     entry.foil = { png: 'approved/Haku-foil.png', svg: 'approved/Haku-foil.svg', source: foilSource, sourceSha256: createHash('sha256').update(readFileSync(path.join(root, foilSource))).digest('hex'), crop: { x: foilCrop[0], y: foilCrop[1], width: foilCrop[2], height: foilCrop[3] } };
     // The lit twin takes the quiet face's fit, so the dora reveal lines up with it exactly.
     if (fit) entry.foil.fit = fitRecord(fit, [foilCrop[2], foilCrop[3]]);
-    exportCrop(foilSource, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light', fit);
+    Object.assign(entry.foil, exportCrop(foilSource, foilCrop, entry.foil.png, entry.foil.svg, 'White dragon in the light', fit));
   }
   manifest.tiles.push(entry);
   // Reuse the shipped faces instead of duplicating every raster inside the HTML.
