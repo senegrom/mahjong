@@ -2,6 +2,8 @@
 
 A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7–8 September 2026.
 
+Each face's approved pixels are a lossless crop of its study, kept as `approved/<Name>.png` and not published. The playable `approved/<Name>.svg` carries that crop scaled to the box the face draws it in, about 306 × 408 pixels, as a quality-90 WebP (`web/scripts/face_raster.py`): the game draws a face at most 60 CSS pixels wide, and a full-size crop cost about 2 MB a face to send. The [manifest](manifest.json) records both digests.
+
 ## Approved faces
 
 | File | Tile | Selected treatment |

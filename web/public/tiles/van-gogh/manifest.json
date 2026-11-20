@@ -250,7 +250,13 @@
           "height": 408
         }
       },
-      "pngSha256": "75bc80080458de5255501619c0129320d39ce36825897981b8ec71236a2f9dc6"
+      "pngSha256": "75bc80080458de5255501619c0129320d39ce36825897981b8ec71236a2f9dc6",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "72c108e9d01e91e7e442e6ed25fea3e755a11bbaa1135716945ae88c10fa68ae",
+      "raster": {
+        "width": 309,
+        "height": 408
+      }
     },
     {
       "candidate": "B",
@@ -281,7 +287,13 @@
           "height": 408
         }
       },
-      "pngSha256": "b99cf6dfb27a48ba346d83006e9f3d536162063f79dd43c657efc6da0541288b"
+      "pngSha256": "b99cf6dfb27a48ba346d83006e9f3d536162063f79dd43c657efc6da0541288b",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "328d2703ca846861aec0f52b062cd8702ef0626d4923a975bc403c4dfc28b8d8",
+      "raster": {
+        "width": 308,
+        "height": 408
+      }
     },
     {
       "candidate": "Vase A",
@@ -346,7 +358,13 @@
           "height": 441.46
         }
       },
-      "pngSha256": "41d6556d517c846747618eb2a6e288e7950130dd66a7c04f2dc4d3799b842448"
+      "pngSha256": "41d6556d517c846747618eb2a6e288e7950130dd66a7c04f2dc4d3799b842448",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "ae2ad69b6c0b88f52c23c8146c784ad9003447d8f936f526b68ea944f9641624",
+      "raster": {
+        "width": 302,
+        "height": 442
+      }
     },
     {
       "candidate": "Painter C",
@@ -410,7 +428,13 @@
           "height": 408
         }
       },
-      "pngSha256": "d4774125d19efc3c3cb30a513280dc768be2eafdc66f863108a574c888263b8d"
+      "pngSha256": "d4774125d19efc3c3cb30a513280dc768be2eafdc66f863108a574c888263b8d",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "4bec53ab9c77163dfd39dfddeb574e08190ffea65c5d1eb45ddedd8fbf1c5f0f",
+      "raster": {
+        "width": 323,
+        "height": 408
+      }
     },
     {
       "candidate": "H",
@@ -441,7 +465,13 @@
           "height": 408
         }
       },
-      "pngSha256": "4a5fcea9949f05dc9b786864ed64ac22c0d1b72b3d908b9bd06b355f88b65fca"
+      "pngSha256": "4a5fcea9949f05dc9b786864ed64ac22c0d1b72b3d908b9bd06b355f88b65fca",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "b437abb35091d645808cf76e2d2302f761402666b0ad47fc77bb31b51eac5fc9",
+      "raster": {
+        "width": 321,
+        "height": 408
+      }
     },
     {
       "candidate": "Disks C",
@@ -555,7 +585,13 @@
           "height": 420.34
         }
       },
-      "pngSha256": "3b3c9c14c55cbef72156ddea31dd7c9a08435be52ac6d970b2c41a302e0caf7b"
+      "pngSha256": "3b3c9c14c55cbef72156ddea31dd7c9a08435be52ac6d970b2c41a302e0caf7b",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "d92a288e4ede019fef04fe227f72d6db5978a7491ec4cf6f22dce2081085a378",
+      "raster": {
+        "width": 306,
+        "height": 421
+      }
     },
     {
       "candidate": "Winter B",
@@ -653,7 +689,13 @@
           "height": 432.69
         }
       },
-      "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a"
+      "pngSha256": "f46d5a84d825851849438cf09db5284941c75094845fb4a678cb6d1353022d0a",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "71c929c15b18d436479fab5463676d2d41f60d89f28b871c686304ad88783156",
+      "raster": {
+        "width": 300,
+        "height": 433
+      }
     },
     {
       "candidate": "Flutes B",
@@ -750,7 +792,13 @@
           "height": 496.66
         }
       },
-      "pngSha256": "e469700f145e5718db8244492d8ded8118226f8a639326256de233e2d61170a1"
+      "pngSha256": "e469700f145e5718db8244492d8ded8118226f8a639326256de233e2d61170a1",
+      "rasterMimeType": "image/webp",
+      "rasterSha256": "8714f1e2d3f17ec6f884f2b45b3ee0c4ad76d4331c327cf6fa223734ae432087",
+      "raster": {
+        "width": 306,
+        "height": 497
+      }
     },
     {
       "candidate": "Bamboo Raft",
