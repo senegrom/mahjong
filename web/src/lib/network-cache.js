@@ -70,14 +70,23 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
  * caller: 'status', 'overrun', 'size', 'digest' or 'timeout'. */
 export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onProgress, describe }) {
   const controller = new AbortController();
-  let idle, total, reader, rejectAbort;
-  const aborted = new Promise((_, reject) => { rejectAbort = reject; });
+  let idle, total, reader, timedOut = null, giveUp = null;
   const timeout = () => {
-    const error = new Error(describe('timeout'));
-    controller.abort(error); rejectAbort(error);
+    timedOut = new Error(describe('timeout'));
+    controller.abort(timedOut); giveUp?.(timedOut);
   };
   const resetIdle = () => { clearTimeout(idle); idle = setTimeout(timeout, idleMs); };
-  const bounded = promise => Promise.race([promise, aborted]);
+  // Each wait has a promise of its own for the deadline to end, let go as the
+  // wait ends. Raced against one promise kept for the whole download, every
+  // wait stayed reachable from that promise, its answer with it: each chunk
+  // read was kept until the download ended, beside the bytes it had been
+  // copied into, a network's 117 MB twice over.
+  const bounded = promise => new Promise((resolve, reject) => {
+    if (timedOut) { reject(timedOut); return; }
+    const ended = settle => value => { if (giveUp === reject) giveUp = null; settle(value); };
+    giveUp = reject;
+    promise.then(ended(resolve), ended(reject));
+  });
   if (totalMs) total = setTimeout(timeout, totalMs);
   resetIdle();
   try {

@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { setImmediate } from 'node:timers/promises';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import { hasStoredNetwork, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { verifiedDownload } from '../src/lib/network-cache.js';
+
+/** Runs the garbage collector now, so that a test can ask what is still
+ * held. Node exposes it to a context made after the flag is set, which needs
+ * no flag on the test runner's own command line. */
+const collect = (() => { v8.setFlagsFromString('--expose-gc'); return vm.runInNewContext('gc'); })();
 
 const good = Uint8Array.from([1, 2, 3, 4]);
 const expect = { bytes: good.length, sha256: createHash('sha256').update(good).digest('hex') };
@@ -190,4 +199,51 @@ test('the graphics card\'s reader never downloads, and deletes only what it read
     assert.equal(unread.fetches(), 0, fault);
   }
   assert.equal(stored.fetches(), 0);
+});
+
+test('a download holds no chunk once it is copied, however many arrive', async t => {
+  // 64 chunks of 64 KB. Raced against one promise kept for the whole download,
+  // every one of them stayed alive until the download ended, beside the bytes
+  // they had been copied into: for a network, 117 MB twice over.
+  const size = 65536, count = 64;
+  const whole = new Uint8Array(size * count);
+  const identity = { bytes: whole.length, sha256: createHash('sha256').update(whole).digest('hex') };
+  const chunks = [];
+  const body = new ReadableStream({ pull(controller) {
+    if (chunks.length === count) { controller.close(); return; }
+    const chunk = new Uint8Array(size);
+    chunks.push(new WeakRef(chunk));
+    controller.enqueue(chunk);
+  } }, { highWaterMark: 0 });
+  // The transport's answer as the download reads it, its body the stream itself.
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, headers: new Headers(), body }));
+  // Counted as the digest begins: every chunk has been read and copied, and
+  // the download has not ended. A turn of the loop first, since a weak
+  // reference holds its object until the turn that made it is over.
+  let alive = null;
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  t.mock.method(crypto.subtle, 'digest', async (...given) => {
+    await setImmediate();
+    collect();
+    alive = chunks.filter(chunk => chunk.deref()).length;
+    return digest(...given);
+  });
+  const { bytes } = await verifiedDownload('https://cdn.invalid/models/g1/chunks', identity,
+    { idleMs: 5000, describe: kind => kind });
+  assert.equal(chunks.length, count);
+  assert.equal(bytes.length, whole.length);
+  // The loop's last turn may still hold the chunk it read.
+  assert.ok(alive <= 2, `${alive} of ${count} chunks were still held while the digest ran`);
+});
+
+test('a deadline ends a wait that the transport never does, at once and on every later wait', async t => {
+  // A fetch that ignores its signal: the download's own promise ends the wait.
+  t.mock.method(globalThis, 'fetch', () => new Promise(() => {}));
+  await assert.rejects(verifiedDownload('https://cdn.invalid/models/g1/never', expect, { idleMs: 15, describe: kind => kind }), /timeout/);
+  // A body that stops after its first chunk, and ignores cancellation too.
+  let sent = false;
+  const reader = { cancel: () => new Promise(() => {}),
+    read: () => (sent ? new Promise(() => {}) : (sent = true, Promise.resolve({ done: false, value: good.slice(0, 1) }))) };
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, headers: new Headers(), body: { getReader: () => reader } }));
+  await assert.rejects(verifiedDownload('https://cdn.invalid/models/g1/stalled', expect, { idleMs: 15, totalMs: 1000, describe: kind => kind }), /timeout/);
 });
