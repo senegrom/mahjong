@@ -17,8 +17,8 @@ How the table is laid out follows the window, its height as well as its width.
 - **From 968 pixels wide and 900 high** the three opponents sit around the
   centre, Opposite above it and Left and Right beside it, their discards 27
   pixels wide.
-- **Under 900 pixels high, or under 968 wide, as a tablet is,** the table is the
-  dense one: the centre a bar across the top and the opponents in one row
+- **Under 900 pixels high, or under 968 wide, as a tablet is,** from 761
+  pixels wide and over 500 high, the table is the dense one: the centre a bar across the top and the opponents in one row
   under it, Left, Opposite and Right, their discards 22 pixels wide. Where a
   seat is 300 pixels wide or more, its discards stand beside its name, score
   and called sets rather than under them, so the seat is only as tall as three
@@ -31,14 +31,22 @@ How the table is laid out follows the window, its height as well as its width.
 - **From 761 pixels wide the player's hand is one row.** Fourteen tiles of 52
   pixels need a window 889 wide, or 906 with a scrollbar. Under that the tile
   just drawn used to wrap onto a row of its own, so that the seat grew and
-  shrank at every turn, on an upright tablet as in a narrow window. The tiles
-  are 48 pixels wide from 850, 44 from 794 and 40 from 761.
-- **On a phone** each opponent has a third of the table's width, and their
-  discards are as large as six to a row fit there, a riichi's tile, which lies
-  a third wider, among them: 13 pixels wide at 320, 15 at 360, 16.7 at 390 and
-  18.8 at 430, where they were 14 on every phone and 11.5 under 360. Larger
-  ones would need the table laid out anew, since a third of a phone's width is
-  all a seat has. The four modes' buttons show one word each under 620 pixels
+  shrank at every turn, on an upright tablet as in a narrow window. The seat
+  is measured as a container, which counts a scrollbar and a zoomed page as
+  they are, and the tiles are as wide as fourteen fit with three pixels to
+  spare: 52 pixels from a seat 822 wide inside (a window of 892, or 909 with a
+  scrollbar), 48 from 766, 44 from 710 and 40 under that. A browser without
+  container queries steps by the window's width instead.
+- **On a phone** each opponent has a third of the table's width, and in play
+  their discards are as large as six to a row fit there, a riichi's tile, which
+  lies a third wider, among them: 12.5 pixels wide at 320, 15 at 360, 16.5 at
+  390, 17.5 at 412 and 18.5 at 430, where they were 14 on every phone and 11.5
+  under 360. The seat is measured as a container and its width names the size,
+  in steps; a browser without container queries keeps the old sizes, and a
+  review's table its own. The rows have one pixel between their tiles there,
+  and the ring around a dora is one pixel wide, so that it covers no
+  neighbour. Larger ones would need the table laid out anew, since a third of
+  a phone's width is all a seat has. The four modes' buttons show one word each under 620 pixels
   wide, Play, Watch, Physical and Guided, in one row of 50 pixels where their
   whole names took 82; a screen reader still hears the whole names. The play
   area scrolls with the page: it used to stay six pixels from the top of the
@@ -51,7 +59,10 @@ How the table is laid out follows the window, its height as well as its width.
 
 Words in gold are written in a lighter gold than the borders and rings
 (`--gold-text` in `app.css`): the borders' gold is 3.5 to 4.4 to 1 against the
-table's panels, and small text needs 4.5. What went wrong with a Trained
+table's panels, and small text needs 4.5. The honba and the riichi bets in the
+table's centre are ivory, since the middle of the centre is the lightest felt
+on the page, and a review's word for what a seat was doing has a backing of
+its own. What went wrong with a Trained
 opponent is said in a red that reads on its panel in either theme
 (`--accent-text`), and its buttons are filled; as plain controls they were 2.3
 to 1 in the light theme, and 1.3 under the pointer. Under a finger

@@ -193,21 +193,34 @@
     }
   }
   /* In play the hand is one row from 761 pixels wide, and fourteen tiles of
-     52 pixels, their gaps and the drawn tile's take 819 of the seat's width,
-     which a window has from 889 pixels wide, or 906 with a scrollbar. Under
-     that the tile just drawn wrapped onto a row of its own, and the seat
-     grew and shrank by a row at every turn, on an upright tablet as in a
-     narrow window. So there the tiles are as wide as fourteen fit: 48
-     pixels from 850 wide, 44 from 794 and 40 from 761, each counted with a
-     scrollbar's 17 pixels. */
-  @media (min-width: 761px) and (max-width: 905px) and (min-height: 501px) {
-    .mine:not(.listed) { --tile-width: 48px; }
+     52 pixels, their gaps, the drawn tile's and the hand's padding take 819
+     pixels of the seat's inside, which a window has from 889 pixels wide.
+     Under that the tile just drawn wrapped onto a row of its own, and the
+     seat grew and shrank by a row at every turn, on an upright tablet as in
+     a narrow window. So the seat is measured, as a container, which counts a
+     scrollbar and a zoomed page as they are, and the hand's tiles are as
+     wide as fourteen fit with three pixels to spare: 52 pixels from a seat
+     822 wide inside, 48 from 766, 44 from 710 and 40 under that (a window
+     761 wide leaves 674 beside a scrollbar, and forty-pixel tiles take
+     651). The called sets and the discards under the hand keep their size. */
+  @media (min-width: 761px) and (min-height: 501px) {
+    .mine:not(.listed) { container: mine / inline-size; }
   }
-  @media (min-width: 761px) and (max-width: 849px) and (min-height: 501px) {
-    .mine:not(.listed) { --tile-width: 44px; }
-  }
-  @media (min-width: 761px) and (max-width: 793px) and (min-height: 501px) {
-    .mine:not(.listed) { --tile-width: 40px; }
+  @container mine (max-width: 821.98px) { .hand { --tile-width: 48px; } }
+  @container mine (max-width: 765.98px) { .hand { --tile-width: 44px; } }
+  @container mine (max-width: 709.98px) { .hand { --tile-width: 40px; } }
+  /* A browser without container queries steps by the window's width instead,
+     each step counted with a scrollbar's 17 pixels and four to spare. */
+  @supports not (container-type: inline-size) {
+    @media (min-width: 761px) and (max-width: 912.98px) and (min-height: 501px) {
+      .mine:not(.listed) .hand { --tile-width: 48px; }
+    }
+    @media (min-width: 761px) and (max-width: 856.98px) and (min-height: 501px) {
+      .mine:not(.listed) .hand { --tile-width: 44px; }
+    }
+    @media (min-width: 761px) and (max-width: 800.98px) and (min-height: 501px) {
+      .mine:not(.listed) .hand { --tile-width: 40px; }
+    }
   }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {

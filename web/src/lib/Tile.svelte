@@ -93,8 +93,8 @@
   // an eye that does not tell red from green two of the hand's rings were
   // one. Dora has its shine and selection its lift; this gives the commonest
   // of the three a shape of its own. The dashes are spokes from the tile's
-  // centre: at a hand tile's edge some eight pixels of silver, then four
-  // of none.
+  // centre, two of silver to one of none: along a hand tile's sides some
+  // five pixels and two and a half, and longer towards its corners.
   const BROKEN = { 'one-away': `repeating-conic-gradient(${COLOURS['one-away']} 0 10deg, transparent 10deg 15deg)` };
   let marks = $derived(
     [readiness, dora && 'dora', safe && 'safe', selected && 'selected'].filter(Boolean),
@@ -616,7 +616,8 @@
 
   /* The ring: one colour, or stripes of several, behind the face. On the
      small tiles of a discard row or a called set it is thinner, in
-     proportion. */
+     proportion, and a pixel on a phone's rows in play, which leave a pixel
+     between their tiles (MatchTable). */
   .ringed::before {
     content: '';
     position: absolute;

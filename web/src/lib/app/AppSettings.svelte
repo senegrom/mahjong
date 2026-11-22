@@ -284,7 +284,7 @@
   /* Under 620 pixels wide the four names took two and three lines each, 82
      pixels of a phone's height. There each button shows one word, and the
      row is 50 pixels high. */
-  @media (max-width: 619px) {
+  @media (max-width: 619.98px) {
     .game-modes .rest { display: none; }
     .game-modes button { text-transform: capitalize; }
   }

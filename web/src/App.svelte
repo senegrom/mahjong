@@ -973,7 +973,7 @@
   /* A window under 700 pixels high, as a 1280 by 720 laptop's browser is,
      keeps the table and the player's hand on one screen only with less
      between the page's rows (MatchTable has the table's own part). */
-  @media (min-width: 761px) and (min-height: 501px) and (max-height: 699px) {
+  @media (min-width: 761px) and (min-height: 501px) and (max-height: 699.98px) {
     main { gap: 8px; }
   }
 

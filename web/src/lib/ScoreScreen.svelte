@@ -347,6 +347,11 @@
       z-index: 42;
       max-width: calc(100vw - 20px);
       min-height: 44px;
+      /* One line whatever the result's words, which its name still gives
+         whole: the page's foot keeps one line's room clear of it (App). */
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
       padding: 8px 13px;
       border: 1px solid rgba(216,161,42,.65);
       border-radius: 999px;

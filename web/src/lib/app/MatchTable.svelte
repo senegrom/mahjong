@@ -100,7 +100,9 @@
   .indicator-line { display: grid; gap: 4px; font-size: .65rem; }
   .ura-indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
-  .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold-text); }
+  /* The honba and the bets in ivory: the middle of the centre is the table's
+     lightest felt, where even the lighter gold of words is under 4 to 1. */
+  .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; font-weight: 600; color: var(--ivory); }
   .inspect { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: .8rem; }
   .inspect svg { width: 17px; height: 17px; flex: none; stroke: currentColor; stroke-width: 1.25; }
   .table-dialog { max-width: min(900px, calc(100vw - 20px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); width: 100%; max-height: 90dvh; background: var(--felt-deep); color: var(--ivory); border: 1px solid #d8a12a99; border-radius: 12px; padding: 14px; }
@@ -111,7 +113,7 @@
   .inspection-grid section { min-width: 0; display: grid; gap: 8px; align-content: start; }
   .inspection-grid h3 { font-size: .85rem; }
   @media (max-width: 760px) {
-    .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px 4px; }
+    .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
     .round strong, .wall strong { font-size: 1rem; }
     .round span, .wall span { font-size: .65rem; }
@@ -119,6 +121,10 @@
     .left { grid-area: 2 / 1; justify-self: stretch; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; justify-self: stretch; }
+    .place { --tile-width: 28px; }
+  }
+  @media (max-width: 359px) {
+    .place { --tile-width: 23px; }
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .board { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
@@ -126,25 +132,52 @@
     .left { grid-area: 2 / 1; justify-self: stretch; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; justify-self: stretch; }
+    .place { --tile-width: 23px; }
   }
-  /* On a phone each opponent has a third of the table's width, and their
-     discards are drawn as large as six to a row fit there (Discards), rather
-     than at one size for every phone: 14 pixels wide, and 11.5 on the
-     narrowest, were hard to tell apart. A row is six tiles, one of them a
-     riichi's, lying a third wider, with five gaps of a pixel, inside the
-     seat's edge and padding (Seat), 15 pixels in all with the gaps; a
-     discard is half of --tile-width. That is 13 pixels wide at 320, 15 at
-     360, 16.7 at 390 and 18.8 at 430, and never over 22. The seat is
-     measured as a container, so that a scrollbar's width cannot make a row
-     a pixel too wide. */
+  /* On a phone each opponent has a third of the table's width, and in play
+     their discards are drawn as large as six to a row fit there (Discards):
+     the one size of every phone, 14 pixels wide and 11.5 on the narrowest,
+     was hard to tell apart. A discard is half of --tile-width. A row is six
+     of them, one a riichi's, which lies a third wider, with five gaps, here
+     of a pixel, inside the seat's edge and its padding, here 4 pixels a
+     side: 3.1667 times --tile-width and 15 pixels. So the seat is measured,
+     as a container, and each width it can have names the size that fits it
+     with half a pixel to spare: discards 12.5 pixels wide on a 320-pixel
+     phone, 15 at 360, 16.5 at 390, 17.5 at 412 and 18.5 at 430, and never
+     over 22. The sizes are steps, not a share of the seat (cqi), which a
+     tile's own parts would take of the nearest container instead: an
+     unpainted tile's face is one (DecisionReplay does the same). With one
+     pixel between the tiles a ring around one is a pixel wide, a
+     fourteenth of the tile as on a wide screen's rows, so that it covers
+     no neighbour (Tile). A browser without container queries keeps the
+     sizes above. A review's table keeps its own (below), and its rows
+     their two pixels, which the outline of a tile on offer needs
+     (Discards): play outlines none. */
+  @media (max-width: 760px) {
+    /* Four pixels between the seats, as held sideways, for the discards. */
+    .board:not(.review) { column-gap: 4px; }
+  }
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    .place { container-type: inline-size; --tile-width: min(44px, calc((100cqi - 15px) / 3.1667)); }
+    .place { container: seat / inline-size; }
+    @container seat (min-width: 94.7px) {
+      .board:not(.review) .place :global(.seat) { --tile-width: 25px; padding-inline: 4px; }
+      .board:not(.review) .place :global(.pool.compact) { column-gap: 1px; }
+      .board:not(.review) .place :global(.pool.compact .tile) { --ring-width: 1px; }
+    }
+    @container seat (min-width: 101px) { .board:not(.review) .place :global(.seat) { --tile-width: 27px; } }
+    @container seat (min-width: 110.5px) { .board:not(.review) .place :global(.seat) { --tile-width: 30px; } }
+    @container seat (min-width: 113.7px) { .board:not(.review) .place :global(.seat) { --tile-width: 31px; } }
+    @container seat (min-width: 120px) { .board:not(.review) .place :global(.seat) { --tile-width: 33px; } }
+    @container seat (min-width: 126.4px) { .board:not(.review) .place :global(.seat) { --tile-width: 35px; } }
+    @container seat (min-width: 132.7px) { .board:not(.review) .place :global(.seat) { --tile-width: 37px; } }
+    @container seat (min-width: 142.2px) { .board:not(.review) .place :global(.seat) { --tile-width: 40px; } }
+    @container seat (min-width: 154.9px) { .board:not(.review) .place :global(.seat) { --tile-width: 44px; } }
   }
   /* Held sideways, a phone under 640 pixels wide has one column for the
      table and the hand, and every pixel of the table's height is one the
      hand lies lower, so there the discards stay small. */
-  @media (max-width: 639px) and (max-height: 500px) and (orientation: landscape) {
-    .place { --tile-width: 28px; }
+  @media (max-width: 639.98px) and (max-height: 500px) and (orientation: landscape) {
+    .board:not(.review) .place :global(.seat) { --tile-width: 28px; }
   }
 
   @media (min-width: 761px) and (min-height: 501px) {
@@ -216,10 +249,10 @@
      rows up under 700). From 900 the table has its room around the centre.
      The discards are 22 pixels wide, as a review's dense table draws them
      (below), where a tablet's were 14. */
-  @media (min-width: 761px) and (max-width: 967px) and (min-height: 501px), (min-width: 968px) and (min-height: 501px) and (max-height: 899px) {
+  @media (min-width: 761px) and (min-height: 501px) and (max-width: 967.98px), (min-width: 761px) and (min-height: 501px) and (max-height: 899.98px) {
     .board { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; gap: 8px; padding: 12px; }
     .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 8px 12px; align-self: start; justify-self: stretch; }
-    .place { --tile-width: 44px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; container-type: inline-size; }
+    .place { --tile-width: 44px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; container: seat / inline-size; }
     .left { grid-area: 2 / 1; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; }
@@ -231,7 +264,7 @@
        one seat put the hand's foot under a 650-pixel screen again. A review
        shows each seat's hand across its whole width, so its seats keep
        their one column. */
-    @container (min-width: 300px) {
+    @container seat (min-width: 300px) {
       .board:not(.review) :global(.seat) { grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: start; }
       .board:not(.review) :global(.seat > *) { grid-column: 1; }
       .board:not(.review) :global(.seat > .pool) { grid-column: 2; grid-row: 1 / span 4; margin-block-start: 0; }

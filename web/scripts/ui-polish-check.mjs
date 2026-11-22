@@ -121,8 +121,10 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
  await check('from 761 pixels wide the hand is one row, the tile just drawn in it',async()=>{
   // Fourteen tiles of 52 pixels need a window 889 wide. Under that the drawn
   // tile wrapped onto a row of its own, on an upright tablet as in a narrow
-  // window, and the seat changed height at every turn.
-  for(const [width,tile] of [[761,40],[768,40],[793,40],[794,44],[820,44],[834,44],[850,48],[889,48],[906,52],[1100,52]]){
+  // window, and the seat changed height at every turn. The seat is measured
+  // as a container: 70 pixels of the window lie outside it, and its tiles
+  // are 52 pixels wide from 822 inside, 48 from 766, 44 from 710, else 40.
+  for(const [width,tile] of [[761,40],[768,40],[779,40],[780,44],[820,44],[835,44],[836,48],[891,48],[892,52],[1100,52]]){
     const p=await open(start.snapshot,width,1000);
     const hand=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(tile=>{const box=tile.getBoundingClientRect();return{top:Math.round(box.top),width:box.width,right:box.right};}));
     const edge=await p.$eval('.hand',el=>el.getBoundingClientRect().right);
@@ -132,8 +134,9 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
     assert.ok(hand.at(-1).right<=edge,`the drawn tile is inside the hand at ${width}`);
     assert.deepEqual(p.errors,[]);
   }
-  // The same with a scrollbar's width gone from the window, as a desktop's has.
-  for(const width of [761,794,850,906]){
+  // The same with a scrollbar's width gone from the window, as a desktop's
+  // has, at each step's first width and the pixel before it.
+  for(const width of [761,779,780,835,836,891,892,909]){
     const p=await open(start.snapshot,width,1000,async page=>{await page.evaluateOnNewDocument(()=>document.addEventListener('DOMContentLoaded',()=>{document.documentElement.style.paddingRight='17px';}));});
     const tops=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(tile=>Math.round(tile.getBoundingClientRect().top)));
     assert.equal(new Set(tops).size,1,`one row at ${width} with a scrollbar: ${tops.join(' ')}`);
@@ -141,7 +144,7 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
  });
  await check('a phone draws the opponents\u2019 discards as large as six to a row fit, and the modes in one row',async()=>{
   // They were 14 pixels wide on every phone, and 11.5 under 360.
-  for(const [width,height,least] of [[320,568,12.8],[360,740,14.8],[390,844,16.4],[430,932,18.4]]){
+  for(const [width,height,least] of [[320,568,12.5],[360,740,15],[375,667,15.5],[390,844,16.5],[412,915,17.5],[430,932,18.5]]){
     const p=await open(riichi,width,height);
     const seats=await p.$$eval('.place',places=>places.map(place=>{
       const seat=place.querySelector('.seat'),style=getComputedStyle(seat),inner=seat.getBoundingClientRect().right-parseFloat(style.paddingRight)-parseFloat(style.borderRightWidth);
@@ -157,6 +160,10 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
       assert.ok(seat.row<=seat.inner+.5,`at ${width} no row is wider than its seat: ${seat.row} of ${seat.inner}`);
     }
     assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth),0);
+    // A ring around a discard is no wider than the room between two of them.
+    const rows=await p.$$eval('.place .pool',pools=>pools.map(pool=>({gap:parseFloat(getComputedStyle(pool).columnGap),
+      rings:[...pool.querySelectorAll('.tile')].map(tile=>parseFloat(getComputedStyle(tile).getPropertyValue('--ring-width')))})));
+    for(const row of rows)assert.ok(row.gap>=1&&row.rings.length>=6&&row.rings.every(ring=>ring<=row.gap),`at ${width} a ring fits between two discards: ${row.rings[0]} in ${row.gap}`);
     const modes=await p.$eval('.game-modes',el=>({shown:getComputedStyle(el).display!=='none',height:el.getBoundingClientRect().height,
       names:[...el.querySelectorAll('button')].map(button=>[button.getAttribute('aria-label'),button.textContent,button.innerText.trim()])}));
     if(modes.shown){
@@ -190,6 +197,9 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
       assert.ok(height>=44);
     }
     await p.hover('.failure .recovery-actions button');
+    // Read once the pointer's colours are drawn, not the resting ones.
+    await p.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+    assert.equal(await p.$eval('.failure .recovery-actions button',button=>button.matches(':hover')),true);
     const [colour,ground]=(await read()).buttons[0];
     assert.ok(contrast(colour,ground)>=4.5,`a button under the pointer in the ${theme} theme: ${colour} on ${ground}, ${contrast(colour,ground).toFixed(2)}`);
     if(theme==='light')await shot(p,'polish-recovery-light');

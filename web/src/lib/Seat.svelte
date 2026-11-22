@@ -299,7 +299,10 @@
   .note {
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(216,161,42,.16);
+    /* A backing of its own, the deep felt with a little gold, on which the
+       word is 5.3 to 1: over the table's lighter middle a tint alone left
+       it near 4. */
+    background: color-mix(in srgb, var(--felt-deep) 82%, var(--gold) 18%);
     color: var(--gold-text);
     font-size: .66rem;
     font-weight: 650;
@@ -319,7 +322,7 @@
 
   /* Before the wide-screen sizes: a short landscape window matches both. */
   @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
-    .seat { padding: 6px 4px; gap: 4px; }
+    .seat { padding: 6px; gap: 4px; }
     header { font-size: .7rem; gap: 2px 5px; }
     .back { width: 4px; height: 9px; }
     .called { font-size: .65rem; margin-left: 0; }
