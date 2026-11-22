@@ -44,10 +44,12 @@
   const requested = new URLSearchParams(location.search).get('opponents');
   const requestedMode = new URLSearchParams(location.search).get('mode');
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
-  // The table the page opens with: the one its address asks for, or else the
-  // player's stored choice.
-  const preferredTable = normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty);
-  let opponents = $state([...preferredTable]);
+  let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
+  // The player's own table as their record holds it, seat by seat, or null
+  // where it holds none: a record from before tables were stored so, one a
+  // reset read as Trained, or a page whose address asks for a table, which
+  // is no stored choice. A stand-in is known by it after a reload (below).
+  const storedTable = !OPPONENT_TYPES.includes(requested) && Array.isArray(preferences.opponents) ? preferences.opponents : null;
   // The table as the settings name it: the one type when all three opponents
   // match, otherwise 'custom'. It follows the opponents, so the two agree.
   let difficulty = $derived(opponentPreset(opponents));
@@ -371,11 +373,12 @@
         try {
           session = MatchSession.restore(Game, saved, callbacks);
           // Nothing saved marks a stand-in. A match that plays Club exactly
-          // where the player's own table says Trained is one, taken before
-          // the page was loaded again: the table stays their preference
-          // rather than being written over with the match's, and the
-          // network they wait for goes on being fetched.
-          returnTable = standInFor(preferredTable, session.opponents);
+          // where the player's own stored table says Trained is one, taken
+          // before the page was loaded again: the table stays their
+          // preference rather than being written over with the match's, and
+          // the network they wait for goes on being fetched. A record that
+          // holds no table of its own is written over, as it always was.
+          returnTable = standInFor(storedTable, session.opponents);
           update(session);
           if (session.opponents.includes('neural') || returnTable) downloadAi();
           void session.run();

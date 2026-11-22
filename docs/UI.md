@@ -267,8 +267,12 @@ stand-in ends when the player picks opponents themself, in the select or the
 custom table, which is stored as any pick is. Nothing marks it in what is
 saved: after a reload the page knows it by the two tables alone, the match
 playing Club exactly where the stored choice says Trained, keeps both as they
-are, and goes on fetching the network. Club taken after a failure is not a
-stand-in: it becomes the stored table, as before.
+are, and goes on fetching the network. The stored choice is the table the
+player's own record holds, seat by seat, as every page now writes it; a record
+that holds none (one from before 810, which is read as Trained once) is no
+choice to stand in for, and a saved Club match there stays the player's table,
+as before. Club taken after a failure is not a stand-in either: it becomes the
+stored table, as before.
 
 ### The hand's review
 
@@ -323,23 +327,24 @@ depends on where the press starts (see below).
 | 1280x600 | any | 56 | 53 |
 | 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 315 | 315 |
 | 844x390, Trained AI still reviewing, from the foot | any | 139 | 140 |
-| 390x844 | keyboard | 2 | 343 |
-| 375x667 | keyboard | 183 | 516 |
-| 360x640 | keyboard | 124 | 451 |
-| 320x568 | keyboard | 171 | 566 |
-| 568x320, a small phone held sideways | keyboard | 574 | 847 |
+| 390x844 | keyboard | 2 | 52 |
+| 375x667 | keyboard | 183 | not measured |
+| 360x640 | keyboard | 124 | not measured |
+| 320x568 | keyboard | 171 | 52 |
+| 568x320, a small phone held sideways | keyboard | 574 | 114 |
 
 On a phone that scroll costs what lies above the heading. For **View table / my
 hand** at 390x844 everything stays in view; at 375x667, 360x640 and 320x568 the
 top of the table, its round, wall count and indicators, goes under the game's
 bar, and at 568x320, where the result is still a sheet, most of the hand goes
-too. On the final hand the standings lie between the hand and the review, so
-**Review final hand** moves the page further. At 390x844 the table goes off the
-top of the screen while the hand, the standings and the heading stay in view.
-On the smaller phones the hand goes as well: at 375x667 all but its last 23
-pixels, which show below the game's bar; at 360x640 what is left of it sits
-under the bar; and at 320x568 all of it, off the top of the screen. At 568x320
-the hand and the standings' heading both go off the top.
+too. On the final hand the standings lie between the hand and the review. On a
+phone the page is already at them when **Review final hand** can be pressed,
+the sheet having stepped aside for them as the game ended and its chip having
+brought the result back (below), so the review's heading, right under them, is
+a short move away; before, pressed from where the result had left the page, it
+moved the page 343 to 847 pixels and took the hand off the screen. The figures
+for the final hand on a phone are measured from the standings, by
+`full-review-check.mjs`, which prints them, at the sizes it runs.
 
 At 844x390 the two advisers differ. With Club's review, done as it opens, the
 browser's own scroll anchoring moves the page as the review opens and leaves
@@ -482,11 +487,16 @@ still reads it out. A scroll to the heading there would take the caption the
 player pressed off the screen. On a phone the page moves for every press, since
 what the press brought was under the sheet: for a keyboard by as little as
 brings the heading into view with its ring, clear of the bar and the chip, and
-for a tap to the heading at the top of the screen, below the bar, with the
-places and the standings' buttons under it, and no ring.
+for a tap to the heading as near the top of the screen as the page scrolls,
+below the bar, with the places and the standings' buttons under it, and no
+ring.
 
 Measured in Chromium, a press by keyboard moves the page 30 pixels at 390x844,
-203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. At desktop
+203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. A tap moves
+it further, to where the standings are whole on the screen: 291 pixels at
+390x844, 514 at 320x568 and 733 at 568x320, their heading as near the top as
+the page scrolls, which on a tall phone is not to the top, the standings being
+the last of the page. At desktop
 width and at 844x390 the heading is already in view where the result left the
 page, and the page does not move; from the foot of the page at 844x390 the
 keyboard's press brings the heading in below the bar, 255 pixels above where a
@@ -537,10 +547,10 @@ time, for the words and the button with focus to be seen, and the chip brings
 the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
-1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
-beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568, and at
-568x320 21 for Save whole game and 41 for Review whole game, to bring the line
-out from under the chip. Once the game is saved, or its review opens, from any
+1366x768 and 844x390; on a phone, where the standings are the last of the page
+and the line comes in under the chip, it moves 41 pixels at 390x844 and 42 to
+61 at 320x568 for any press, a finger's, a mouse's or a keyboard's beneath the
+sheet, to bring the line out from under the chip. Once the game is saved, or its review opens, from any
 button, every line that said it could not be takes its words back.
 
 ### Final-hand review and saves

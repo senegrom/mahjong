@@ -191,6 +191,19 @@ test("a stand-in is Club where the player's own table says Trained, and nothing 
     [['beginner', 'neural', 'neural'], ['club', 'club', 'club']], [trained, ['club', 'club', 'beginner']], [trained, ['club', 'club']]]) {
     assert.equal(standInFor(preferred, playing), null, `${preferred} against ${playing}`);
   }
+  // After a reload a stand-in is known by the table the player's record
+  // itself holds, as every page of this build writes it. A record a reset
+  // read as Trained holds none, nor does one from before tables were stored
+  // seat by seat: a saved Club match is no stand-in there, and its table
+  // becomes the preference, as it always did.
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  assert.deepEqual(standInFor(read({ version: 6, difficulty: 'neural', opponents: trained }).opponents ?? null, club), trained);
+  for (const record of [{ version: 1, difficulty: 'club', opponents: club }, { version: 2, difficulty: 'neural' }]) {
+    const settings = read(record);
+    assert.equal(settings.difficulty, 'neural', JSON.stringify(record));
+    assert.equal(standInFor(settings.opponents ?? null, club), null, JSON.stringify(record));
+  }
+  assert.equal(standInFor(null, club), null);
 });
 
 test('a new game keeps a stand-in until the trained network is at hand, then goes back to the table it stood in for', () => {

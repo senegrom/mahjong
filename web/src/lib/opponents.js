@@ -40,11 +40,12 @@ export function sameOpponents(a, b) {
 
 /** The table a match stands in for, or null where it plays no stand-in:
  * `preferred` is the table the player chose, as their preferences hold it,
- * and `playing` the match's. They differ, and only where the player chose
- * Trained and the match plays Club. Any other difference is the match's own
- * table, which then becomes the preference, as it always did. */
+ * or null where they hold none, and `playing` the match's. They differ, and
+ * only where the player chose Trained and the match plays Club. Any other
+ * difference is the match's own table, which then becomes the preference, as
+ * it always did. */
 export function standInFor(preferred, playing) {
-  if (preferred.length !== playing.length || sameOpponents(preferred, playing)) return null;
+  if (!preferred || preferred.length !== playing.length || sameOpponents(preferred, playing)) return null;
   return preferred.every((type, seat) => type === playing[seat] || (type === 'neural' && playing[seat] === 'club')) ? [...preferred] : null;
 }
 
