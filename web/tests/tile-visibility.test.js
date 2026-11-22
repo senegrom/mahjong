@@ -49,7 +49,9 @@ test('only legal actionable one-shanten and tenpai discards get readiness rings'
   assert.match(gold, /--ring:\s*var\(--gold, #d8a12a\)/);
   const silver = tile({ tile: '7m', discardShanten: 1, onclick() {} });
   assert.match(silver, /data-readiness="one-away"/);
-  assert.match(silver, /--ring:\s*#c5cbd3/);
+  // Alone, one shanten's ring is broken into dashes, so that it is not told
+  // from the green of safety by its colour only.
+  assert.match(silver, /--ring:\s*repeating-conic-gradient\(#c5cbd3 0 10deg, transparent 10deg 15deg\)/);
   assert.match(silver, /discard leaves one tile from ready/);
   for (const discardShanten of [-1, 2, 3, null, undefined]) {
     assert.doesNotMatch(tile({ tile: '7m', discardShanten, onclick() {} }), /\bringed\b|data-readiness=/);

@@ -32,4 +32,5 @@
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields p { flex-basis: 100%; margin: 4px 0; max-width: 70ch; }
   @media (max-width: 760px) { .offline-settings { font-size: .8rem; } }
+  @media (pointer: coarse) { summary { min-height: 44px; padding: 10px 0; } }
 </style>

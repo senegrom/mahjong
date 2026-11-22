@@ -185,8 +185,8 @@
     padding: 1px 6px;
     border: 1px solid rgba(216,161,42,.48);
     border-radius: 999px;
-    color: var(--gold);
-    font-size: .56rem;
+    color: var(--gold-text);
+    font-size: .66rem;
     font-weight: 750;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -217,7 +217,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--gold);
+    color: var(--gold-text);
     animation: settle 0.5s ease-out forwards;
   }
 
@@ -300,7 +300,7 @@
     padding: 1px 6px;
     border-radius: 999px;
     background: rgba(216,161,42,.16);
-    color: var(--gold);
+    color: var(--gold-text);
     font-size: .66rem;
     font-weight: 650;
     line-height: 1.2;
@@ -319,14 +319,14 @@
 
   /* Before the wide-screen sizes: a short landscape window matches both. */
   @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
-    .seat { padding: 6px; gap: 4px; }
+    .seat { padding: 6px 4px; gap: 4px; }
     header { font-size: .7rem; gap: 2px 5px; }
     .back { width: 4px; height: 9px; }
     .called { font-size: .65rem; margin-left: 0; }
     .note { padding-inline: 4px; font-size: .56rem; }
     .score-full { display: none; }
     .score-short { display: inline; }
-    .dealer-badge { padding-inline: 4px; font-size: .5rem; }
+    .dealer-badge { padding-inline: 4px; font-size: .62rem; }
     .opponent-version { display: none; }
   }
   @media (min-width: 761px) {

@@ -60,7 +60,8 @@
       max-width: none;
       max-height: 86dvh;
       margin: 0;
-      padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+      /* Clear of a notch at either side of a phone held sideways, as the page is (App). */
+      padding: 18px max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       overflow: auto;
       border-radius: 22px 22px 0 0;
       box-shadow: 0 -24px 80px rgba(0,0,0,.42);

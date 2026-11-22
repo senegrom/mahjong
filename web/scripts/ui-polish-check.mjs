@@ -16,10 +16,43 @@ const server=createServer(createFixtureHandler({root:resolve(web,'dist')}));let 
 function opening(){const m=new MatchSession(Game,81,'club');try{m.advance(false);return {snapshot:m.snapshot(),view:m.view};}finally{m.dispose();}}
 function calling(){const m=new MatchSession(Game,1,'club');try{m.advance(false);for(const [kind,tile] of [['discard','9s'],['discard','3m'],['discard','8s'],['discard','7p']]){m.apply({type:'choose',kind,tile});m.advance(false);}return m.snapshot();}finally{m.dispose();}}
 function won(){const m=new MatchSession(Game,16,'club');try{m.advance(false);for(let n=0;n<240&&m.view.phase!=='over';n++){const c=m.choices;const q=c.find(x=>['ron','tsumo'].includes(x.kind))??c.find(x=>x.kind==='riichi')??c.find(x=>x.kind==='pass')??c.find(x=>x.kind==='discard'&&x.tile===m.view.seats[0].drawn)??c.find(x=>x.kind==='discard')??c[0];assert.ok(q);m.apply({type:'choose',kind:q.kind,tile:q.tile??null});m.advance(false);}assert.equal(m.view.phase,'over');return m.snapshot();}finally{m.dispose();}}
-const start=opening(),call=calling(),result=won();
+// The player's turn late in a hand, an opponent in riichi: its declared tile lies
+// sideways in its row, a third wider than the others, and the centre says the bet.
+function riichiTable(){
+  for(let seed=1;seed<=200;seed++){
+    const m=new MatchSession(Game,seed,'club');
+    try{
+      m.advance(false);
+      for(let n=0;n<90&&m.view.phase!=='over';n++){
+        const mine=m.view.seats[0];
+        if(m.view.phase==='act'&&mine.turn&&m.view.seats.slice(1).some(seat=>seat.discards.length>=7&&seat.discards.some(discard=>discard.riichi)))return m.snapshot();
+        const c=m.choices;
+        const q=c.find(x=>['ron','tsumo'].includes(x.kind))??c.find(x=>x.kind==='pass')??c.find(x=>x.kind==='discard'&&x.tile===mine.drawn)??c.find(x=>x.kind==='discard')??c[0];
+        m.apply({type:'choose',kind:q.kind,tile:q.tile??null});m.advance(false);
+      }
+    }finally{m.dispose();}
+  }
+  throw new Error('No table with an opponent in riichi was found');
+}
+// A match whose first move is a Trained opponent's.
+function trainedTable(){const m=new MatchSession(Game,1,'neural');try{m.advance(false);return m.snapshot();}finally{m.dispose();}}
+const start=opening(),call=calling(),result=won(),riichi=riichiTable(),trained=trainedTable();
+// The opponents' worker answers every question with a failure, so the page shows its recovery panel.
+const failingWorker=theme=>async p=>{
+  await p.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+  await p.setRequestInterception(true);
+  p.on('request',request=>{
+    if(request.url().includes('/assets/policy.worker-'))void request.respond({status:200,contentType:'text/javascript',body:'self.onmessage=({data:d})=>self.postMessage({id:d.id,error:"Simulated network failure"});'});
+    else void request.continue();
+  });
+};
+function contrast(a,b){
+  const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
+  const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);
+}
 // A save the page wrote in format 6 at the result of North's mangan by self-draw, paid 4,000 by the dealer and 2,000 by each other player.
 const selfDraw=JSON.parse(readFileSync(new URL('../tests/fixtures/format6-saves.json',import.meta.url))).selfDraw;
-async function open(snapshot=start.snapshot,width=390,height=844){const p=await (await openContext(browser)).newPage();p.errors=[];p.on('pageerror',e=>p.errors.push(e.message));await p.setViewport({width,height,isMobile:width<600,hasTouch:width<600});await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);await p.evaluateOnNewDocument((key,settings,s)=>{Object.defineProperty(navigator,'serviceWorker',{value:undefined});localStorage.setItem(key,JSON.stringify(s));localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',opponents:['club','club','club'],hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'}));},SAVE_KEY,SETTINGS_KEY,snapshot);await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});await p.waitForSelector('.hand');return p;}
+async function open(snapshot=start.snapshot,width=390,height=844,prepare=null){const p=await (await openContext(browser)).newPage();p.errors=[];p.on('pageerror',e=>p.errors.push(e.message));await p.setViewport({width,height,isMobile:width<600,hasTouch:width<600});await p.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);await p.evaluateOnNewDocument((key,settings,s)=>{Object.defineProperty(navigator,'serviceWorker',{value:undefined});localStorage.setItem(key,JSON.stringify(s));localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',opponents:['club','club','club'],hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'}));},SAVE_KEY,SETTINGS_KEY,snapshot);if(prepare)await prepare(p);await p.goto(`http://127.0.0.1:${server.address().port}/mahjong/`,{waitUntil:'networkidle0'});await p.waitForSelector('.hand');return p;}
 const shot=(p,name)=>p.screenshot({path:resolve(output,name+'.png'),fullPage:true});
 try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0,'127.0.0.1',done));browser=await launchChrome();
  await check('phone header keeps one round display and accessible game controls',async()=>{
@@ -55,5 +88,144 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
   // The headline once read 4,000, the dealer's share alone.
   assert.deepEqual(hero,{value:'2,000 / 4,000',label:'North Tsumo, mangan, 2,000 / 4,000'});
   await shot(p,'polish-phone-tsumo');assert.deepEqual(p.errors,[]);
+ });
+ await check('a wide window too short for the table around its centre has the dense table, and the whole hand on its first screen',async()=>{
+  // A 1366 by 768 laptop's browser is some 650 pixels high and a 1280 by 720
+  // one's 600. With the opponents around the centre the hand lay under the
+  // screen there as the turn began.
+  for(const [width,height] of [[1366,650],[1280,600],[1536,730]]){
+    for(const [name,snapshot] of [['an early turn',start.snapshot],['a late turn against a riichi',riichi]]){
+      const p=await open(snapshot,width,height);
+      const seen=await p.evaluate(()=>{
+        const box=selector=>document.querySelector(selector).getBoundingClientRect();
+        const discard=document.querySelector('.place .pool .tile:not(.rotated)');
+        return{scrolled:scrollY,handTop:box('.hand').top,handBottom:box('.hand').bottom,screen:innerHeight,centre:box('.centre').width,board:box('.board').width,
+          discard:discard?discard.getBoundingClientRect().width:null,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth};
+      });
+      const where=`${name} at ${width}x${height}`;
+      assert.equal(seen.scrolled,0,where);
+      assert.ok(seen.handTop>=0&&seen.handBottom<=seen.screen,`the whole hand is on the screen for ${where}: ${seen.handTop} to ${seen.handBottom} of ${seen.screen}`);
+      assert.ok(seen.centre>seen.board*.9,`the centre is a bar across the table for ${where}`);
+      if(seen.discard!==null)assert.ok(seen.discard>=21.5,`the discards are a readable size for ${where}: ${seen.discard}`);
+      assert.equal(seen.overflow,0,where);
+      assert.deepEqual(p.errors,[]);
+    }
+  }
+  // A taller window keeps the opponents around the centre, and the hand in view.
+  const p=await open(riichi,1920,940);
+  const tall=await p.evaluate(()=>({centre:document.querySelector('.centre').getBoundingClientRect().width,board:document.querySelector('.board').getBoundingClientRect().width,
+    bottom:document.querySelector('.hand').getBoundingClientRect().bottom,screen:innerHeight}));
+  assert.ok(tall.centre<tall.board/2,'from 900 pixels high the table has its room around the centre');
+  assert.ok(tall.bottom<=tall.screen,`and the hand is on the screen: ${tall.bottom} of ${tall.screen}`);
+ });
+ await check('from 761 pixels wide the hand is one row, the tile just drawn in it',async()=>{
+  // Fourteen tiles of 52 pixels need a window 889 wide. Under that the drawn
+  // tile wrapped onto a row of its own, on an upright tablet as in a narrow
+  // window, and the seat changed height at every turn.
+  for(const [width,tile] of [[761,40],[768,40],[793,40],[794,44],[820,44],[834,44],[850,48],[889,48],[906,52],[1100,52]]){
+    const p=await open(start.snapshot,width,1000);
+    const hand=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(tile=>{const box=tile.getBoundingClientRect();return{top:Math.round(box.top),width:box.width,right:box.right};}));
+    const edge=await p.$eval('.hand',el=>el.getBoundingClientRect().right);
+    assert.equal(hand.length,14,'the saved turn has a drawn tile');
+    assert.equal(new Set(hand.map(tile=>tile.top)).size,1,`one row at ${width}: ${hand.map(tile=>tile.top).join(' ')}`);
+    assert.ok(hand.every(shown=>shown.width===tile),`${tile} pixels a tile at ${width}: ${hand[0].width}`);
+    assert.ok(hand.at(-1).right<=edge,`the drawn tile is inside the hand at ${width}`);
+    assert.deepEqual(p.errors,[]);
+  }
+  // The same with a scrollbar's width gone from the window, as a desktop's has.
+  for(const width of [761,794,850,906]){
+    const p=await open(start.snapshot,width,1000,async page=>{await page.evaluateOnNewDocument(()=>document.addEventListener('DOMContentLoaded',()=>{document.documentElement.style.paddingRight='17px';}));});
+    const tops=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(tile=>Math.round(tile.getBoundingClientRect().top)));
+    assert.equal(new Set(tops).size,1,`one row at ${width} with a scrollbar: ${tops.join(' ')}`);
+  }
+ });
+ await check('a phone draws the opponents\u2019 discards as large as six to a row fit, and the modes in one row',async()=>{
+  // They were 14 pixels wide on every phone, and 11.5 under 360.
+  for(const [width,height,least] of [[320,568,12.8],[360,740,14.8],[390,844,16.4],[430,932,18.4]]){
+    const p=await open(riichi,width,height);
+    const seats=await p.$$eval('.place',places=>places.map(place=>{
+      const seat=place.querySelector('.seat'),style=getComputedStyle(seat),inner=seat.getBoundingClientRect().right-parseFloat(style.paddingRight)-parseFloat(style.borderRightWidth);
+      const tiles=[...place.querySelectorAll('.pool .tile')].map(tile=>({width:tile.getBoundingClientRect().width,right:tile.getBoundingClientRect().right,turned:tile.classList.contains('rotated')}));
+      return{inner,tiles,row:Math.max(0,...tiles.map(tile=>tile.right))};
+    }));
+    assert.equal(seats.length,3);
+    assert.ok(seats.some(seat=>seat.tiles.some(tile=>tile.turned)),'a riichi\u2019s tile lies sideways in one row');
+    for(const seat of seats){
+      const upright=seat.tiles.filter(tile=>!tile.turned);
+      assert.ok(upright.length>=6,'each opponent has a full row');
+      assert.ok(upright.every(tile=>tile.width>=least),`at ${width} a discard is at least ${least} pixels wide: ${upright[0].width}`);
+      assert.ok(seat.row<=seat.inner+.5,`at ${width} no row is wider than its seat: ${seat.row} of ${seat.inner}`);
+    }
+    assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth),0);
+    const modes=await p.$eval('.game-modes',el=>({shown:getComputedStyle(el).display!=='none',height:el.getBoundingClientRect().height,
+      names:[...el.querySelectorAll('button')].map(button=>[button.getAttribute('aria-label'),button.textContent,button.innerText.trim()])}));
+    if(modes.shown){
+      // One word each, and their whole names still said and still their text.
+      assert.ok(modes.height<=52,`the modes take one row at ${width}: ${modes.height}`);
+      assert.deepEqual(modes.names,[['Play','Play','Play'],['Agent watch','Agent watch','Watch'],['Physical agent play','Physical agent play','Physical'],['Guided physical game','Guided physical game','Guided']]);
+    }
+    assert.deepEqual(p.errors,[]);
+  }
+  await shot(await open(riichi,390,844),'polish-phone-riichi-table');
+ });
+ await check('what went wrong with a Trained opponent, and the ways on, can be read in both themes',async()=>{
+  // In the light theme the panel's buttons were its red on a grey wash of it,
+  // 2.3 to 1, and 1.3 under the pointer.
+  for(const theme of ['light','dark']){
+    const p=await open(trained,1100,850,failingWorker(theme));
+    await p.waitForSelector('.failure .recovery-actions button');
+    const read=()=>p.$eval('.failure',panel=>{
+      const pair=el=>[getComputedStyle(el).color,getComputedStyle(el).opacity];
+      return{panel:getComputedStyle(panel).backgroundColor,words:[...panel.querySelectorAll('p')].map(pair),
+        buttons:[...panel.querySelectorAll('button')].map(button=>[getComputedStyle(button).color,getComputedStyle(button).backgroundColor,button.getBoundingClientRect().height])};
+    });
+    const seen=await read();
+    assert.ok(seen.words.length>=2&&seen.buttons.length>=3,theme);
+    for(const [colour,opacity] of seen.words){
+      assert.equal(opacity,'1',theme);
+      assert.ok(contrast(colour,seen.panel)>=4.5,`the panel's words in the ${theme} theme: ${colour} on ${seen.panel}, ${contrast(colour,seen.panel).toFixed(2)}`);
+    }
+    for(const [colour,ground,height] of seen.buttons){
+      assert.ok(contrast(colour,ground)>=4.5,`a button in the ${theme} theme: ${colour} on ${ground}, ${contrast(colour,ground).toFixed(2)}`);
+      assert.ok(height>=44);
+    }
+    await p.hover('.failure .recovery-actions button');
+    const [colour,ground]=(await read()).buttons[0];
+    assert.ok(contrast(colour,ground)>=4.5,`a button under the pointer in the ${theme} theme: ${colour} on ${ground}, ${contrast(colour,ground).toFixed(2)}`);
+    if(theme==='light')await shot(p,'polish-recovery-light');
+  }
+ });
+ await check('a phone\u2019s settings keep an opened section where it was pressed, and its play area scrolls with the page',async()=>{
+  const p=await open();
+  await p.click('.settings-trigger');
+  await p.waitForSelector('.settings-dialog[open]');
+  const tops=()=>p.$$eval('.settings-dialog details',sections=>sections.map(section=>Math.round(section.getBoundingClientRect().top)));
+  const before=await tops();
+  assert.ok(before.length>=4);
+  await openPanel(p,'.settings-dialog details:first-of-type > summary');
+  const after=await tops();
+  // The sections stand one under the other in the order they have in the
+  // page, the opened one still first: it used to go to the foot of the list.
+  assert.equal(await p.$eval('.settings-dialog details:first-of-type',section=>section.open),true);
+  assert.deepEqual(after,after.toSorted((a,b)=>a-b),`${before} then ${after}`);
+  assert.equal(new Set(after).size,after.length);
+  await p.$eval('[data-close-settings]',button=>button.click());
+  // The play area stayed six pixels from the top of the screen as the page
+  // moved, under the game's bar, which stays there too.
+  assert.equal(await p.$eval('.play-area',el=>getComputedStyle(el).position),'static');
+  assert.deepEqual(p.errors,[]);
+  // The result's chip lies over the foot of the screen: the page's last line can be scrolled clear of it.
+  const over=await open(result);
+  await over.waitForSelector('.screen');
+  const review=await over.$('.screen .quiet');
+  assert.ok(review);
+  await review.click();
+  await over.waitForSelector('.result-chip');
+  await over.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
+  const foot=await over.evaluate(()=>({chip:document.querySelector('.result-chip').getBoundingClientRect().top,chipHeight:document.querySelector('.result-chip').getBoundingClientRect().height,
+    history:document.querySelector('.history summary').getBoundingClientRect().bottom}));
+  assert.ok(foot.history<=foot.chip,`the hand's history ends above the chip: ${foot.history} against ${foot.chip}`);
+  assert.ok(foot.chipHeight>=44);
+  assert.deepEqual(over.errors,[]);
  });
 }finally{await browser?.close();if(server.listening)await new Promise(done=>server.close(done));await report('UI-polish browser checks',resolve(output,'ui-polish-report.json'));}

@@ -71,4 +71,11 @@
       min-height: calc(var(--tile-width) * 0.5 * 1.35);
     }
   }
+
+  /* On a phone an opponent's row is as wide as its seat, a third of the
+     table, and its tiles as large as six of them fit (MatchTable), which
+     counts a pixel between them. */
+  @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
+    .compact { column-gap: 1px; }
+  }
 </style>

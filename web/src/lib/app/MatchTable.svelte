@@ -100,10 +100,10 @@
   .indicator-line { display: grid; gap: 4px; font-size: .65rem; }
   .ura-indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
   .indicators { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
-  .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold); }
+  .table-extras { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .8rem; color: var(--gold-text); }
   .inspect { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: .8rem; }
   .inspect svg { width: 17px; height: 17px; flex: none; stroke: currentColor; stroke-width: 1.25; }
-  .table-dialog { max-width: min(900px, calc(100vw - 20px)); width: 100%; max-height: 90dvh; background: var(--felt-deep); color: var(--ivory); border: 1px solid #d8a12a99; border-radius: 12px; padding: 14px; }
+  .table-dialog { max-width: min(900px, calc(100vw - 20px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); width: 100%; max-height: 90dvh; background: var(--felt-deep); color: var(--ivory); border: 1px solid #d8a12a99; border-radius: 12px; padding: 14px; }
   .table-dialog::backdrop { background: #0009; }
   .table-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .table-dialog h2 { margin: 0; font-size: 1rem; }
@@ -111,7 +111,7 @@
   .inspection-grid section { min-width: 0; display: grid; gap: 8px; align-content: start; }
   .inspection-grid h3 { font-size: .85rem; }
   @media (max-width: 760px) {
-    .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+    .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px 4px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
     .round strong, .wall strong { font-size: 1rem; }
     .round span, .wall span { font-size: .65rem; }
@@ -119,10 +119,6 @@
     .left { grid-area: 2 / 1; justify-self: stretch; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; justify-self: stretch; }
-    .place { --tile-width: 28px; }
-  }
-  @media (max-width: 359px) {
-    .place { --tile-width: 23px; }
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .board { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
@@ -130,7 +126,25 @@
     .left { grid-area: 2 / 1; justify-self: stretch; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; justify-self: stretch; }
-    .place { --tile-width: 23px; }
+  }
+  /* On a phone each opponent has a third of the table's width, and their
+     discards are drawn as large as six to a row fit there (Discards), rather
+     than at one size for every phone: 14 pixels wide, and 11.5 on the
+     narrowest, were hard to tell apart. A row is six tiles, one of them a
+     riichi's, lying a third wider, with five gaps of a pixel, inside the
+     seat's edge and padding (Seat), 15 pixels in all with the gaps; a
+     discard is half of --tile-width. That is 13 pixels wide at 320, 15 at
+     360, 16.7 at 390 and 18.8 at 430, and never over 22. The seat is
+     measured as a container, so that a scrollbar's width cannot make a row
+     a pixel too wide. */
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    .place { container-type: inline-size; --tile-width: min(44px, calc((100cqi - 15px) / 3.1667)); }
+  }
+  /* Held sideways, a phone under 640 pixels wide has one column for the
+     table and the hand, and every pixel of the table's height is one the
+     hand lies lower, so there the discards stay small. */
+  @media (max-width: 639px) and (max-height: 500px) and (orientation: landscape) {
+    .place { --tile-width: 28px; }
   }
 
   @media (min-width: 761px) and (min-height: 501px) {
@@ -180,24 +194,48 @@
     .round { text-align: left; }
     .round strong { font-size: 1.18rem; font-weight: 650; line-height: 1.35; letter-spacing: -.02em; }
     .round span { display: none; }
-    .wall { display: flex; gap: 4px; align-items: baseline; text-align: left; color: color-mix(in srgb, var(--ivory) 68%, transparent); }
+    .wall { display: flex; gap: 4px; align-items: baseline; text-align: left; color: color-mix(in srgb, var(--ivory) 84%, transparent); }
     .wall strong, .wall span { font-size: .73rem; font-weight: 400; line-height: 1.5; }
     .wall strong { font-variant-numeric: tabular-nums; }
     .table-indicators { grid-area: 1 / 2; max-width: 140px; }
-    .indicator-line { gap: 3px; font-size: .6rem; }
-    .indicator-line > span { color: color-mix(in srgb, var(--ivory) 68%, transparent); }
+    .indicator-line { gap: 3px; font-size: .7rem; }
+    .indicator-line > span { color: color-mix(in srgb, var(--ivory) 84%, transparent); }
     .indicators, .ura-indicators { --tile-width: 42px; gap: 3px; }
     .table-extras { grid-column: 1 / -1; gap: 4px 12px; padding-top: 5px; border-top: 1px solid #ffffff14; font-size: .7rem; }
     .inspect { grid-area: 1 / 3; padding: 8px 10px; border-color: transparent; border-radius: 10px; background: #ffffff0d; font-size: .76rem; }
   }
-  /* Compact tablet tracks fit before the three-wide desktop minimum (968px). */
-  @media (min-width: 761px) and (max-width: 967px) and (min-height: 501px) {
+  /* The dense table: the centre a bar across the top, and the three
+     opponents in one row under it, Left, Opposite and Right, each seat as
+     tall as what it holds. A tablet has it, since its tracks fit before the
+     three-wide table's minimum (968px). So does any wider window under 900
+     pixels high, where the opponents around the centre left the player's
+     hand no room: in a 1366 by 768 laptop's browser, 650 pixels high, the
+     hand lay wholly under the screen as the turn began, and at 1536 by 730
+     half of it did. The dense table is some 160 pixels shorter, and with it
+     the hand is on the screen from 600 pixels high (App closes the page's
+     rows up under 700). From 900 the table has its room around the centre.
+     The discards are 22 pixels wide, as a review's dense table draws them
+     (below), where a tablet's were 14. */
+  @media (min-width: 761px) and (max-width: 967px) and (min-height: 501px), (min-width: 968px) and (min-height: 501px) and (max-height: 899px) {
     .board { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; gap: 8px; padding: 12px; }
-    .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 12px; }
-    .place { --tile-width: 28px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; }
+    .centre { grid-area: 1 / 1 / 2 / -1; width: 100%; max-width: none; min-height: 0; padding: 8px 12px; align-self: start; justify-self: stretch; }
+    .place { --tile-width: 44px; width: 100%; min-width: 0; align-self: start; justify-self: stretch; container-type: inline-size; }
     .left { grid-area: 2 / 1; }
     .across { grid-area: 2 / 2; }
     .right { grid-area: 2 / 3; }
+    .board :global(.seat) { min-height: 0; }
+    /* A seat 300 pixels wide or more, as a third of a wide window is, has
+       room for its discards beside its name, score and called sets rather
+       than under them, and is then only as tall as its three rows of
+       discards: with them underneath, a riichi's line or a called set in
+       one seat put the hand's foot under a 650-pixel screen again. A review
+       shows each seat's hand across its whole width, so its seats keep
+       their one column. */
+    @container (min-width: 300px) {
+      .board:not(.review) :global(.seat) { grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: start; }
+      .board:not(.review) :global(.seat > *) { grid-column: 1; }
+      .board:not(.review) :global(.seat > .pool) { grid-column: 2; grid-row: 1 / span 4; margin-block-start: 0; }
+    }
   }
 
   /* A review shows every hand face up (Seat), each concealed tile up to half

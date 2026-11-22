@@ -96,11 +96,11 @@
   .score { font-variant-numeric: tabular-nums; }
   .riichi, .furiten { color: var(--warning-text); font-weight: 600; }
   /* As a review's seats say it: a word beside the gold edge of the turn. */
-  .note { padding: 1px 7px; border-radius: 999px; background: rgba(216,161,42,.16); color: var(--gold); font-size: .7rem; font-weight: 650; }
+  .note { padding: 1px 7px; border-radius: 999px; background: rgba(216,161,42,.16); color: var(--gold-text); font-size: .7rem; font-weight: 650; }
   .hint { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: auto; font-size: .85rem; }
   .hand-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; }
   .safe-note { color: #9cddb5; }
-  .dora-note { color: var(--gold); }
+  .dora-note { color: var(--gold-text); }
   .hand { --draw-gap: 18px; display: flex; gap: 5px; align-items: flex-end; flex-wrap: wrap; padding: 6px 4px; min-width: 0; }
   /* The hand takes focus on every turn, so its ring is a hint, not a
      frame: softer than a control's, and set out from the tiles. */
@@ -109,7 +109,7 @@
   /* Always in view: the row is your furiten record and what the table
      sees of you, so it is not folded away on any screen. */
   .own-discards { display: grid; gap: 4px; }
-  .own-discards .caption { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
+  .own-discards .caption { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; opacity: .8; }
   @media (max-width: 760px) {
     .mine { padding: 8px; gap: 4px; }
     .mine header { font-size: .8rem; }
@@ -139,7 +139,7 @@
     padding: 1px 7px;
     border: 1px solid rgba(216, 161, 42, .55);
     border-radius: 999px;
-    color: var(--gold);
+    color: var(--gold-text);
     font-size: .66rem;
     font-weight: 700;
     letter-spacing: .08em;
@@ -182,7 +182,7 @@
   .hand :global(.hand-tile[data-hand-drawn=true]) { margin-inline-start: var(--draw-gap); }
 
   /* A review may draw the hand smaller where it has less room than play's
-     table (--mine-tile); play sets none. */
+     table (--mine-tile); play sets its own below. */
   @media (min-width: 761px) and (min-height: 501px) {
     .mine {
       --tile-width: var(--mine-tile, 52px);
@@ -191,6 +191,23 @@
       background: rgba(4, 30, 20, .43);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
     }
+  }
+  /* In play the hand is one row from 761 pixels wide, and fourteen tiles of
+     52 pixels, their gaps and the drawn tile's take 819 of the seat's width,
+     which a window has from 889 pixels wide, or 906 with a scrollbar. Under
+     that the tile just drawn wrapped onto a row of its own, and the seat
+     grew and shrank by a row at every turn, on an upright tablet as in a
+     narrow window. So there the tiles are as wide as fourteen fit: 48
+     pixels from 850 wide, 44 from 794 and 40 from 761, each counted with a
+     scrollbar's 17 pixels. */
+  @media (min-width: 761px) and (max-width: 905px) and (min-height: 501px) {
+    .mine:not(.listed) { --tile-width: 48px; }
+  }
+  @media (min-width: 761px) and (max-width: 849px) and (min-height: 501px) {
+    .mine:not(.listed) { --tile-width: 44px; }
+  }
+  @media (min-width: 761px) and (max-width: 793px) and (min-height: 501px) {
+    .mine:not(.listed) { --tile-width: 40px; }
   }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
