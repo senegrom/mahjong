@@ -79,7 +79,7 @@
 <section class="guided-result" aria-label="Guided hand settlement">
   {#if !gameState.settlement}
     <h4>{draw ? 'Confirm revealed tenpai hands' : 'Confirm the winning hand'} </h4>
-    <p>The Rust rules engine calculates yaku, han, fu and payments. Enter only tiles revealed at the table; called sets are already recorded.</p>
+    <p>Enter only tiles revealed at the table; called sets are already recorded.</p>
     {#if ending.kind === 'ron'}
       <p>Winning tile <Tile tile={p.pending} size="tiny" /> · from {WINDS[p.turn]}. Select all simultaneous ron winners.</p>
       <div class="flags">{#each WINDS as wind, i (wind)}{#if i !== p.turn}

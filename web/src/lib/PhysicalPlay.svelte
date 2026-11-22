@@ -198,7 +198,8 @@
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   {#if recorded?.key === JSON.stringify(position)}<p role="status">{recorded.message}</p>{/if}
   {#if analysis}
-    <AgentWeights {analysis} />
+    <!-- The other seats' hands are read by their winds, as the table names them. -->
+    <AgentWeights {analysis} seats={[1, 2, 3].map(step => WINDS[(position.seat + step) % 4])} />
     <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={choice.kind === analysis.choice.kind && choice.tile === analysis.choice.tile} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
   {/if}
   <details class="table-fields" open>

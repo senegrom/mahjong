@@ -231,3 +231,26 @@ test('a failed write lets a later save of the same draft try again', async () =>
   assert.equal(store.queuedKey, null, 'the unsaved draft is not remembered as queued');
   store.close();
 });
+
+test("the store's sentences name what it keeps: the physical table, or what its format calls itself", async () => {
+  const game = { key: PHYSICAL_KEY, lock: 'riichi.physical-table.writer', noun: 'guided game', empty: emptyPosition,
+    parse: text => JSON.parse(text).position, encode: encoded };
+  for (const [noun, options] of [['physical table', {}], ['guided game', { format: game }]]) {
+    // A window without locks cannot save, and says so of its own thing.
+    const lockless = environment(encoded(emptyPosition())), warnings = [];
+    lockless.locks = null;
+    const cannot = make(lockless, { ...options, onWarning: message => warnings.push(message) });
+    await cannot.read(); cannot.close();
+    assert.equal(warnings.at(-1), `This browser could not save the ${noun}. Keep this window open to retain your edits.`);
+    // Another window's write is told the same way: a game is not asked to
+    // reload "its saved table", as it was while it rewrote the table's words.
+    const env = environment(encoded(emptyPosition())), conflicts = [];
+    const store = make(env, { ...options, onConflict: message => conflicts.push(message) });
+    const position = await store.read();
+    env.values.set(PHYSICAL_KEY, encoded({ ...emptyPosition(), wall: 60 }));
+    position.wall = 68;
+    assert.equal(await store.save(position), false);
+    assert.deepEqual(conflicts, [`Another window changed the ${noun}. Reload it before continuing.`]);
+    store.close();
+  }
+});

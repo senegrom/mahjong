@@ -73,6 +73,8 @@ test('my confirmed pon consumes held tiles and allows discards without a draw', 
   const before = g;
   g = choose(g, 'pon');
   assert.equal(g.state.stage, 'claim-response');
+  // The history reads as the other moves do, not "You call calls a triplet".
+  assert.equal(g.log.at(-1), 'You: calls a triplet · awaiting other responses');
   assert.equal(g.state.position.players[3].hand.length, 13);
   g = next(g);
   assert.equal(g.state.stage, 'decision');

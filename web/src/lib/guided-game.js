@@ -231,7 +231,8 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       if (['pon', 'chii', 'kan'].includes(choice.kind)) {
         queueClaim(state, { seat: p.seat, kind: choice.kind, tile: choice.tile ?? null });
         if (choices.some(c => c.kind === 'ron' || c.causes_furiten)) p.players[p.seat].furiten = true;
-        label = `You call ${choice.label ?? choice.kind} · awaiting other responses`;
+        // The engine's label is a sentence's end ("calls a triplet"), as in "You: discards …" below.
+        label = `You: ${choice.label ?? choice.kind} · awaiting other responses`;
         break;
       }
       if (choice.kind === 'ron' || choice.kind === 'tsumo') rememberEnding(state, choice.kind, [p.seat]);
@@ -380,6 +381,6 @@ export function parseGuided(text, scoreSettlement) {
 }
 
 export const GUIDED_FORMAT = {
-  key: GUIDED_KEY, lock: 'riichi.guided-game.writer', empty: emptyGuided, parse: parseGuided,
+  key: GUIDED_KEY, lock: 'riichi.guided-game.writer', noun: 'guided game', empty: emptyGuided, parse: parseGuided,
   encode: game => JSON.stringify({ version: 1, game }),
 };

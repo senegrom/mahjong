@@ -127,6 +127,10 @@ drawn in it: what pressing it does, the move, its weight, and that it is the
 agent's choice ("Play: discards the 3 circles, 62.5%, agent choice"; "Record:
 …" in a guided game, "not evaluated" or "unscored" where the row says so).
 
+**Reading the other hands**, under Trained's weights, names the three other
+seats as the page around it does: Right, Opposite and Left of the followed
+seat in Watch, and by their winds in a guided game and physical play.
+
 The value is the network's estimate of the reward it learned from, which the
 model manifest records for each network as its trainer was given it, so it is
 named and explained by the network the page plays. 0.1.810 and 0.1.410 show

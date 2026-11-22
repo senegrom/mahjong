@@ -38,6 +38,10 @@
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
+  // The three other seats by their winds, from the next to play round: what
+  // the adviser's reading of their hands is named by, as the rest of the
+  // guide names seats.
+  let others = $derived([1, 2, 3].map(step => WINDS[(position.seat + step) % 4]));
   // Trained advice may be waiting for the network's first download.
   let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
 
@@ -50,8 +54,8 @@
   onMount(() => {
     loadedStore = new PhysicalStore(storage, navigator.locks, {
       format: { ...GUIDED_FORMAT, parse: text => parseGuided(text, settle_physical) },
-      onWarning: message => { if (!closed) warning = message.replaceAll('physical table', 'guided game'); },
-      onConflict: message => { if (!closed) { conflict = message.replaceAll('physical table', 'guided game'); request?.abort(); analysis = null; busy = false; } },
+      onWarning: message => { if (!closed) warning = message; },
+      onConflict: message => { if (!closed) { conflict = message; request?.abort(); analysis = null; busy = false; } },
     });
     void load();
     const changed = event => loadedStore.changed(event);
@@ -207,7 +211,7 @@
       {:else if state.stage === 'decision'}
         <p class="eyebrow">Agent advice</p><h3 tabindex="-1" bind:this={promptHeading}>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
         {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
-        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} verb="Record" disabled={busy || blocked} />
+        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} verb="Record" seats={others} disabled={busy || blocked} />
           <button class="primary record-best" onclick={press => choose(analysis.choice, press, false)}>Record suggested move</button>
         {:else if !busy}<!-- Asking again takes these two buttons from the page as a step does. --><button onclick={press => { void analyze(); void arrive(press); }}>Retry advice</button>
           {#if failure && isTrained(state.agent)}<button data-guided-club onclick={press => { if (edit(s => { s.agent = 'club'; })) void arrive(press); }}>Use Club as adviser</button>{/if}{/if}

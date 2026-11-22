@@ -4,6 +4,7 @@ import { render } from 'svelte/server';
 import { MANIFEST, NETWORKS } from '../src/lib/model-manifest.js';
 import { playNetwork } from '../src/lib/trained-network.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
+import { readBeliefs } from '../src/lib/beliefs.js';
 import { componentLoader, moduleUrl, svelteModule } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
 
@@ -52,9 +53,12 @@ test("a row's button is called by what the row shows: the verb, the move, its we
   assert.deepEqual(names(body), ['Play: Riichi 2m, 75.0% given riichi, agent choice', 'Play: Riichi 1m, 25.0% given riichi', 'Play: Discard 3m, 20.0%']);
   // The words under the chosen row are the name's last, so they are not read twice.
   assert.match(body, /<span class="selected-label[^"]*" aria-hidden="true">Agent choice<\/span>/);
-  // A guided game records the move rather than plays it.
+  assert.match(body, /Select a move below to play it after confirmation\./);
+  // A guided game records the move rather than plays it, and says so.
   const recorded = await html('AgentWeights.svelte', { analysis: analysis(), onchoose() {}, verb: 'Record' });
   assert.deepEqual(names(recorded).map(name => name.split(':')[0]), ['Record', 'Record', 'Record']);
+  assert.match(recorded, /Select a move below to record it after confirmation\./);
+  assert.doesNotMatch(recorded, /to play it/);
   // A stage not evaluated and a kan the network cannot name say so, not 0%.
   const kan = { kind: 'concealed-kan', tile: '7z', label: 'Extra kan', weight: null };
   const chosen = { ...discard, weight: .8 };
@@ -130,6 +134,25 @@ test('the value is named and explained by the reward the network the page plays 
     const absent = await html('AgentWeights.svelte', { analysis: analysis({ value: null }) });
     assert.doesNotMatch(absent, /Estimated|reward-help|learned from/);
   }
+});
+
+test('what the weights are is said in a player\'s words, and the other hands are named as the page names its seats', async () => {
+  // One plain sentence each: the weights' own workings are the docs' to tell.
+  const trained = await html('AgentWeights.svelte', { analysis: analysis() });
+  assert.match(trained, /<p[^>]*>Weights are preferences, not win probabilities\.<\/p>/);
+  const club = await html('AgentWeights.svelte', { analysis: { agent: 'club', kind: 'selection', choice: reachA,
+    choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
+  assert.match(club, /<p[^>]*>Built-in agents have no weights\. Selected is the move this agent plays\.<\/p>/);
+  for (const body of [trained, club]) assert.doesNotMatch(body, /action space|Grouped display|policy percentages|tie-break/);
+  // The network's reading of the three other hands, in its own order: the
+  // next to play, the one across, the one before. Watch's table calls them
+  // right, opposite and left of the followed seat; a page that names seats by
+  // their winds hands those in.
+  const beliefs = readBeliefs(new Float32Array(3 * 34).fill(-5), [13, 13, 10]);
+  const who = markup => [...markup.matchAll(/<span class="who[^"]*">([^<]*)</g)].map(([, name]) => name);
+  assert.deepEqual(who(await html('AgentWeights.svelte', { analysis: analysis({ beliefs }) })), ['Right', 'Opposite', 'Left']);
+  assert.deepEqual(who(await html('AgentWeights.svelte', { analysis: analysis({ beliefs }), seats: ['South', 'West', 'North'] })),
+    ['South', 'West', 'North']);
 });
 
 test('built-in selection does not acquire percentages or a riichi probability group', async () => {

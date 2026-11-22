@@ -4,20 +4,26 @@ import { PHYSICAL_KEY, emptyPosition, parsePhysical } from './physical-position.
 // also holds a cross-window lock and compares the exact record it started from.
 let pending = Promise.resolve();
 const LOCK = 'riichi.physical-table.writer';
-const WARNING = 'This browser could not save the physical table. Keep this window open to retain your edits.';
-const CONFLICT = 'Another window changed the physical table. Reload its saved table before continuing.';
+// What the store's messages call what it keeps: its format's `noun`. The
+// guided game shares the store, and used to rewrite these sentences as it
+// showed them, which left it "Reload its saved table".
+const NOUN = 'physical table';
+const warning = noun => `This browser could not save the ${noun}. Keep this window open to retain your edits.`;
+const conflict = noun => `Another window changed the ${noun}. Reload it before continuing.`;
 const STALLED = 'A previous save is still waiting for the browser lock. Edits may conflict until it finishes.';
 // A save normally finishes in milliseconds. One stuck behind a lock another
 // window never gives back must not leave the editor loading for ever.
 const PATIENCE = 5000;
 const FORMAT = {
-  key: PHYSICAL_KEY, lock: LOCK, empty: emptyPosition, parse: parsePhysical,
+  key: PHYSICAL_KEY, lock: LOCK, noun: NOUN, empty: emptyPosition, parse: parsePhysical,
   encode: position => JSON.stringify({ version: 1, position }),
 };
 
 export class PhysicalStore {
   constructor(storage, locks, { onConflict = () => {}, onWarning = () => {}, patience = PATIENCE, format = FORMAT } = {}) {
     this.format = format;
+    this.warning = warning(format.noun ?? NOUN);
+    this.conflict = conflict(format.noun ?? NOUN);
     this.storage = storage;
     this.locks = locks;
     this.patience = patience;
@@ -45,12 +51,12 @@ export class PhysicalStore {
       this.queuedKey = JSON.stringify(position ?? this.format.empty());
       this.lastSave = Promise.resolve(true);
       this.opened = true;
-      this.onWarning(this.disabled ? WARNING : stalled ? STALLED : '');
+      this.onWarning(this.disabled ? this.warning : stalled ? STALLED : '');
       return position ?? this.format.empty();
     } catch {
       this.disabled = true;
       this.opened = true;
-      this.onWarning(WARNING);
+      this.onWarning(this.warning);
       return this.format.empty();
     }
   }
@@ -67,7 +73,7 @@ export class PhysicalStore {
   assertCurrent() {
     if (this.storage.getItem(this.format.key) === this.expected) return true;
     this.conflicted = true;
-    if (!this.closing) this.onConflict(CONFLICT);
+    if (!this.closing) this.onConflict(this.conflict);
     return false;
   }
 
@@ -93,7 +99,7 @@ export class PhysicalStore {
         if (this.queuedKey !== key || this.closing) return false;
       }
       if (this.conflicted) return false;
-      if (this.disabled) { if (!this.closing) this.onWarning(WARNING); return false; }
+      if (this.disabled) { if (!this.closing) this.onWarning(this.warning); return false; }
       // The wait for the lock is bounded too: a window that never gives it
       // back should cost a warning here, not a save that never returns.
       const options = { mode: 'exclusive' };
@@ -117,7 +123,7 @@ export class PhysicalStore {
           return false;
         }
         this.disabled = true;
-        if (!this.closing) this.onWarning(WARNING);
+        if (!this.closing) this.onWarning(this.warning);
         return false;
       }
     };
@@ -140,7 +146,7 @@ export class PhysicalStore {
       || (event.storageArea && event.storageArea !== this.storage)
       || (event.key !== null && event.key !== this.format.key)) return;
     try { this.assertCurrent(); }
-    catch { this.disabled = true; this.onWarning(WARNING); }
+    catch { this.disabled = true; this.onWarning(this.warning); }
   }
 
   close() { this.closing = true; }
