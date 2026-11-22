@@ -77,7 +77,13 @@ game review's filter and its two hiding settings) are stored separately. A
 first visit starts with Trained opponents and the Trained AI review adviser,
 the review's flagged decisions and nothing hidden. Saved preferences are read
 as they stand, so a player whose record holds Club keeps Club; only a
-preference the record lacks takes the default. What the player revealed in a
+preference the record lacks takes the default. A change writes only the
+preferences this window changed, into the record as it then stands, so two
+windows do not undo each other's changes: a trained network picked in one is
+not lost to a checkbox ticked in the other (the table's name and its three
+seats are one choice, and are written together). A page's first write, and one
+over a record this build's pages did not write, is still its whole record. What
+the player revealed in a
 review is kept for the match only, never saved. Cancelling an opponent change
 leaves both the displayed selection and active game unchanged. New game
 requests confirmation whenever an unfinished match has progress, including

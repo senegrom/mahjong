@@ -88,14 +88,47 @@ export function readSettings(storage, touch = false) {
   return defaults;
 }
 
-/** Writes the preferences only when they differ from the last write. Every
- * write replaces the whole record, so writing an equal copy each time the
- * effect reruns would overwrite a change another tab made meanwhile. Returns
- * what this tab last stored, for the next call. */
+/** Preferences that are one choice stored as two, and are written together:
+ * the table's name and its three seats. */
+const WRITTEN_TOGETHER = [['difficulty', 'opponents']];
+
+/** The record in storage as it stands, where this build's pages wrote it,
+ * and otherwise null: none, one that cannot be read, or another version's. */
+function storedSettings(storage) {
+  try {
+    const value = JSON.parse(storage?.getItem?.(SETTINGS_KEY));
+    return value && typeof value === 'object' && !Array.isArray(value) && value.version === SETTINGS_VERSION ? value : null;
+  } catch { return null; }
+}
+
+/** Writes the preferences only when they differ from this window's last
+ * write, and then only those that differ, into the record as it stands in
+ * storage now. A window that wrote its whole record at every change took
+ * back whatever another window had changed meanwhile: a network picked in
+ * one was lost to the next checkbox ticked in the other, and an equal copy
+ * written each time the effect reruns would do the same at every move. A
+ * preference set back to nothing, as a pick of the default network is, is
+ * taken out of the record. A page's first write (no `last`), and a write
+ * over a record this build's pages did not write, is the whole of this
+ * window's preferences. Returns this window's preferences as it last wrote
+ * them, for the next call; what storage holds may say more. */
 export function writeSettings(storage, settings, last = null) {
-  const text = JSON.stringify({ version: SETTINGS_VERSION, ...settings });
+  const mine = { version: SETTINGS_VERSION, ...settings };
+  const text = JSON.stringify(mine);
   if (text === last) return last;
-  try { storage?.setItem(SETTINGS_KEY, text); } catch { return last; /* Gameplay still works. */ }
+  let record = mine;
+  const stored = last === null ? null : storedSettings(storage);
+  if (stored) {
+    const before = JSON.parse(last);
+    const changed = new Set(Object.keys({ ...before, ...mine }).filter(key => JSON.stringify(before[key]) !== JSON.stringify(mine[key])));
+    for (const keys of WRITTEN_TOGETHER) if (keys.some(key => changed.has(key))) keys.forEach(key => changed.add(key));
+    record = { ...stored };
+    for (const key of changed) {
+      if (mine[key] === undefined) delete record[key];
+      else record[key] = mine[key];
+    }
+  }
+  try { storage?.setItem(SETTINGS_KEY, JSON.stringify(record)); } catch { return last; /* Gameplay still works. */ }
   return text;
 }
 

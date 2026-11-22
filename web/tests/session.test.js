@@ -581,6 +581,65 @@ test('preferences are written when they change, not each time the effect reruns'
   assert.doesNotThrow(() => writeSettings(null, preferences));
 });
 
+test('a change writes only what this window changed, over the record as another window left it', () => {
+  const writes = new Map();
+  const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
+  const stored = () => JSON.parse(writes.get(SETTINGS_KEY));
+  const start = { difficulty: 'custom', opponents: ['club', 'club', 'beginner'], hints: true, confirmDiscards: false, shortcuts: true,
+    tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false, reviewFilter: 'flagged' };
+  // Two windows load the same record, and each writes it back whole as it loads.
+  let a = writeSettings(storage, start), b = writeSettings(storage, start);
+  assert.deepEqual(stored(), { version: 6, ...start });
+  // One picks another network; the other, still open, then turns the hints
+  // off. The pick is still there for the first window's reload to read.
+  a = writeSettings(storage, { ...start, trainedNetwork: OLDER[0] }, a);
+  b = writeSettings(storage, { ...start, hints: false }, b);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, trainedNetwork: OLDER[0] });
+  assert.equal(readSettings(storage).trainedNetwork, OLDER[0]);
+  // What a window did not change it leaves as it finds it, though its own
+  // copy is the older: the first window knows nothing of the hints.
+  a = writeSettings(storage, { ...start, trainedNetwork: OLDER[0], reviewFilter: 'every' }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, trainedNetwork: OLDER[0], reviewFilter: 'every' });
+  // A pick set back to the default is taken out of the record, alone.
+  a = writeSettings(storage, { ...start, reviewFilter: 'every' }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, reviewFilter: 'every' });
+  // The table is one choice stored as two. One window makes it Trained; the
+  // other then changes a seat of the table it still shows, whose name does
+  // not change: both are written, so the record never names one table and
+  // seats another.
+  writeSettings(storage, { ...start, hints: false, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'] }, b);
+  assert.deepEqual([stored().difficulty, stored().opponents], ['neural', ['neural', 'neural', 'neural']]);
+  a = writeSettings(storage, { ...start, reviewFilter: 'every', opponents: ['club', 'beginner', 'beginner'] }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, reviewFilter: 'every', difficulty: 'custom', opponents: ['club', 'beginner', 'beginner'] });
+  // Nothing changed, nothing written: another window's record stays whole.
+  const other = JSON.stringify({ ...stored(), tileFace: 'matisse' });
+  writes.set(SETTINGS_KEY, other);
+  assert.equal(writeSettings(storage, { ...start, reviewFilter: 'every', opponents: ['club', 'beginner', 'beginner'] }, a), a);
+  assert.equal(writes.get(SETTINGS_KEY), other);
+});
+
+test('over a record this build did not write, a change writes the whole of the window\'s preferences', () => {
+  const start = { difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true, shortcuts: true };
+  // A record of another version, one that is no record, and none at all.
+  for (const held of [JSON.stringify({ version: 5, hints: false, trainedNetwork: OLDER[0] }), JSON.stringify({ version: 7, hints: false }),
+    '{broken', '[]', 'null', null]) {
+    const writes = new Map();
+    const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
+    const last = writeSettings(storage, start);
+    if (held === null) writes.delete(SETTINGS_KEY); else writes.set(SETTINGS_KEY, held);
+    writeSettings(storage, { ...start, shortcuts: false }, last);
+    assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 6, ...start, shortcuts: false }, String(held));
+  }
+  // Storage that cannot be read back, or refuses to be, is written whole too.
+  for (const getItem of [undefined, () => { throw new Error('denied'); }]) {
+    const writes = [];
+    const storage = { setItem: (_key, value) => writes.push(value), getItem };
+    const last = writeSettings(storage, start);
+    writeSettings(storage, { ...start, hints: false }, last);
+    assert.deepEqual(JSON.parse(writes.at(-1)), { version: 6, ...start, hints: false });
+  }
+});
+
 test('an equal opponent table is not a change of table', () => {
   assert.equal(sameOpponents(['club', 'neural', 'beginner'], ['club', 'neural', 'beginner']), true);
   assert.equal(sameOpponents(['club', 'neural', 'beginner'], ['club', 'club', 'beginner']), false);
