@@ -70,12 +70,14 @@
     </div>
   {/if}
   <!-- A tile is a toggle only while a press selects it for confirmation.
-       Without confirmation a press discards it, so it is a plain button,
-       and the arrow keys' marker is not announced as pressed. -->
+       Without confirmation a press discards it, so it is a plain button.
+       Either way the arrow keys' marker is drawn as a selection is, but is
+       not announced as pressed: only the tile a press selected is. -->
   <div class="hand" class:has-draw={Boolean(me.drawn)} role={listed ? 'list' : 'group'} aria-label={handLabel} aria-describedby={view.phase === 'over' ? undefined : 'hand-help'} tabindex="-1" bind:this={handElement} onfocusin={syncHandFocus}>
     {#each handTiles as tile, index (index)}
       <HandTile {tile} {listed} tag={tags ? (tags[index] ?? []) : null} handIndex={index} onclick={(_: string, event: MouseEvent) => selectTile(tile, index, event)} toggle={confirmDiscards}
         disabled={!canDiscard(tile)} muted={view.phase === 'over'} selected={myTurn && (picked === index || selected === index)}
+        pressed={myTurn && selected === index}
         drawn={Boolean(me.drawn) && index === me.hand.length}
         discardShanten={discardHints.get(tile)?.shanten ?? null}
         remaining={remainingByTile.get(tile) ?? null} showRemaining={hints}

@@ -1,6 +1,9 @@
 /* The table's colours. Felt green carries the surface, ivory the tiles, and
-   a warm red is kept for the things that demand attention: a riichi stick, a
-   winning hand, a furiten warning. */
+   gold what is marked or has focus: the seat to play, a winning tile. A warm
+   red is kept for the things that demand attention: the dot on a riichi
+   stick, the words of an opponent that failed, the edge of a flagged
+   decision, and the buttons that act. The words riichi and furiten have a
+   lighter red of their own, to be read on the felt. */
 :root {
   --felt: #2f6f50;
   --felt-dark: #24583f;

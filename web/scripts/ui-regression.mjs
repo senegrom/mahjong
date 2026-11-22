@@ -114,16 +114,16 @@ const neuralEndSave=(()=>{
   throw new Error('Could not find a Trained table whose next deal asks an opponent first');
 })();
 
-async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,mock=null,sharedContext=null}={}) {
+async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,shortcuts=true,mock=null,sharedContext=null}={}) {
   const context=sharedContext ?? await browser.createBrowserContext(); if(!sharedContext) contexts.push(context);
   const page=await context.newPage(); const errors=[]; problems.set(page, errors);
   page.on('pageerror',error=>errors.push(error.message));
   await page.setViewport({width,height,isMobile:width<500 || height<500,hasTouch:width<500 || height<500,deviceScaleFactor:1});
   await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:dark?'dark':'light'},{name:'prefers-reduced-motion',value:'reduce'}]);
-  await page.evaluateOnNewDocument((saveKey,settingsKey,saved,confirm)=>{
-    if(!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:confirm,shortcuts:true}));
+  await page.evaluateOnNewDocument((saveKey,settingsKey,saved,confirm,shortcuts)=>{
+    if(!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:confirm,shortcuts}));
     if(!localStorage.getItem(saveKey)) localStorage.setItem(saveKey,JSON.stringify(saved));
-  }, SAVE_KEY, SETTINGS_KEY, saved, confirm);
+  }, SAVE_KEY, SETTINGS_KEY, saved, confirm, shortcuts);
   if(mock) {
     // Fault-injection tests replace the worker's bytes; integrity-checked
     // offline assets are exercised separately by offline-check.mjs.
@@ -235,6 +235,32 @@ try {
     await pause(150); await press(page,at,2);
     await more(page,before); await page.waitForSelector(`${first}:not(:disabled)`); await pause(300);
     assert.deepEqual(await chosen(page,before),[tile]); assert.equal(await page.$('.confirm-discard'),null); noErrors(page);
+  });
+  await check('the confirmation\'s buttons hand focus on to the hand as they go, with the keys on or off',async()=>{
+    for(const shortcuts of [true,false]) {
+      const page=await open(turnAgainSave,{confirm:true,shortcuts}), first='.hand button[data-hand-index="0"]', where=`with the keys ${shortcuts?'on':'off'}`;
+      const focused=()=>page.evaluate(()=>{const a=document.activeElement;return a===document.querySelector('.hand')?'the hand':!a||a===document.body?'the page':a.outerHTML.slice(0,60);});
+      // Cancel, pressed by keyboard, goes with the panel.
+      await page.click(first); await page.waitForSelector('.confirm-discard');
+      await page.focus('.confirm-discard button:last-child'); await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>!document.querySelector('.confirm-discard'));
+      assert.equal(await focused(),'the hand',`after Cancel ${where}`);
+      // So does Discard, pressed by a mouse, which leaves focus on it.
+      const before=(await saved(page)).commands.length;
+      await page.click(first); await page.waitForSelector('.confirm-discard');
+      await page.click('.confirm-discard .primary'); await more(page,before);
+      await page.waitForSelector(`${first}:not(:disabled)`);
+      assert.equal(await focused(),'the hand',`after Discard ${where}`);
+      // A tile selected is the one announced as pressed, the arrows' marker never.
+      await page.click(first);
+      assert.deepEqual(await page.$$eval('.hand button.tile',tiles=>tiles.filter(tile=>tile.getAttribute('aria-pressed')==='true').map(tile=>tile.dataset.handIndex)),['0']);
+      if(shortcuts) {
+        await page.keyboard.press('Escape'); await page.focus('.hand'); await page.keyboard.press('ArrowLeft');
+        assert.equal((await ui(page)).selected,1,'the marker is drawn');
+        assert.equal(await page.$$eval('.hand button.tile',tiles=>tiles.filter(tile=>tile.getAttribute('aria-pressed')==='true').length),0,'and is not announced as pressed');
+      }
+      noErrors(page);
+    }
   });
   await check('the second press of a double click and a held Enter answer no call, and a press of its own does',async()=>{
     const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';

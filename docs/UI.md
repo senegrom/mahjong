@@ -221,8 +221,19 @@ discard. Discard previews are read-only queries checked against legal actions.
 
 Arrow keys skip disabled hand tiles, and the marker follows successful focus.
 After a keyboard discard, the hand regains focus for the next decision unless
-the player has deliberately focused another control. Browser shortcuts and
-other focused controls remain unaffected.
+the player has deliberately focused another control. The confirmation's
+**Discard** and **Cancel** go as they are pressed, and the hand takes focus
+from them too, with the keys on or off, rather than the page. With **Select
+before discarding** on, only the tile a press selected is announced as
+pressed; the arrow keys' marker, drawn the same way, is not. Browser shortcuts
+and other focused controls remain unaffected: a key held down is cancelled in
+the hand only where the hand's keys act on it (Enter, Space, the digits, r and
+t), so a held arrow down, Page Down or Tab still scrolls the page or moves
+focus on. Enter held down on a tile, a call or the confirmation's buttons
+presses once, and so does a double click: its second press is let go where the
+first has already acted, since the next decision is drawn where the last one
+was (on a tile only while Select before discarding is off; with it on, a
+second press on the selected tile is how it is thrown).
 
 The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
 discard."), with no line about the keys: the hand takes focus as the turn

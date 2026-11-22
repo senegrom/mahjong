@@ -35,6 +35,12 @@ test('a hand tile is a toggle only when a press selects it for confirmation', as
   assert.deepEqual(pressed(await hand({ confirmDiscards: false, picked: 0 })), [null, null, null]);
   // With it, a press selects the tile, and the selection is its pressed state.
   assert.deepEqual(pressed(await hand({ confirmDiscards: true, selected: 1 })), ['false', 'true', 'false']);
+  // The arrow keys' marker is drawn as a selection is, and named so, but no
+  // press selected its tile: only the selected tile is announced as pressed.
+  const marked = await hand({ confirmDiscards: true, picked: 0 });
+  assert.deepEqual(pressed(marked), ['false', 'false', 'false']);
+  assert.match(marked, /<button class="tile [^"]*\bselected\b[^"]*"[^>]*data-hand-index="0"/);
+  assert.deepEqual(pressed(await hand({ confirmDiscards: true, picked: 0, selected: 1 })), ['false', 'true', 'false']);
 });
 
 test('tile entry names tiles in words and its buttons are plain buttons', async () => {

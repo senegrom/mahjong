@@ -590,6 +590,19 @@
     else discard(tile);
   }
 
+  // The confirmation's two buttons go as either is pressed. Where one of
+  // them had focus, the hand it answered for takes it, rather than the page,
+  // with the keys on or off and on a touch screen too: nothing else is left
+  // to hold it.
+  async function confirmation(act) {
+    const held = Boolean(document.activeElement?.closest?.('.confirm-discard'));
+    act();
+    if (!held) return;
+    await tick();
+    const active = document.activeElement;
+    if (!active || active === document.body) handElement?.focus({ preventScroll: true });
+  }
+
   function syncHandFocus(event) {
     const tile = event.target.closest('[data-hand-index]');
     const index = tile ? Number(tile.dataset.handIndex) : null;
@@ -991,7 +1004,8 @@
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
               loadNote={waitingNote(loadNote, offline)} onclub={downloadWait ? playClubMeanwhile : null}
               {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
-              {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
+              {selectedTile} {callChoices} {choose} discard={tile => confirmation(() => discard(tile))}
+              oncancel={() => confirmation(() => { selected = null; })} />
           {/if}
         </section>
       {/snippet}
