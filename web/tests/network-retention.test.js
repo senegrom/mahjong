@@ -36,6 +36,8 @@ async function store(cache, m) {
     'Content-Length': String(m.expect.bytes), 'X-Mahjong-SHA256': m.expect.sha256 } }));
 }
 const prune = (m, options = {}) => pruneNetworkCache({ scope, ...m, ...options });
+// As the worker prunes after a page has saved the model and named its pick.
+const saved = (m, options = {}) => prune(m, { saved: true, ...options });
 
 // These tests use the actual transfer/verification code and actual Response
 // bodies. Retention reads the record a verified write leaves; bytes handed
@@ -54,17 +56,70 @@ test('scope-owned caches retain only the current and previous activated models',
   assert.ok(await cache.match(model(5).url));
 });
 
-test('every listed model is kept, whatever was saved after it', async t => {
+test('a model the player picked is kept while it is listed, whatever was saved after it; a former default nobody picked goes', async t => {
   const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
-  const listed = [model(1).url, model(2).url];
-  for (const n of [1, 2, 3, 4]) { await store(cache, model(n)); await prune(model(n), { listed }); }
-  const held = (await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/'));
-  // 3 is the previous model, 4 the current one, and 1 and 2 are listed.
-  assert.deepEqual(held.sort(), [1, 2, 3, 4].map(n => model(n).url));
-  // Once no longer listed, an old model goes like any other.
-  await store(cache, model(5)); await prune(model(5));
+  const held = async () => (await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/')).sort();
+  // The build lists five, its default first. 1 and 2 were picked; 3 and 4
+  // were each the default once, and nobody picked them.
+  const listed = [5, 1, 2, 3, 4].map(n => model(n).url);
+  for (const n of [1, 2, 3, 4, 5]) { await store(cache, model(n)); await saved(model(n), { listed, picked: n < 3 }); }
+  // 5 is the current model, 4 the one before it, and 1 and 2 are picks.
+  assert.deepEqual(await held(), [1, 2, 4, 5].map(n => model(n).url));
+  const record = await (await cache.match(new URL('__network_retention__', scope).href)).json();
+  assert.deepEqual(record, { current: model(5).url, previous: model(4).url, picked: [model(1).url, model(2).url] });
+  // A pick the site no longer lists goes like any other model.
+  await store(cache, model(6)); await saved(model(6), { listed: [model(6).url, model(2).url] });
+  assert.deepEqual(await held(), [2, 5, 6].map(n => model(n).url));
+});
+
+test('the default is kept though the player picks one model after another', async t => {
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
+  const listed = [9, 1, 2, 3].map(n => model(n).url);
+  await store(cache, model(9)); await saved(model(9), { listed });
+  for (const n of [1, 2, 3]) { await store(cache, model(n)); await saved(model(n), { listed, picked: true }); }
+  // Neither current nor previous by now: a player who goes back to picking
+  // nothing would otherwise fetch its 117 MB again.
+  assert.ok(await cache.match(model(9).url));
+  for (const n of [1, 2, 3]) assert.ok(await cache.match(model(n).url), `pick ${n}`);
+});
+
+test('a record from before picks were remembered has none, and one that cannot be read deletes nothing', async t => {
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
+  const key = new URL('__network_retention__', scope).href, listed = [4, 1, 2, 3].map(n => model(n).url);
+  for (const n of [1, 2, 3, 4]) await store(cache, model(n));
+  // As the worker before this one wrote it: every listed model was kept then.
+  await cache.put(key, new Response(JSON.stringify({ current: model(3).url, previous: model(2).url })));
+  assert.equal(await saved(model(4), { listed }), true);
   assert.deepEqual((await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/')).sort(),
-    [model(4).url, model(5).url]);
+    [model(3).url, model(4).url]);
+  assert.deepEqual((await (await cache.match(key)).json()).picked, []);
+  for (const picked of ['all', [7], { 0: model(1).url }]) {
+    await store(cache, model(1));
+    await cache.put(key, new Response(JSON.stringify({ current: model(4).url, previous: model(3).url, picked })));
+    await store(cache, model(5));
+    assert.equal(await saved(model(5), { listed: [model(5).url] }), false, JSON.stringify(picked));
+    assert.ok(await cache.match(model(1).url));
+  }
+});
+
+test('at activation nothing the build lists goes: the page about to load may play any of it', async t => {
+  const caches = cacheStorageFixture(t), cache = await caches.open(networkCacheName(scope));
+  const key = new URL('__network_retention__', scope).href, listed = [3, 2, 1].map(n => model(n).url);
+  const held = async () => (await cache.keys()).map(k => k.url).filter(url => url.startsWith('https://models.invalid/')).sort();
+  for (const n of [0, 1, 2, 3]) await store(cache, model(n));
+  // A player picked 1 when it was already saved: the page saved nothing, the
+  // worker was told nothing, and the record of the worker before this one
+  // names the default and the one before it.
+  await cache.put(key, new Response(JSON.stringify({ current: model(3).url, previous: model(2).url })));
+  // The new worker activates, perhaps on a plane. What the build no longer
+  // lists goes, as it always did; 1, which the page then plays, stays.
+  assert.equal(await prune(model(3), { listed }), true);
+  assert.deepEqual(await held(), [1, 2, 3].map(n => model(n).url));
+  // A page that saves a network names its pick, and only then is a listed
+  // network nobody picked let go.
+  await store(cache, model(4));
+  assert.equal(await saved(model(4), { listed: [model(4).url, ...listed] }), true);
+  assert.deepEqual(await held(), [3, 4].map(n => model(n).url));
 });
 
 test('the first activation can precede the optional model download', async t => {

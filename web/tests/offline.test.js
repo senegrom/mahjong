@@ -482,10 +482,11 @@ test('a build that lists several networks reports on the one the page plays, and
   for (const listed of w.config.networks) assert.equal(w.counts.has(externalUrl(listed)), false, 'the worker fetched no network');
 });
 
-test('the worker never deletes a network its build lists, though others were saved after it', async () => {
+test('the worker never deletes a network the player picked while its build lists it, though others were saved after it', async () => {
   // Saved in turn, the first is neither the current network nor the one
   // before it by the time the third is saved, which alone would cost it its
-  // bytes; a player who picked it would have to download it again.
+  // bytes; a player who picked it would have to download it again. The
+  // worker remembers each pick a page names when it has saved it.
   const listed = [['g900', 900], ['g810', 810], ['g410', 410]];
   const w = listingWorker(listed);
   await w.install(); await w.activate(); await download(w);
@@ -495,8 +496,8 @@ test('the worker never deletes a network its build lists, though others were sav
     assert.equal((await status(w, `0.1.${generation}`)).aiReady, true);
   }
   // The next build lists a newer default and one of these. Until its page
-  // saves that default nothing goes; then what it no longer lists does,
-  // except the network current before.
+  // saves that default nothing goes; then the pick it no longer lists does,
+  // and the network current before stays.
   const next = listingWorker([['g1000', 1000], ['g810', 810]], { files: { ...bodies, 'app.js': 'next UI' }, caches: w.caches });
   await next.install(); await next.activate();
   for (const [body, generation] of listed) assert.equal(await kept(w, body, generation), true, `0.1.${generation} before`);
@@ -504,6 +505,31 @@ test('the worker never deletes a network its build lists, though others were sav
   await pageSaves(next, 'g1000');
   assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]
     .map(([body, generation]) => kept(next, body, generation))), [true, true, true, false]);
+});
+
+test('a former default nobody picked goes once two newer networks are saved, though the build still lists it', async () => {
+  // Three builds, each with a newer default, played by a player who picks
+  // nothing. Every build goes on listing the earlier defaults for a player
+  // to pick, and the worker kept each one for as long: 117 MB apiece.
+  const builds = [[['g810', 810], ['g410', 410]], [['g900', 900], ['g810', 810], ['g410', 410]],
+    [['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]];
+  let w, caches;
+  for (const [index, listed] of builds.entries()) {
+    w = listingWorker(listed, { files: { ...bodies, 'app.js': `UI ${index}` }, ...(caches && { caches }) });
+    caches = w.caches;
+    await w.install(); await w.activate(); await download(w);
+    await pageSaves(w, listed[0][0]);
+  }
+  assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810]].map(([body, generation]) => kept(w, body, generation))),
+    [true, true, false], 'the current network and the one before it');
+  // It is still there to pick, and a page that plays it saves it again.
+  assert.equal((await status(w, '0.1.810')).aiReady, false);
+  assert.equal(await pageSaves(w, 'g810', undefined, '0.1.810'), 1);
+  // Picked, it stays whatever is saved after it; the default stays too.
+  assert.equal(await pageSaves(w, 'g410', undefined, '0.1.410'), 1);
+  assert.equal(await pageSaves(w, 'g900', undefined, '0.1.900'), 1);
+  assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]
+    .map(([body, generation]) => kept(w, body, generation))), [true, true, true, true]);
 });
 
 test('a waiting update answers for the network its own list gives the player\'s pick', async () => {

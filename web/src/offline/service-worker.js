@@ -115,14 +115,18 @@ async function prepare(group, progress = () => {}, version) {
   await task;
   return status(version);
 }
-/** The active worker keeps every network its build lists, which its pages
- * may play, the network a page has just saved (at activation, the default)
- * and the one current before it; a waiting or installing update prevents any
- * deletion. */
-async function pruneNetworks(version) {
+/** After a page has saved its network (`saved`), the active worker keeps
+ * that network, the one current before it, its build's default and every
+ * network the player picked while the build lists it. A pick is a listed
+ * version a page names other than the default, which a page plays without
+ * naming one. At activation no page has spoken: the default becomes current
+ * where it is stored, and nothing this build lists is deleted. A waiting or
+ * installing update prevents any deletion. */
+async function pruneNetworks(version, saved = false) {
   const network = networkFor(version);
   await networkTransfer.pruneNetworkCache({
     scope: networkScope, url: networkUrl(network), expect: network, listed: CONFIG.networks.map(networkUrl),
+    saved, picked: network.version === version && network !== CONFIG.networks[0],
     canPrune: () => !self.registration.installing && !self.registration.waiting,
   });
 }
@@ -152,7 +156,8 @@ self.addEventListener('activate', event => {
     // Nothing is downloaded here either. The default network, when the page
     // saved it while this version waited, becomes current; one not yet saved
     // leaves the retention record, and the previous version's recoverable
-    // bytes, untouched. No network this build lists is deleted.
+    // bytes, untouched. No network this build lists is deleted here: only
+    // after a page has saved one and named its pick (pruneNetworks).
     await pruneNetworks();
     await pruneObsoleteContent();
     await self.clients.claim();
@@ -169,7 +174,7 @@ self.addEventListener('message', event => {
   const version = typeof event.data.version === 'string' ? event.data.version : undefined;
   const work = (async () => {
     if (event.data.type === 'MAHJONG_STATUS') return status(version);
-    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version); return status(version); }
+    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version, true); return status(version); }
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
       // Remembered across upgrades: later versions' pages save their own
       // network for a player who once asked for Trained offline.

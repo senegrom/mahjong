@@ -124,13 +124,24 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
 
 /** Called by the active worker only: at activation, after the previous worker
  * has released its clients, and after its own page has saved this model.
- * Keep this model, the previous activated model and every model at an
- * address in `listed`: the networks the worker's build lists, any of which
- * its pages may play, so a network a player picked is never deleted because
- * another was saved after it. Installation, waiting workers and failed
- * replacement downloads never trigger deletion. canPrune is checked again
- * before each delete in case an update starts. */
-export async function pruneNetworkCache({ scope, url, expect, listed = [], canPrune = () => true }) {
+ * `listed` are the addresses the worker's build lists, its default first.
+ *
+ * After a page has saved this model (`saved`), keep it, the previous
+ * activated model, the build's default and the models the player picked.
+ * `picked` says that this one is a pick, and the record remembers each for as
+ * long as the build lists it, so a network a player picked is never deleted
+ * because another was saved after it, and a player who picks nothing finds
+ * the default still there. A former default that nobody picked goes once two
+ * newer models are saved, though the site still lists it; it used to stay for
+ * as long as it was listed, 117 MB for each default a player had ever had.
+ *
+ * At activation no page has spoken, and nothing the build lists goes: the
+ * page about to load may play any of them, perhaps offline, and a pick made
+ * before picks were remembered, of a network already saved, left no trace in
+ * the record. Installation, waiting workers and failed replacement downloads
+ * never trigger deletion. canPrune is checked again before each delete in
+ * case an update starts. */
+export async function pruneNetworkCache({ scope, url, expect, listed = [], saved = false, picked = false, canPrune = () => true }) {
   if (!scope || !canPrune()) return false;
   validateNetwork(expect);
   const cache = await networkCache(scope);
@@ -139,8 +150,10 @@ export async function pruneNetworkCache({ scope, url, expect, listed = [], canPr
   try {
     const held = await cache.match(key);
     const old = held ? await held.json() : null;
+    // A record written before picks were remembered has none.
     if (old && (typeof old.current !== 'string'
-      || (old.previous != null && typeof old.previous !== 'string'))) return false;
+      || (old.previous != null && typeof old.previous !== 'string')
+      || (old.picked != null && !(Array.isArray(old.picked) && old.picked.every(pick => typeof pick === 'string'))))) return false;
     if (!await recorded(cache, url, expect)) {
       // Activation precedes the optional download. Remember a first
       // identity so it can become the rollback model on the next upgrade.
@@ -149,9 +162,10 @@ export async function pruneNetworkCache({ scope, url, expect, listed = [], canPr
       return false;
     }
     const previous = old?.current === url ? old.previous : old?.current;
-    const keep = new Set([key, url, previous, ...listed].filter(Boolean));
+    const picks = [...new Set([...(old?.picked ?? []), ...(saved && picked ? [url] : [])])].filter(pick => listed.includes(pick));
+    const keep = new Set([key, url, previous, ...(saved ? [listed[0], ...picks] : listed)].filter(Boolean));
     if (!canPrune()) return false;
-    await cache.put(key, new Response(JSON.stringify({ current: url, previous: previous ?? null }), {
+    await cache.put(key, new Response(JSON.stringify({ current: url, previous: previous ?? null, picked: picks }), {
       headers: { 'Content-Type': 'application/json' },
     }));
     for (const entry of await cache.keys()) {

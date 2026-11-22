@@ -74,11 +74,18 @@ them all. A page plays one, the one picked (or the default), for as long as
 it is open: picking another reloads the page. That network alone is what
 the page asks for, checks against its own size and SHA-256, saves and runs,
 and every message to the worker names the pick, so the worker reports
-whether that network is saved, never another. The worker deletes no network
-its build lists: a player who goes back to a network saved earlier finds it
-still saved, at the cost of keeping each one picked (about 117 MB apiece).
-A network the site stops listing goes the way an older version's does: it
-is kept only while it is the one saved before the current one.
+whether that network is saved, never another. The worker keeps the network
+saved last, the one saved before it, its build's default, and every network
+the player picked for as long as the build lists it, which it remembers in
+its retention record: a player who goes back to a network picked earlier
+finds it still saved, at the cost of keeping each one picked (about 117 MB
+apiece). A former default that the player never picked is not kept for being
+listed: it goes once two newer networks are saved, and is downloaded again
+if it is ever picked. Listed networks go only after a page has saved one,
+never when a new version first starts, so an update takes nothing away on a
+plane. A network the site stops listing goes the way an older
+version's does: it is kept only while it is the one saved before the current
+one.
 
 Loading the network into the opponent's worker is its own phase. The worker is
 asked only once the page has the network in hand, so the two never fetch it

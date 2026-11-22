@@ -297,8 +297,18 @@ Normal waiting-worker activation is retained: there is no forced mid-match
 upgrade.
 
 Only the active worker prunes: at activation and after its page has saved its
-network. Every model its build lists, and the current and previous model
-URLs, are retained; older scoped entries are removed. A network that is not
+network. At activation no page has spoken, and only what the build no longer
+lists is removed, as before: the page about to load may play any listed
+network, perhaps offline, and a pick made before picks were remembered left
+no trace in the record. After a page's save, the current and previous model
+URLs, the build's default and the
+models the player picked are retained; older scoped entries are removed. A
+pick is a listed version a page names with its message, other than the
+default, and the retention record (`__network_retention__`, beside the
+networks) remembers each one saved, as `picked`, for as long as the build
+lists it; a record written before picks were remembered has none. A former
+default nobody picked is therefore removed once two newer networks are
+saved, though the site still lists it. A network that is not
 yet stored, a waiting/installing worker, or an unreadable retention record
 prevents pruning.
 

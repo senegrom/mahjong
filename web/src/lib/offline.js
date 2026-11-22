@@ -439,8 +439,8 @@ async function saveTrained(handOver, live) {
     // No worker here to keep a runtime: the start says why, and play goes on
     // online. Nor is there anything to tell a worker that found both saved.
     if (!info || (stored && info.aiReady)) { trainedSays(null); return info; }
-    // The worker now keeps this network, the one saved before it and those
-    // its build lists, and no other.
+    // The worker now keeps this network, the one saved before it, its
+    // default and those the player picked, and no other.
     const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
     trainedSays(null, '', { ...verified, progress: 100 });
     void persistentStorage();
