@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
-import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
-import { heldSafeCount, callTiles, callLabel, partedNote, unseenTileCounts, waitIsDownload, waitingNote } from '../src/lib/ui.js';
+import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents, standInFor, tableAfterStandIn, trainedAtHand } from '../src/lib/opponents.js';
+import { heldSafeCount, callTiles, callLabel, partedNote, startupWords, unseenTileCounts, waitIsDownload, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
 import { average, swapMoves } from '../src/lib/suits.js';
 import { DAMA, DECLINE, RULE_REFUSED } from '../src/lib/trained-move.js';
@@ -110,6 +110,110 @@ test('continue with Club changes the engine in place and survives restoration', 
   assert.equal(match.engine, engine); assert.equal(engine.external, false); assert.equal(match.difficulty, 'club');
   const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()));
   assert.equal(restored.difficulty, 'club'); assert.equal(restored.stateKey(), match.stateKey()); match.dispose(); restored.dispose();
+});
+
+test('Club meanwhile drops the question a Trained opponent waits on, and the same run goes on with Club, recorded once', async () => {
+  // An answer that does not come, as while the network downloads: the
+  // question ends only as its signal does, the way the page's request does.
+  const asked = deferred(), saves = [];
+  const match = new MatchSession(FakeGame, 1, 'neural', { onSave: save => saves.push(save.commands),
+    ai: (_planes, _mask, signal) => new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Match changed', 'AbortError')));
+      asked.resolve(signal);
+    }) });
+  try {
+    const run = match.run(), signal = await asked.promise;
+    assert.equal(match.thinking, true);
+    assert.equal(match.clubMeanwhile(), true);
+    assert.equal(match.clubMeanwhile(), false, 'asked for once');
+    assert.equal(signal.aborted, true, 'the question is dropped');
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'club' }]);
+    assert.deepEqual(saves, [[], [{ type: 'club' }]]);
+    assert.deepEqual([match.difficulty, match.stoodIn, match.failure, match.busy, match.thinking], ['club', true, '', false, false]);
+    assert.deepEqual([match.engine.external, match.engine.applied], [false, 0]);
+    assert.equal(match.abort.signal.aborted, false, 'the match is not closed by it');
+    // It restores as any match continued with Club does, asking nobody.
+    const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()), { ai() { throw new Error('Club needs no network'); } });
+    try { assert.deepEqual([restored.difficulty, restored.stateKey()], ['club', match.stateKey()]); } finally { restored.dispose(); }
+    // The player's own moves go on as against Club.
+    assert.equal(await match.choose({ kind: 'discard', tile: '1m' }), true);
+    assert.equal(match.clubMeanwhile(), false, 'nobody is awaited');
+  } finally { match.dispose(); }
+});
+
+test('Club meanwhile lets go of an answer that came as it was asked for, and is not taken where nobody is awaited', async () => {
+  // The network answers after all, its request deaf to the signal: the
+  // answer is not played, and Club takes the seat.
+  const answer = deferred();
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: () => answer.promise });
+  try {
+    const run = match.run();
+    assert.equal(match.clubMeanwhile(), true);
+    answer.resolve(sure(0));
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'club' }]);
+    assert.equal(match.engine.applied, 0);
+  } finally { match.dispose(); }
+  // Against Club, at the player's own turn, after a failure and once closed,
+  // there is nothing to stand in for: recovery has its own command.
+  const club = new MatchSession(FakeGame, 1, 'club');
+  await club.run();
+  assert.equal(club.clubMeanwhile(), false);
+  club.dispose();
+  const failed = new MatchSession(FakeGame, 1, 'neural', { ai: async () => { throw new Error('offline'); } });
+  await failed.run();
+  assert.deepEqual([failed.needsRecovery, failed.clubMeanwhile(), failed.stoodIn], [true, false, false]);
+  await failed.continueWithClub();
+  assert.deepEqual([failed.difficulty, failed.stoodIn], ['club', false], 'Club after a failure is no stand-in');
+  failed.dispose();
+  assert.equal(failed.clubMeanwhile(), false);
+  // A match closed while it waits is closed, whatever was asked of it.
+  const pending = deferred(), closing = new MatchSession(FakeGame, 1, 'neural', { ai: () => pending.promise });
+  const running = closing.run();
+  assert.equal(closing.clubMeanwhile(), true);
+  closing.dispose();
+  pending.reject(new DOMException('Match changed', 'AbortError'));
+  assert.equal(await running, false);
+  assert.deepEqual([closing.commands, closing.failure], [[], '']);
+});
+
+test("a stand-in is Club where the player's own table says Trained, and nothing else", () => {
+  const trained = ['neural', 'neural', 'neural'], club = ['club', 'club', 'club'];
+  assert.deepEqual(standInFor(trained, club), trained);
+  assert.notEqual(standInFor(trained, club), trained, 'a copy');
+  // A mixed table: only its Trained seats are stood in for.
+  assert.deepEqual(standInFor(['neural', 'club', 'beginner'], ['club', 'club', 'beginner']), ['neural', 'club', 'beginner']);
+  assert.deepEqual(standInFor(trained, ['club', 'neural', 'club']), trained, 'a seat still Trained');
+  // The same table is no stand-in, and any other difference is the match's
+  // own table: Beginner for Trained, Trained for Club, Club for Beginner.
+  for (const [preferred, playing] of [[trained, trained], [club, club], [trained, ['beginner', 'beginner', 'beginner']], [club, trained],
+    [['beginner', 'neural', 'neural'], ['club', 'club', 'club']], [trained, ['club', 'club', 'beginner']], [trained, ['club', 'club']]]) {
+    assert.equal(standInFor(preferred, playing), null, `${preferred} against ${playing}`);
+  }
+});
+
+test('a new game keeps a stand-in until the trained network is at hand, then goes back to the table it stood in for', () => {
+  const chosen = ['neural', 'club', 'neural'];
+  assert.deepEqual(tableAfterStandIn(chosen, false), ['club', 'club', 'club']);
+  assert.deepEqual(tableAfterStandIn(['neural', 'beginner', 'neural'], false), ['club', 'beginner', 'club']);
+  assert.deepEqual(tableAfterStandIn(chosen, true), chosen);
+  // The stand-in still holds for the one, and no longer for the other.
+  assert.deepEqual(standInFor(chosen, tableAfterStandIn(chosen, false)), chosen);
+  assert.equal(standInFor(chosen, tableAfterStandIn(chosen, true)), null);
+  // At hand: saved on this device, whatever else is said of it.
+  assert.equal(trainedAtHand(false, { aiReady: true, supported: true, phase: 'ready' }), true);
+  // Not while it is only reachable, being fetched, or failed to save.
+  for (const offline of [{ aiReady: false, supported: true, phase: 'ai', progress: 60 }, { aiReady: false, supported: true, phase: 'ready' },
+    { aiReady: false, supported: true, phase: 'incomplete' }, { aiReady: false, supported: null, phase: 'checking' }, null]) {
+    assert.equal(trainedAtHand(true, offline), false, JSON.stringify(offline));
+  }
+  // A browser that cannot save it holds it in its worker alone: at hand once
+  // it can be reached and the worker is not in the middle of loading it.
+  const unsaved = { aiReady: false, supported: false, phase: 'unavailable' };
+  assert.equal(trainedAtHand(true, unsaved), true);
+  assert.equal(trainedAtHand(true, unsaved, 'downloading the network 40%'), false);
+  assert.equal(trainedAtHand(false, unsaved), false);
 });
 
 test('busy sessions ignore additional player choices', async () => {
@@ -590,6 +694,19 @@ test('a wait is a download while the page saves the network or its worker fetche
   for (const note of ['loading the network', 'starting the network', 'network ready', 'retrying the agent with more memory']) {
     assert.equal(waitIsDownload(note, { phase: 'ai', progress: 50 }), false, note);
   }
+});
+
+test('the start-up line says which of the two it still waits for: the tile graphics, or the engine once they are in', () => {
+  assert.equal(startupWords(null, false, false), 'Loading the game and selected tile graphics…');
+  assert.equal(startupWords({ done: 12, total: 37 }, false, false), 'Loading selected tile graphics… 12/37');
+  // The engine in first changes nothing: the graphics are what is waited for.
+  assert.equal(startupWords({ done: 12, total: 37 }, false, true), 'Loading selected tile graphics… 12/37');
+  assert.equal(startupWords(null, false, true), 'Loading the game and selected tile graphics…');
+  // The last graphic counted is not yet all of them in; once they are, and
+  // the engine is not, the line no longer reads 37/37.
+  assert.equal(startupWords({ done: 37, total: 37 }, false, false), 'Loading selected tile graphics… 37/37');
+  assert.equal(startupWords({ done: 37, total: 37 }, true, false), 'Loading the game engine…');
+  assert.equal(startupWords(null, true, false), 'Loading the game engine…', 'a face with nothing to fetch');
 });
 
 test('preferences are written when they change, not each time the effect reruns', () => {

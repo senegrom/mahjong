@@ -26,7 +26,9 @@ never receive it. Component-specific rules remain scoped.
 ## Startup and artwork
 
 Interactive startup waits for the engine and the selected face set (including its
-back, fallback and foil images). Full artwork/core caching continues independently
+back, fallback and foil images), and its line says which it still waits for: the
+graphics as they come in, and "Loading the game engine…" once they are all in
+and the engine is not. Full artwork/core caching continues independently
 through the service worker. A playable page does **not** imply the complete offline
 package is ready. `OfflineStatus` remains the authority for that separate claim.
 

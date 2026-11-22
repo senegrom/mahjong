@@ -29,3 +29,39 @@ export function opponentPreset(opponents) {
 export function sameOpponents(a, b) {
   return a.length === b.length && a.every((type, index) => type === b[index]);
 }
+
+// A stand-in: Club in a Trained opponent's seat for one match, taken by a
+// player who would rather play on than wait for the network to download
+// (Play's "Play Club meanwhile"). The match is Club's from then on, and the
+// page shows it so, but the table the player chose stays their preference,
+// so that the next game is against Trained once the network is there. The
+// stand-in ends when the player picks opponents themself. Nothing marks it in
+// what is saved: after a reload it is known by the two tables alone.
+
+/** The table a match stands in for, or null where it plays no stand-in:
+ * `preferred` is the table the player chose, as their preferences hold it,
+ * and `playing` the match's. They differ, and only where the player chose
+ * Trained and the match plays Club. Any other difference is the match's own
+ * table, which then becomes the preference, as it always did. */
+export function standInFor(preferred, playing) {
+  if (preferred.length !== playing.length || sameOpponents(preferred, playing)) return null;
+  return preferred.every((type, seat) => type === playing[seat] || (type === 'neural' && playing[seat] === 'club')) ? [...preferred] : null;
+}
+
+/** The table a new game is dealt with while a stand-in holds for `chosen`:
+ * that table once the trained network is at hand (trainedAtHand), and until
+ * then the stand-in again, Club in each of its Trained seats. */
+export function tableAfterStandIn(chosen, atHand) {
+  return chosen.map(type => (type === 'neural' && !atHand ? 'club' : type));
+}
+
+/** Whether a game against the trained network would begin without the wait
+ * a stand-in is taken for. The network is saved on this device (`offline`
+ * says aiReady); or, in a browser that cannot save it for offline play, it
+ * can be reached (`available`) and its worker is not in the middle of
+ * loading it (`loading`, the worker's own note): there it is held by the
+ * worker alone, and fetched only when a Trained opponent first asks. */
+export function trainedAtHand(available, offline, loading = '') {
+  if (offline?.aiReady) return true;
+  return offline?.supported === false && Boolean(available) && !loading;
+}

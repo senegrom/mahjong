@@ -153,6 +153,10 @@ export class MatchSession {
     this.thinking = false;
     this.failure = '';
     this.abort = new AbortController();
+    // Club asked for while a Trained opponent is awaited, and whether the
+    // match was given to Club that way (clubMeanwhile).
+    this.standIn = false;
+    this.stoodIn = false;
   }
 
   get view() { return this.engine.view(); }
@@ -328,10 +332,25 @@ export class MatchSession {
           require(moves++ < 400, 'The opponent sequence did not settle');
           this.thinking = true;
           this.notify();
-          const actions = await this.trainedMove();
+          let actions = null;
+          try { actions = await this.trainedMove(); }
+          catch (error) {
+            // Given to Club while it was asked (clubMeanwhile), the question
+            // was dropped: it did not fail.
+            if (this.closed || !this.standIn) throw error;
+          }
           if (this.closed) return false;
-          // A riichi and its tile are applied together, and saved once.
-          for (const action of actions) this.apply({ type: 'opponent', action });
+          if (this.standIn) {
+            // Club takes every Trained seat here, in the run that was
+            // waiting, as recovery's own command does after a failure. An
+            // answer that came just as it was asked for is let go unplayed.
+            this.standIn = false;
+            this.apply({ type: 'club' });
+            this.stoodIn = true;
+          } else {
+            // A riichi and its tile are applied together, and saved once.
+            for (const action of actions) this.apply({ type: 'opponent', action });
+          }
           this.advance();
           this.notify();
         }
@@ -341,6 +360,7 @@ export class MatchSession {
       if (!this.closed) this.failure = error?.message ?? String(error);
       return false;
     } finally {
+      this.standIn = false;
       // A reply/error from a disposed match must not touch its replacement.
       if (!this.closed) {
         this.busy = false;
@@ -348,6 +368,26 @@ export class MatchSession {
         this.notify();
       }
     }
+  }
+
+  /** Gives the match's Trained seats to Club while one of them is still
+   * asked, for a player who would rather play on than wait for the network
+   * to download: the question is dropped, unanswered, and the run that asked
+   * it goes on with Club, recording the same command as continueWithClub
+   * does once an opponent has failed. Nothing else is stopped, so whatever
+   * was fetching the network carries on. Answers whether it was taken: only
+   * a match waiting on a Trained opponent can be. `stoodIn` says afterwards
+   * that the match turned to Club this way, not after a failure, which the
+   * page reads to keep the player's own table as their preference (App). */
+  clubMeanwhile() {
+    if (this.closed || !this.thinking || this.standIn) return false;
+    this.standIn = true;
+    // The question ends as its signal does; later ones have a signal of
+    // their own, and the match's end stops whichever is current.
+    const asked = this.abort;
+    this.abort = new AbortController();
+    asked.abort();
+    return true;
   }
 
   /** The waiting Trained opponent's move, as Mortal's moves to apply in

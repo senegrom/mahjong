@@ -156,4 +156,8 @@ export interface TurnChoicesProps {
   selectedTile: Tile | null; callChoices: LegalChoice[];
   choose: (choice: LegalChoice) => void | Promise<void>;
   discard: (tile: Tile) => void; oncancel: () => void;
+  /** Gives this match's Trained seats to Club, offered as "Play Club
+   * meanwhile": given only while what a Trained opponent waits for is the
+   * network's download, and null otherwise (App). */
+  onclub?: (() => void) | null;
 }

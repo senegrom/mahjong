@@ -23,11 +23,13 @@
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, waitingNote } from './lib/ui.js';
+  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, startupWords,
+    waitIsDownload, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents, standInFor, tableAfterStandIn,
+    trainedAtHand } from './lib/opponents.js';
   import { MANIFEST, playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -42,10 +44,20 @@
   const requested = new URLSearchParams(location.search).get('opponents');
   const requestedMode = new URLSearchParams(location.search).get('mode');
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
-  let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
+  // The table the page opens with: the one its address asks for, or else the
+  // player's stored choice.
+  const preferredTable = normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty);
+  let opponents = $state([...preferredTable]);
   // The table as the settings name it: the one type when all three opponents
   // match, otherwise 'custom'. It follows the opponents, so the two agree.
   let difficulty = $derived(opponentPreset(opponents));
+  // The table this match's Club opponents stand in for, or null while it
+  // plays no stand-in (opponents.js). A player who would not wait for the
+  // trained network to download took Club meanwhile: the match is Club's and
+  // shows it, and this, the table they chose, stays their stored preference,
+  // for the next game to go back to once the network is at hand. It ends as
+  // the player picks opponents themself (start).
+  let returnTable = $state.raw(null);
   // Replaced by the current table each time the dialog opens.
   let draftOpponents = $state(normalizeOpponents(DEFAULT_OPPONENT));
   let customDialog = $state(null);
@@ -69,7 +81,7 @@
   let reviewFilter = $state(preferences.reviewFilter);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
-  let startupNote = $state('Loading the game and selected tile graphics…');
+  let startupNote = $state(startupWords(null, false, false));
   // A page plays one trained network, so its download is the only optional
   // one: readiness and availability are read straight from offline.
   let offline = $state(INITIAL_OFFLINE);
@@ -192,9 +204,13 @@
   // Stored when a preference changes, not whenever this effect reruns. A
   // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
-  const currentSettings = () =>
-    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, reviewFilter,
-      trainedNetwork });
+  const currentSettings = () => {
+    // While a stand-in holds, the preference is the table it stands in for,
+    // not the Club this one match plays.
+    const table = returnTable ?? opponents;
+    return { difficulty: opponentPreset(table), opponents: [...table], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove,
+      reviewHideTiles, reviewFilter, trainedNetwork };
+  };
   $effect(() => {
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
@@ -296,7 +312,13 @@
     recovery = owner.needsRecovery;
     // Every move updates the view. A fresh copy of an unchanged table would
     // rerun the preferences effect each time, over other tabs' changes.
-    if (!sameOpponents(opponents, owner.opponents)) opponents = [...owner.opponents];
+    if (!sameOpponents(opponents, owner.opponents)) {
+      // Given to Club while a Trained opponent was awaited, the match plays
+      // a stand-in, and the table it had stays the player's preference.
+      // Club taken after a failure is the player's new table, as before.
+      if (owner.stoodIn && !returnTable) returnTable = standInFor(opponents, owner.opponents);
+      opponents = [...owner.opponents];
+    }
     pendingOpponent = owner.pendingOpponent;
     standings = owner.over ? owner.engine.standings() : null;
     loggedHands = owner.engine.game_log_hands();
@@ -348,8 +370,14 @@
       if (saved) {
         try {
           session = MatchSession.restore(Game, saved, callbacks);
+          // Nothing saved marks a stand-in. A match that plays Club exactly
+          // where the player's own table says Trained is one, taken before
+          // the page was loaded again: the table stays their preference
+          // rather than being written over with the match's, and the
+          // network they wait for goes on being fetched.
+          returnTable = standInFor(preferredTable, session.opponents);
           update(session);
-          if (session.opponents.includes('neural')) downloadAi();
+          if (session.opponents.includes('neural') || returnTable) downloadAi();
           void session.run();
         } catch (error) {
           // Preserve the only saved copy until the user chooses New game.
@@ -380,9 +408,14 @@
     // Full-package caching has its own honest status. An unavailable unused
     // face set must not prevent a game with the selected graphics opening.
     void startOffline();
-    Promise.all([init(), preloadTiles((done, total) => {
-      if (mounted) startupNote = `Loading selected tile graphics… ${done}/${total}`;
-    }, { face: tileFace, signal: startup.signal })]).then(() => {
+    // The page waits for the engine and the selected tile graphics at once,
+    // and its line says which it still waits for (startupWords).
+    let tiles = null, drawn = false, engine = false;
+    const show = () => { if (mounted) startupNote = startupWords(tiles, drawn, engine); };
+    Promise.all([init().then(() => { engine = true; show(); }), preloadTiles((done, total) => {
+      tiles = { done, total };
+      show();
+    }, { face: tileFace, signal: startup.signal }).then(() => { drawn = true; show(); })]).then(() => {
       if (mounted && !startup.signal.aborted) ready = true;
     }).catch((error) => {
       if (mounted && !startup.signal.aborted) failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
@@ -471,8 +504,19 @@
     return true;
   }
 
-  function start(strength = opponents) {
+  // Deals a new match: at the table named, which is the player's own pick
+  // and ends a stand-in, or else at the table as it is. While a stand-in
+  // holds, that is the table it stands in for once the trained network is
+  // at hand, and until then the stand-in again, which goes on holding
+  // (opponents.js).
+  function start(strength = null) {
     if (saveConflict) return;
+    let table = strength ?? opponents;
+    if (strength) returnTable = null;
+    else if (returnTable) {
+      table = tableAfterStandIn(returnTable, trainedAtHand(trainedAvailable, offline, workerNote));
+      if (!standInFor(returnTable, table)) returnTable = null;
+    }
     session?.dispose();
     dropGameReview();
     matchStore.newMatch();
@@ -484,12 +528,12 @@
     standingsFocused = false;
     notice = '';
     loadNote = '';
-    session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
-    if (session.opponents.includes('neural')) downloadAi();
+    session = new MatchSession(Game, Date.now() % 2 ** 31, table, callbacks);
+    if (session.opponents.includes('neural') || returnTable) downloadAi();
     void session.run();
   }
 
-  function startFresh(strength = opponents) {
+  function startFresh(strength = null) {
     if (!ready || saveConflict) return false;
     if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return false;
     start(strength);
@@ -603,6 +647,28 @@
       if (tsumo) { event.preventDefault(); void choose(tsumo); }
     }
   }
+
+  // A Trained opponent's first move waits for the network, which on a first
+  // visit is a download of minutes on a slow link. While the wait is that
+  // download, and not the network starting or thinking, the turn's controls
+  // offer Club meanwhile (TurnChoices): this match's Trained seats are
+  // Club's from the press on, as after recovery's Continue with Club
+  // opponents, while the download carries on. Nothing is reset here, so the
+  // worker and whatever is fetching the network go on; the table the player
+  // chose stays their preference (update, returnTable).
+  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline));
+  let standInPressed = false;
+  function playClubMeanwhile() {
+    if (session?.clubMeanwhile()) standInPressed = true;
+  }
+  // Its button goes as the wait ends. Pressed, it had focus, which the hand
+  // takes rather than the page, with the keys on or off.
+  $effect(() => {
+    if (downloadWait || !standInPressed) return;
+    standInPressed = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) handElement?.focus({ preventScroll: true });
+  });
 
   function retryAi() { resetPolicy(); void session?.retry(); }
   function continueClub() { resetPolicy(); void session?.continueWithClub(); }
@@ -923,7 +989,8 @@
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-              loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
+              loadNote={waitingNote(loadNote, offline)} onclub={downloadWait ? playClubMeanwhile : null}
+              {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
               {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
           {/if}
         </section>

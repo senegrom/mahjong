@@ -242,6 +242,23 @@ downloading the trained network (108 MB)". Only the words are in the prompt's
 live region. How far the download has got stands beside them, outside it, so
 a screen reader hears the download once and not at every percent.
 
+While that wait is the download, and never while the network only starts or
+thinks, the turn's controls offer **Play Club meanwhile** under the prompt,
+what it does in its title. Pressed, this match's Trained opponents are Club's
+for the rest of the match, by the command **Continue with Club opponents**
+records after a failure, and the download carries on. The button goes, and
+focus goes on to the hand. The table shows Club, in its seats and in the
+Opponents select, but the table the player chose stays their stored choice: a
+stand-in is for one match. A new game goes back to the chosen table once the
+trained network is saved on the device (in a browser that cannot save it: once
+it can be reached and is not still loading), and until then keeps Club. The
+stand-in ends when the player picks opponents themself, in the select or the
+custom table, which is stored as any pick is. Nothing marks it in what is
+saved: after a reload the page knows it by the two tables alone, the match
+playing Club exactly where the stored choice says Trained, keeps both as they
+are, and goes on fetching the network. Club taken after a failure is not a
+stand-in: it becomes the stored table, as before.
+
 ### The hand's review
 
 **View table / my hand** on a hand's result opens the hand's review, **Your

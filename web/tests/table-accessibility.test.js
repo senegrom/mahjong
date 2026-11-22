@@ -152,6 +152,12 @@ test("the turn's prompt says its sentence alone, in a live region, and the hand'
   assert.deepEqual(prompt(await choices({ busy: true, myTurn: false, loadNote: 'left over 50%' })), ['Playing the turn…', '']);
   assert.deepEqual(prompt(await choices({ ...waiting, failure: 'offline', loadNote: 'downloading the network 50%' })),
     ['Choose a recovery option above to continue.', '']);
+  // Club meanwhile is offered only where App gives it, which is while the
+  // wait is a download; what it does is in its title, not on the table.
+  assert.doesNotMatch(download, /data-club-meanwhile/);
+  const offered = await choices({ ...waiting, loadNote: 'downloading the trained network (108 MB) 37%', onclub() {} });
+  assert.match(offered, /<button class="app-control[^"]*" data-club-meanwhile[^>]*title="Club plays the Trained opponents' seats for this match\. [^"]*"[^>]*>Play Club meanwhile<\/button>/);
+  assert.ok(offered.indexOf('id="hand-help"') < offered.indexOf('data-club-meanwhile'), 'after the prompt');
 });
 
 test("the custom table says in one line that opponents keep their type, and what each type plays in its option's title", async () => {

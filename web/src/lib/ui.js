@@ -1,6 +1,17 @@
 import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
 import { playedNetwork } from './trained-network.js';
 
+/** What the page says while it starts, which waits for two things at once:
+ * the engine and the selected face's tile graphics. `tiles` is how many of
+ * the graphics are in, `{ done, total }`, or null before the first; `drawn`
+ * says they all are, and `engine` that the engine is. On a slow link the
+ * graphics are often in first, and the line went on reading "37/37" for
+ * seconds while the engine was what was still loading: then it says so. */
+export function startupWords(tiles, drawn, engine) {
+  if (drawn && !engine) return 'Loading the game engine…';
+  return tiles ? `Loading selected tile graphics… ${tiles.done}/${tiles.total}` : 'Loading the game and selected tile graphics…';
+}
+
 /** A network's download in whole megabytes: what is fetched and kept
  * (storedBytes), or the network's own size where its listing gives no other. */
 const megabytes = network => Math.round((network.storedBytes ?? network.bytes) / 1e6);

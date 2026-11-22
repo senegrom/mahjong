@@ -9,7 +9,7 @@
   let {
     view, shownDora, busy, thinking, failure, saveConflict, loadNote,
     pendingOpponent, myTurn, confirmDiscards, shortcuts, touch,
-    selectedTile, callChoices, choose, discard, oncancel,
+    selectedTile, callChoices, choose, discard, oncancel, onclub = null,
   }: TurnChoicesProps = $props();
   // The discard a call is offered on, and the tile chosen while its discard
   // waits to be confirmed. Each has a panel that comes and goes with it.
@@ -59,6 +59,15 @@
      the hand takes focus: the keys, and nothing the prompt has just said. It
      is no live region, so a turn is not heard twice. -->
 <p id="hand-help" class="visually-hidden">{keys}</p>
+<!-- Offered by App only while what a Trained opponent waits for is the
+     network's download, never while it thinks. What it does is in its
+     title, to keep the words on the table few. -->
+{#if onclub}
+  <div class="meanwhile">
+    <button class="app-control" data-club-meanwhile onclick={onclub}
+      title="Club plays the Trained opponents' seats for this match. The download goes on, and your next game is against Trained.">Play Club meanwhile</button>
+  </div>
+{/if}
 {#if chosen}
   <div class="confirm-discard" data-moves>
     <span>Selected: {tileWords(chosen)}</span>

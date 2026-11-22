@@ -183,6 +183,59 @@ try {
     assert.deepEqual(page.problems, []);
   });
 
+  await check('Play Club meanwhile gives a table waiting for the download to Club for the match, and Trained stays the stored choice through a reload and a new game', async () => {
+    // The network's download is held open, so it is under way for as long as
+    // this check runs, after the reload too.
+    const page = await open({ hold: true });
+    await page.waitForSelector('.board');
+    // East discards first; then, or at once, a Trained opponent waits, and
+    // while what it waits for is the download the table offers Club meanwhile.
+    const playable = '.hand button[data-hand-index]:not(:disabled), .call-options button:not(:disabled)';
+    await page.waitForFunction(() => document.querySelector('[data-club-meanwhile], .hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 });
+    if (!await page.$('[data-club-meanwhile]')) await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await page.waitForSelector('[data-club-meanwhile]', { timeout: 60000 });
+    assert.ok((await prompt(page)).includes(`downloading ${DOWNLOAD}`), 'the wait is the download');
+    const chosen = await settings(page);
+    assert.deepEqual([chosen.difficulty, chosen.opponents], ['neural', ['neural', 'neural', 'neural']]);
+    await page.screenshot({ path: resolve(output, 'trained-default-meanwhile.png'), fullPage: true });
+    await page.click('[data-club-meanwhile]');
+    await page.waitForFunction(playable => !document.querySelector('[data-club-meanwhile]') && document.querySelector(playable), { timeout: 45000 }, playable);
+    assert.equal(await page.$('.failure'), null, 'nothing failed, and nothing asks to be recovered');
+    // The match is Club's from here, and shows it; its Trained seats were
+    // given up by one recorded command, as after a failure.
+    assert.equal((await match(page)).commands.filter(command => command.type === 'club').length, 1);
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'club');
+    assert.deepEqual(await page.$$eval('.place .opponent-type', badges => badges.map(badge => badge.dataset.controller)), ['club', 'club', 'club']);
+    // The button went as it was pressed: the hand has focus, not the page.
+    assert.ok(await page.evaluate(() => document.querySelector('.hand').contains(document.activeElement)), 'focus goes on to the hand');
+    // The table the player chose is still what is stored.
+    assert.deepEqual(await settings(page), chosen);
+    const before = (await match(page)).commands.length;
+    await (await page.$('.call-options [data-choice=pass]') ?? await page.$('.hand button[data-hand-index]:not(:disabled)')).click();
+    await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, before);
+    assert.ok(!(await match(page)).commands.some(command => command.type === 'opponent'), 'no Trained move is played or waited for');
+    assert.deepEqual(await settings(page), chosen, 'nor does a move store the stand-in');
+    // Loaded again, nothing saved marks the stand-in: the match says Club and
+    // the stored choice Trained, and the page keeps both as they are.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(`${playable}, .screen`, { timeout: 60000 });
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'club');
+    assert.deepEqual(await settings(page), chosen);
+    // A new game while the network is still not saved keeps the stand-in.
+    page.on('dialog', dialog => void dialog.accept());
+    const seed = (await match(page)).seed;
+    await page.click('.restart');
+    await page.waitForFunction((key, seed) => JSON.parse(localStorage.getItem(key)).seed !== seed, {}, SAVE_KEY, seed);
+    assert.deepEqual((await match(page)).opponents, ['club', 'club', 'club']);
+    assert.deepEqual(await settings(page), chosen);
+    assert.equal(await page.$('.failure'), null);
+    // The player's own pick of opponents ends it, and is stored as any pick.
+    await page.select('select[aria-label="opponent strength"]', 'beginner');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).difficulty === 'beginner', {}, SETTINGS_KEY);
+    assert.deepEqual((await settings(page)).opponents, ['beginner', 'beginner', 'beginner']);
+    assert.deepEqual(page.problems, []);
+  });
+
   await check('settings saved before generation 810 meet Trained once and keep everything else', async () => {
     const page = await open({ saved: { [SETTINGS_KEY]: JSON.stringify({ ...previousDefaults, hints: false, tileFace: 'van-gogh' }) } });
     await page.waitForSelector('.board');
