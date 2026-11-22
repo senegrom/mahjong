@@ -185,9 +185,11 @@ try {
     // Every palette tile is a target of 44 px or more: nine to a row where
     // the entry has room for that, and five on a phone, where nine left 32
     // by 42, each suit as 1 to 5 over 6 to 9, then the winds and the dragons.
+    // A row is read from the layout (offsetTop): the tile under the pointer,
+    // the one just pressed, is drawn lifted.
     const cells = await page.$$eval(`${hand} .palette button`, buttons => buttons.map(button => {
       const box = button.getBoundingClientRect();
-      return { tile: button.dataset.tile, top: Math.round(box.top), width: box.width, height: box.height };
+      return { tile: button.dataset.tile, top: button.offsetTop, width: box.width, height: box.height };
     }));
     assert.deepEqual(cells.filter(cell => cell.width < 44 || cell.height < 44), [], 'no palette tile under 44 px');
     const row = tile => cells.filter(cell => cell.top === cells.find(other => other.tile === tile).top).map(cell => cell.tile).join(' ');
