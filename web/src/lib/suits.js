@@ -99,10 +99,3 @@ export async function averagedAnswers(ask, positions, signal) {
     return at < 0 ? answer : { ...answer, ...average(answer.weights, renamed[at].weights, positions[row].mask) };
   });
 }
-
-/** Trained AI's answer to one position, `{ planes, mask, renamed }`, asked
- * as averagedAnswers asks: `ask(planes, mask, signal)` is analyzePolicy. */
-export async function averagedAnswer(ask, position, signal) {
-  const [answer] = await averagedAnswers(async ([asked]) => [await ask(asked.planes, asked.mask, signal)], [position], signal);
-  return answer;
-}

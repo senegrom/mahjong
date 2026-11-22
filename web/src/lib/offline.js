@@ -66,7 +66,9 @@ export function watchOffline(listener) {
 function request(type, progress, target = worker) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
-    // The worker's longest job is a few megabytes of game or runtime.
+    // The worker's longest jobs are the runtime, 4 MB, and a repair of the
+    // game and tile pictures, about 7 MB at most. The deadline is the whole
+    // job's: the progress it reports does not extend it.
     const timer = setTimeout(() => finish(new Error('Offline preparation timed out. Please reconnect and retry.')), 180000);
     const finish = (error, value) => {
       clearTimeout(timer); channel.port1.close();

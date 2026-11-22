@@ -13,4 +13,3 @@ export async function analyzePolicy(_planes, mask, signal) {
   if (action < 0) throw new Error('The post-fixture decision has no ordinary legal move');
   return { action, weights: Array.from({ length: 46 }, (_, at) => Number(at === action)) };
 }
-export function chooseAction() { throw new Error('Only the followed seat is trained in this fixture'); }

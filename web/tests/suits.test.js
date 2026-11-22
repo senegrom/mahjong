@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GATE, MOVES, average, averagedAnswer, averagedAnswers, hesitates, swapMoves } from '../src/lib/suits.js';
+import { GATE, MOVES, average, averagedAnswers, hesitates, swapMoves } from '../src/lib/suits.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 
 const range = (from, to) => Array.from({ length: to - from }, (_, at) => from + at);
@@ -14,6 +14,10 @@ function meanOfLogits(plain, renamed, legal) {
   const total = raised.reduce((sum, value) => sum + value, 0);
   return { action: mean.findIndex((value, move) => legal[move] && value === best), weights: raised.map(value => value / total) };
 }
+/** One position asked by itself through `ask(planes, mask, signal)`, which
+ * is analyzePolicy: as trained-move.js asks an opponent's or an adviser's. */
+const askedAlone = async (ask, position, signal) =>
+  (await averagedAnswers(async ([asked]) => [await ask(asked.planes, asked.mask, signal)], [position], signal))[0];
 const close = (actual, expected, label) => actual.forEach((value, at) => assert.ok(Math.abs(value - expected[at]) < 1e-12,
   `${label}: move ${at} weighs ${value}, not ${expected[at]}`));
 
@@ -128,7 +132,7 @@ test('a question Trained AI hesitates over is asked again of the renamed game, i
   // Asked one at a time, the same.
   const single = asker(new Map([['first', plain], ['first renamed', renamed]]));
   const calls = [];
-  const answer = await averagedAnswer(async (planes, open, signal) => { calls.push([planes, Array.from(open), signal]); return (await single.ask([{ planes, mask: open }]))[0]; },
+  const answer = await askedAlone(async (planes, open, signal) => { calls.push([planes, Array.from(open), signal]); return (await single.ask([{ planes, mask: open }]))[0]; },
     positions[0], 'signal');
   assert.deepEqual(calls, [['first', Array.from(legal), 'signal'], ['first renamed', swapMoves(legal), 'signal']]);
   assert.deepEqual(answer, first);
@@ -137,7 +141,7 @@ test('a question Trained AI hesitates over is asked again of the renamed game, i
 test('a sure question is asked once, and a question stopped before the renamed game is asked reads nothing more', async () => {
   const legal = mask([0, 45]);
   const { requests, ask } = asker(new Map([['plain', { action: 0, weights: weightsOf({ 0: 0.9, 45: 0.1 }) }]]));
-  const answer = await averagedAnswer((planes, open) => ask([{ planes, mask: open }]).then(([one]) => one),
+  const answer = await askedAlone((planes, open) => ask([{ planes, mask: open }]).then(([one]) => one),
     { planes: 'plain', mask: legal, renamed: () => assert.fail('a sure question asks once') });
   assert.equal(answer.action, 0);
   assert.equal(requests.length, 1);
@@ -146,7 +150,7 @@ test('a sure question is asked once, and a question stopped before the renamed g
   // planes come from may be gone, so they are not read.
   const stop = new AbortController();
   const hesitant = { action: 0, weights: weightsOf({ 0: 0.5, 45: 0.5 }) };
-  await assert.rejects(averagedAnswer(async () => { stop.abort(); return hesitant; },
+  await assert.rejects(askedAlone(async () => { stop.abort(); return hesitant; },
     { planes: 'plain', mask: legal, renamed: () => assert.fail('read after the stop') }, stop.signal), { name: 'AbortError' });
 });
 

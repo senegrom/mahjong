@@ -31,9 +31,9 @@ function client(t, prepareNetwork) {
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     networkUrl: network => network.url, playedNetwork: () => ({ url: 'https://test.invalid/network' }),
     networkIsStored: async () => false, batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {},
-  }, ['chooseAction', 'resetPolicy']);
+  }, ['analyzePolicy', 'resetPolicy']);
   t.after(() => api.resetPolicy());
-  return { api, workers, ask: signal => api.chooseAction(new Float32Array(34), [1], signal, 1000) };
+  return { api, workers, ask: signal => api.analyzePolicy(new Float32Array(34), [1], signal) };
 }
 
 test('warm decisions do not recheck, hash or fetch offline model bytes', async t => {

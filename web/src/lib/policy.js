@@ -204,15 +204,13 @@ export async function modelIsAvailable() {
   } catch { return false; }
 }
 
-/** The network's best legal move for this position; it is never sampled.
- * The timeout bounds the decision from when the worker begins it, not the
- * load, nor its wait behind the worker's other requests. */
-export function chooseAction(planes, mask, signal, timeout = DECISION_MS) {
-  return requestPolicy(planes, mask, timeout, signal, false);
-}
-
+/** The network's answer for this position: its best legal move, which is
+ * never sampled, with its weights, its value and its belief. A Trained
+ * opponent plays that move and the advisers show the rest. The deadline
+ * bounds the decision from when the worker begins it, not the load, nor its
+ * wait behind the worker's other requests. */
 export function analyzePolicy(planes, mask, signal) {
-  return requestPolicy(planes, mask, DECISION_MS, signal, true);
+  return requestPolicy(planes, mask, DECISION_MS, signal);
 }
 
 /** The best legal move and weights of several positions, asked in one
@@ -231,10 +229,10 @@ function batchOnWasm(positions, signal) {
   const planes = new Float32Array(positions.length * width);
   positions.forEach((position, index) => planes.set(position.planes, index * width));
   const mask = positions.flatMap(position => Array.from(position.mask));
-  return requestPolicy(planes, mask, DECISION_MS * Math.ceil(positions.length / 4), signal, true, positions.length);
+  return requestPolicy(planes, mask, DECISION_MS * Math.ceil(positions.length / 4), signal, positions.length);
 }
 
-async function requestPolicy(planes, mask, timeout, signal, details, count) {
+async function requestPolicy(planes, mask, timeout, signal, count) {
   // Prepare once before any deadline starts. Cache eviction or a failed
   // persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
@@ -285,7 +283,7 @@ async function requestPolicy(planes, mask, timeout, signal, details, count) {
       const copy = planes.slice();
       const target = ensureWorker();
       const message = { id, url: networkUrl(playedNetwork()), runtimeBase: runtimeBase(),
-        scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
+        scope: new URL('./', document.baseURI).href, planes: copy, mask, details: true, memoryLimitMiB };
       if (count) message.count = count;
       const transfer = [copy.buffer];
       // A fresh worker is handed bytes storage refused rather than fetch them.

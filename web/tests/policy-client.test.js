@@ -16,7 +16,7 @@ const policy = globals => loadModule('policy.js', {
   networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
   // Batches stay on WebAssembly here; the graphics card's routing has tests of its own (webgpu.test.js).
   batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {}, ...globals,
-}, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+}, ['analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 test('a page that plays another listed network probes and asks for that one alone', async t => {
   const older = NETWORKS.find(network => network.version === '0.1.410');
@@ -31,7 +31,7 @@ test('a page that plays another listed network probes and asks for that one alon
   t.after(() => api.resetPolicy());
   assert.equal(await api.modelIsAvailable(), true);
   assert.deepEqual(probes, [[networkUrl(older), 'HEAD']]);
-  const move = api.chooseAction(new Float32Array(34), [1]);
+  const move = api.analyzePolicy(new Float32Array(34), [1]);
   await setImmediate();
   assert.equal(workers[0].messages[0].url, networkUrl(older));
   assert.notEqual(workers[0].messages[0].url, NETWORK_URL);
@@ -68,7 +68,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   const planes = () => new Float32Array(34);
   const mask = [1, 1];
 
-  const first = api.chooseAction(planes(), mask);
+  const first = api.analyzePolicy(planes(), mask);
   const firstResult = first.then(value => ({ value }), error => ({ error }));
   assert.deepEqual(downloads[0].args, [], 'one network: preparation names none');
   downloads[0].resolve();
@@ -83,7 +83,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   worker.answer(initial, { action: 1 });
   assert.deepEqual(await firstResult, { value: 1 });
 
-  const next = api.chooseAction(planes(), mask);
+  const next = api.analyzePolicy(planes(), mask);
   const analysis = api.analyzePolicy(planes(), mask);
   const results = Promise.all([next, analysis]);
   assert.equal(downloads.length, 1, 'warm decisions reuse preparation');
@@ -92,7 +92,8 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
   const [move, detailed] = worker.messages.slice(1);
   assert.equal(move.url, NETWORK_URL);
   assert.equal(detailed.url, NETWORK_URL);
-  assert.equal(move.details, false);
+  // A move and advice are one question: every answer is asked whole.
+  assert.equal(move.details, true);
   assert.equal(detailed.details, true);
   worker.answer(move, { action: 0 });
   worker.answer(detailed, { analysis: { action: 1, weights: [0.2, 0.8] } });
@@ -250,7 +251,7 @@ function loadingClient(t) {
   const api = policy({ Worker, setTimeout: (...args) => setTimeout(...args), clearTimeout: timer => clearTimeout(timer) });
   api.reportProgress(note => notes.push(note));
   t.after(() => api.resetPolicy());
-  const ask = signal => api.chooseAction(new Float32Array(34), [1, 1], signal);
+  const ask = signal => api.analyzePolicy(new Float32Array(34), [1, 1], signal);
   return { api, workers, notes, ask, silence: api.LOADING_SILENCE_MS };
 }
 
@@ -372,7 +373,7 @@ test('bytes offline storage refused are handed to the fresh worker once, not dow
   }
   const api = policy({ Worker, prepareNetwork: async () => ({ unstoredNetwork: bytes }) });
   t.after(() => api.resetPolicy());
-  const ask = () => api.chooseAction(new Float32Array(34), [1, 1]);
+  const ask = () => api.analyzePolicy(new Float32Array(34), [1, 1]);
   const first = ask(), second = ask();
   await setImmediate();
   const [worker] = workers, [one, two] = worker.messages;
@@ -409,7 +410,7 @@ test('a loaded network reports nothing more, so the table goes on saying who is 
   const notes = [];
   api.reportProgress(note => notes.push(note));
   t.after(() => api.resetPolicy());
-  const move = () => api.chooseAction(new Float32Array(34), Array.from({ length: 46 }, (_, i) => Number(i === 0 || i === 45)));
+  const move = async () => (await api.analyzePolicy(new Float32Array(34), Array.from({ length: 46 }, (_, i) => Number(i === 0 || i === 45)))).action;
   assert.equal(await move(), 45);
   assert.deepEqual(notes.splice(0), ['loading the network', 'starting the network', 'network ready'],
     'the first move shows the network loading');
@@ -489,7 +490,7 @@ function slowClient(t, { positionMs = 2400, runMs = request => (request.count ??
     tick: async ms => { t.mock.timers.tick(ms); await flush(); },
     // A Trained opponent's move, a question of the hand's notes, and a
     // review's batch of eight.
-    move: () => api.chooseAction(new Float32Array(34), [1, 1]),
+    move: () => api.analyzePolicy(new Float32Array(34), [1, 1]),
     note: () => api.analyzePolicy(new Float32Array(34), [1, 1]),
     batch: () => api.analyzeBatch(Array.from({ length: 8 }, position)),
   };

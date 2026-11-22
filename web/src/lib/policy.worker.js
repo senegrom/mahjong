@@ -8,8 +8,10 @@
  * here: an illegal answer is impossible because the mask decides what may be
  * picked.
  */
-// The plain WebAssembly build: the WebGPU one carries a runtime many
-// times larger, for a network this small to gain nothing from.
+// The plain WebAssembly build. Play asks one position at a time, which
+// gains nothing from a graphics card, and the WebGPU build's runtime is
+// 29.9 MB to this one's four. A review's batches do run on WebGPU, on
+// desktops, in a worker of their own (gpu-batch.worker.js).
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
 import { networkBytes } from './network-store.js';

@@ -19,10 +19,10 @@ async function cached(cache, entry) {
   return response?.headers.get('X-Mahjong-SHA256') === entry.hash
     && Number(response.headers.get('Content-Length')) === entry.bytes ? response : null;
 }
-// No fixed cap on a file: on a slow link, four 3 MB tiles share it for
-// minutes, and a file cut off at a fixed time is lost whole, on every
-// attempt. A file that keeps arriving goes on; one silent for a minute has
-// stalled.
+// No fixed cap on a file: four files at a time share the link, and on a
+// slow one the rules engine's 1.8 MB or the runtime's 4 MB take minutes. A
+// file cut off at a fixed time is lost whole, on every attempt. A file that
+// keeps arriving goes on; one silent for a minute has stalled.
 const IDLE_MS = 60000;
 const failure = url => (kind, detail) => kind === 'status' ? `Download failed: ${url} (HTTP ${detail})`
   : kind === 'timeout' ? `Download stalled: ${url}` : `Incomplete or outdated download: ${url}`;
