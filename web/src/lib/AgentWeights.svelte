@@ -6,8 +6,9 @@
   import { percent } from './ui.js';
   import { valueWords } from './trained-network.js';
   import { RULE_WORDS, ruleLine, ruleSaid } from './trained-move.js';
-  // With `onchoose` each row is a button, and `verb` is what pressing it does
-  // with the move: Play in Agent watch, Record in a guided game.
+  // With `onchoose(choice, press)` each row is a button, which hands on the
+  // move and its click, and `verb` is what pressing it does with the move:
+  // Play in Agent watch, Record in a guided game.
   let { analysis = null, onchoose = null, disabled = false, dora = [], verb = 'Play' } = $props();
   // What a row's button is called. A button's own name stands in place of all
   // that is drawn in it, so the name says what the row shows: the move, its
@@ -57,7 +58,7 @@
       {@const weight = conditional ? choice.conditionalWeight : choice.weight}
       <div class="weight-row" class:best={selected} data-choice={choice.label}>
         {#if onchoose}
-          <button class="choice-action" {disabled} onclick={() => onchoose(choice)} aria-label={rowName(choice, weight, conditional, selected)}>{@render rowContent(choice, weight, conditional)}</button>
+          <button class="choice-action" {disabled} onclick={press => onchoose(choice, press)} aria-label={rowName(choice, weight, conditional, selected)}>{@render rowContent(choice, weight, conditional)}</button>
         {:else}{@render rowContent(choice, weight, conditional)}{/if}
         <!-- The button's name has said it already. -->
         {#if selected}<span class="selected-label" aria-hidden={onchoose ? 'true' : undefined}>Agent choice</span>{/if}

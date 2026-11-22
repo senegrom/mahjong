@@ -293,6 +293,13 @@ copies are accounted for, and what was typed stays in the field to be
 corrected. At a draw, a discard, an indicator or a call the tile is the one
 on the table, so the line adds: "Undo back to the one entered by mistake."
 
+Each step draws the next prompt in place of the one that was pressed, and the
+control that had focus goes with it. Focus is handed on to the new prompt's
+heading, which says what the guide asks now and is what a screen reader reads
+next, rather than falling to the page; a refused step leaves it where it was
+pressed, beside the line that says why. Only a press by keyboard moves the
+page to show the heading, as at the standings ([UI reliability](UI_RELIABILITY.md)).
+
 **Someone won / hand ended** opens the result flow. Known results can use the
 Rust scorer after the missing winning-hand and indicator data are entered;
 the guide does not invent unseen winning hands or payments. Apply a validated

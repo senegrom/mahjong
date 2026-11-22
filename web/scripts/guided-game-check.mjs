@@ -65,16 +65,24 @@ async function club(page) {
   await page.select(adviser, 'club');
   await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.game.state.agent === 'club', {}, GUIDED_KEY);
 }
+/** Whether focus is on the prompt's heading, where each step hands it: the
+ * control that was pressed has gone with the prompt it was in. */
+const onHeading = page => page.evaluate(() => document.activeElement === document.querySelector('.guide-prompt h3'));
 async function setup(page, seat = '3') {
   await page.select('[aria-label="Your seat"]', seat);
   await page.click('.guide-prompt > .primary'); await stage(page, 'hand');
+  assert.equal(await onHeading(page), true, 'focus goes on to the starting hand\'s prompt');
   for (const t of parseTiles('123m456p789s1123z')) await tile(page, t);
   assert.equal(await page.$$eval('.guide-prompt .entered .tile', e => e.length), 13);
   await page.click('.guide-prompt > .primary'); await stage(page, 'dora');
   await tile(page, '7z'); await stage(page, 'turn');
+  assert.equal(await onHeading(page), true, 'and on to the first turn\'s');
 }
 async function passAndContinue(page) {
-  await choice(page); await page.click('.record-best'); await stage(page, 'responses');
+  await choice(page);
+  assert.equal(await onHeading(page), true, 'a discard entered, focus is on the advice\'s prompt');
+  await page.click('.record-best'); await stage(page, 'responses');
+  assert.equal(await onHeading(page), true, 'a move recorded, on the responses\' prompt');
   await page.click('.no-calls'); await stage(page, 'turn');
 }
 async function loadScoringFixture(page, riichi = false) {
@@ -169,7 +177,13 @@ try {
   });
   await check('a fifth copy typed into the starting hand is refused, and what was typed stays to be corrected', async context => {
     const page = await open(context);
-    await page.click('.guide-prompt > .primary'); await stage(page, 'hand');
+    // Pressed by keyboard, the step hands focus to the next prompt's heading
+    // and shows its ring there.
+    await page.focus('.guide-prompt > .primary'); await page.keyboard.press('Enter'); await stage(page, 'hand');
+    assert.deepEqual(await page.evaluate(() => {
+      const heading = document.querySelector('.guide-prompt h3');
+      return [document.activeElement === heading, heading.matches(':focus-visible'), heading.textContent];
+    }), [true, true, 'Choose your first 13 tiles']);
     const field = '[aria-label="Your starting hand in tile notation"]';
     const entered = () => page.$$eval('.guide-prompt .entered .tile', tiles => tiles.length);
     await page.type(field, '11111m'); await page.keyboard.press('Enter');

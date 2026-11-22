@@ -1,12 +1,12 @@
 <script>
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { analysisOf } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
-  import { waitingNote } from './ui.js';
+  import { land, pressedByKeyboard, waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
@@ -82,6 +82,26 @@
     try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
     catch (error) { failure = error.message ?? String(error); return false; }
   }
+  // The prompt's heading, which says what the guide asks now. Each step draws
+  // the next prompt in place of the one that was pressed, and the control that
+  // had focus goes with it: focus fell to the page, and nothing said what was
+  // asked next. So focus goes on to the new prompt's heading, as it goes to
+  // the standings' in Watch and Play (land). Only a keyboard's press moves
+  // the page to show it; a tap is shown no ring and the page stays put.
+  let promptHeading = $state(null);
+  async function arrive(press) {
+    const byKeyboard = pressedByKeyboard(press);
+    await tick();
+    if (!closed) land(promptHeading, byKeyboard);
+  }
+  /** One table event from a press: whether it was taken, and focus then on
+   * the prompt it leads to. A refused one leaves focus where it was pressed,
+   * beside the line that says why. */
+  function step(event, press) {
+    const taken = act(event);
+    if (taken) void arrive(press);
+    return taken;
+  }
   async function analyze(key = decisionKey()) {
     if (blocked || state.stage !== 'decision') return;
     request?.abort();
@@ -101,12 +121,12 @@
       if (request === owner) { busy = false; request = null; }
     }
   }
-  function choose(choice, confirm = true) {
+  function choose(choice, press, confirm = true) {
     const source = analysis, key = analyzedKey;
     if (blocked || !source || key !== decisionKey()) return;
     if (confirm && !window.confirm(`Record this physical move: ${choice.label}?`)) return;
     if (closed || blocked || source !== analysis || key !== decisionKey()) return;
-    act({ type: 'choice', choice, choices: JSON.parse(JSON.stringify(source.choices)) });
+    step({ type: 'choice', choice, choices: JSON.parse(JSON.stringify(source.choices)) }, press);
   }
   function undo() {
     if (!blocked) { game = undoGuided(snapshot()); failure = ''; }
@@ -117,10 +137,10 @@
       if (await loadedStore.save(emptyGuided(), { clearUnreadable: true })) await load();
     } else { game = emptyGuided(state.agent); failure = ''; }
   }
-  function finish() {
+  function finish(press) {
     const result = resultKind === 'Exhaustive draw' || resultKind === 'Other hand end' ? resultKind : `${WINDS[resultSeat]}: ${resultKind}`;
-    if (window.confirm(`Finish this hand: ${result}?`)) act({ type: 'finish', result,
-      kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat });
+    if (window.confirm(`Finish this hand: ${result}?`)) step({ type: 'finish', result,
+      kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat }, press);
   }
   onDestroy(() => { closed = true; request?.abort(); loadedStore?.close(); });
 </script>
@@ -145,14 +165,14 @@
           <HandTile {tile} size="small" dora={dora.includes(tile)} remaining={4 - counts.get(tile)} showRemaining={hints}
             drawn={tile === position.drawn && hand.lastIndexOf(tile) === i}
             selected={Boolean(analysis && ['discard', 'riichi'].includes(analysis.choice.kind) && analysis.choice.tile === tile)}
-            onclick={choice ? () => choose(choice) : null} />
+            onclick={choice ? (_, press) => choose(choice, press) : null} />
         {/each}</div>
         <Melds melds={viewMelds(mine)} {dora} />
       </div>
     {/if}
     <div class="guide-prompt" data-stage={state.stage}>
       {#if state.stage === 'setup'}
-        <p class="eyebrow">1 · Table setup</p><h3>Your points and seat?</h3>
+        <p class="eyebrow">1 · Table setup</p><h3 tabindex="-1" bind:this={promptHeading}>Your points and seat?</h3>
         <p>Start with your points and seat wind. Then enter your first 13 tiles and the dora indicator.</p>
         <div class="fields">
           <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { const seat = Number(e.currentTarget.value), players = s.position.players; [players[seat].score, players[s.position.seat].score] = [players[s.position.seat].score, players[seat].score]; s.position.seat = seat; })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
@@ -163,58 +183,58 @@
           {#each [['kyoku', 'Hand number', 1, 4], ['counters', 'Honba', 0, 100], ['riichi_sticks', 'Riichi sticks', 0, 100]] as [key, label, min, max] (key)}<label>{label}<input type="number" {min} {max} bind:value={() => position[key], value => edit(s => { s.position[key] = value ?? null; })} /></label>{/each}
           {#each position.players as player, i (i)}{#if i !== position.seat}<label>{WINDS[i]} points<input type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/if}{/each}
         </div></details>
-        <button class="primary" onclick={() => act({ type: 'setup' })}>Next · starting tiles</button>
+        <button class="primary" onclick={press => step({ type: 'setup' }, press)}>Next · starting tiles</button>
       {:else if state.stage === 'hand'}
-        <p class="eyebrow">2 · Starting hand</p><h3>Choose your first 13 tiles</h3>
+        <p class="eyebrow">2 · Starting hand</p><h3 tabindex="-1" bind:this={promptHeading}>Choose your first 13 tiles</h3>
         <p>Tap tiles below. Tap an entered tile to remove it. If you are East, enter the extra dealer tile at the draw prompt.</p>
         <TileEntry label="Your starting hand" tiles={mine.hand} limit={13} expanded onchange={tiles => edit(s => { s.position.players[s.position.seat].hand = tiles; })} />
-        <button class="primary" disabled={mine.hand.length !== 13} onclick={() => act({ type: 'hand' })}>Next · dora indicator</button>
+        <button class="primary" disabled={mine.hand.length !== 13} onclick={press => step({ type: 'hand' }, press)}>Next · dora indicator</button>
       {:else if state.stage === 'dora' || state.stage === 'indicator'}
-        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
+        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3 tabindex="-1" bind:this={promptHeading}>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
         <p>Enter the face-up indicator tile itself.</p>
-        <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={tile => act({ type: 'indicator', tile })} />
+        <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={(tile, press) => step({ type: 'indicator', tile }, press)} />
       {:else if state.stage === 'turn'}
-        <p class="eyebrow">{ownTurn ? 'Your turn' : `${WINDS[state.nextSeat]} · ${position.after_quad ? 'replacement draw' : state.needsDraw ? 'draw and discard' : 'discard after calling'}`}</p><h3>{inputPrompt}</h3>
+        <p class="eyebrow">{ownTurn ? 'Your turn' : `${WINDS[state.nextSeat]} · ${position.after_quad ? 'replacement draw' : state.needsDraw ? 'draw and discard' : 'discard after calling'}`}</p><h3 tabindex="-1" bind:this={promptHeading}>{inputPrompt}</h3>
         {#if ownTurn}<p>Enter the tile you actually drew. Your adviser will show the legal moves.</p>
         {:else}<p>{state.needsDraw ? 'Enter the discarded tile; the hidden draw is counted automatically.' : 'Enter the caller’s discard. No draw is counted.'}</p>
           <div class="flags"><label><input type="checkbox" bind:checked={discardRiichi} disabled={position.players[state.nextSeat].riichi !== 'none' || !state.needsDraw} /> Declares riichi</label><label><input type="checkbox" bind:checked={discardDrawn} disabled={!state.needsDraw} /> Discarded from the draw</label></div>
         {/if}
-        {#key `${state.stage}-${state.nextSeat}-${game.log.length}`}<TileEntry label={inputPrompt} expanded onadd={tile => act(ownTurn ? { type: 'draw', tile } : { type: 'discard', tile, riichi: discardRiichi, drawn: discardDrawn })} />{/key}
+        {#key `${state.stage}-${state.nextSeat}-${game.log.length}`}<TileEntry label={inputPrompt} expanded onadd={(tile, press) => step(ownTurn ? { type: 'draw', tile } : { type: 'discard', tile, riichi: discardRiichi, drawn: discardDrawn }, press)} />{/key}
         {#if !ownTurn && state.needsDraw}<details><summary>{WINDS[state.nextSeat]} declared a kan instead</summary>
           <label>Kan type<select bind:value={kanKind}><option value="concealed-kan">Concealed kan</option><option value="extended-kan">Added kan · extend a pon</option></select></label>
-          <TileEntry label={`${WINDS[state.nextSeat]} kan tile`} onadd={tile => act({ type: 'kan', kind: kanKind, tile })} />
+          <TileEntry label={`${WINDS[state.nextSeat]} kan tile`} onadd={(tile, press) => step({ type: 'kan', kind: kanKind, tile }, press)} />
         </details>{/if}
       {:else if state.stage === 'decision'}
-        <p class="eyebrow">Agent advice</p><h3>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
+        <p class="eyebrow">Agent advice</p><h3 tabindex="-1" bind:this={promptHeading}>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
         {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
         {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} verb="Record" disabled={busy || blocked} />
-          <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
-        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>
-          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={() => edit(s => { s.agent = 'club'; })}>Use Club as adviser</button>{/if}{/if}
+          <button class="primary record-best" onclick={press => choose(analysis.choice, press, false)}>Record suggested move</button>
+        {:else if !busy}<!-- Asking again takes these two buttons from the page as a step does. --><button onclick={press => { void analyze(); void arrive(press); }}>Retry advice</button>
+          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={press => { if (edit(s => { s.agent = 'club'; })) void arrive(press); }}>Use Club as adviser</button>{/if}{/if}
         <p>Record the move you play at the table. The hand, calls and discards update together.</p>
       {:else if state.stage === 'responses' || state.stage === 'claim-response'}
-        <p class="eyebrow">Other players’ responses</p><h3>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
+        <p class="eyebrow">Other players’ responses</p><h3 tabindex="-1" bind:this={promptHeading}>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
         {#if state.claim}<p>Ron takes precedence. Record a win below, or confirm that the set stands.{state.claim.kind === 'chii' ? ' A simultaneous pon or open kan also takes precedence over chii.' : ''}</p>{/if}
-        <button class="primary no-calls" onclick={() => act({ type: 'continue' })}>{state.claim ? 'No higher-priority calls · confirm set' : 'No other calls · continue'}</button>
+        <button class="primary no-calls" onclick={press => step({ type: 'continue' }, press)}>{state.claim ? 'No higher-priority calls · confirm set' : 'No other calls · continue'}</button>
         {#if !state.claim || state.claim.kind === 'chii'}<details><summary>{state.claim ? 'Record a simultaneous opponent pon or kan' : 'Record an opponent’s chii, pon or kan'}</summary><div class="fields">
           <label>Who called?<select aria-label="Who called?" bind:value={caller}><option value={-1}>Choose opponent</option>{#each candidates as candidate (candidate.seat)}<option value={candidate.seat}>{candidate.name}</option>{/each}</select></label>
           <label>Call<select aria-label="Opponent call" bind:value={callKind}><option value="pon">Pon</option><option value="chii" disabled={Boolean(state.claim)}>Chii</option><option value="kan">Open kan</option></select></label>
           {#if callKind === 'chii'}<label>Lowest tile in sequence<select aria-label="Lowest tile in sequence" bind:value={callTile}><option value="">Choose tile</option>{#each TILE_TYPES.filter(t => /^[1-7][mps]$/.test(t)) as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
-        </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={() => act({ type: 'call', seat: caller, kind: callKind, tile: callTile })}>Record opponent call</button></details>{/if}
+        </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={press => step({ type: 'call', seat: caller, kind: callKind, tile: callTile }, press)}>Record opponent call</button></details>{/if}
       {:else if state.stage === 'kan-response'}
-        <p class="eyebrow">Kan response</p><h3>Did anyone win by robbing the kan?</h3>
-        <button class="primary" onclick={() => act({ type: 'continue' })}>No ron · enter new indicator</button>
+        <p class="eyebrow">Kan response</p><h3 tabindex="-1" bind:this={promptHeading}>Did anyone win by robbing the kan?</h3>
+        <button class="primary" onclick={press => step({ type: 'continue' }, press)}>No ron · enter new indicator</button>
         <p>If someone won, record the hand result below.</p>
       {:else if state.stage === 'over'}
-        <p class="eyebrow">Hand complete</p><h3>{state.result || 'Hand finished'}</h3>
+        <p class="eyebrow">Hand complete</p><h3 tabindex="-1" bind:this={promptHeading}>{state.result || 'Hand finished'}</h3>
         {#if state.ending && state.ending.kind !== 'manual'}
-          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={input => act({ type: 'settle', input })} onnext={repeat => act({ type: 'next-hand', repeat })} />{/key}
+          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={(input, press) => step({ type: 'settle', input }, press)} onnext={(repeat, press) => step({ type: 'next-hand', repeat }, press)} />{/key}
         {:else}
           <p>This is a legacy or manually adjudicated hand end. Automatic scoring has not been applied.</p>
         <p>Settle points at the physical table, then enter the resulting scores and remaining riichi sticks.</p>
         <div class="fields">{#each position.players as player, i (i)}<label>{WINDS[i]} points<input aria-label={`${WINDS[i]} settled points`} type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/each}
           <label>Riichi sticks remaining<input aria-label="Riichi sticks remaining" type="number" min="0" max="100" bind:value={() => position.riichi_sticks, value => edit(s => { s.position.riichi_sticks = value ?? null; })} /></label>
-        </div><div class="buttons"><button class="primary" onclick={() => act({ type: 'next-hand', repeat: false })}>Next hand · dealer moves</button><button onclick={() => act({ type: 'next-hand', repeat: true })}>Next hand · dealer repeats</button></div>
+        </div><div class="buttons"><button class="primary" onclick={press => step({ type: 'next-hand', repeat: false }, press)}>Next hand · dealer moves</button><button onclick={press => step({ type: 'next-hand', repeat: true }, press)}>Next hand · dealer repeats</button></div>
         {/if}
       {/if}
       {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
@@ -237,6 +257,16 @@
   .guided-controls { border: 0; margin: 0; padding: 0; }
   .guided-heading, .buttons, .guide-meta, .hand-caption { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
   h2 { margin: 0; font-size: 1.15rem; } h3 { margin: 0; font-size: 1.25rem; line-height: 1.35; }
+  /* The prompt's heading takes focus at each step, and a press by keyboard,
+     the only press that moves the page to it, scrolls by as little as shows
+     it and its ring: below the game's bar where that stays at the top of the
+     screen (AppSettings), as the standings' heading lands. */
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h3 { scroll-margin: 8px 0; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h3 { scroll-margin-top: 72px; }
+  }
   h4 { margin: 0 0 10px; font-size: .88rem; } h4 span { font-weight: 400; font-size: .78rem; }
   p { margin: 0; font-size: .84rem; line-height: 1.5; }
   .guide-meta { font-size: .82rem; color: var(--gold); }

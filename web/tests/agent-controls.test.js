@@ -227,6 +227,40 @@ test('a new guided game keeps the adviser the last one used', async () => {
   }
 });
 
+test("a guided step hands focus on to the next prompt's heading, and a refused one leaves it where it was pressed", async () => {
+  // Each step draws the next prompt in place of the one pressed, so the
+  // pressed control is gone: the component's own step and arrive are run
+  // here as they are written, the table event, the page's tick and land
+  // stood in for.
+  const guided = component('../src/lib/GuidedPlay.svelte');
+  const written = name => {
+    const declaration = find(guided.ast.instance, node => node.type === 'FunctionDeclaration' && node.id?.name === name);
+    return guided.source.slice(declaration.start, declaration.end);
+  };
+  const landed = [], heading = { name: 'the prompt heading' };
+  const state = { closed: false, promptHeading: null, taken: true, act: () => state.taken,
+    // The next prompt, and its heading, are drawn by the time the tick is over.
+    tick: async () => { state.promptHeading = heading; },
+    pressedByKeyboard: press => press?.detail === 0, land: (...where) => landed.push(where) };
+  const step = vm.runInContext(`${written('arrive')}\n${written('step')}\nstep`, vm.createContext(state));
+  const settled = () => new Promise(resolve => setImmediate(resolve));
+  // A keyboard's press moves the page to show the heading; a tap does not.
+  assert.equal(step({ type: 'setup' }, { detail: 0 }), true); await settled();
+  assert.equal(step({ type: 'hand' }, { detail: 1 }), true); await settled();
+  assert.deepEqual(landed, [[heading, true], [heading, false]]);
+  // A refused step draws no new prompt: focus stays beside the line that says why.
+  state.taken = false;
+  assert.equal(step({ type: 'hand' }, { detail: 0 }), false); await settled();
+  // Nor is focus moved from another mode's page, once this one has been left.
+  state.taken = true; state.closed = true;
+  step({ type: 'hand' }, { detail: 0 }); await settled();
+  assert.equal(landed.length, 2);
+  // Every press that takes a step goes through it, with its click.
+  assert.doesNotMatch(guided.source.slice(guided.ast.instance.end), /\bact\(/);
+  assert.equal((guided.source.match(/<h3 tabindex="-1" bind:this=\{promptHeading\}>/g) ?? []).length,
+    (guided.source.match(/<h3[ >]/g) ?? []).length, 'every prompt heading can take focus');
+});
+
 test('direct agent-mode entry leaves regular saves untouched until Play is opened', () => {
   const effect = find(app.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect'
     && app.source.slice(node.start, node.end).includes('playStarted'));

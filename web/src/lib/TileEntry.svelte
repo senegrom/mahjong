@@ -3,10 +3,12 @@
   import Tile from './Tile.svelte';
   import { parseTiles } from './physical-position.js';
   import { TILE_TYPES, tileWords } from './tiles.js';
-  // `onadd(tile)` takes one tile and `onchange(tiles)` the whole list. Either
-  // refuses by throwing, and the refusal is said here, under the palette that
-  // was pressed. An `onchange` that says the refusal itself answers false.
-  // Whichever way, what was typed stays in the field to be corrected.
+  // `onadd(tile, press)` takes one tile, and the click that chose it, by which
+  // a caller can tell a keyboard's press (pressedByKeyboard); `onchange(tiles)`
+  // takes the whole list. Either refuses by throwing, and the refusal is said
+  // here, under the palette that was pressed. An `onchange` that says the
+  // refusal itself answers false. Whichever way, what was typed stays in the
+  // field to be corrected.
   let { label, tiles = [], onchange = null, onadd = null, limit = 14, expanded = false } = $props();
   // The palette is the player's to open and fold: `expanded` only says how it
   // starts. Set from the prop (`open={expanded}`), Svelte set it again whenever
@@ -15,10 +17,10 @@
   let open = $state(untrack(() => expanded));
   let text = $state('');
   let error = $state('');
-  function add(values) {
+  function add(values, press) {
     error = '';
     try {
-      if (onadd) { for (const tile of values) onadd(tile); }
+      if (onadd) { for (const tile of values) onadd(tile, press); }
       else {
         if (tiles.length + values.length > limit) throw new Error(`At most ${limit} tiles here`);
         if (onchange([...tiles, ...values]) === false) return;
@@ -35,7 +37,7 @@
   <details bind:open>
     <summary>{onadd ? 'Choose a tile' : `Add tiles · ${tiles.length}/${limit}`}</summary>
     <div class="palette" role="group" aria-label={label}>
-      {#each TILE_TYPES as tile (tile)}<Tile {tile} size="small" title={`Add ${tileWords(tile)} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
+      {#each TILE_TYPES as tile (tile)}<Tile {tile} size="small" title={`Add ${tileWords(tile)} to ${label}`} onclick={(_, press) => add([tile], press)} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
     </div>
     {#if !onadd}<div class="notation"><input aria-label={`${label} in tile notation`} bind:value={text} placeholder="123m456p789s11z" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); enter(); } }} /><button onclick={enter}>Add</button></div>{/if}
   </details>

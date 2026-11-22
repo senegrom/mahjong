@@ -19,6 +19,7 @@
    */
 
   // Keep the public `state` prop without shadowing Svelte's $state rune.
+  // `onsettle(input, press)` and `onnext(repeat, press)` take the click too.
   let { state: gameState, onsettle, onnext } = $props();
   let ending = $derived(gameState.ending);
   let p = $derived(ending.position);
@@ -138,8 +139,10 @@
     <p>Settlement includes honba and the riichi pot. Riichi bets were deducted when declared; whole-hand changes include those earlier deductions.</p>
     <p>Riichi sticks: {result.sticks_before} → {result.sticks_after}. Dealer {result.repeat ? 'repeats' : 'moves'}; next hand has {result.next_counters} honba.</p>
     {#if result.refunded_riichi != null}<p>{WINDS[result.refunded_riichi]}’s 1,000-point declaration bet is refunded because the declaration discard was won on.</p>{/if}
-    {#if gameState.settlement}<button class="primary" onclick={() => onnext(result.repeat)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
-    {:else}<button class="primary" onclick={() => onsettle(JSON.parse(inputKey))}>Apply settlement</button>{/if}
+    <!-- Each takes its button from the page, so the click goes with it for
+         focus to be handed on (GuidedPlay). -->
+    {#if gameState.settlement}<button class="primary" onclick={press => onnext(result.repeat, press)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
+    {:else}<button class="primary" onclick={press => onsettle(JSON.parse(inputKey), press)}>Apply settlement</button>{/if}
   {/if}
 </section>
 
