@@ -212,6 +212,27 @@ try {
       assert.equal(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).tileFace, SETTINGS_KEY), 'classic');
       assert.equal(await page.$('.hand .tile.matisse'), null);
       assert.equal(await savedMatch(page), saved);
+      // On a phone the select is in the settings' dialog, and the page's
+      // alert lies behind it while it is open: the dialog says the failure
+      // under the select instead, and the page again once it is closed.
+      await page.setViewport({ width: 390, height: 844 });
+      await page.waitForSelector('.settings-trigger', { visible: true });
+      await page.click('.settings-trigger');
+      await page.waitForSelector('.settings-dialog[open] select[aria-label="Tile face"]');
+      const said = await page.$eval('.settings-dialog [data-face-failure]', el => [el.getAttribute('role'), el.textContent.trim()]);
+      assert.equal(said[0], 'status');
+      assert.match(said[1], /could not load/, 'what was said on the page is said in the dialog while it is open');
+      assert.equal(await page.$('[data-face-error]'), null, 'and not behind it');
+      // Tried again from the dialog, it fails again, and says so there.
+      await page.select('select[aria-label="Tile face"]', 'matisse');
+      await page.waitForFunction(() => !document.querySelector('[data-face-progress]')
+        && /could not load/.test(document.querySelector('.settings-dialog [data-face-failure]')?.textContent ?? ''));
+      assert.equal(await page.$eval('select[aria-label="Tile face"]', el => el.value), 'classic');
+      assert.equal(await page.$('[data-face-error]'), null);
+      await page.click('[data-close-settings]');
+      await page.waitForSelector('[data-face-error]');
+      await page.setViewport({ width: 1100, height: 1000 });
+      await page.waitForSelector('.settings-trigger', { hidden: true });
       denyUnusedArt = false;
       await page.select('select[aria-label="Tile face"]', 'matisse');
       await page.waitForSelector('.hand .tile.matisse');

@@ -86,6 +86,9 @@ export interface SettingsProps extends OfflineStatusProps {
    * tiles, until the player asks to see them at each decision. */
   reviewHideMove?: boolean; reviewHideTiles?: boolean;
   tileFace: TileFace; pendingTileFace?: TileFace | null;
+  /** Why the tile face picked could not load, which the settings say under
+   * its select while they are an open dialog, and App on the page otherwise. */
+  faceWarning?: string;
   /** Asked to play another listed network by version: true once App takes
    * the pick (it reloads the page), false to keep the one playing. */
   onnetworkchange?: (version: string) => boolean;

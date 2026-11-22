@@ -828,12 +828,16 @@
 
 <main class:chip={resultChip}>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
-    {tileFace} {pendingTileFace} onfacechange={changeTileFace}
+    {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
-  {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
+  <!-- On a phone the Tile face select is in the settings' dialog, and while
+       that is open this alert would lie behind it, unheard and dimmed: the
+       dialog says it under the select instead (AppSettings), and the page
+       says it once the dialog is closed. -->
+  {#if faceWarning && !settingsOpen}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
   <!-- A screen reader hears a status line only once it knows it, so this one
        waits in the page, empty and out of sight, before its words arrive. -->
   <p class={notice ? 'notice' : 'visually-hidden'} data-notice role="status">{notice}</p>

@@ -18,7 +18,7 @@
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
     shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
-    tileFace, pendingTileFace = null,
+    tileFace, pendingTileFace = null, faceWarning = '',
     network = playedNetwork().version, runtime = null, onnetworkchange,
     difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
@@ -39,6 +39,14 @@
     // A pick App does not take leaves the network that plays on show.
     if (!onnetworkchange?.(picker.value)) picker.value = network;
   }
+
+  // Why the tile face picked could not load (faceWarning) is said by the
+  // page, in an alert under the settings. While the settings are a dialog
+  // and open, that alert lies behind it, unheard and dimmed, with the select
+  // that snapped back in front of it: so the dialog says it instead, in a
+  // line under the select, and App says it on the page once the dialog is
+  // closed (both go by settingsOpen, so never both).
+  let faceNote = $derived(settingsOpen ? faceWarning : '');
 
   // Export game says why the game could not be saved in a line after its
   // button (exportFailure), where it was pressed. On a phone the settings
@@ -135,6 +143,9 @@
       </select>
     </label>
     {#if pendingTileFace}<p role="status" data-face-progress>Loading selected tile graphics… Your current tiles remain available.</p>{/if}
+    <!-- A screen reader hears a status line only once it knows it, so this
+         one waits here, empty and out of sight, before its words arrive. -->
+    <p class:visually-hidden={!faceNote} data-face-failure role="status">{faceNote}</p>
     <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>

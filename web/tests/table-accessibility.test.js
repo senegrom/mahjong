@@ -324,6 +324,29 @@ test("the settings offer the review's two hiding settings after the other checkb
     ["Hide Trained AI's move in reviews", true], ["Hide other players' tiles in reviews", false]]);
 });
 
+test('a tile face that could not load is said under its select while the settings are an open dialog, in a line that waits there empty', async () => {
+  const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
+    ready: true, busy: false, saveConflict: '', trainedAvailable: false,
+    offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {}, ...props });
+  // The status line under the select: whether it is out of sight, and what
+  // it says.
+  const said = markup => {
+    const [, attributes, words] = /<p\b([^>]*\bdata-face-failure\b[^>]*)>([^<]*)<\/p>/.exec(markup);
+    assert.match(attributes, /\brole="status"/);
+    return [/\bvisually-hidden\b/.test(attributes), text(words)];
+  };
+  const faceWarning = 'The selected tile graphics could not load.';
+  assert.deepEqual(said(await settings({})), [true, '']);
+  // The page says it itself (App) while no dialog covers its alert.
+  assert.deepEqual(said(await settings({ faceWarning })), [true, '']);
+  assert.deepEqual(said(await settings({ faceWarning, settingsOpen: true })), [false, faceWarning]);
+  const options = await settings({ faceWarning, settingsOpen: true });
+  assert.ok(options.indexOf('aria-label="Tile face"') < options.indexOf('data-face-failure')
+    && options.indexOf('data-face-failure') < options.indexOf('Hints and markings'), 'right after the select');
+});
+
 test('the tile guide explains both discard marks, each with its swatch', async () => {
   const guide = await tileGuide();
   for (const [swatch, words] of [['from-draw', /darker face[\s\S]*thrown straight from the draw \(tsumogiri\)/],
