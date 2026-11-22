@@ -325,6 +325,12 @@ the review has got, and the download it may be waiting for ("3 of 14", "0 of 14
 and is no part of the status line: it changes at every decision and at every
 percent, and a status line is read out whenever its words change.
 
+Where Trained AI's review of the hand fails, the review says why in an alert,
+with **Retry Trained review** and **Review with Club**. Either button goes from
+the page with the failure it answers, so as it is pressed focus goes on to the
+review's heading, where it came as the review opened, rather than dropping to
+the page; the page moves to show the heading only for a keyboard's press.
+
 With Trained AI as the adviser, each decision gives Trained AI's weight for its
 own choice and, where the player chose otherwise, for the player's move; a
 riichi gives its declaration weight and the discard's weight given riichi.

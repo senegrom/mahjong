@@ -5,7 +5,7 @@
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
   import { reviewWithStrong } from './review-policy.js';
-  import { reviewFallbackNote, waitingNote } from './ui.js';
+  import { land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -120,6 +120,14 @@
     };
   });
 
+  // Retry Trained review and Review with Club go from the page with the
+  // failure they answer, which would drop keyboard focus to the page. So
+  // focus goes on, before the press is acted on and while its button is
+  // still there, to the review's heading, where it came as the review opened;
+  // the page moves to show it only for a keyboard's press, as it does then
+  // (land).
+  const leaveFailure = event => land(heading, pressedByKeyboard(event));
+
   function distance(value) {
     if (value < 0) return 'complete';
     if (value === 0) return 'waiting';
@@ -162,8 +170,8 @@
     <p class="empty">You made no decisions this hand.</p>
   {:else if reviewing}<!-- The line above says that it is, and how far it has got. -->
   {:else if failure}
-    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
-      <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
+    <p role="alert">{failure} <button class="retry" data-review-retry onclick={event => { leaveFailure(event); retry++; }}>Retry Trained review</button>
+      <button class="retry" data-review-club onclick={event => { leaveFailure(event); adviser = 'club'; }}>Review with Club</button></p>
   {:else}
     {#if clean}<p class="clean">Every move was the one the adviser would have made.</p>{/if}
     {#if !clean}
