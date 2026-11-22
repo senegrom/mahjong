@@ -97,7 +97,11 @@ async function open({ mode = 'play', reachable = true, saved = {}, hold = false 
 }
 const settings = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
 const match = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
-const prompt = page => page.$eval('#hand-help', el => el.textContent.trim());
+// The turn's prompt: what it says, with how far a download has got beside it.
+const PROMPT = '.controls .prompt';
+const prompt = page => page.$eval(PROMPT, el => el.textContent.trim());
+// The download as every wait names it: the network's size as it is fetched.
+const DOWNLOAD = `the trained network (${Math.round((MANIFEST.storedBytes ?? MANIFEST.bytes) / 1e6)} MB)`;
 async function clickButton(page, scope, text) {
   await page.waitForFunction((scope, text) => [...document.querySelectorAll(`${scope} button`)]
     .some(button => button.textContent.trim() === text && !button.disabled), {}, scope, text);
@@ -107,8 +111,8 @@ async function clickButton(page, scope, text) {
 /** Waits until a Trained wait inside `scope` names the network's download,
  * which the page holds open (open's `hold`) so that it is under way. */
 async function downloading(page, scope) {
-  await page.waitForFunction(scope => /downloading the trained network \d+%/.test(document.querySelector(scope)?.textContent ?? ''),
-    { timeout: 60000 }, scope);
+  await page.waitForFunction((scope, download) => new RegExp(`downloading ${download.replace(/[()]/g, '\\$&')} \\d+%`).test(document.querySelector(scope)?.textContent ?? ''),
+    { timeout: 60000 }, scope, DOWNLOAD);
   // The note is said as the save begins, a moment before the page asks for
   // the network: its turn at the network and what is stored are looked at
   // first. On a slow machine that moment is long enough to be seen, so the
@@ -143,11 +147,16 @@ try {
     // network's download does not wait for the service worker, which on a
     // first visit is still saving the game and every tile graphic: it begins
     // at once, and the table shows it rather than only "thinking".
-    const download = 'downloading the trained network';
-    await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text)
-      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, download);
+    const download = `downloading ${DOWNLOAD}`;
+    await page.waitForFunction((prompt, text) => document.querySelector(prompt)?.textContent.includes(text)
+      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, PROMPT, download);
     if (!(await prompt(page)).includes(download)) await page.click('.hand button[data-hand-index]:not(:disabled)');
-    await downloading(page, '#hand-help');
+    await downloading(page, PROMPT);
+    // Only the prompt's words are a live region: how far the download has
+    // got is shown beside them, outside it, so that a screen reader hears
+    // the download once and not at every percent.
+    assert.deepEqual(await page.$eval(PROMPT, el => [el.querySelector('[role="status"]').textContent.trim(), /^\d+%$/.test(el.querySelector('[data-figure]').textContent),
+      Boolean(el.querySelector('[data-figure]').closest('[role="status"], [aria-live]'))]), [download, true, false]);
     for (const deadline = Date.now() + 30000; !installing.size;) {
       assert.ok(Date.now() < deadline, 'the service worker never reached the unused faces');
       await new Promise(done => setTimeout(done, 50));

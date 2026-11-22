@@ -737,7 +737,7 @@ test('the network is downloading while its bytes arrive and ready once stored, w
   const job = c.api.prepareOfflineAi();
   await settle();
   assert.equal(c.state().network, 'downloading');
-  assert.equal(waitingNote('', c.state()), 'downloading the trained network 0%');
+  assert.match(waitingNote('', c.state()), /^downloading the trained network \(\d+ MB\) 0%$/);
   release();
   assert.equal(await c.api.prepareNetwork(), null);
   await settle();

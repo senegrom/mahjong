@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
 import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
-import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
+import { heldSafeCount, callTiles, callLabel, partedNote, unseenTileCounts, waitIsDownload, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
 import { average, swapMoves } from '../src/lib/suits.js';
 import { DAMA, DECLINE, RULE_REFUSED } from '../src/lib/trained-move.js';
@@ -542,8 +542,17 @@ test('the table shows the network download while a Trained opponent waits for it
   // download of the network is the wait, and nothing is said when the
   // network is not downloading.
   assert.equal(waitingNote('loading the network', { phase: 'ai', network: 'downloading', progress: 40 }), 'loading the network');
-  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading', progress: 40 }), 'downloading the trained network 40%');
-  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading' }), 'downloading the trained network 0%');
+  // The download line says how much the download is, once: the size of the
+  // network the page plays as it is fetched and kept, in whole megabytes.
+  const size = `${Math.round((MANIFEST.storedBytes ?? MANIFEST.bytes) / 1e6)} MB`;
+  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading', progress: 40 }), `downloading the trained network (${size}) 40%`);
+  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading' }), `downloading the trained network (${size}) 0%`);
+  // Of the network given, and of its own bytes where its listing says no
+  // more.
+  for (const entry of [{ bytes: 116935691, storedBytes: 107878377 }, { bytes: 116935691 }]) {
+    const megabytes = Math.round((entry.storedBytes ?? entry.bytes) / 1e6);
+    assert.equal(waitingNote('', { network: 'downloading', progress: 7 }, entry), `downloading the trained network (${megabytes} MB) 7%`);
+  }
   // Behind another window's download of it.
   assert.equal(waitingNote('', { phase: 'ai', network: 'waiting', progress: 0 }), 'waiting for another window to download the trained network');
   assert.equal(waitingNote('starting the network', { phase: 'ai', network: 'waiting' }), 'starting the network');
@@ -557,6 +566,30 @@ test('the table shows the network download while a Trained opponent waits for it
   for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitingNote('', { phase, network: 'none', progress: 40 }), '');
   assert.equal(waitingNote('', { phase: 'ai', progress: 40 }), '', 'a state that does not say where the network stands says no download');
   assert.equal(waitingNote('', null), '');
+});
+
+test("a waiting note is parted from the share of a download it ends with, which the prompt shows outside its live region", () => {
+  assert.deepEqual(partedNote('downloading the trained network (108 MB) 37%'), { words: 'downloading the trained network (108 MB)', figure: '37%' });
+  assert.deepEqual(partedNote('downloading the network 100%'), { words: 'downloading the network', figure: '100%' });
+  // A note without one is all words, the megabytes in it no figure.
+  for (const note of ['saving the game, then downloading the trained network (108 MB)', 'starting the network', 'network ready', '37% done']) {
+    assert.deepEqual(partedNote(note), { words: note, figure: '' }, note);
+  }
+  for (const none of ['', null, undefined]) assert.deepEqual(partedNote(none), { words: '', figure: '' });
+});
+
+test('a wait is a download while the page saves the network or its worker fetches it, and not while the network starts or thinks', () => {
+  // By the page: its own download, and a first visit's install before it.
+  assert.equal(waitIsDownload('', { phase: 'ai', progress: 3 }), true);
+  assert.equal(waitIsDownload('', { phase: 'checking', installing: true }), true);
+  assert.equal(waitIsDownload('', { phase: 'ready', installing: true, aiReady: true }), false);
+  for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitIsDownload('', { phase }), false, phase);
+  assert.equal(waitIsDownload('', null), false);
+  // By the opponent's worker, whose note then stands for the page's.
+  assert.equal(waitIsDownload('downloading the network 12%', { phase: 'unavailable' }), true);
+  for (const note of ['loading the network', 'starting the network', 'network ready', 'retrying the agent with more memory']) {
+    assert.equal(waitIsDownload(note, { phase: 'ai', progress: 50 }), false, note);
+  }
 });
 
 test('preferences are written when they change, not each time the effect reruns', () => {

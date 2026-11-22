@@ -104,25 +104,54 @@ test('riichi, calls, an offered discard and a selection are said by regions alre
   for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
 });
 
-test("the turn's prompt names no keys on screen, and a screen reader still hears them in the hand's description", async () => {
+test("the turn's prompt says its sentence alone, in a live region, and the hand's description, which is none, names the keys", async () => {
   // The hand takes focus as the turn comes (App) and the tile guide gives the
-  // keys, so the prompt shows its sentence alone. The keys stay in it out of
-  // sight, since the hand names the prompt as its description.
+  // keys, so the prompt shows its sentence alone. A screen reader hears the
+  // sentence from the prompt, a live region, and the keys from the hand's
+  // description as the hand takes focus: the description is no live region
+  // and repeats nothing of the prompt, so a turn is not heard twice.
   const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
     dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
     seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
-  const prompt = async props => /<p id="hand-help"[^>]*>([^]*?)<\/p>/.exec(await html('app/TurnChoices.svelte', { view, shownDora: [],
+  const choices = props => html('app/TurnChoices.svelte', { view, shownDora: [],
     busy: false, thinking: false, failure: '', saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: false,
-    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props }))[1];
-  const keys = /<span class="visually-hidden[^"]*">Focus your hand to use arrows and Enter\.<\/span>/;
-  const keyed = await prompt({});
-  assert.match(keyed, keys);
-  assert.equal(text(keyed.replace(keys, '')), 'Your turn. Choose a tile to discard.');
+    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props });
+  // The prompt: what its live region says, and what stands beside that.
+  const prompt = markup => {
+    const [, said, beside] = /<p class="prompt[^"]*"><span role="status"[^>]*>([^<]*)<\/span>([^]*?)<\/p>/.exec(markup);
+    return [text(said), text(beside)];
+  };
+  // The hand's description: its attributes, and its words.
+  const help = markup => /<p id="hand-help"([^>]*)>([^<]*)<\/p>/.exec(markup).slice(1);
+  const turn = await choices({});
+  assert.deepEqual(prompt(turn), ['Your turn. Choose a tile to discard.', '']);
+  assert.deepEqual(prompt(await choices({ confirmDiscards: true })), ['Your turn. Select a tile, then confirm the discard.', '']);
+  const [attributes, keys] = help(turn);
+  assert.equal(keys, 'Focus your hand to use arrows and Enter.');
+  assert.match(attributes, /class="visually-hidden[^"]*"/);
+  assert.doesNotMatch(attributes, /role=|aria-live/, 'the description is no live region');
   const hand = await html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
     discardChoices: [], confirmDiscards: false, picked: null, selected: null, canDiscard: () => true, selectTile() {}, syncHandFocus() {} });
   assert.match(hand, /<div class="hand\b[^"]*"[^>]*aria-describedby="hand-help"/);
-  // On a touch screen, or with the shortcuts off, there are no keys to name.
-  for (const props of [{ touch: true }, { shortcuts: false }]) assert.doesNotMatch(await prompt(props), /arrows and Enter/, JSON.stringify(props));
+  // On a touch screen, with the shortcuts off, or off the player's turn,
+  // there are no keys to name.
+  for (const props of [{ touch: true }, { shortcuts: false }, { myTurn: false }, { busy: true }]) {
+    assert.equal(help(await choices(props))[1], '', JSON.stringify(props));
+  }
+  // While a Trained opponent waits for a download, the prompt says what it
+  // waits for and shows how far it has got beside that, outside the live
+  // region: said with it, every percent would be read out.
+  const waiting = { busy: true, thinking: true, myTurn: false, pendingOpponent: { player: 1, position: 'Right' } };
+  const download = await choices({ ...waiting, loadNote: 'downloading the trained network (108 MB) 37%' });
+  assert.deepEqual(prompt(download), ['downloading the trained network (108 MB)', '37%']);
+  assert.match(download, /<\/span>(?:<!--[^>]*-->)* <span data-figure[^>]*>37%<\/span>/, 'a space parts the words and the figure');
+  assert.deepEqual(prompt(await choices({ ...waiting, loadNote: 'saving the game, then downloading the trained network (108 MB)' })),
+    ['saving the game, then downloading the trained network (108 MB)', '']);
+  // Without a note the opponent just thinks, and nothing else shows a figure.
+  assert.deepEqual(prompt(await choices(waiting)), ['Right Trained opponent is thinking…', '']);
+  assert.deepEqual(prompt(await choices({ busy: true, myTurn: false, loadNote: 'left over 50%' })), ['Playing the turn…', '']);
+  assert.deepEqual(prompt(await choices({ ...waiting, failure: 'offline', loadNote: 'downloading the network 50%' })),
+    ['Choose a recovery option above to continue.', '']);
 });
 
 test("the custom table says in one line that opponents keep their type, and what each type plays in its option's title", async () => {

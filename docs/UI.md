@@ -227,10 +227,20 @@ other focused controls remain unaffected.
 The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
 discard."), with no line about the keys: the hand takes focus as the turn
 comes, unless another control has it, and the tile guide gives the keys. A
-screen reader still hears "Focus your hand to use arrows and Enter.", kept out
-of sight in the prompt that the hand names as its description, wherever the
-keys work: with **Keyboard shortcuts in your hand** on, and not on a touch
-screen.
+screen reader hears the sentence from the prompt, a live region, as the turn
+comes, and "Focus your hand to use arrows and Enter." as the hand takes focus,
+from what the hand names as its description: a line of its own, out of sight,
+which is no live region and repeats nothing of the prompt, so a turn is not
+said twice. It holds the keys wherever they work: with **Keyboard shortcuts in
+your hand** on, on the player's turn, and not on a touch screen.
+
+While a Trained opponent waits for the network, the prompt says what it waits
+for, and how much that is: "downloading the trained network (108 MB) 37%",
+the size being the network's as it is fetched, and before that, while a first
+visit's service worker still saves the game, "saving the game, then
+downloading the trained network (108 MB)". Only the words are in the prompt's
+live region. How far the download has got stands beside them, outside it, so
+a screen reader hears the download once and not at every percent.
 
 ### The hand's review
 

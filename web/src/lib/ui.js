@@ -1,4 +1,9 @@
 import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
+import { playedNetwork } from './trained-network.js';
+
+/** A network's download in whole megabytes: what is fetched and kept
+ * (storedBytes), or the network's own size where its listing gives no other. */
+const megabytes = network => Math.round((network.storedBytes ?? network.bytes) / 1e6);
 
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
@@ -9,12 +14,37 @@ import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
  * phase stays 'ai' until the runtime is saved too, and a first visit's
  * install, which saves the game beside the network, delays it no more.
  * While the network downloads, `offline.progress` is the percent of it
- * received. */
-export function waitingNote(note, offline) {
+ * received. The note says how much the download is, the size of the
+ * `network` the page plays, once, so that a player on a slow or metered link
+ * knows what the wait is ("downloading the trained network (108 MB) 37%"). */
+export function waitingNote(note, offline, network = playedNetwork()) {
   if (note) return note;
-  if (offline?.network === 'downloading') return `downloading the trained network ${offline.progress ?? 0}%`;
+  if (offline?.network === 'downloading') return `downloading the trained network (${megabytes(network)} MB) ${offline.progress ?? 0}%`;
   if (offline?.network === 'waiting') return 'waiting for another window to download the trained network';
   return '';
+}
+
+/** Whether what a Trained opponent waits for is a download, the wait
+ * waitingNote names, rather than the network starting from this device's
+ * copy or thinking: the page saving the network (phase 'ai'), a first
+ * visit's install before that, or the opponent's worker fetching the network
+ * itself, whose note then stands for the page's ("downloading the network
+ * 12%"). Only then does play offer Club meanwhile: a start or a thought
+ * takes seconds, a download minutes. */
+export function waitIsDownload(note, offline) {
+  if (note) return /^downloading\b/.test(note);
+  return Boolean(offline && (offline.phase === 'ai' || (offline.installing && !offline.aiReady)));
+}
+
+/** A waiting note parted from the figure it ends with, how far a download
+ * has got: "downloading the trained network (108 MB) 37%" is its words and
+ * "37%". Play's prompt says the words in a live region, which a screen
+ * reader then hears once, and shows the figure beside them, outside it: said
+ * with them, every percent of a download would be read out, a hundred lines
+ * in a row on a first visit. */
+export function partedNote(note) {
+  const [, words, figure = ''] = /^(.*?)(?:\s+(\d+%))?$/s.exec(note ?? '');
+  return { words, figure };
 }
 
 export function heldSafeCount(view) {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
-  import { RELOAD_TO_CONTINUE, callLabel, callTiles, quadOnOffer, repeatedClick } from '../ui.js';
+  import { RELOAD_TO_CONTINUE, callLabel, callTiles, partedNote, quadOnOffer, repeatedClick } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
 
   // All actions return to App's guarded match session. The controls do not
@@ -24,6 +24,22 @@
   // are. So their news is said by one region that is always here.
   let announcement = $derived(offered ? `${discarder} ${robbing ? 'declared a kan of' : 'discarded'} the ${tileWords(offered)}`
     : chosen ? `Selected: ${tileWords(chosen)}` : '');
+  // What a Trained opponent waits for, where the page or its worker says:
+  // the note's words, and the share of a download it ends with. The prompt
+  // says the words, which change a few times in a download, and shows the
+  // share beside them, which changes a hundred times: a screen reader reads
+  // out every change of a live region.
+  let waiting = $derived(partedNote(busy && thinking && !failure && !saveConflict ? loadNote : ''));
+  let said = $derived(saveConflict ? RELOAD_TO_CONTINUE
+    : failure ? 'Choose a recovery option above to continue.'
+    : busy ? (!thinking ? 'Playing the turn…'
+      : waiting.words || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…'))
+    : myTurn ? (confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.')
+    : callChoices.length ? 'Choose a call, or pass.' : 'Waiting for the others…');
+  // The hand takes focus as the turn comes (App) and the tile guide gives the
+  // keys, so only a screen reader is told them, wherever they work: with the
+  // shortcuts on, on the player's turn, and not on a touch screen.
+  let keys = $derived(myTurn && !busy && !failure && !saveConflict && !touch && shortcuts ? 'Focus your hand to use arrows and Enter.' : '');
   // A press on a choice acts once. The next decision's buttons are drawn
   // where these were, and against opponents that answer at once they are
   // there before the second press of a double click lands, which would
@@ -36,19 +52,13 @@
 </script>
 
 <p class="visually-hidden" role="status">{announcement}</p>
-<p id="hand-help" class="prompt" class:staged={Boolean(offered)} role="status">
-  {#if saveConflict}{RELOAD_TO_CONTINUE}
-  {:else if failure}Choose a recovery option above to continue.
-  {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
-  {:else if myTurn}
-    {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
-    <!-- The hand takes focus as the turn comes (App) and the tile guide gives
-         the keys, so only a screen reader is told them here, in the prompt
-         that the hand names as its description. -->
-    {#if !touch && shortcuts}<span class="visually-hidden">Focus your hand to use arrows and Enter.</span>{/if}
-  {:else if !callChoices.length}Waiting for the others…
-  {:else}Choose a call, or pass.{/if}
-</p>
+<!-- Only the prompt's words are a live region. How far a download has got is
+     shown beside them, outside it (waiting). -->
+<p class="prompt" class:staged={Boolean(offered)}><span role="status">{said}</span>{#if waiting.figure}{' '}<span data-figure>{waiting.figure}</span>{/if}</p>
+<!-- What the hand names as its description, which a screen reader reads as
+     the hand takes focus: the keys, and nothing the prompt has just said. It
+     is no live region, so a turn is not heard twice. -->
+<p id="hand-help" class="visually-hidden">{keys}</p>
 {#if chosen}
   <div class="confirm-discard" data-moves>
     <span>Selected: {tileWords(chosen)}</span>
