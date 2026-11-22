@@ -62,7 +62,8 @@ async function strongResults(page) {
   const actual = await page.$$eval('.review li', elements => elements.map(el => ({
     played: el.querySelector('.played .what').textContent,
     advised: el.querySelector('.advised .what')?.textContent ?? el.querySelector('.played .what').textContent,
-    weight: el.querySelector('.policy-preference strong').textContent,
+    weight: el.querySelector('.policy-preference strong')?.textContent ?? null,
+    only: el.querySelector('.only')?.textContent.trim() ?? null,
     agreed: el.classList.contains('agreed'),
   })));
   const inference = await page.evaluate(() => window.reviewAnswers);
@@ -92,7 +93,10 @@ async function strongResults(page) {
     const weight = afterReach ? answer.weights[37]
       : answer.weights.reduce((sum, value, action) => sum
         + (action !== 37 && translations[index][action] === chosen ? value : 0), 0);
-    assert.equal(actual[index].weight, percent(Math.min(1, weight)));
+    // An only move is asked all the same, and its line says that it was
+    // one in place of a preference, which could only be all of it.
+    const only = masks[index].filter(Boolean).length === 1;
+    assert.deepEqual([actual[index].weight, actual[index].only], only ? [null, 'Only move'] : [percent(Math.min(1, weight)), null]);
     assert.equal(actual[index].agreed, preferred.kind === notes[index].played_kind
       && (preferred.tile ?? null) === (notes[index].played_tile ?? null));
   }

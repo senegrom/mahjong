@@ -350,6 +350,17 @@ tile guide says what the rules do, under "by rule": "In South 4, the last
 hand, Trained AI skips riichi where every win keeps it first, and declines a
 win that would leave it last."
 
+A decision with one legal move, as every discard after a riichi is, was no
+choice. Its line says **Only move** in place of an adviser's answer, whichever
+adviser reviews and whether or not the answers are kept back, and it is left
+out of the decisions matched, as the review of the game leaves it out of its
+own figure, so that the two give a hand the same one. The count then says what
+it counts ("1 of 4 decisions with a choice matched Club.", under **Every
+decision (13)**); a hand without such a move reads as before ("13 of 14
+decisions matched Trained AI 0.1.3000."). Trained AI's notes say which moves
+were the only ones; Club's do not, so the page asks the engine how many moves
+were open at each, while the hand is still there to ask.
+
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
 that this second way into the hand does not give away what the review of the

@@ -45,6 +45,13 @@ function won(seed){const m=make(seed);try{finishHand(m);return m.snapshot();}fin
 const initial=fixture(11),riichi=fixture(31,[['riichi','8m']]);
 const beforeRiichi=fixture(81,[['discard','9s'],['discard','5z']]);
 const waiting=fixture(81,[['discard','9s'],['discard','5z'],['riichi','2z']]);
+// The same hand played on to its result: every discard after the riichi was
+// the only move, nine of the hand's thirteen decisions.
+const riichiWon=(()=>{
+ const m=make(81);
+ try{for(const [kind,tile] of [['discard','9s'],['discard','5z'],['riichi','2z']])step(m,kind,tile);finishHand(m);return m.snapshot();}
+ finally{m.dispose();}
+})();
 const wins=[3,16,248].map(won);
 const final=(()=>{
  const m=make(14,'beginner');let before,events,log,review;
@@ -900,7 +907,10 @@ try{
   const answered=await rows(p);
   assert.ok(answered.some(text=>text.includes('instead of')),`the hand has a decision where Club differs: ${answered.join(' | ')}`);
   assert.equal(await p.$('.review [data-show-answers]'),null,'without the setting the notes offer no Show answers');
-  const decisions=Number((await p.$eval('.review .summary',el=>el.textContent)).match(/of (\d+)/)[1]);
+  // How many decisions the hand has, from the filter that lists them all:
+  // the count of decisions matched leaves out any that was the only move.
+  const decisions=Number((await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).textContent))
+   .match(/\((\d+)\)/)[1]);
   const edges=await every(p,decisions);
   assert.ok(edges.some(row=>row.agreed)&&edges.some(row=>!row.agreed),`the hand has decisions where Club agrees and differs: ${JSON.stringify(edges)}`);
   assert.equal(new Set(edges.map(row=>row.edge)).size,2,'an agreed decision is edged apart from one that differs');
@@ -937,6 +947,33 @@ try{
   await p.waitForFunction(()=>document.querySelector('.review [data-show-answers]')?.textContent.trim()==='Hide answers');
   assert.deepEqual(await edgesOf(p),edges,'shown, each decision is edged as without the setting');
   noErrors(p);
+ });
+ // A decision with one legal move, as every discard after a riichi is, was
+ // no choice. The hand's notes leave it out of the decisions matched, as the
+ // review of the game does, so that the two give a hand one figure, and its
+ // line says so in place of an adviser's answer, kept back or not. Club's
+ // notes do not say which moves those were: the page asks the engine.
+ await check('the hand\'s notes leave an only move out of the decisions matched, and say so on its line',async()=>{
+  const m=MatchSession.restore(Game,JSON.stringify(riichiWon));let expected;
+  try{expected=m.engine.review().map((note,index)=>({only:m.engine.review_choices(index).length===1,agreed:note.agreed}));}finally{m.dispose();}
+  const only=expected.filter(row=>row.only).length,counted=expected.length-only,matched=expected.filter(row=>!row.only&&row.agreed).length;
+  assert.ok(only>0&&counted>1&&matched>0&&matched<counted,`a hand with only moves, and decisions Club agrees and differs with: ${JSON.stringify(expected)}`);
+  for(const hideMove of [false,true]){
+   const p=await open(riichiWon,{reduced:true,hideMove}),where=hideMove?'with the answers kept back':'with the answers shown';
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+   await p.waitForSelector('.review .summary');
+   assert.equal((await p.$eval('.review .summary',el=>el.textContent)).replace(/\s+/g,' ').trim(),`${matched} of ${counted} decisions with a choice matched Club.`,where);
+   await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).click());
+   await p.waitForFunction(count=>document.querySelectorAll('.review li').length===count,{},expected.length);
+   assert.equal(await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).textContent.trim()),
+    `Every decision (${expected.length})`,`every decision is still listed ${where}`);
+   assert.deepEqual(await p.$$eval('.review li',els=>els.map(el=>el.querySelector('.only')?.textContent.trim()??null)),
+    expected.map(row=>row.only?'Only move':null),`each only move says so, and no other decision does, ${where}`);
+   assert.equal(await p.$$eval('.review li:has(.only) :is(.advised, .why, .numbers, .policy-preference)',els=>els.length),0,
+    `an only move's line gives no adviser's answer ${where}`);
+   noErrors(p);
+  }
  });
  // The warning that this browser cannot safely keep the match arrives as the
  // match is first read, and is spoken from a status line already in the page.

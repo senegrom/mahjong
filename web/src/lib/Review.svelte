@@ -4,6 +4,7 @@
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
+  import { agreement } from './game-review.js';
   import { reviewWithStrong } from './review-policy.js';
   import { land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
@@ -38,7 +39,18 @@
   // and says so; the chosen adviser is kept, and takes over once it can.
   let trainedPossible = $derived(trainedAvailable && Boolean(engine));
   let reviewer = $derived(adviser === 'strong' && trainedPossible ? 'strong' : 'club');
-  let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
+  // A decision with one legal move, such as the discard after a riichi, was
+  // no choice. Trained AI's notes say which those were (reviewWithStrong);
+  // Club's do not, so the engine is asked how many moves were open at each,
+  // while the hand is still there to ask. Without it every decision counts
+  // as a choice, as before.
+  let clubNotes = $derived.by(() => {
+    if (!engine) return notes;
+    try {
+      return notes.map((note, index) => ({ ...note, forced: engine.review_choices(index).length === 1 }));
+    } catch { return notes; }
+  });
+  let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : clubNotes);
   // A first Trained review can be what downloads the network.
   let download = $derived(waitingNote(workerNote, offline));
 
@@ -64,6 +76,13 @@
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
+  // How many of the decisions with a choice matched the adviser, counted as
+  // the review of the game counts them (agreement), so that the two give a
+  // hand the same figure: an only move is left out, and its line says so
+  // in place of an answer. Where the hand has one, the count says what it
+  // counts, since it then falls short of the decisions listed.
+  let figure = $derived(agreement(activeNotes));
+  let onlyMoves = $derived(activeNotes.some((note) => note.forced));
 
   // A whole hand played the way the adviser would have is worth saying.
   let clean = $derived(activeNotes.length > 0 && disputed.length === 0);
@@ -151,10 +170,10 @@
     <!-- This status line, and the one after the header, wait empty and out
          of sight for their words (linesKnown). -->
     <p class="policy-help" class:visually-hidden={!fallback} data-review-fallback role="status">{fallback}</p>
-    {#if activeNotes.length && !reviewing && !failure}
+    {#if figure.decisions && !reviewing && !failure}
       <p class="summary">
-        {activeNotes.length - disputed.length} of {activeNotes.length}
-        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {reviewer === 'strong' ? trainedName('Trained AI') : 'Club'}.
+        {figure.matched} of {figure.decisions}
+        {figure.decisions === 1 ? 'decision' : 'decisions'}{onlyMoves ? ' with a choice' : ''} matched {reviewer === 'strong' ? trainedName('Trained AI') : 'Club'}.
       </p>
     {/if}
   </header>
@@ -215,7 +234,9 @@
             {/if}
           </div>
 
-          {#if hiding}<!-- The adviser's answer waits for Show answers. -->
+          <!-- An only move has no answer to keep back or to show. -->
+          {#if note.forced}<p class="only">Only move</p>
+          {:else if hiding}<!-- The adviser's answer waits for Show answers. -->
           {:else if reviewer === 'strong'}
             <ReviewPreference {note} />
           {:else if !note.agreed}
@@ -450,8 +471,14 @@
     opacity: 0.85;
   }
 
-  .why.quiet {
+  .why.quiet,
+  .only {
     opacity: 0.6;
+  }
+
+  .only {
+    margin: 0;
+    font-size: 0.84rem;
   }
 
   /* No wider than it needs to be read across, as the review of the game

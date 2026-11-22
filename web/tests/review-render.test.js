@@ -418,3 +418,36 @@ test("the line that says Trained AI is reviewing never changes as the review goe
     && node.attributes.some(attribute => attribute.name === 'data-review-progress'));
   assert.equal(reviewSource.slice(line.fragment.nodes[0].start, line.fragment.nodes.at(-1).end), '{progress}', 'the status line holds the words alone');
 });
+
+test("an only move is left out of the count of decisions matched, as the review of the game leaves it out, and its line says so in place of an answer", () => {
+  const same = (turn, tile, words) => ({ turn, played: `discards the ${words}`, played_kind: 'discard', played_tile: tile,
+    advised: `discards the ${words}`, advised_tile: tile, agreed: true, reason: 'the move the adviser would have made' });
+  const notes = [...differing, same(5, '2s', '2 bamboo'), same(6, '7p', '7 circles'), same(7, '1z', 'east wind')];
+  // Club's notes do not say which moves were the only ones, so the engine is
+  // asked how many moves were open at each: here one at each of the last two,
+  // the discards after a riichi. They are no choice, so they are counted
+  // neither as matched nor among the decisions, and the count says so.
+  const engine = { review_choices: index => Array.from({ length: index >= 2 ? 1 : 3 }, () => ({ kind: 'discard' })) };
+  const counted = text(render(Review, { props: { notes, engine, adviser: 'club' } }).body);
+  assert.match(counted, /1 of 2 decisions with a choice matched Club\./);
+  assert.match(counted, /Every decision \(4\)/, 'every decision is still listed');
+  // A hand without an only move is counted as before, in the words as before;
+  // so is one whose engine is gone, which cannot be asked.
+  const open = { review_choices: () => [{ kind: 'discard' }, { kind: 'discard' }] };
+  assert.match(text(render(Review, { props: { notes, engine: open, adviser: 'club' } }).body), /3 of 4 decisions matched Club\./);
+  assert.match(text(render(Review, { props: { notes, adviser: 'club' } }).body), /3 of 4 decisions matched Club\./);
+  assert.match(text(render(Review, { props: { notes: notes.slice(0, 3), engine, adviser: 'club' } }).body), /1 of 2 decisions with a choice matched Club\./);
+  const second = { review_choices: index => Array.from({ length: index === 1 ? 1 : 3 }, () => ({ kind: 'discard' })) };
+  assert.match(text(render(Review, { props: { notes: notes.slice(1, 3), engine: second, adviser: 'club' } }).body), /1 of 1 decision with a choice matched Club\./);
+  // The line of an only move says that it was one before anything else is
+  // asked of it, so whether the answers are kept back or shown, and whichever
+  // adviser reviews. A server render lists only the decisions where the
+  // adviser differs, so that is read from the component's own markup; the
+  // browser check sees the lines themselves.
+  const source = node => reviewSource.slice(node.start, node.end);
+  const line = find(parse(reviewSource, { modern: true }).fragment, node => node.type === 'IfBlock' && source(node.test) === 'note.forced');
+  assert.ok(line, "a line gives what it gives by whether its move was the only one");
+  assert.match(source(line.consequent.nodes[0]), /^<p class="only">Only move<\/p>/);
+  const then = find(line.alternate, node => node.type === 'IfBlock');
+  assert.equal(source(then.test), 'hiding', 'asked before whether the answers are kept back');
+});
