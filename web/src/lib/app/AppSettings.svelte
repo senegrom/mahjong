@@ -248,6 +248,9 @@
       <dt>by rule</dt>
       <dd>In South 4, the last hand, Trained AI skips riichi where every win keeps it first, and declines a win that would leave it last.</dd>
 
+      <dt>Flagged</dt>
+      <dd>In a review, a decision where your move had under 5% and Trained AI's choice 60% or more, or where you took a last-hand win that leaves you last.</dd>
+
       <dt>Keys</dt>
       <dd>
         Focus your hand first. An arrow key brings the marker up on the tile you drew, the arrows

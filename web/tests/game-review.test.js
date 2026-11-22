@@ -211,6 +211,16 @@ test("the filters' buttons say in a word what each keeps, and the Flagged and Di
     differed: 'Trained AI chose another move' });
 });
 
+test("the tile guide says what Flagged means, by the thresholds the review flags by", () => {
+  // The Flagged button's title says it too, but a title shows only under a
+  // mouse: the guide in the settings is where a finger or a keyboard finds it.
+  const settings = readFileSync(new URL('../src/lib/app/AppSettings.svelte', import.meta.url), 'utf8');
+  const entry = /<dt>Flagged<\/dt>\s*<dd>([^<]*)<\/dd>/.exec(settings)?.[1].replace(/\s+/g, ' ').trim();
+  assert.equal(entry, `In a review, a decision where your move had under ${Math.round(FLAG_PLAYED_BELOW * 100)}% and Trained AI's choice `
+    + `${Math.round(FLAG_PREFERRED_FROM * 100)}% or more, or where you took a last-hand win that leaves you last.`);
+  assert.match(FILTER_TITLES.flagged, new RegExp(`under ${Math.round(FLAG_PLAYED_BELOW * 100)}%.*${Math.round(FLAG_PREFERRED_FROM * 100)}% or more.*last-hand win`));
+});
+
 test('the flagged decisions are counted, however wide the gap of one that is not, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
   assert.equal(flaggedCount([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]), 3);
