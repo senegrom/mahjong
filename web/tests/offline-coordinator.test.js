@@ -680,3 +680,29 @@ test('the page saves the network its player picked, and names the pick to its wo
   assert.ok(d.asked.every(([, version]) => version === undefined));
   assert.deepEqual(d.saves.map(save => save.url), [NETWORK.url, NEXT.url]);
 });
+
+test('persistent storage is asked for once a trained AI has been saved, and only read before that', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  let asked = 0, granted = false;
+  c.navigator.storage.persisted = async () => granted;
+  c.navigator.storage.persist = async () => { asked++; granted = true; return true; };
+  await c.api.startOffline();
+  await c.api.refreshOffline();
+  await settle();
+  assert.equal(asked, 0, 'the start asks nothing: Firefox would put the question to the player');
+  assert.equal(c.state().persistent, false);
+  assert.match(panel(c.state()), /Your browser can remove website downloads when storage is low/);
+  await c.api.prepareOfflineAi();
+  await until(() => c.state().persistent, 'asked once the download is saved');
+  assert.equal(asked, 1);
+  assert.match(panel(c.state()), /Persistent storage granted/);
+  // Granted on an earlier visit, it is read at the start and never asked again.
+  const later = coordinator({ coreReady: true, aiReady: true });
+  later.navigator.storage.persisted = async () => true;
+  later.navigator.storage.persist = async () => { throw new Error('asked again'); };
+  await later.api.startOffline();
+  await until(() => later.state().persistent, 'read at the start');
+  await later.api.prepareOfflineAi();
+  await settle();
+  assert.equal(later.state().persistent, true);
+});

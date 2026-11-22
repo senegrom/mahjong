@@ -183,8 +183,12 @@ opponents need a connection. Check for **Offline: game + AI ready** after an
 update before flying. The previous network stays stored until the new one is
 saved. No downloaded model is replaced merely because a newer UI was published.
 
-The app requests persistent storage where supported, and reports whether the
-browser granted it. Clearing website data removes downloads. Browsers may also
+The app requests persistent storage where supported, once a trained AI has
+been saved, and reports whether the browser granted it; at every start it
+only reads the answer. Firefox puts that question to the player, so it is
+left until the download they asked for by choosing a Trained player is on the
+device, and asked once for each such download. Clearing website data removes
+downloads. Browsers may also
 evict non-persistent storage under storage pressure; no web app can guarantee
 retention after the operating system deletes its data. Readiness is checked
 against CacheStorage at startup and when the app returns to the foreground,

@@ -204,10 +204,16 @@ function retryInstall() {
   }, retryDelay);
   retryDelay = Math.min(retryDelay * 2, RETRY_INSTALL_MS.most);
 }
-async function persistentStorage() {
+/** Whether the browser keeps this site's storage when the device runs short.
+ * The start only reads the answer. Asking for it (`ask`) is left until a
+ * trained AI has been saved, the download a player asks for by choosing a
+ * Trained player: Firefox puts the question to the player, and asked at
+ * every start it came before they had done anything, and again each visit
+ * until answered. The other browsers decide by themselves. */
+async function persistentStorage(ask = false) {
   try {
     const storage = navigator.storage;
-    const persistent = await storage?.persisted?.() || await storage?.persist?.() || false;
+    const persistent = await storage?.persisted?.() || (ask && await storage?.persist?.()) || false;
     update({ persistent });
   } catch { /* Some browsers decline persistence; never claim it was granted. */ }
 }
@@ -496,7 +502,7 @@ async function saveTrained(handOver, live) {
     // default and those the player picked, and no other.
     const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
     trainedSays(null, '', { ...verified, progress: 100 });
-    void persistentStorage();
+    void persistentStorage(true);
     return verified;
   } catch (error) {
     trainedSays('incomplete', `AI download incomplete: ${error.message}`, { aiReady: false });
