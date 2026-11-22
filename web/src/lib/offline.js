@@ -120,18 +120,40 @@ function activated(registration) {
   const installing = registration.installing ?? registration.waiting;
   if (!installing) return Promise.reject(new Error('Offline installation did not start.'));
   return new Promise((resolve, reject) => {
-    // The install goes on after the page stops waiting for it.
-    const timer = setTimeout(() => finish(new Error('Still saving for offline play. Stay connected until this status says ready.')), 120000);
-    const finish = error => {
-      clearTimeout(timer); installing.removeEventListener('statechange', changed);
-      if (error) reject(error); else resolve();
-    };
+    // The install goes on after the page stops waiting for it, and the page
+    // goes on listening. One that fails later is said and tried again, where
+    // the page used to go on asking the player to stay connected; one that
+    // finishes later takes control of the page (refreshWhenControlled).
+    let waiting = true;
+    const timer = setTimeout(() => {
+      waiting = false;
+      reject(new Error('Still saving for offline play. Stay connected until this status says ready.'));
+    }, 120000);
     const changed = () => {
-      if (installing.state === 'activated') finish();
-      else if (installing.state === 'redundant') finish(new Error('Game download incomplete. Reconnect and retry.'));
+      if (!['activated', 'redundant'].includes(installing.state)) return;
+      clearTimeout(timer); installing.removeEventListener('statechange', changed);
+      if (installing.state === 'activated') { resolve(); return; }
+      const failed = new Error('Game download incomplete. It will be tried again; stay connected.');
+      if (waiting) reject(failed); else update({ coreWarning: failed.message });
+      retryInstall();
     };
     installing.addEventListener('statechange', changed); changed();
   });
+}
+/** A first install that failed is tried again by itself while the page stays
+ * open: after five seconds, then twice as long each time, up to five minutes.
+ * Each attempt keeps the files it finished, so an install a slow link cuts
+ * short (Chrome abandons one after five minutes) gets further every time.
+ * Offline, nothing is tried: a reconnect starts it (model-availability.js). */
+const RETRY_INSTALL_MS = Object.freeze({ first: 5000, most: 300000 });
+let retryDelay = RETRY_INSTALL_MS.first, retryTimer = null;
+function retryInstall() {
+  if (retryTimer !== null) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (navigator.onLine) void startOffline();
+  }, retryDelay);
+  retryDelay = Math.min(retryDelay * 2, RETRY_INSTALL_MS.most);
 }
 async function persistentStorage() {
   try {
@@ -168,10 +190,13 @@ function observeUpdates(registration) {
     update({ updateReady: Boolean(registration.waiting) });
     void saveUpdate(registration);
   };
+  // An update the browser found by itself, before the page began to listen,
+  // is installing already: its updatefound has been and gone, and no other
+  // comes for it.
+  const watch = () => registration.installing?.addEventListener('statechange', check);
   check();
-  registration.addEventListener('updatefound', () => {
-    registration.installing?.addEventListener('statechange', check);
-  });
+  watch();
+  registration.addEventListener('updatefound', watch);
 }
 /** The worker reports on the network it resolved the player's pick to. Match
  * that identity to the network this page plays; a reply about another
@@ -243,8 +268,9 @@ export function startOffline() {
       // A first visit's worker saves the whole game and every tile graphic
       // before it activates. The install reports no progress, so say that it
       // is running; a Trained player's network is saved beside it.
+      // What an attempt before this one said of its failure is over with it.
       const installing = !registration.active;
-      if (installing) update({ installing: true });
+      if (installing) update({ installing: true, coreWarning: '' });
       try { await activated(registration); }
       finally { if (installing) update({ installing: false }); }
       worker = registration.active;

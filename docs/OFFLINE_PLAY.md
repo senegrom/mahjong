@@ -53,7 +53,11 @@ startup, on reconnect and when returning to the app. This recovery never opts
 into AI. A first install that outlasts the page's two-minute wait, one that
 failed, and a page that a hard reload loaded past its worker are each named in
 the game's line, never reported as storage the browser lacks; the panel checks
-again by itself when the finished worker takes control of the page. The
+again by itself when the finished worker takes control of the page. A first
+install that fails, within that wait or after it, is said in the same line and
+tried again by itself while the page stays open and connected: after five
+seconds, then twice as long each time, up to five minutes, each attempt
+keeping the files it finished. Offline, a reconnect starts it instead. The
 optional download/retry button requests only the trained AI package, not an
 already complete game or its graphics.
 
@@ -133,9 +137,10 @@ become successful downloads. Retrying requests only missing files. No file has
 a fixed time limit of its own: one that keeps arriving goes on, and one that
 stops for a minute is tried again later. A file that fails does not stop the
 others, and every file an attempt finishes stays saved, so an install the
-browser abandons after its few minutes (five in Chrome) resumes on the next
-visit or reconnect with only what is still missing. Only a link too slow to
-bring the largest tile graphics within those minutes, below about 300 kbit/s,
+browser abandons after its few minutes (five in Chrome) resumes with only what
+is still missing: by itself while the page stays open, and on the next visit
+or reconnect. Only a link too slow to bring the largest file, the rules
+engine's 1.8 MB, within those minutes, a few tens of kilobits a second,
 never completes it; play still works online. Storage is scoped to this app;
 other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
@@ -149,7 +154,9 @@ the update takes over.
 
 Updates wait until existing Mahjong windows close. An update installs with the
 game and graphics alone, never the network, and on a slow link it resumes over
-several attempts like a first install. When Trained AI was ever requested, the
+several attempts like a first install. The panel says when one has installed,
+whether the browser found it before the page began to watch for one or after.
+When Trained AI was ever requested, the
 update's runtime and network are saved while you play; if that does not
 finish, the update saves them itself once it starts, with the status panel
 showing progress (see [cache lifetime and

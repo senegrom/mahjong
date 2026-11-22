@@ -43,7 +43,7 @@ function fakeWorker({ calls, asked, network, stored, info, faults, label = '' })
 // the page plays, and `pick` the version its player picked, if any.
 function coordinator({ coreReady = false, aiReady = false, aiRequested = false, failCore = false, failAi = false,
   registered = true, held = true, storageFailure = false, online = true, waiting = null, installs = false,
-  controlled = true, impatient = false, network = NETWORK, pick } = {}) {
+  updating = null, controlled = true, impatient = false, network = NETWORK, pick } = {}) {
   const calls = [], asked = [], saves = [], stored = new Set(held || aiReady ? [network.url] : []);
   const info = { coreReady, runtime: aiReady, aiRequested, hasModel: true };
   // transfer, when set, is the network's transfer itself: it may fail or be
@@ -52,17 +52,29 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   let latest, registrations = 0;
   const active = fakeWorker({ calls, asked, network, stored, info, faults });
   // With installs, the first registration's worker is still installing: it
-  // activates (or fails) only when the test finishes the install.
+  // activates (or fails) only when the test finishes the install. One that
+  // fails leaves no registration behind, as in a browser, and registering
+  // again starts another install. With updating, the page loads under its
+  // active worker while an update the browser found by itself is installing.
   const changes = new Set();
-  const installing = installs ? { state: 'installing', addEventListener: (_, listener) => changes.add(listener),
-    removeEventListener: (_, listener) => changes.delete(listener) } : null;
-  const registration = { scope: 'https://test.invalid/mahjong/', active: installs ? null : active, installing,
-    addEventListener() {}, async update() {},
-    waiting: waiting && fakeWorker({ calls, asked, network: NEXT, stored, faults: {},
-      info: { coreReady: true, runtime: false, hasModel: true, ...waiting }, label: 'next:' }) };
+  const installer = () => ({ state: 'installing', addEventListener: (_, listener) => changes.add(listener),
+    removeEventListener: (_, listener) => changes.delete(listener) });
+  const nextWorker = info => fakeWorker({ calls, asked, network: NEXT, stored, faults: {},
+    info: { coreReady: true, runtime: false, hasModel: true, ...info }, label: 'next:' });
+  const registration = { scope: 'https://test.invalid/mahjong/', active: installs ? null : active,
+    installing: installs || updating ? installer() : null,
+    addEventListener() {}, async update() {}, waiting: waiting && nextWorker(waiting) };
   function finishInstall(state = 'activated') {
-    installing.state = state;
-    if (state === 'activated') { registration.active = active; registration.installing = null; }
+    registration.installing.state = state;
+    registration.installing = null;
+    if (state === 'activated') registration.active = active; else registered = false;
+    for (const listener of [...changes]) listener();
+  }
+  /** The update has installed, and waits for this version's windows to close. */
+  function finishUpdate() {
+    registration.installing.state = 'installed';
+    registration.installing = null;
+    registration.waiting = nextWorker(updating);
     for (const listener of [...changes]) listener();
   }
   // Without control, the page is a first visit's before its worker claims it,
@@ -74,6 +86,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       registrations++;
       if (faults.registration) throw new Error('Connection lost');
       registered = true;
+      if (installs && !registration.active) registration.installing ??= installer();
       return registration;
     },
   });
@@ -84,8 +97,12 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   }
   const navigator = { onLine: online, storage: {}, serviceWorker };
   // Impatient, the page's two-minute wait for an install and its 15-second
-  // wait for control end at once, as on a link too slow for either.
-  const wait = impatient ? (fn, ms) => setTimeout(fn, [120000, 15000].includes(ms) ? 20 : ms) : setTimeout;
+  // wait for control end at once, as on a link too slow for either. The wait
+  // before a failed install is tried again is never left to the clock: the
+  // test ends it (retries), and reads how long it would have been.
+  const retries = [];
+  const wait = (fn, ms) => ([120000, 15000, 180000].includes(ms)
+    ? setTimeout(fn, impatient && ms !== 180000 ? 20 : ms) : retries.push({ fn, ms }));
   // offline.js's imports, network-store.js and the page's choice of network
   // in trained-network.js, are stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
@@ -103,8 +120,8 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       return new Uint8Array(1);
     } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'prepareNetwork', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
-  return { api, calls, asked, info, faults, stored, saves, navigator, state: () => latest,
-    registrations: () => registrations, finishInstall, claim };
+  return { api, calls, asked, info, faults, stored, saves, navigator, retries, state: () => latest,
+    registrations: () => registrations, finishInstall, finishUpdate, claim };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
 /** Settles until `met()` holds, for work that takes several messages. */
@@ -202,6 +219,66 @@ test('a first install that outlasts the page\'s wait is shown as running, and as
   assert.equal(c.state().coreWarning, '');
   assert.match(panel(c.state()), /Offline: game ready/);
   for (const state of seen) assert.doesNotMatch(panel(state), /unavailable here/);
+});
+
+test('a first install that fails after the page stopped waiting is said, and tried again by itself', async () => {
+  const c = coordinator({ registered: false, coreReady: true, installs: true, controlled: false, impatient: true });
+  assert.equal(await c.api.startOffline(), null, 'the page stopped waiting');
+  assert.match(panel(c.state()), /Still saving for offline play\. Stay connected until this status says ready\./);
+  // A file stalled, or the browser's few minutes ran out. Nothing else looks
+  // again: no reconnect, no return to the app, no Trained request.
+  c.finishInstall('redundant');
+  assert.match(panel(c.state()), /Game download incomplete\. It will be tried again; stay connected\./);
+  assert.doesNotMatch(panel(c.state()), /Still saving/);
+  assert.deepEqual(c.retries.map(retry => retry.ms), [5000]);
+  c.retries.shift().fn();
+  await until(() => c.registrations() === 2 && c.state().installing, 'the page registers again');
+  assert.doesNotMatch(panel(c.state()), /Game download incomplete/, 'another attempt is under way');
+  // This attempt had only the missing files to fetch, and finishes.
+  c.finishInstall('activated');
+  c.claim();
+  await until(() => c.state().coreReady && c.state().phase === 'ready', 'the game is saved');
+  assert.match(panel(c.state()), /Offline: game ready/);
+  assert.deepEqual(c.retries, []);
+});
+
+test('each failed install waits twice as long as the last before the next, up to five minutes, and offline none is tried', async () => {
+  const c = coordinator({ registered: false, coreReady: true, installs: true });
+  const waited = [];
+  void c.api.startOffline();
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    await until(() => c.state().installing, `attempt ${attempt} is installing`);
+    c.finishInstall('redundant');
+    await until(() => c.retries.length === 1 && !c.state().installing, `attempt ${attempt} failed`);
+    assert.match(panel(c.state()), /Game download incomplete/);
+    const retry = c.retries.shift();
+    waited.push(retry.ms);
+    if (attempt < 8) retry.fn();
+    else {
+      // Offline, the wait ends without an attempt: a reconnect starts one.
+      c.navigator.onLine = false;
+      retry.fn();
+      await settle();
+      assert.equal(c.registrations(), 8);
+    }
+  }
+  assert.deepEqual(waited, [5000, 10000, 20000, 40000, 80000, 160000, 300000, 300000]);
+});
+
+test('an update already installing when the page begins to watch is reported, and saved ahead, once it has installed', async () => {
+  // The browser looks for an update as the page loads, before the page has
+  // asked its worker anything: no updatefound comes after that.
+  const c = coordinator({ coreReady: true, aiReady: true, aiRequested: true, updating: { aiRequested: true } });
+  await c.api.startOffline();
+  await settle();
+  assert.equal(c.state().updateReady, false);
+  assert.deepEqual(c.saves, []);
+  c.finishUpdate();
+  await until(() => c.saves.length === 1, 'the update\'s network is saved while this version runs');
+  assert.equal(c.state().updateReady, true);
+  assert.deepEqual(c.calls.filter(call => call.startsWith('next:')), ['next:MAHJONG_STATUS', 'next:MAHJONG_PREPARE_AI']);
+  assert.deepEqual(c.saves, [{ url: NEXT.url, expect: NEXT, requireStored: true }]);
+  assert.match(panel(c.state()), /A new version is downloaded/);
 });
 
 test('a page a hard reload loaded past its worker says to reload, not that storage is unavailable', async () => {
