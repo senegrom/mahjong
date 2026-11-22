@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { render } from 'svelte/server';
 import { stepSaid } from '../src/lib/game-review.js';
 import { TREND_WINDOW } from '../src/lib/review-trend.js';
@@ -437,4 +438,16 @@ test('the trend compares and shows only the games judged by the version of Train
     games: [games[0], games[3], games[4]] } }).body;
   assert.match(plain, /\+10 points against your previous game \(60%\)/);
   assert.match(plain, />Not counted: 1 game judged otherwise\.</);
+});
+
+test("under a finger every control of the list is a finger's height: a decision's line, a hand's name and a hand's Review", () => {
+  // The list's own rule for a touch screen, from its source: Review, which a
+  // slow phone's hold sends the player to, was left at a pointer's 36 pixels.
+  const source = readFileSync(new URL('../src/lib/ReviewIndex.svelte', import.meta.url), 'utf8');
+  const coarse = /@media \(pointer: coarse\) \{\s*([^{}]*)\{([^{}]*)\}\s*\}/.exec(source.slice(source.indexOf('<style>')));
+  assert.ok(coarse, 'the list has a rule for a touch screen');
+  assert.deepEqual(coarse[1].split(',').map(selector => selector.trim()).sort(), ['.line', '.name', '.review']);
+  assert.match(coarse[2], /min-height:\s*44px/);
+  // Each is a control the list draws.
+  for (const name of ['line', 'name', 'review']) assert.match(source, new RegExp(`<button[^>]*class="(?:app-control )?${name}"`), name);
 });

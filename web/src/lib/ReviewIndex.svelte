@@ -286,8 +286,9 @@
   .verdict { opacity: .85; }
   .arrow { opacity: .7; }
   .flag-mark { margin-left: auto; font-weight: 650; color: var(--gold); }
-  /* Tapped, a line or a name keeps a touch's room. */
+  /* Tapped, a line, a name or a hand's Review keeps a touch's room: Review
+     is what a slow phone's hold sends the player to. */
   @media (pointer: coarse) {
-    .line, .name { min-height: 44px; }
+    .line, .name, .review { min-height: 44px; }
   }
 </style>
