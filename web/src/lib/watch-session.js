@@ -1,10 +1,12 @@
 import { MatchSession } from './session.js';
+import { sameChoice } from './action-weights.js';
+import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 
 /** One followed player and three independent agents. A retained analysis is
  * also the command we play, so stochastic built-ins never reroll on Next. */
 export class WatchSession {
   constructor(Game, seed, lineup, { ai, evaluate, onChange = () => {}, delay = 1400 } = {}) {
-    if (!Array.isArray(lineup) || lineup.length !== 4 || !lineup.every(value => ['beginner', 'club', 'full'].includes(value))) {
+    if (!Array.isArray(lineup) || lineup.length !== 4 || !lineup.every(value => AGENT_IDS.includes(value))) {
       throw new Error('Choose four agents');
     }
     this.lineup = [...lineup];
@@ -20,7 +22,7 @@ export class WatchSession {
     this.pauseAtHandEnd = true;
     this.closed = false;
     this.timer = null;
-    const opponents = lineup.slice(1).map(agent => agent === 'full' ? 'neural' : agent);
+    const opponents = lineup.slice(1).map(agent => agent === TRAINED_AGENT ? 'neural' : agent);
     // A page plays one network: every trained seat asks the same one.
     this.match = new MatchSession(Game, seed, opponents, { ai, onChange: () => this.notify() });
   }
@@ -76,7 +78,7 @@ export class WatchSession {
 
   choose(choice, expectedAnalysis) {
     if (!choice || this.closed || this.busy || !this.analysis || this.analysis !== expectedAnalysis) return Promise.resolve(false);
-    const allowed = this.analysis.choices.find(entry => entry.kind === choice.kind && (entry.tile ?? null) === (choice.tile ?? null));
+    const allowed = this.analysis.choices.find(entry => sameChoice(entry, choice));
     if (!allowed) return Promise.resolve(false);
     const { kind, tile } = allowed;
     return this.prepare({ type: 'choose', kind, tile: tile ?? null });

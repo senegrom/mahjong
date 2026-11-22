@@ -1,4 +1,5 @@
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
+import { sameChoice } from './action-weights.js';
 
 export const PHYSICAL_KEY = 'riichi.physical.v1';
 
@@ -78,16 +79,18 @@ export function missingNumber(position) {
 }
 
 /** Discard order numbers run below this; the engine refuses any other. */
-const MAX_ORDER = 400;
+export const MAX_ORDER = 400;
 
-/** The order number the next discard at the table will carry. */
-function nextOrder(position) {
+/** The order number the next discard at the table will carry. The one count
+ * for the physical table's recorded moves, its editor's earlier discards and
+ * a guided game's kans, which each used to count it. */
+export function nextOrder(position) {
   return Math.max(-1, ...position.players.flatMap(player => player.discards.map(entry => entry.order))) + 1;
 }
 
 /** A quad's turn as recorded: the next discard's order number, or none where
  * that is past what a draft holds. */
-function quadTurn(position) {
+export function quadTurn(position) {
   const turn = nextOrder(position);
   return turn < MAX_ORDER ? turn : undefined;
 }
@@ -245,7 +248,7 @@ export function recordDiscard(position, seat, tile, riichi = false) {
 /** Record only the analysed seat's real choice. Never fill in unseen tiles,
  * other players' responses, a replacement draw, or another dora indicator. */
 export function recordChoice(position, choice, choices) {
-  if (!choices.some(entry => entry.kind === choice.kind && (entry.tile ?? null) === (choice.tile ?? null))) {
+  if (!choices.some(entry => sameChoice(entry, choice))) {
     throw new Error('Analyse this position again before recording a choice');
   }
   if (choice.kind === 'discard' || choice.kind === 'riichi') return recordDiscard(position, position.seat, choice.tile, choice.kind === 'riichi');

@@ -1,18 +1,18 @@
-import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { emptyPosition, parsePhysical, missingNumber, quadTurn, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { sameChoice } from './action-weights.js';
+import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
 import { rememberEnding, applySettlement, validDraft, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
-const AGENTS = ['beginner', 'club', 'full'];
-const sameChoice = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
 /** A new guided game. Its adviser is the trained network unless one is
  * named: a game started from another keeps the adviser that one had. */
-export function emptyGuided(agent = 'full') {
+export function emptyGuided(agent = TRAINED_AGENT) {
   const position = emptyPosition();
   position.wall = 70; position.phase = 'draw';
-  if (!AGENTS.includes(agent)) agent = 'full';
+  if (!AGENT_IDS.includes(agent)) agent = TRAINED_AGENT;
   return { state: { position, stage: 'setup', nextSeat: 0, needsDraw: true, agent, result: '' }, past: [], log: [] };
 }
 
@@ -271,8 +271,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       const player = p.players[state.nextSeat];
       if (!['concealed-kan', 'extended-kan'].includes(event.kind)) throw new Error('Choose the kind of kan');
       // A quad's turn is that of the discard the turn will end with.
-      const turn = Math.max(-1, ...p.players.flatMap(seat => seat.discards.map(entry => entry.order))) + 1;
-      const declared_turn = turn < 400 ? turn : undefined;
+      const declared_turn = quadTurn(p);
       if (event.kind === 'extended-kan') {
         const meld = player.melds.find(m => m.kind === 'pon' && m.tile === event.tile);
         if (!meld) throw new Error('This opponent has no matching pon to extend');
@@ -365,7 +364,7 @@ export function parseGuided(text, scoreSettlement) {
   try {
     if (typeof text !== 'string' || text.length > 2_000_000) return null;
     const value = JSON.parse(text), game = value?.game;
-    const validState = state => state && STAGES.includes(state.stage) && AGENTS.includes(state.agent)
+    const validState = state => state && STAGES.includes(state.stage) && AGENT_IDS.includes(state.agent)
       && Number.isInteger(state.nextSeat) && state.nextSeat >= 0 && state.nextSeat < 4
       && typeof state.needsDraw === 'boolean' && typeof state.result === 'string' && state.result.length <= 120
       && parsePhysical(JSON.stringify({ version: 1, position: state.position }))

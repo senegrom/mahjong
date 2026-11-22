@@ -2,7 +2,7 @@
   import Tile from './Tile.svelte';
   import { agentName } from './agents.js';
   import { likeliest } from './beliefs.js';
-  import { groupPolicyChoices } from './action-weights.js';
+  import { groupPolicyChoices, sameChoice } from './action-weights.js';
   import { percent } from './ui.js';
   import { valueWords } from './trained-network.js';
   import { RULE_WORDS, ruleLine, ruleSaid } from './trained-move.js';
@@ -58,7 +58,7 @@
       {:else}<strong>{weight ? 'Selected' : '—'}</strong>{/if}
     {/snippet}
     {#snippet choiceRow(choice, conditional = false)}
-      {@const selected = choice.kind === analysis.choice.kind && (choice.tile ?? null) === (analysis.choice.tile ?? null)}
+      {@const selected = sameChoice(choice, analysis.choice)}
       {@const weight = conditional ? choice.conditionalWeight : choice.weight}
       <div class="weight-row" class:best={selected} data-choice={choice.label}>
         {#if onchoose}

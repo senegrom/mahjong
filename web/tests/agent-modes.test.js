@@ -6,7 +6,7 @@ import { policyWeights } from '../src/lib/policy-weights.js';
 import { WatchSession } from '../src/lib/watch-session.js';
 import { MOVES, swapMoves } from '../src/lib/suits.js';
 import { renamingFault } from './fixtures/renamed-planes.js';
-import { emptyPosition, missingNumber, parseTiles, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
+import { emptyPosition, MAX_ORDER, missingNumber, nextOrder, parseTiles, quadTurn, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -215,6 +215,18 @@ test('manual entry preserves unknown hands and refuses duplicate riichi and stal
   // A tile a known hand does not hold is named as the page names tiles.
   assert.throws(() => recordDiscard(recordDraw({ ...p, wall: 60, players: p.players.map((player, seat) =>
     seat === 2 ? { ...player, hand: parseTiles('123m456p789s1123z') } : player) }, 2, '4z'), 2, '9p'), /^Error: This hand does not hold the 9 circles$/);
+});
+
+test('the next discard is numbered one past the last, for a recorded move, an earlier discard and a kan alike', () => {
+  const p = emptyPosition();
+  assert.equal(nextOrder(p), 0);
+  p.players[1].discards = [{ tile: '1m', order: 5, drawn: false, riichi: false, claimed: false }];
+  p.players[3].discards = [{ tile: '2m', order: 2, drawn: false, riichi: false, claimed: false }];
+  assert.deepEqual([nextOrder(p), quadTurn(p)], [6, 6]);
+  assert.equal(recordDiscard(p, 2, '9m').players[2].discards[0].order, 6);
+  // Past what a draft holds, a kan records no turn rather than one the engine refuses.
+  p.players[1].discards[0].order = MAX_ORDER - 1;
+  assert.deepEqual([nextOrder(p), quadTurn(p)], [MAX_ORDER, undefined]);
 });
 
 test('a draft is asked for each number it lacks or holds out of range, in a sentence, before the engine is asked', () => {
