@@ -120,8 +120,13 @@
       if (order >= 3) p.first_turns = false;
     });
   }
+  // A draw or a discard the table refuses is thrown back to the palette that
+  // was pressed, which says it there (TileEntry): the line under the toolbar
+  // is a screen or more above it on a phone.
   function recordEvent(tile) {
-    edit(p => eventKind === 'draw' ? recordDraw(p, eventSeat, tile) : recordDiscard(p, eventSeat, tile, eventKind === 'riichi'));
+    const table = snapshot();
+    const next = eventKind === 'draw' ? recordDraw(table, eventSeat, tile) : recordDiscard(table, eventSeat, tile, eventKind === 'riichi');
+    edit(() => next);
   }
   async function analyze() {
     if (!loaded || saveConflict || unreadable) return;

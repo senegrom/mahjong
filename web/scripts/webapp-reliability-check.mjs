@@ -7,7 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { MANIFEST } from '../src/lib/model-manifest.js';
-import { emptyPosition, PHYSICAL_KEY } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles, PHYSICAL_KEY, recordDraw } from '../src/lib/physical-position.js';
 import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
@@ -201,6 +201,32 @@ try {
     const west = structuredClone(again); west.seat = 2; west.turn = 2;
     await expectPosition(page, west);
     assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2)), await isOpen(seat(3))], [false, true, true]);
+    assert.deepEqual(errors, []);
+  });
+  await check('a refused physical move is said under the palette it was pressed in, and a number out of range by name', async context => {
+    const initial = emptyPosition(); initial.players[0].hand = parseTiles('123m456p789s1123z');
+    const { page, errors } = await open(context, { mode: 'physical', width: 390, fixture: initial });
+    const entry = '.record-event .tile-entry', move = '.record-event .fields label:nth-child(2) select';
+    // East holds thirteen tiles, so a discard before its draw is refused.
+    await page.select(move, 'discard');
+    await page.click(`${entry} summary`);
+    await page.click(`${entry} .palette button[data-tile="1m"]`);
+    await page.waitForSelector(`${entry} [role="alert"]`);
+    assert.equal(await page.$eval(`${entry} [role="alert"]`, el => el.textContent), 'Record this player’s draw or call before discarding');
+    assert.equal(await page.$('.physical-play .failure'), null, 'not in the line under the toolbar, a screen above');
+    assert.deepEqual(await saved(page), initial, 'a refused move changes nothing');
+    // The draw is taken from the same palette, and the refusal goes.
+    await page.select(move, 'draw');
+    await page.click(`${entry} .palette button[data-tile="4z"]`);
+    const drawn = recordDraw(initial, 0, '4z');
+    await expectPosition(page, drawn);
+    assert.equal(await page.$(`${entry} [role="alert"]`), null);
+    // A count below nought is asked for by name, not answered by the engine.
+    await number(page, '.table-fields input[max="100"]', '-1');
+    await expectPosition(page, { ...drawn, counters: -1 });
+    await page.click('.physical-toolbar .primary');
+    await page.waitForSelector('.physical-play .failure');
+    assert.equal(await page.$eval('.physical-play .failure', el => el.textContent), 'The honba count must be 0 to 100');
     assert.deepEqual(errors, []);
   });
 } finally {

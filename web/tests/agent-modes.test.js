@@ -6,7 +6,7 @@ import { policyWeights } from '../src/lib/policy-weights.js';
 import { WatchSession } from '../src/lib/watch-session.js';
 import { MOVES, swapMoves } from '../src/lib/suits.js';
 import { renamingFault } from './fixtures/renamed-planes.js';
-import { emptyPosition, parseTiles, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
+import { emptyPosition, missingNumber, parseTiles, recordChoice, recordDraw, recordDiscard, parsePhysical } from '../src/lib/physical-position.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -212,6 +212,34 @@ test('manual entry preserves unknown hands and refuses duplicate riichi and stal
   assert.throws(() => parseTiles('89z'));
   assert.throws(() => parseTiles('1m garbage 2p'));
   assert.equal(parsePhysical('{broken'), null, 'unreadable drafts are reported to PhysicalStore, not replaced');
+  // A tile a known hand does not hold is named as the page names tiles.
+  assert.throws(() => recordDiscard(recordDraw({ ...p, wall: 60, players: p.players.map((player, seat) =>
+    seat === 2 ? { ...player, hand: parseTiles('123m456p789s1123z') } : player) }, 2, '4z'), 2, '9p'), /^Error: This hand does not hold the 9 circles$/);
+});
+
+test('a draft is asked for each number it lacks or holds out of range, in a sentence, before the engine is asked', () => {
+  assert.equal(missingNumber(basic()), null);
+  const said = change => { const p = basic(); change(p); return missingNumber(p); };
+  // A field the player emptied is null; a number field takes whatever is typed.
+  assert.equal(said(p => { p.counters = null; }), 'Enter the honba count');
+  assert.equal(said(p => { p.counters = 1.5; }), 'Enter the honba count');
+  assert.equal(said(p => { p.counters = -1; }), 'The honba count must be 0 to 100');
+  assert.equal(said(p => { p.riichi_sticks = 101; }), 'The riichi sticks must be 0 to 100');
+  assert.equal(said(p => { p.kyoku = 0; }), 'The hand number must be 1 to 4');
+  assert.equal(said(p => { p.wall = -1; }), 'The live wall count must be 0 to 70');
+  assert.equal(said(p => { p.wall = null; }), 'Enter the live wall count');
+  assert.equal(said(p => { p.round = 4; }), 'Choose the round wind');
+  assert.equal(said(p => { p.players[1].score = null; }), "Enter South's points");
+  assert.equal(said(p => { p.players[1].score = 200100; }), "South's points must be -100,000 to 200,000");
+  assert.equal(said(p => { p.players[1].score = -500; }), null, 'a score below nought is a score');
+  assert.equal(said(p => { p.players[2].discards = [{ tile: '1m', order: -1, drawn: false, riichi: false, claimed: false }]; }),
+    "Give each of West's discards an order number from 0 to 399");
+  assert.equal(said(p => { p.players[2].discards = [{ tile: '1m', order: null, drawn: false, riichi: false, claimed: false }]; }),
+    "Give each of West's discards an order number from 0 to 399");
+  assert.equal(said(p => { p.players[2].melds = [{ kind: 'pon', tile: '1m', from: 4 }]; }), "Choose who supplied each of West's called sets");
+  // The engine's own answer to a count below nought is the deserialiser's.
+  const negative = basic(); negative.counters = -1;
+  assert.throws(() => new PhysicalAnalysis(negative), refusal => !/must be/.test(String(refusal)));
 });
 
 test('a second legal kan stays recordable without inventing another trained-policy weight', () => {

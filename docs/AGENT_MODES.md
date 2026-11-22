@@ -215,14 +215,18 @@ Each completed kan needs its additional indicator.
 For a draw decision identify the tile already included in hand. After a set
 call identify the tile just claimed. For a response identify the discarding
 seat and pending tile; kan-robbery windows have separate kinds. **Show agent
-weights** validates the table and analyses it. Editing cancels stale advice.
+weights** validates the table and analyses it. A number left empty or typed
+out of its range is asked for by name first ("The honba count must be 0 to
+100"), since a number field takes whatever is typed. Editing cancels stale advice.
 Record the move actually played, even when it differs from the suggestion.
 
 **Record the next physical move** adds a known hand's actual draw or records
 a discard. An unknown opponent's otherwise-unrecorded draw is counted with its
 discard, but not after a pon or chii or once that seat has already drawn; a
 discard that would need a draw from an empty wall is refused and changes
-nothing. After exceptional turns correct the wall count to the actual table.
+nothing. A refused move is said under the palette it was pressed in, not in
+the line under the toolbar, which is a screen above it on a phone. After
+exceptional turns correct the wall count to the actual table.
 **Add an earlier discard** edits visible history without advancing play.
 
 Calls consume only held tiles and retain the claimed discard. Newly recorded
