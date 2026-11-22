@@ -39,13 +39,20 @@ export function viewMelds(player) {
   return player.melds.map(meld => ({ kind: meld.kind, tiles: setTiles(meld), from: ['self', 'right', 'across', 'left'][meld.from] }));
 }
 
-/** Count only tiles actually seen, with claimed discards counted in their set. */
-export function visibleCounts(position) {
+/** What a table event's fifth copy says the player can do: the tile entered
+ * now is the one on the table, so one of the four before it was not. */
+const MISTAKEN = 'Undo back to the one entered by mistake.';
+
+/** Count only tiles actually seen, with claimed discards counted in their set.
+ * A fifth copy is refused, in a sentence that ends with `remedy` where the
+ * caller has one: a tile typed into the starting hand was never entered, so
+ * there nothing is to be undone. */
+export function visibleCounts(position, remedy = '') {
   const counts = new Map(TILE_TYPES.map(tile => [tile, 0]));
   const add = tile => {
     if (!counts.has(tile)) throw new Error('Choose a valid tile');
     const count = counts.get(tile) + 1;
-    if (count > 4) throw new Error(`All four copies of ${tileWords(tile)} are already accounted for. Undo the mistaken entry.`);
+    if (count > 4) throw new Error(`All four copies of ${tileWords(tile)} are already accounted for.${remedy && ` ${remedy}`}`);
     counts.set(tile, count);
   };
   position.indicators.forEach(add);
@@ -139,7 +146,7 @@ function queueClaim(state, claim) {
   // Validate the eventual move now, but keep its tiles at their original
   // positions so ron can still cancel the set and be scored correctly.
   const preview = structuredClone(state);
-  applyClaim(preview, claim); visibleCounts(preview.position);
+  applyClaim(preview, claim); visibleCounts(preview.position, MISTAKEN);
   state.claim = claim; state.stage = 'claim-response';
 }
 
@@ -326,7 +333,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
     }
     default: throw new Error('Unknown guided event');
   }
-  visibleCounts(p);
+  visibleCounts(p, MISTAKEN);
   if (state.stage === 'decision') validateDecision(p);
   return { state, past: [...game.past.slice(-29), { state: structuredClone(game.state), logLength: game.log.length }], log: [...game.log, label] };
 }

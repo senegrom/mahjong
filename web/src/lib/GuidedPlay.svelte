@@ -69,10 +69,12 @@
       if (enabled && state.stage === 'decision') void analyze(key);
     });
   });
+  // Whether the change was taken. A refused one is said in the prompt's own
+  // line, so a tile entry keeps what was typed for it to be corrected.
   function edit(change) {
-    if (blocked) return;
-    try { game = editGuided(snapshot(), change); failure = ''; }
-    catch (error) { failure = error.message ?? String(error); }
+    if (blocked) return false;
+    try { game = editGuided(snapshot(), change); failure = ''; return true; }
+    catch (error) { failure = error.message ?? String(error); return false; }
   }
   function validate(p) { analysisOf(PhysicalAnalysis, p).free(); }
   function act(event) {

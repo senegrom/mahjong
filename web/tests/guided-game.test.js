@@ -296,8 +296,20 @@ test('EMA 2025: guided riichi and the real engine agree at one remaining live ti
 
 test('rejects fifth copies, incomplete setup, stale events and rolls back invalid decisions', () => {
   let g = start(0, '1111m456p789s123z');
-  assert.throws(() => act(g, { type: 'draw', tile: '1m' }), /four copies/);
+  // The tile drawn is the one at the table, so one entered before it was not.
+  assert.throws(() => act(g, { type: 'draw', tile: '1m' }),
+    /^Error: All four copies of 1 characters are already accounted for\. Undo back to the one entered by mistake\.$/);
   assert.equal(g.state.position.wall, 70);
+  // A fifth copy typed into the starting hand was never entered: nothing is
+  // to be undone, and the hand is left as it was.
+  const dealing = act(emptyGuided(), { type: 'setup' });
+  const four = editGuided(dealing, s => { s.position.players[0].hand = parseTiles('1111m'); });
+  assert.throws(() => editGuided(four, s => { s.position.players[0].hand = parseTiles('11111m'); }),
+    /^Error: All four copies of 1 characters are already accounted for\.$/);
+  assert.deepEqual(four.state.position.players[0].hand, parseTiles('1111m'));
+  // An opponent's call that would show a fifth copy is refused the same way.
+  const called = pass(discard(start(3, '555m456p789s1123z'), '5m'));
+  assert.throws(() => act(called, { type: 'call', seat: 2, kind: 'pon' }), /four copies of 5 characters.*Undo back to the one entered by mistake\.$/);
   assert.throws(() => act(g, { type: 'continue' }), /no longer/);
   g = emptyGuided(); g.state.position.players[0].score = null;
   assert.throws(() => act(g, { type: 'setup' }), /points/);

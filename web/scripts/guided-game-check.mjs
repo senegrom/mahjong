@@ -167,6 +167,26 @@ try {
     assert.equal(await page.$eval(field, el => el.value), '-500');
     assert.deepEqual(page.problems, []);
   });
+  await check('a fifth copy typed into the starting hand is refused, and what was typed stays to be corrected', async context => {
+    const page = await open(context);
+    await page.click('.guide-prompt > .primary'); await stage(page, 'hand');
+    const field = '[aria-label="Your starting hand in tile notation"]';
+    const entered = () => page.$$eval('.guide-prompt .entered .tile', tiles => tiles.length);
+    await page.type(field, '11111m'); await page.keyboard.press('Enter');
+    // Nothing was entered, so the refusal names no entry to undo.
+    await page.waitForFunction(() => document.querySelector('.guide-prompt .failure')?.textContent
+      === 'All four copies of 1 characters are already accounted for.');
+    assert.equal(await page.$eval(field, el => el.value), '11111m', 'what was typed is kept');
+    assert.equal(await entered(), 0);
+    // One character taken out, it is entered, and the field is emptied.
+    await page.focus(field); await page.keyboard.press('End'); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Backspace');
+    assert.equal(await page.$eval(field, el => el.value), '1111m');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('.guide-prompt .entered .tile').length === 4);
+    assert.equal(await page.$eval(field, el => el.value), '');
+    assert.equal(await page.$('.guide-prompt .failure'), null);
+    assert.deepEqual(page.problems, []);
+  });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
     const page = await open(context, 360), modelRequests = [];
     // The network is not a file of this site any more: it comes from the

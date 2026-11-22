@@ -277,6 +277,12 @@ Resolve robbery before recording the additional indicator and replacement.
 Replacement draws count once; chained kans repeat this sequence. Invalid
 counts, directions, and stale actions cannot alter the saved game.
 
+A fifth copy of a tile is refused where it is entered. Typed into the
+starting hand it was never entered, so the line says only that all four
+copies are accounted for, and what was typed stays in the field to be
+corrected. At a draw, a discard, an indicator or a call the tile is the one
+on the table, so the line adds: "Undo back to the one entered by mistake."
+
 **Someone won / hand ended** opens the result flow. Known results can use the
 Rust scorer after the missing winning-hand and indicator data are entered;
 the guide does not invent unseen winning hands or payments. Apply a validated

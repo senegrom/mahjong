@@ -3,6 +3,10 @@
   import Tile from './Tile.svelte';
   import { parseTiles } from './physical-position.js';
   import { TILE_TYPES, tileWords } from './tiles.js';
+  // `onadd(tile)` takes one tile and `onchange(tiles)` the whole list. Either
+  // refuses by throwing, and the refusal is said here, under the palette that
+  // was pressed. An `onchange` that says the refusal itself answers false.
+  // Whichever way, what was typed stays in the field to be corrected.
   let { label, tiles = [], onchange = null, onadd = null, limit = 14, expanded = false } = $props();
   // The palette is the player's to open and fold: `expanded` only says how it
   // starts. Set from the prop (`open={expanded}`), Svelte set it again whenever
@@ -17,7 +21,7 @@
       if (onadd) { for (const tile of values) onadd(tile); }
       else {
         if (tiles.length + values.length > limit) throw new Error(`At most ${limit} tiles here`);
-        onchange([...tiles, ...values]);
+        if (onchange([...tiles, ...values]) === false) return;
       }
       text = '';
     } catch (e) { error = e.message ?? String(e); }
