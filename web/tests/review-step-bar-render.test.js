@@ -167,3 +167,17 @@ test('Next, waiting for the answers of the hand on show, says it is disabled but
     { which: 'previous', label: 'Previous flagged decision', disabled: false, waiting: false },
     { which: 'next', label: 'Next flagged decision', disabled: false, waiting: true }]);
 });
+
+test("a tile of the step bar's line that is dora is marked so, as it is in the list, the hand and Trained AI's view, and not with hints off", () => {
+  // The red dragon and the 7 circles are dora at this table: the player's
+  // tile is marked, Trained AI's, the 8 bamboo, is not.
+  const dora = { ...hand, frames: hand.frames.map(entry => ({ ...entry, view: { ...entry.view, dora_types: ['7z', '7p'] } })) };
+  const differing = decision(1, discards[1]);
+  assert.deepEqual(line(bar({ hand: dora, decision: differing })).tiles, ['red dragon, dora', '8 bamboo']);
+  assert.deepEqual(line(bar({ hand: dora, decision: differing, hints: false })).tiles, ['red dragon', '8 bamboo'], 'no mark with hints off');
+  // The tile on offer is marked too.
+  assert.deepEqual(line(bar({ hand: dora, step: 0, decision: decision(0, calls[0]) })).tiles, ['7 circles, dora']);
+  // The words of the line, and what it says, are as they were.
+  assert.equal(line(bar({ hand: dora, decision: differing })).said, line(bar({ decision: differing })).said);
+  assert.deepEqual(line(bar({ decision: differing })).tiles, ['red dragon', '8 bamboo']);
+});

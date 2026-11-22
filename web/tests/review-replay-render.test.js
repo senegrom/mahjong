@@ -5,7 +5,8 @@ import { render } from 'svelte/server';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { text } from './fixtures/markup-text.js';
-import { MatchReview, filterCounts, moveToken, moveWeight, sameMove, stepSaid } from '../src/lib/game-review.js';
+import { sameMove } from '../src/lib/action-weights.js';
+import { MatchReview, filterCounts, moveToken, moveWeight, stepSaid } from '../src/lib/game-review.js';
 import { OPPONENT_LABELS, OPPONENT_POSITIONS } from '../src/lib/opponents.js';
 import { SEAT_NAMES, tileWords } from '../src/lib/tiles.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
@@ -111,7 +112,7 @@ const everyDecision = review.hands.flatMap(entry => entry.frames.map((frame, ste
 /** The row of Trained AI's view for a move of a decision, by the engine's
  * words for it, and the words it is tagged with; null where it has none. */
 function viewRow(html, decision, move) {
-  const label = decision.weighted.find(choice => sameMove(choice, move.kind, move.tile)).label;
+  const label = decision.weighted.find(choice => sameMove(choice, move)).label;
   const row = [...html.matchAll(/<div class="row[^"]*" role="listitem"[^>]*data-move="([^"]*)">([^]*?)<\/div>/g)].find(([, said]) => said === label);
   return row && { inner: row[2], tag: text(/<span class="tag[^"]*" aria-hidden="true">([^]*?)<\/span>/.exec(row[2])[1]) };
 }
@@ -216,7 +217,7 @@ test("an answer to another's discard, its answer kept back, offers each call and
   assert.ok(picks(html).some(({ kind, label }) => kind === 'pass' && label === 'Pass'), 'Pass among them');
   assert.ok(liveTiles(html).every(live => !live), 'no tile is thrown in answer to a discard');
   // Picked, the answer is shown, the pick tagged Now in Trained AI's view.
-  const choice = offered.find(entry => !sameMove(entry, call.decision.advised_kind, call.decision.advised_tile)) ?? offered[0];
+  const choice = offered.find(entry => !sameMove(entry, { kind: call.decision.advised_kind, tile: call.decision.advised_tile })) ?? offered[0];
   const pick = { kind: choice.kind, tile: choice.tile ?? null };
   const shown = render(DecisionReplay, { props: { hand: call.entry, step: call.step, hints: true, pick } }).body;
   assert.match(shown, /data-view=""/);
@@ -245,7 +246,7 @@ test("a move picked before the answer was shown is tagged Now over its tile, in 
   // the pick between the player's and Trained AI's.
   const heads = markup => [...(/<details class="numbers[^"]*"[^>]*>([^]*?)<\/details>/.exec(markup)?.[1] ?? '')
     .matchAll(/<th scope="col"[^>]*>([^<]*)/g)].map(match => match[1]).filter(Boolean);
-  const measured = move => target.decision.measures?.some(measure => sameMove(measure, move.kind, move.tile));
+  const measured = move => target.decision.measures?.some(measure => sameMove(measure, move));
   const advised = { kind: target.decision.advised_kind, tile: target.decision.advised_tile ?? null };
   const played = { kind: target.decision.played_kind, tile: target.decision.played_tile ?? null };
   assert.deepEqual(heads(html), [['You', played], ['Now', pick], ['Trained AI', advised]].filter(([, move]) => measured(move)).map(([title]) => title));
@@ -257,7 +258,7 @@ test("a move picked before the answer was shown is tagged Now over its tile, in 
   assert.doesNotMatch(table, /<th\b[^>]*><\/th>/);
   // A pick the review did not measure has no column, and the others keep theirs.
   const unmeasured = { ...target.entry, decisions: target.entry.decisions.map((entry, at) => (at !== target.step ? entry
-    : { ...entry, measures: entry.measures.filter(measure => !sameMove(measure, pick.kind, pick.tile)) })) };
+    : { ...entry, measures: entry.measures.filter(measure => !sameMove(measure, pick)) })) };
   const without = render(DecisionReplay, { props: { hand: unmeasured, step: target.step, hints: true, pick } }).body;
   assert.deepEqual(heads(without), heads(html).filter(title => title !== 'Now'));
 });
@@ -370,7 +371,7 @@ test("where one of the last hand's rules made Trained AI's move, its view says s
   const at = everyDecision.find(({ frame, decision }) => frame.view.phase === 'act' && frame.played.kind === 'discard' && !decision.forced
     && decision.weighted.some(choice => choice.kind === 'discard' && choice.tile !== frame.played.tile));
   assert.ok(at, 'a turn with a choice of tiles');
-  const tile = at.frame.played.tile, plain = at.decision.weighted.find(choice => sameMove(choice, 'discard', tile));
+  const tile = at.frame.played.tile, plain = at.decision.weighted.find(choice => sameMove(choice, { kind: 'discard', tile }));
   const other = at.decision.weighted.find(choice => choice.kind === 'discard' && choice.tile !== tile);
   // The review measures the tile thrown, so a riichi and the plain discard
   // of its tile have the same numbers.

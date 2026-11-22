@@ -26,16 +26,16 @@ const choices = [{ kind: 'discard', tile: '7m', label: 'discards the 7 character
   { kind: 'discard', tile: '9p', label: 'discards the 9 circles' }];
 const frame = { view, choices, lines: [], command: 0, played: { kind: 'discard', tile: '7m' } };
 const decision = (values = {}) => ({
-  hand: 0, index: 0, turn: 3, played: 'discards the 7 characters', played_kind: 'discard', played_tile: '7m',
+  turn: 3, played: 'discards the 7 characters', played_kind: 'discard', played_tile: '7m',
   advised: 'discards the 1 characters', advised_kind: 'discard', advised_tile: '1m', agreed: false, forced: false,
-  played_weight: 0.02, preferred_weight: 0.81, dora_types: [], weighted: [], frame,
+  played_weight: 0.02, preferred_weight: 0.81, dora_types: [], weighted: [],
   judgement: { stage: 'move', played: 0.02, preferred: 0.81, gap: 0.79, flagged: true }, ...values,
 });
-const hand = (index, values = {}) => ({ index, name: ['East 1', 'East 2', 'East 3'][index], counters: 0, seat: 'east',
+const hand = (index, values = {}) => ({ index, name: ['East 1', 'East 2', 'East 3'][index],
   frames: [frame, frame], outcome: 'East wins by self-draw', change: 0, status: 'waiting', decisions: null, ...values });
 /** A hand reviewed: its first decision flagged, its second agreed with. */
 const done = (index, values = {}) => hand(index, { status: 'done',
-  decisions: [decision({ hand: index }), decision({ hand: index, index: 1, agreed: true, judgement: null })], ...values });
+  decisions: [decision(), decision({ agreed: true, judgement: null })], ...values });
 // A finished match's review unless `over` says the match is under way.
 const review = (values = {}) => ({
   id: '7:120', hands: [hand(0), hand(1), hand(2)], busy: false, failure: '', held: false, slow: false, estimate: null,
@@ -120,7 +120,7 @@ test('a review under way opens on the hand just played at its first decision, wh
 });
 
 test('a finished review opens on the final hand at its first flagged decision, says it has reviewed every hand without showing it, and goes back to the standings', () => {
-  const last = done(2, { decisions: [decision({ hand: 2, agreed: true, judgement: null }), decision({ hand: 2, index: 1 })] });
+  const last = done(2, { decisions: [decision({ agreed: true, judgement: null }), decision()] });
   const html = page({ review: review({ complete: true, hands: [done(0), done(1), last] }) });
   assert.match(html, /<h2[^>]*>Whole game<\/h2>/);
   assert.equal(buttonSaid(html, 'data-close-review'), 'Back to the standings');
@@ -135,10 +135,10 @@ test('a finished review opens on the final hand at its first flagged decision, s
 });
 
 test('the list gives every hand in the order played, its name, what it changed and how it ended, and a line for each decision its filter keeps, both moves named in words', () => {
-  const near = decision({ index: 1, advised_tile: '9p', advised: 'discards the 9 circles', played_weight: 0.2, preferred_weight: 0.7,
+  const near = decision({ advised_tile: '9p', advised: 'discards the 9 circles', played_weight: 0.2, preferred_weight: 0.7,
     judgement: { stage: 'move', played: 0.2, preferred: 0.7, gap: 0.5, flagged: false } });
-  const agreed = decision({ index: 2, agreed: true, judgement: null });
-  const forced = decision({ index: 3, agreed: true, forced: true, judgement: null });
+  const agreed = decision({ agreed: true, judgement: null });
+  const forced = decision({ agreed: true, forced: true, judgement: null });
   const first = hand(0, { status: 'done', change: 3900, frames: [frame, frame, frame, frame], decisions: [decision(), near, agreed, forced] });
   const second = hand(1, { change: -8000, outcome: "West wins on North's discard" });
   const third = hand(2, { status: 'done', frames: [], decisions: [], outcome: 'Exhaustive draw' });
@@ -181,8 +181,8 @@ test('the list gives every hand in the order played, its name, what it changed a
 });
 
 test("the filter's buttons say in a word what each keeps, with how many, every decision of every hand counted, and the step bar is named for it", () => {
-  const near = decision({ index: 1, judgement: { stage: 'move', played: 0.2, preferred: 0.7, gap: 0.5, flagged: false } });
-  const first = hand(0, { status: 'done', frames: [frame, frame, frame], decisions: [decision(), near, decision({ index: 2, agreed: true, judgement: null })] });
+  const near = decision({ judgement: { stage: 'move', played: 0.2, preferred: 0.7, gap: 0.5, flagged: false } });
+  const first = hand(0, { status: 'done', frames: [frame, frame, frame], decisions: [decision(), near, decision({ agreed: true, judgement: null })] });
   const reviewed = review({ hands: [first, hand(1), hand(2)] });
   const opening = page({ review: reviewed });
   assert.match(opening, /role="group" aria-label="Which decisions to step through"/);
@@ -304,7 +304,7 @@ test('a review of the game so far offers the game so far, the next hand or the r
 
 test('a finished review whose filter keeps nothing says so in the list, in the words the filter says it in', () => {
   const agreed = decision({ agreed: true, judgement: null });
-  const hands = [0, 1, 2].map(index => hand(index, { status: 'done', decisions: [agreed, { ...agreed, index: 1 }] }));
+  const hands = [0, 1, 2].map(index => hand(index, { status: 'done', decisions: [agreed, { ...agreed }] }));
   assert.match(page({ review: review({ complete: true, hands }) }), /<p class="empty[^"]*">None flagged\.<\/p>/);
   assert.match(page({ review: review({ complete: true, hands }), filter: 'differed' }), /<p class="empty[^"]*">Trained AI agreed at every decision\.<\/p>/);
   // While the review goes on, the hands' own states say how far it has got.

@@ -11,6 +11,7 @@
  * the end of each hand to ask about that hand's decisions, which is what the
  * per-hand review asks (review-policy.js), here in batches.
  */
+import { sameMove } from './action-weights.js';
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
@@ -86,7 +87,7 @@ export function scanMatch(Game, snapshot) {
   try {
     const hands = [];
     let lines = match.engine.advance(), hand = null;
-    const begin = () => ({ index: hands.length, name: handName(match.view), counters: match.view.counters, seat: match.view.seats[0].seat, frames: [] });
+    const begin = () => ({ index: hands.length, name: handName(match.view), frames: [] });
     // The hand on the table is over; `end` is the saved command that deals
     // the next, or where that command will go.
     const close = end => {
@@ -439,7 +440,6 @@ export class MatchReview {
     return indices.length ? [opened, ...indices.filter(index => index !== opened)] : [];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
-  get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
   get complete() { return this.hands.every(hand => hand.status === 'done'); }
   /** Decisions still to ask about: those of the hands not yet done. */
   get remaining() { return this.hands.filter(hand => hand.status !== 'done').reduce((sum, hand) => sum + hand.frames.length, 0); }
@@ -622,16 +622,16 @@ export class MatchReview {
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
     hand.decisions = rows.map((row, index) => {
-      const decision = { ...row, hand: hand.index, index, frame: hand.frames[index] };
+      const decision = { ...row };
       decision.judgement = judgement(decision);
       // The review's numbers for the moves a player compares: what they
       // played, what the network chose and, where it is flagged, every turn
       // move they could have made instead. A response to a discard has none.
       if (!decision.agreed && !decision.forced && !decision.call_tile) {
         const measure = choice => engine.review_measure(index, choice.kind, choice.tile ?? undefined);
+        const played = { kind: decision.played_kind, tile: decision.played_tile }, advised = { kind: decision.advised_kind, tile: decision.advised_tile };
         const moves = decision.judgement?.flagged ? decision.weighted
-          : decision.weighted.filter(choice => sameMove(choice, decision.played_kind, decision.played_tile)
-            || sameMove(choice, decision.advised_kind, decision.advised_tile));
+          : decision.weighted.filter(choice => sameMove(choice, played) || sameMove(choice, advised));
         decision.measures = moves.map(choice => ({ kind: choice.kind, tile: choice.tile ?? null, ...measure(choice) }));
       }
       return decision;
@@ -706,11 +706,6 @@ export class MatchReview {
   }
 }
 
-/** Whether a choice is the move of this kind and tile. */
-export function sameMove(choice, kind, tile) {
-  return choice.kind === kind && (choice.tile ?? null) === (tile ?? null);
-}
-
 /** What each seat was doing at one of the player's decisions, in the order
  * of the view's seats, as a replay's table says it beside the gold edge of
  * the seat whose turn it was: the player to play, or to answer the tile
@@ -752,7 +747,7 @@ const MOVE_NAMES = Object.freeze({ discard: 'Discard', riichi: 'Riichi', tsumo: 
 
 /** A move at a decision in the engine's words, "discards the red dragon", as
  * the decision's own choices name it. */
-const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move.kind, move.tile))?.label
+const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move))?.label
   ?? MOVE_NAMES[move.kind] ?? move.kind;
 
 /** A decision as a line of the review gives it: the player's move, `you`,
@@ -805,9 +800,9 @@ export function moveToken(kind, tile) {
  * the move Trained AI chose, which is then `rule`: its weight did not choose
  * it. */
 export function moveWeight(decision, move) {
-  if (decision.ruled && sameMove(move, decision.advised_kind, decision.advised_tile)) return { weight: null, given: false, rule: true };
+  if (decision.ruled && sameMove(move, { kind: decision.advised_kind, tile: decision.advised_tile })) return { weight: null, given: false, rule: true };
   const given = move.kind === 'riichi' && decision.played_kind === 'riichi' && decision.advised_kind === 'riichi';
-  const choice = decision.weighted?.find(entry => sameMove(entry, move.kind, move.tile));
+  const choice = decision.weighted?.find(entry => sameMove(entry, move));
   const weight = given ? choice?.conditionalWeight : choice?.weight;
   return { weight: Number.isFinite(weight) ? weight : null, given };
 }

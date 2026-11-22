@@ -6,7 +6,7 @@
   import { analyzePolicy } from './policy.js';
   import { agreement } from './game-review.js';
   import { reviewWithStrong } from './review-policy.js';
-  import { land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
+  import { fromWaiting, land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -151,12 +151,6 @@
   // the page moves to show it only for a keyboard's press, as it does then
   // (land).
   const leaveFailure = event => land(heading, pressedByKeyboard(event));
-
-  function distance(value) {
-    if (value < 0) return 'complete';
-    if (value === 0) return 'waiting';
-    return `${value} from waiting`;
-  }
 </script>
 
 <!-- Not marked busy while Trained AI reviews: a screen reader may keep what a
@@ -269,8 +263,8 @@
               <tbody>
                 <tr>
                   <th scope="row">Hand left</th>
-                  <td>{distance(note.shanten_played)}</td>
-                  <td>{distance(note.shanten_advised)}</td>
+                  <td>{fromWaiting(note.shanten_played)}</td>
+                  <td>{fromWaiting(note.shanten_advised)}</td>
                 </tr>
                 <tr>
                   <th scope="row">Tiles that improve it</th>

@@ -783,7 +783,9 @@ riichi". Where one of the last hand's rules made Trained AI's move, whose
 weight did not choose it, "by rule" stands in that move's weight's place, the
 rule's line its title: "You Riichi [9p] 97.0% · Trained AI [9p] by rule", and
 "You [9p] by rule · Trained AI agreed" where the player made the rule's move
-too. Up to 480 pixels wide "AI" stands for "Trained AI". A status line, in
+too. Up to 480 pixels wide "AI" stands for "Trained AI". With hints on, a
+tile of the line that is dora is marked so, as the same tile is in the list,
+in the hand and in the view. A status line, in
 the page from the start, says the step in one line as it changes ("East 4,
 decision 12 of 15. Your turn, 36 tiles left. You: discards the red dragon,
 2.0%. Trained AI: discards the 8 bamboo, 95.5%. Flagged."), the table in the

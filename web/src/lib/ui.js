@@ -75,6 +75,13 @@ export function percent(weight) {
   return weight > 0 && weight < .001 ? '<0.1%' : `${(weight * 100).toFixed(1)}%`;
 }
 
+/** How far a hand is from waiting, by its shanten, in the words every review
+ * gives it: "complete", "waiting", "2 from waiting". */
+export function fromWaiting(shanten) {
+  if (shanten < 0) return 'complete';
+  return shanten === 0 ? 'waiting' : `${shanten} from waiting`;
+}
+
 export function callTiles(choice, pending) {
   if (choice.kind === 'chii' && /^[1-7][mps]$/.test(choice.tile ?? '')) return runTiles(choice.tile);
   if (choice.kind === 'pon' && pending) return [pending, pending, pending];

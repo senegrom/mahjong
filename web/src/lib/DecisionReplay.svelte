@@ -4,9 +4,9 @@
   import ReviewInsight from './ReviewInsight.svelte';
   import MatchTable from './app/MatchTable.svelte';
   import PlayerHand from './app/PlayerHand.svelte';
-  import { groupPolicyChoices } from './action-weights.js';
-  import { decisionInBrief, decisionKey, moveToken, sameMove, seatNotes } from './game-review.js';
-  import { TAG_SAID, callLabel, callTiles, percent, pressedByKeyboard, quadOnOffer } from './ui.js';
+  import { groupPolicyChoices, sameMove } from './action-weights.js';
+  import { decisionInBrief, decisionKey, moveToken, seatNotes } from './game-review.js';
+  import { TAG_SAID, callLabel, callTiles, fromWaiting, percent, pressedByKeyboard, quadOnOffer } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
   import { ruleLine } from './trained-move.js';
 
@@ -168,25 +168,19 @@
   const thrown = move => (['discard', 'riichi'].includes(move.kind) ? move.tile : null);
   let compared = $derived(!shown ? [] : [
     { move: played, title: 'You' },
-    ...(now && !sameMove(now, played.kind, played.tile) && !sameMove(now, advised.kind, advised.tile) ? [{ move: now, title: 'Now' }] : []),
-    ...(!sameMove(advised, played.kind, played.tile) ? [{ move: advised, title: 'Trained AI' }] : []),
-  ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move.kind, entry.move.tile)) ?? null }))
+    ...(now && !sameMove(now, played) && !sameMove(now, advised) ? [{ move: now, title: 'Now' }] : []),
+    ...(!sameMove(advised, played) ? [{ move: advised, title: 'Trained AI' }] : []),
+  ].map(entry => ({ ...entry, measure: shown.measures?.find(measure => sameMove(measure, entry.move)) ?? null }))
     .filter(entry => entry.measure)
     .filter((entry, at, kept) => !thrown(entry.move) || !kept.slice(0, at).some(other => thrown(other.move) === thrown(entry.move))));
 
   function marked(choice) {
-    return [advised, played, now].some(move => move && sameMove(choice, move.kind, move.tile));
+    return [advised, played, now].some(move => move && sameMove(choice, move));
   }
 
   // The words a move of the view is tagged with, as the hand tags its tiles.
-  const tagsOf = choice => [sameMove(choice, played.kind, played.tile) && 'You', now && sameMove(choice, now.kind, now.tile) && 'Now',
-    sameMove(choice, advised.kind, advised.tile) && 'AI'].filter(Boolean);
-
-  function distance(value) {
-    if (value < 0) return 'complete';
-    if (value === 0) return 'waiting';
-    return `${value} from waiting`;
-  }
+  const tagsOf = choice => [sameMove(choice, played) && 'You', now && sameMove(choice, now) && 'Now',
+    sameMove(choice, advised) && 'AI'].filter(Boolean);
 </script>
 
 <!-- The table as it stood at this step, all of it, every player's tiles face
@@ -254,7 +248,7 @@
             <caption class="visually-hidden">What each move leaves</caption>
             <thead><tr><td></td>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
             <tbody>
-              <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{distance(entry.measure.shanten)}</td>{/each}</tr>
+              <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{fromWaiting(entry.measure.shanten)}</td>{/each}</tr>
               <tr><th scope="row">Tiles that improve it</th>{#each compared as entry (entry.title)}<td>{entry.measure.acceptance}</td>{/each}</tr>
               {#if compared.some(entry => entry.measure.danger !== 'quiet')}
                 <!-- A move that discards nothing, a win or a quad, is not read against the riichi. -->
@@ -314,7 +308,7 @@
      says no more than the percentage beside it, so it is not read. -->
 {#snippet weightRow(choice, weight, conditional = false)}
   {@const words = tagsOf(choice)}
-  <div class="row" role="listitem" class:best={sameMove(choice, advised.kind, advised.tile)} data-move={choice.label}>
+  <div class="row" role="listitem" class:best={sameMove(choice, advised)} data-move={choice.label}>
     <span class="move"><span aria-hidden="true">{@render token(conditional ? { word: '', tiles: [choice.tile] } : moveToken(choice.kind, choice.tile))}</span><span
       class="visually-hidden">{choice.label}{conditional ? ', given riichi' : ''}</span></span>
     {#if weight == null}<strong>{conditional ? 'Not evaluated' : 'Unscored'}</strong>

@@ -9,6 +9,12 @@
  */
 export const MORTAL_REACH = 37;
 
+/** Whether two moves are the same move: the same kind, and the same tile. A
+ * move is whatever has a `kind` and, where it names one, a `tile`: a choice
+ * the engine offers, a weight or a measure of one, or the move a player
+ * made. */
+export const sameMove = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
+
 function massByChoice(weights, fromMortal) {
   if (!weights || weights.length !== 46
       || Array.from(weights).some(weight => !Number.isFinite(weight) || weight < 0 || weight > 1)) {

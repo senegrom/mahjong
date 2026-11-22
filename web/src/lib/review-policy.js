@@ -1,4 +1,4 @@
-import { weightsByChoice } from './action-weights.js';
+import { sameMove, weightsByChoice } from './action-weights.js';
 import { reviewTable, trainedMoves } from './trained-move.js';
 
 /** Review captured decisions in order, sharing the ordinary bounded AI worker.
@@ -86,14 +86,13 @@ function reviewedNote(engine, index, note, choices, mask, { first, second, final
   if (!preferred || !Number.isFinite(weight) || weight < 0 || weight > 1) {
     throw new Error('The trained network returned an invalid review choice');
   }
-  const played = weighted.find(choice => choice.kind === note.played_kind
-    && (choice.tile ?? null) === (note.played_tile ?? null));
+  const played = weighted.find(choice => sameMove(choice, { kind: note.played_kind, tile: note.played_tile }));
   if (!played) throw new Error('The recorded move is missing from this decision');
   return {
     turn: note.turn, played: note.played, played_kind: note.played_kind, played_tile: note.played_tile,
     call_tile: note.call_tile, call_from: note.call_from,
     dora_types: note.dora_types, advised: preferred.label, advised_tile: preferred.tile,
-    agreed: played.kind === preferred.kind && (played.tile ?? null) === (preferred.tile ?? null),
+    agreed: sameMove(played, preferred),
     preferred_weight: weight, played_weight: played.weight,
     advised_kind: preferred.kind,
     preferred_conditional_weight: preferred.conditionalWeight ?? null,

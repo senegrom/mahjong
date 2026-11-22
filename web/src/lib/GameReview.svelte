@@ -399,7 +399,7 @@
          top of the screen while the rest of the stage is scrolled under it. -->
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
-        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} moveHidden={hidden.move}
+        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} {hints} moveHidden={hidden.move}
           tilesHidden={hidden.tiles} hiding={hideMove || hideTiles} {pick} onstep={go} onreveal={byKeyboard => revealHere(null, byKeyboard)}
           bind:height={barHeight} />
       {/if}

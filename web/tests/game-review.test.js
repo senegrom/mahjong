@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
+import { sameMove } from '../src/lib/action-weights.js';
+import { fromWaiting } from '../src/lib/ui.js';
 import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
   moveToken, moveWeight, neighbour, noneSaid, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
@@ -56,6 +58,8 @@ const settled = review => new Promise(resolve => {
   setImmediate(check);
 });
 const turn = () => new Promise(resolve => setImmediate(resolve));
+/** How many hands of a review are reviewed. */
+const reviewedHands = review => review.hands.filter(hand => hand.status === 'done').length;
 /** Waits a turn of the event loop at a time until `ready()` holds. */
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
@@ -609,7 +613,7 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
     await settled(review);
     assert.equal(review.failure, '');
     assert.ok(review.complete);
-    assert.equal(review.reviewedHands, review.hands.length);
+    assert.equal(reviewedHands(review), review.hands.length);
     assert.ok(sizes.some(size => size === BATCH), 'full batches are asked');
     const decisions = review.decisions;
     assert.equal(decisions.length, review.hands.reduce((sum, hand) => sum + hand.frames.length, 0));
@@ -624,9 +628,11 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
         const single = await reviewWithStrong(match.engine, match.engine.review(), async (planes, mask) => decisive(mask));
         assert.equal(hand.decisions.length, single.length);
         hand.decisions.forEach((decision, index) => {
-          const { hand: _hand, index: _index, frame, judgement: judged, measures: _measures, ...row } = decision;
+          // A decision is the hand review's row, with how it is judged and
+          // the numbers of the moves it compares, and nothing else: its
+          // place and its frame are its hand's to give.
+          const { judgement: judged, measures: _measures, ...row } = decision;
           assert.deepEqual(row, single[index]);
-          assert.equal(frame, hand.frames[index]);
           assert.deepEqual(judged, judgement(row));
         });
       } finally { match.dispose(); }
@@ -785,11 +791,11 @@ test('a slow device holds after each hand until the player asks for the next one
     await settled(review);
     assert.ok(review.slow);
     assert.equal(review.held, true);
-    assert.equal(review.reviewedHands, 1);
+    assert.equal(reviewedHands(review), 1);
     assert.ok(review.estimate > 0, 'the rest is estimated from the speed seen');
     review.resume();
     await settled(review);
-    assert.equal(review.reviewedHands, 2);
+    assert.equal(reviewedHands(review), 2);
     assert.equal(review.held, true);
     review.resume({ patient: true });
     await settled(review);
@@ -909,7 +915,7 @@ test('the decisions Trained AI hesitates over are asked again in batches of thei
     review.review();
     await settled(review);
     assert.equal(review.failure, '');
-    assert.deepEqual([review.held, review.reviewedHands, review.slow, review.positionMs], [true, 1, true, 600]);
+    assert.deepEqual([review.held, reviewedHands(review), review.slow, review.positionMs], [true, 1, true, 600]);
     assert.ok(sizes.every(size => size <= BATCH), `batches of eight at most: ${sizes.join(' ')}`);
     const hand = review.hands.find(entry => entry.status === 'done');
     assert.equal(review.judged, hand.frames.length);
@@ -1145,7 +1151,7 @@ test("a slow device waits at the gate as any other, and still holds after the ha
     // would have without the notes, the rest queued for the player's word.
     assert.equal(review.slow, true);
     assert.deepEqual({ held: review.held, queue: review.queue, requested: review.requested, patient: review.patient,
-      reviewed: review.reviewedHands, failure: review.failure },
+      reviewed: reviewedHands(review), failure: review.failure },
     { held: true, queue: [0, 1], requested: true, patient: false, reviewed: 1, failure: '' });
     // The player asks for the rest while the notes ask again: the review
     // comes to its gate before its first batch, the word kept meanwhile.
@@ -1481,8 +1487,8 @@ test('a review whose network plays on the graphics card asks passes of up to GPU
     try {
       review.review();
       await settled(review);
-      return review.decisions.map(decision => [decision.hand, decision.index, decision.advised_kind, decision.advised_tile ?? null,
-        Boolean(decision.judgement?.flagged)]);
+      return review.hands.flatMap(hand => (hand.decisions ?? []).map((decision, index) => [hand.index, index, decision.advised_kind,
+        decision.advised_tile ?? null, Boolean(decision.judgement?.flagged)]));
     } finally { review.dispose(); }
   };
   const wide = [], narrow = [];
@@ -1538,4 +1544,19 @@ test('the review\'s time a position is measured afresh where its batches run cha
   await timed(1, 120);
   assert.equal(review.positionMs, 120);
   assert.equal(review.pending, 8 * 4 + 16 + 2 + 2 + 16 + 1 + 1);
+});
+
+test('two moves are the same move by their kind and tile, a move that names no tile as one whose tile is null', () => {
+  // One test for every layer: the engine's choices, the weights and measures
+  // of them, and the moves a player made are compared by this alone.
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'discard', tile: '7z', weight: 0.2, label: 'discards the red dragon' }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'riichi', tile: '7z' }), false, 'a riichi on a tile is not its discard');
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'discard', tile: '8s' }), false);
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pass', tile: null }), true);
+  assert.equal(sameMove({ kind: 'pon', tile: undefined }, { kind: 'pon' }), true);
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pon' }), false);
+});
+
+test('how far a hand is from waiting is said in the same words wherever a review says it', () => {
+  assert.deepEqual([-1, 0, 1, 4].map(fromWaiting), ['complete', 'waiting', '1 from waiting', '4 from waiting']);
 });
