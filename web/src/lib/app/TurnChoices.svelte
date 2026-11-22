@@ -65,7 +65,7 @@
 {#if onclub}
   <div class="meanwhile">
     <button class="app-control" data-club-meanwhile onclick={onclub}
-      title="Club plays the Trained opponents' seats for this match. The download goes on, and your next game is against Trained.">Play Club meanwhile</button>
+      title="Club plays the Trained opponents' seats for this match. The download goes on, and a new game goes back to Trained once it is done.">Play Club meanwhile</button>
   </div>
 {/if}
 {#if chosen}

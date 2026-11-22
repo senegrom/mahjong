@@ -162,12 +162,16 @@ export function repeatedClick(event) {
 }
 
 /** Hands focus on to a heading that says where the player now is, and moves
- * the page to show it, by as little movement as will, only when the caller
- * asks: for a press by keyboard, whose player follows focus and is shown a
- * ring there, and not for a mouse's or a finger's, which is shown none. */
-export function land(heading, scroll) {
+ * the page to show it only when the caller asks: for a press by keyboard,
+ * whose player follows focus and is shown a ring there, and not for a
+ * mouse's or a finger's, which is shown none. It moves by as little as will
+ * show the heading, unless the caller asks for the heading at the top of the
+ * screen (`block` 'start'), below the bar its scroll margin keeps clear, for
+ * what the heading opens to be on the screen with it: the final standings on
+ * a phone, as the result's sheet steps aside for them. */
+export function land(heading, scroll, block = 'nearest') {
   heading?.focus({ preventScroll: true });
-  if (scroll) heading?.scrollIntoView({ block: 'nearest' });
+  if (scroll) heading?.scrollIntoView({ block });
 }
 
 /** What play says wherever a press can do nothing because another window has

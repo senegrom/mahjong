@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
@@ -28,8 +28,10 @@
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
     gameReviewOpen = false,
-    // Whether the keyboard has sent focus on to the standings as the game
-    // ended, pressing the last hand's Next hand (App, AgentWatch).
+    // Whether focus was sent on to the standings as the game ended, by the
+    // last hand's Next hand, in a way this sheet steps aside for: a
+    // keyboard's press (App, AgentWatch), and in play any press where the
+    // result is a sheet over them (App).
     standingsFocused = false,
     // How many presses on the standings' own buttons have failed, each said
     // beside them (App).
@@ -51,7 +53,12 @@
     onchip = null,
   } = $props();
 
-  let minimized = $state(false);
+  // Whether the sheet has stepped aside, on a phone, leaving its chip. A
+  // result drawn with the standings already there is a finished match that
+  // the page was loaded on: the sheet starts stepped aside for them, as it
+  // was left when the game ended. Up, it showed nothing of where the player
+  // finished, and no Play again.
+  let minimized = $state(untrack(() => finalHand) && (globalThis.matchMedia?.(RESULT_SHEET).matches ?? false));
   // The page is told as the chip comes and goes, and that it is gone when
   // the result itself goes: it keeps its foot clear of the chip (App).
   $effect(() => {
@@ -120,9 +127,10 @@
   // far, opened before the last hand, comes back to this sheet instead, to
   // the button that opened it; while it is open it hides the sheet with the
   // table, so the sheet stays up for it, to be found as it was left. The
-  // sheet steps aside for the standings as well when the keyboard has sent
-  // focus on to them as the game ended, so that focus is not hidden under
-  // it; a tap leaves the result up, as it was.
+  // sheet steps aside for the standings as well when focus is sent on to
+  // them as the game ended (standingsFocused), so that neither focus nor
+  // the standings are hidden under it: in play however the last Next hand
+  // was pressed, and in Watch when the keyboard pressed it.
   $effect(() => { if ((gameReviewOpen && finalHand) || standingsFocused) minimized = true; });
   // And it steps aside each time a press on the standings' own buttons
   // fails, which beneath it only a keyboard or a screen reader reaches, so

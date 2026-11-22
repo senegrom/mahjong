@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handKeyActs, heldMove, pressedByKeyboard, repeatedClick } from '../src/lib/ui.js';
+import { handKeyActs, heldMove, land, pressedByKeyboard, repeatedClick } from '../src/lib/ui.js';
 
 test('only the second and later presses of a multiple click are let go, never a single press or a key\'s', () => {
   // A click's detail is its count: one for a single press, two for a double
@@ -34,6 +34,24 @@ test('Enter held down presses a tile of the hand or one of the player\'s choices
   assert.equal(heldMove(enter(tile, { repeat: false }), hand), false);
   for (const key of [' ', 'ArrowDown', 'Tab', '1']) assert.equal(heldMove(enter(tile, { key }), hand), false, key);
   assert.equal(heldMove(enter(null), hand), false);
+});
+
+test('landing on a heading always moves focus, and moves the page only when asked: by as little as shows it, or to the top of the screen', () => {
+  const done = [];
+  const heading = { focus: options => done.push(['focus', options]), scrollIntoView: options => done.push(['scroll', options]) };
+  const focused = ['focus', { preventScroll: true }];
+  // A pointer's press where nothing was covered: focus alone.
+  land(heading, false);
+  assert.deepEqual(done.splice(0), [focused]);
+  // A keyboard's press: the heading and its ring, by the least movement.
+  land(heading, true);
+  assert.deepEqual(done.splice(0), [focused, ['scroll', { block: 'nearest' }]]);
+  // The final standings on a phone, as the result's sheet steps aside for a
+  // tap: the heading at the top, what it opens on the screen under it.
+  land(heading, true, 'start');
+  assert.deepEqual(done.splice(0), [focused, ['scroll', { block: 'start' }]]);
+  // A heading not drawn yet is no error.
+  assert.doesNotThrow(() => land(null, true, 'start'));
 });
 
 test('a held key is cancelled in the hand only where the hand\'s keys act on it', () => {

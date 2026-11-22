@@ -379,6 +379,11 @@
           update(session);
           if (session.opponents.includes('neural') || returnTable) downloadAi();
           void session.run();
+          // A finished match opens on its standings where the result is a
+          // sheet over them, on a phone: the sheet starts stepped aside there
+          // (ScoreScreen), and the standings take focus and the top of the
+          // screen, as when the game ended under a finger (nextHand).
+          if (session.over && matchMedia(RESULT_SHEET).matches) void tick().then(() => land(standingsHeading, true, 'start'));
         } catch (error) {
           // Preserve the only saved copy until the user chooses New game.
           failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
@@ -689,17 +694,20 @@
   // Next hand on the last hand brings the standings in place of another
   // deal, and its button goes for the Final hand caption, so focus goes on
   // to the standings' heading, which says where the player finished, rather
-  // than to the page (land). Only a keyboard's press moves the page to show
-  // the heading, at every size: that player follows focus, and is shown a
-  // ring there. A mouse's or a finger's press is shown no ring, and the page
-  // is left as the browser leaves it when the standings come in above the
-  // result, as it was before focus moved: where the player had scrolled down
-  // to the result's buttons, at the foot of the page, a scroll to the heading
-  // would take the Final hand caption, where they pressed, off a short screen
-  // (pressedByKeyboard). On a phone the result is a sheet over the
-  // standings. When the keyboard pressed the button, the sheet steps aside
-  // for them, so that focus is not hidden under it; a tap leaves the result
-  // up, as it was.
+  // than to the page (land). Where the result is not a sheet, only a
+  // keyboard's press moves the page to show the heading: that player follows
+  // focus, and is shown a ring there. A mouse's or a finger's press is shown
+  // no ring, and the page is left as the browser leaves it when the
+  // standings come in above the result, as it was before focus moved: where
+  // the player had scrolled down to the result's buttons, at the foot of the
+  // page, a scroll to the heading would take the Final hand caption, where
+  // they pressed, off a short screen (pressedByKeyboard). On a phone the
+  // result is a sheet over the standings, and left up it showed nothing of
+  // them: the game had ended with no place on the screen and no Play again.
+  // So there the sheet steps aside for them however the button was pressed,
+  // leaving its chip, and the page moves to them: for a tap to the heading
+  // at the top of the screen, the places and the buttons under it, and for a
+  // keyboard by as little as shows the heading and its ring, as before.
   async function nextHand(event) {
     if (busy || !session) return;
     const owner = session, byKeyboard = pressedByKeyboard(event);
@@ -727,9 +735,10 @@
     // be never. Should the review not be taken on to the finished match, the
     // standings' Review whole game tries again, and says why.
     try { takeReviewOn(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
-    standingsFocused = byKeyboard;
+    const sheet = matchMedia(RESULT_SHEET).matches;
+    standingsFocused = byKeyboard || sheet;
     await tick();
-    land(standingsHeading, byKeyboard);
+    land(standingsHeading, byKeyboard || sheet, sheet && !byKeyboard ? 'start' : 'nearest');
   }
 
   // What is said beside a set of buttons when a press on one could not be

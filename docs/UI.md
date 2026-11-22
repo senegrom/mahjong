@@ -458,26 +458,32 @@ deal, and its button gives way to the caption **Final hand**, so focus goes on
 to the standings' heading, which says where the player finished ("You finished
 4th"), in the region "final standings", rather than dropping to the page. Where
 the result is not a sheet, the standings appear just above it. On a phone the
-result is a sheet over them, and focus must not be hidden under it, so when the
-keyboard pressed the button the sheet steps aside for the standings, leaving
-its chip, as it does for the reviews; the chip, after the standings' own
-buttons, brings the result back with focus. A tap leaves the result up over the
-standings, as it was: focus is on their heading beneath the sheet, where a
-screen reader reads it out and no ring is drawn.
+result is a sheet over them. Left up, as it was after a tap, it showed nothing
+of them: the game had ended with no place on the screen and no **Play again**,
+and no scroll uncovered either. So there the sheet steps aside for the
+standings however the button was pressed, leaving its chip, as it does for the
+reviews; the chip, after the standings' own buttons, brings the result back
+with focus. A finished match that the page is loaded on opens the same way on a
+phone: the sheet stepped aside, its chip showing, and the standings at the top
+of the screen, with focus on their heading.
 
-Only a press by keyboard moves the page to the standings' heading, at every
-size, to bring it into view with its ring, clear of the game's bar and, on a
-phone, of the chip. A mouse's click or a finger's tap moves focus without
-asking for a scroll, so the page is left as the browser leaves it when the
-standings come in above the result, as it was before focus moved there:
-measured in Chromium at nine sizes, from where the result left the page and
-from the foot of the page, it ends exactly where it did before. With the page
-at its foot at 844x390, where a fling down to the result's buttons ends, the
-browser's own scroll anchoring moves the page 233 pixels as the standings come
-in; the Final hand caption that took the pressed button's place stays in view,
-and the standings' heading lies above the screen, where a screen reader still
-reads it out. A scroll to the heading there would take the caption the player
-pressed off the screen.
+Where the result is not a sheet, only a press by keyboard moves the page to the
+standings' heading, to bring it into view with its ring, clear of the game's
+bar. A mouse's click or a finger's tap there moves focus without asking for a
+scroll, so the page is left as the browser leaves it when the standings come in
+above the result, as it was before focus moved there: measured in Chromium at
+1100x900, 1280x600, 1366x768 and 844x390, from where the result left the page
+and from the foot of the page, it ends exactly where it did before. With the
+page at its foot at 844x390, where a fling down to the result's buttons ends,
+the browser's own scroll anchoring moves the page 233 pixels as the standings
+come in; the Final hand caption that took the pressed button's place stays in
+view, and the standings' heading lies above the screen, where a screen reader
+still reads it out. A scroll to the heading there would take the caption the
+player pressed off the screen. On a phone the page moves for every press, since
+what the press brought was under the sheet: for a keyboard by as little as
+brings the heading into view with its ring, clear of the bar and the chip, and
+for a tap to the heading at the top of the screen, below the bar, with the
+places and the standings' buttons under it, and no ring.
 
 Measured in Chromium, a press by keyboard moves the page 30 pixels at 390x844,
 203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. At desktop
@@ -486,14 +492,16 @@ page, and the page does not move; from the foot of the page at 844x390 the
 keyboard's press brings the heading in below the bar, 255 pixels above where a
 click leaves the page.
 
-Agent watch does the same as a watched game ends. There **Next hand** on the
+Agent watch hands focus on the same way as a watched game ends, and still as
+play did before on a phone: its result steps aside for the standings only when
+the keyboard pressed the button. There **Next hand** on the
 last hand is pressed on the result or among the watch's controls, whose button
 plays the followed agent's choices and deals the hands. Either brings the
 standings, the result's button giving way to its **Final hand** caption and
 the controls' becoming one that cannot be pressed, and either used to leave
 focus on the page. Focus now goes on to the standings' heading ("Followed
 agent finished 2nd"), and only a press by keyboard moves the page to it, the
-result stepping aside on a phone as in play, with its chip after the
+result stepping aside for it on a phone, with its chip after the
 standings' buttons. Measured in Chromium on a game of Club agents from seed
 23, a press by keyboard on the result's button moves the page 387 pixels at
 390x844, 720 at 320x568 and 568 at 568x320, and 304 pixels up at 844x390,
@@ -521,11 +529,12 @@ above the screen wherever the standings' buttons are pressed: measured in
 Chromium, 421 to 440 pixels above the top of the screen at 1100x900, 553 to 572
 at 1366x768, 497 to 534 at 844x390, on a phone held upright 96 to 644 pixels
 above it, and 619 to 738 at 568x320.
-On a phone the result is a sheet over the standings. A finger or a mouse
-reaches their buttons once the sheet has stepped aside for a review; a
-keyboard or a screen reader reaches them beneath it, so a press there that
-fails has the sheet step aside, each time, for the words and the button with
-focus to be seen, and the chip brings the result back. The buttons and the
+On a phone the result is a sheet that has stepped aside for the standings as
+the game ended, so a finger or a mouse reaches their buttons. Once its chip has
+brought the result back over them, a keyboard or a screen reader still reaches
+them beneath it, so a press there that fails has the sheet step aside, each
+time, for the words and the button with focus to be seen, and the chip brings
+the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
 1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
@@ -544,8 +553,8 @@ The whole game can be saved as one mjai log as well,
 `riichi-game-<date>-<time>.mjai.jsonl`: Save game so far on the score screen
 between hands, Save whole game on the final standings, where the log closes
 with end_game, and Export game in the settings during play. On a phone the
-final hand's result sheet covers the standings, so it offers Save whole game
-itself. The log opens at East 1 and holds every finished hand, numbered as the
+final hand's result sheet, once its chip has brought it back, covers the
+standings, so it offers Save whole game itself. The log opens at East 1 and holds every finished hand, numbered as the
 hand's own log numbers its players. The hand being played is never in it,
 since its deal shows every player's tiles; it joins the log when it ends.
 Nothing is added to the saved match for this: a restore replays every command
@@ -609,7 +618,8 @@ Trained AI's view. No list of cards stands between the player and a decision,
 and no **Back to the list** between one decision and another; **Back to the
 standings** is the screen's one way out. The hand review reviews one hand and
 is gone at the next deal; this one is rebuilt for the whole game. On a phone
-the final hand's result is a sheet over the standings, so the sheet offers the
+the final hand's result is a sheet that steps aside for the standings as the
+game ends, and that its chip brings back over them, so the sheet offers the
 review too, as it offers the game's file. The sheet steps aside whenever the
 review opens, as it does for the hand's review, whichever button opened it: its
 own, or the standings' own, which it covers but a keyboard or a screen reader
@@ -1159,13 +1169,21 @@ comes back when it can).
 
 `npm run verify` in `web/` covers these behaviours: real-WASM discard previews
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive
-keyboard turns, saved-state migration, ura-dora indicators with hints off,
+keyboard turns, a double click and a held key or Enter each playing one move,
+the confirmation's buttons handing focus to the hand, saved-state migration,
+ura-dora indicators with hints off,
 final-hand review, focus going on from the result's buttons to the hand's
 review and to the final standings, pressed by keyboard, mouse and touch, and
 back to the result, at desktop and phone sizes, the page moving to the review
 for any press where the result is not a sheet and otherwise only for the
-keyboard, and to the standings only for the keyboard, in play and in Agent
-watch, a review that could not be built and a file that could not be saved said
+keyboard, and to the standings only for the keyboard where the result is not a
+sheet (in Agent watch at every size), the sheet stepping aside for the
+standings on a phone however the last Next hand was pressed and as a finished
+match is loaded, with the places and Play again in view, a first visit's wait
+for the network's download naming its size and offering Club meanwhile, which
+keeps Trained as the stored choice, a result or standings left behind by
+another window's move disabled and saying to reload,
+a review that could not be built and a file that could not be saved said
 beside the result's buttons, which keep focus, a whole game that could not be
 saved or replayed for review said beside the standings' buttons, the result
 stepping aside on a phone for a press beneath it, and a game that **Export
