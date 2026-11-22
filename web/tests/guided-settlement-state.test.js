@@ -75,6 +75,41 @@ test('next hand rotates settled balances and cannot override dealer continuation
   assert.deepEqual(undoGuided(next), paid);
 });
 
+test("what a result's form holds is kept with the game until the hand is settled, and nothing else of a scored table may change", () => {
+  const ended = ron(beforeRon());
+  const draft = { selected: [false, false, false, true], tenpai: [false, false, false, false], hands: [[], parseTiles('123m'), [], []],
+    winning: [], ura: ['6z'], confirmed: true };
+  const typed = editGuided(ended, s => { s.draft = draft; });
+  assert.deepEqual(typed.state.draft, draft);
+  assert.equal(typed.past.length, ended.past.length, 'typing is no step to undo');
+  // It comes back from a save as it was typed, a reload's read.
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(typed), result), typed);
+  // The adviser may still change beside it; the scored table may not.
+  assert.deepEqual(editGuided(typed, s => { s.agent = 'club'; }).state.draft, draft);
+  assert.throws(() => editGuided(typed, s => { s.position.players[0].score = 1; }), /Undo the hand result/);
+  // A draft of another shape is neither kept nor read back.
+  for (const bad of [{ ...draft, hands: [[], ['9z'], [], []] }, { ...draft, selected: [true] }, { ...draft, confirmed: 'yes' },
+    { ...draft, ura: Array(6).fill('1m') }, { ...draft, winning: ['1m', '2m'] }]) {
+    assert.throws(() => editGuided(ended, s => { s.draft = bad; }), /no result form/);
+    assert.equal(parseGuided(GUIDED_FORMAT.encode({ ...typed, state: { ...typed.state, draft: bad } })), null);
+  }
+  // Settled, the hand keeps the input it was settled from and lets the draft
+  // go; Undo brings the form back as it was typed.
+  const paid = settle(typed);
+  assert.equal(paid.state.draft, undefined);
+  assert.deepEqual(undoGuided(paid), typed);
+  assert.equal(guidedEvent(paid, { type: 'next-hand', repeat: false }).state.draft, undefined);
+  // Only a scored result not yet settled has a form to keep.
+  assert.throws(() => editGuided(paid, s => { s.draft = draft; }), /no result form/);
+  assert.throws(() => editGuided(beforeRon(), s => { s.draft = draft; }), /no result form/);
+  assert.equal(parseGuided(GUIDED_FORMAT.encode({ ...paid, state: { ...paid.state, draft } }), result), null);
+  const manual = guidedEvent(beforeRon(), { type: 'finish', result: 'Other hand end', kind: 'manual' });
+  assert.throws(() => editGuided(manual, s => { s.draft = draft; }), /no result form/);
+  // A new result starts a new form.
+  const again = ron(undoGuided(typed));
+  assert.equal(again.state.draft, undefined);
+});
+
 test('settled results survive reload without paying again, including undo snapshots', () => {
   const paid = settle(ron(beforeRon()));
   const restored = parseGuided(GUIDED_FORMAT.encode(paid), result);

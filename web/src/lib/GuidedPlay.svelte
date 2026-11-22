@@ -228,7 +228,8 @@
       {:else if state.stage === 'over'}
         <p class="eyebrow">Hand complete</p><h3 tabindex="-1" bind:this={promptHeading}>{state.result || 'Hand finished'}</h3>
         {#if state.ending && state.ending.kind !== 'manual'}
-          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={(input, press) => step({ type: 'settle', input }, press)} onnext={(repeat, press) => step({ type: 'next-hand', repeat }, press)} />{/key}
+          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={(input, press) => step({ type: 'settle', input }, press)} onnext={(repeat, press) => step({ type: 'next-hand', repeat }, press)}
+            ondraft={draft => edit(s => { s.draft = draft; })} />{/key}
         {:else}
           <p>This is a legacy or manually adjudicated hand end. Automatic scoring has not been applied.</p>
         <p>Settle points at the physical table, then enter the resulting scores and remaining riichi sticks.</p>

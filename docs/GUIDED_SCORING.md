@@ -52,6 +52,16 @@ Undo restores the pre-settlement balances and pot; another undo restores the
 winning decision. Direct score edits cannot silently alter a pending or applied
 scored result. Use Undo to correct the recorded table first.
 
+What is typed into the result form before the settlement is applied (the
+winners and tenpai declarations ticked, each revealed hand, the winning draw,
+the ura indicators and the furiten confirmation) is saved with the game as it
+is typed, as the hand's `draft`. A reload at the result, a look at another
+mode or a tab the phone let go brings the form back as it was; before, each
+emptied it. The draft is only what was typed: the engine checks it when the
+settlement is calculated. Applying the settlement keeps the input it was made
+from and drops the draft, Undo brings the form back, and beside the adviser
+the draft is the only thing of a scored hand that may change without Undo.
+
 Older finished saves remain explicitly manual and are never retrospectively
 paid. **Other hand end** remains an explicitly labelled manual path for referee
 adjudications, penalties and results outside normal win/exhaustive settlement.

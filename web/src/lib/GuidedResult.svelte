@@ -20,14 +20,31 @@
 
   // Keep the public `state` prop without shadowing Svelte's $state rune.
   // `onsettle(input, press)` and `onnext(repeat, press)` take the click too.
-  let { state: gameState, onsettle, onnext } = $props();
+  // `ondraft(draft)` is told what the form holds as it changes (below).
+  let { state: gameState, onsettle, onnext, ondraft = null } = $props();
   let ending = $derived(gameState.ending);
   let p = $derived(ending.position);
-  let selected = $state(untrack(() => WINDS.map((_, i) => ending.winners.includes(i))));
-  let tenpai = $state(untrack(() => p.players.map(player => player.riichi !== 'none')));
-  let hands = $state([[], [], [], []]);
-  let winning = $state([]), ura = $state([]);
-  let confirmedNoFuriten = $state(false);
+  // What the form held when the game was last saved (`state.draft`,
+  // guided-settlement.js): the form starts from it, so a reload at the
+  // result, a look at another mode or a tab the phone let go brings back the
+  // revealed hands instead of an empty form. The recorded winners and the
+  // riichi players stay ticked whatever it says.
+  const kept = untrack(() => JSON.parse(JSON.stringify(gameState.draft ?? null)));
+  let selected = $state(untrack(() => WINDS.map((_, i) => ending.winners.includes(i) || Boolean(kept?.selected[i]))));
+  let tenpai = $state(untrack(() => p.players.map((player, i) => player.riichi !== 'none' || Boolean(kept?.tenpai[i]))));
+  let hands = $state(kept?.hands ?? [[], [], [], []]);
+  let winning = $state(kept?.winning ?? []), ura = $state(kept?.ura ?? []);
+  let confirmedNoFuriten = $state(kept?.confirmed ?? false);
+  // The form as it stands, handed up to be saved with the game whenever it
+  // changes. Nothing is handed up until something is typed, nor once the
+  // hand is settled, when the settlement keeps the input it was made from.
+  let draft = $derived(JSON.stringify({ selected, tenpai, hands, winning, ura, confirmed: confirmedNoFuriten }));
+  let handed = untrack(() => draft);
+  $effect(() => {
+    if (draft === handed) return;
+    handed = draft;
+    untrack(() => { if (!gameState.settlement) ondraft?.(JSON.parse(draft)); });
+  });
   let unknownRon = $derived(ending.kind === 'ron' && p.players.some((player, i) => selected[i] && !player.hand.length));
   let preview = $state(null), failure = $state('');
   let draw = $derived(ending.kind === 'draw');

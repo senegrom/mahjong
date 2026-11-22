@@ -1,6 +1,6 @@
 import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
-import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
+import { rememberEnding, applySettlement, validDraft, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
@@ -327,7 +327,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       p.riichi_sticks = old.riichi_sticks;
       p.players.forEach((player, i) => { player.score = old.players[(i + shift) % 4].score; });
       state.stage = 'setup'; state.nextSeat = 0; state.needsDraw = true; state.result = '';
-      delete state.ending; delete state.settlement; delete state.opening;
+      delete state.ending; delete state.settlement; delete state.opening; delete state.draft;
       label = event.repeat ? 'Next hand · dealer repeats' : 'Next hand · dealer moves';
       break;
     }
@@ -338,14 +338,19 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
   return { state, past: [...game.past.slice(-29), { state: structuredClone(game.state), logLength: game.log.length }], log: [...game.log, label] };
 }
 
-/** Save setup/score inputs without turning every keystroke into a game move. */
+/** Save setup/score inputs without turning every keystroke into a game move.
+ * A scored hand's table is fixed until it is undone: only the adviser may
+ * change beside it and, until it is settled, what its result's form holds
+ * (`draft`, guided-settlement.js). */
 export function editGuided(game, edit) {
   const next = structuredClone(game);
   edit(next.state);
-  if (game.state.ending && game.state.ending.kind !== 'manual'
-    && JSON.stringify({ ...next.state, agent: game.state.agent }) !== JSON.stringify(game.state)) {
+  const table = ({ agent: _agent, draft: _draft, ...rest }) => JSON.stringify(rest);
+  if (game.state.ending && game.state.ending.kind !== 'manual' && table(next.state) !== table(game.state)) {
     throw new Error('Undo the hand result before changing the scored table');
   }
+  if (next.state.draft != null && !(next.state.ending && next.state.ending.kind !== 'manual' && !next.state.settlement
+    && validDraft(next.state.draft))) throw new Error('This hand has no result form open to keep');
   visibleCounts(next.state.position);
   return next;
 }

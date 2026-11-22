@@ -8,6 +8,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sum = a => a.reduce((total, n) => total + n, 0);
 const seats = a => Array.isArray(a) && a.length <= 4 && a.every(seat) && new Set(a).size === a.length;
 const count = n => Number.isInteger(n) && n >= 0 && n <= 100;
+const flags = a => Array.isArray(a) && a.length === 4 && a.every(value => typeof value === 'boolean');
 
 /** Keep the last actionable position, not the already-over display position.
  * A ron tile remains at its source; each winning hand uses it for scoring
@@ -16,6 +17,22 @@ export function rememberEnding(state, kind, winners = []) {
   if (!['ron', 'tsumo', 'draw', 'manual'].includes(kind) || !seats(winners)) throw new Error('Choose a valid hand result');
   state.ending = { kind, winners, position: structuredClone(state.position), nextSeat: state.nextSeat, needsDraw: state.needsDraw };
   delete state.settlement;
+  delete state.draft;
+}
+
+/** What a scored result's form holds before it is settled, `state.draft`: who
+ * is ticked as a winner and as tenpai, the tiles revealed for each seat, the
+ * winning draw, the ura indicators and the furiten tick. It is kept with the
+ * saved game as it is typed, so that a reload at the result, a look at
+ * another mode or a tab the phone let go brings the form back; before, each
+ * emptied every revealed hand. It is what was typed and no more: the scorer
+ * checks it when the settlement is calculated, and the settlement, once
+ * applied, keeps its own input and lets the draft go. */
+export function validDraft(draft) {
+  return Boolean(draft) && flags(draft.selected) && flags(draft.tenpai)
+    && Array.isArray(draft.hands) && draft.hands.length === 4 && draft.hands.every(tiles)
+    && tiles(draft.winning) && draft.winning.length <= 1 && tiles(draft.ura) && draft.ura.length <= 5
+    && typeof draft.confirmed === 'boolean';
 }
 
 function validSettlement(result, ending) {
@@ -54,11 +71,13 @@ function validSettlement(result, ending) {
 export function validEndingState(state) {
   if (state.opening != null && !vector(state.opening)) return false;
   const ending = state.ending;
-  if (ending == null) return state.settlement == null;
+  if (ending == null) return state.settlement == null && state.draft == null;
   if (state.stage !== 'over' || !['ron', 'tsumo', 'draw', 'manual'].includes(ending.kind)
     || !seats(ending.winners) || !seat(ending.nextSeat) || typeof ending.needsDraw !== 'boolean'
     || !parsePhysical(JSON.stringify({ version: 1, position: ending.position }))) return false;
-  if (ending.kind === 'manual') return state.settlement == null;
+  if (ending.kind === 'manual') return state.settlement == null && state.draft == null;
+  // A form's draft belongs to a scored result not yet settled.
+  if (state.draft != null && (state.settlement != null || !validDraft(state.draft))) return false;
   if (state.settlement == null) return same(state.position.players.map(p => p.score), ending.position.players.map(p => p.score))
     && state.position.riichi_sticks === ending.position.riichi_sticks;
   return validSettlement(state.settlement, ending)
@@ -86,6 +105,7 @@ export function applySettlement(state, input, score) {
     if (p.discards.at(-1)) p.discards.at(-1).riichi = false;
   }
   state.settlement = result;
+  delete state.draft;
   return `Settlement · ${result.deltas.map(n => `${n >= 0 ? '+' : ''}${n}`).join(' / ')} · riichi pot ${result.sticks_after}`;
 }
 

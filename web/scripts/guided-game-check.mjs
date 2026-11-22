@@ -342,6 +342,12 @@ try {
     await page.waitForFunction(() => document.querySelector('.guided-result [role="alert"]')?.textContent.includes('ura'));
     assert.equal((await saved(page)).state.settlement, undefined);
     await page.click('[aria-label="Revealed ura-dora indicators"] button[data-tile="6z"]');
+    // What the form holds is saved with the game as it is typed, so a reload
+    // brings the ura back: it used to empty the form.
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.draft?.ura.join() === '6z', {}, GUIDED_KEY);
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'over');
+    await page.waitForSelector('.guided-controls:not(:disabled)');
+    assert.deepEqual(await page.$$eval('.guided-result .entered .tile', tiles => tiles.map(tile => tile.dataset.tile)), ['6z']);
     await button(page, 'Calculate hand settlement');
     await page.waitForSelector('[aria-label="North ura-dora indicators"]');
     assert.equal(await page.$$eval('[aria-label="North ura-dora indicators"] .tile', nodes => nodes.length), 1);
@@ -350,6 +356,7 @@ try {
     await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
     const paid = (await saved(page)).state;
     assert.deepEqual(paid.settlement.hand_deltas, [-2600,0,0,2600]);
+    assert.equal(paid.draft, undefined, 'the settlement keeps its own input, and the draft goes');
     assert.equal(paid.position.players[3].score, 32600);
     assert.equal(paid.position.riichi_sticks, 0);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
