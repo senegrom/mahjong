@@ -35,10 +35,17 @@ export interface PendingOpponent { player: number; position: string }
 export interface OfflineState {
   supported?: boolean | null;
   coreReady: boolean; aiReady: boolean; hasModel: boolean;
+  /** 'ai' while a trained save runs, from the moment a Trained player is
+   * chosen until the network and its runtime are both saved, and 'incomplete'
+   * once one has failed, with `warning` saying why. Otherwise what the start
+   * found: 'checking', 'ready' or 'unavailable'. */
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
+  /** While the phase is 'ai', the percent of the network received, held at
+   * 99 until the runtime is saved too; 100 once the save is whole. */
   progress: number; warning?: string; coreWarning?: string;
   persistent?: boolean; updateReady?: boolean;
-  /** A first visit's service worker is still saving the game to activate. */
+  /** A first visit's service worker is still saving the game to activate.
+   * A trained save runs beside it and does not wait for it. */
   installing?: boolean;
 }
 export interface OfflineStatusProps {
