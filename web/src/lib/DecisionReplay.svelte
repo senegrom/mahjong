@@ -245,12 +245,14 @@
       {#if compared.length > 1}
         <!-- Counted as the hand review counts it (docs/UI.md); a player reads
              the table without being told how. Folded, as it is read less than
-             the weights, and named for a screen reader's list of tables. -->
+             the weights, and named for a screen reader's list of tables. Its
+             corner heads nothing, so it is no header: an empty one is
+             announced as a column without a name. -->
         <details class="numbers" bind:open={numbersOpen}>
           <summary>What each move leaves</summary>
           <table>
             <caption class="visually-hidden">What each move leaves</caption>
-            <thead><tr><th scope="col"></th>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
+            <thead><tr><td></td>{#each compared as entry (entry.title)}<th scope="col">{entry.title}{#if entry.move.tile}<br /><Tile tile={entry.move.tile} size="tiny" />{/if}</th>{/each}</tr></thead>
             <tbody>
               <tr><th scope="row">Hand left</th>{#each compared as entry (entry.title)}<td>{distance(entry.measure.shanten)}</td>{/each}</tr>
               <tr><th scope="row">Tiles that improve it</th>{#each compared as entry (entry.title)}<td>{entry.measure.acceptance}</td>{/each}</tr>

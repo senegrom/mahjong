@@ -224,7 +224,9 @@
             <table class="numbers">
               <thead>
                 <tr>
-                  <th scope="col"></th>
+                  <!-- The corner heads nothing, so it is no header: an empty
+                       one is announced as a column without a name. -->
+                  <td></td>
                   <th scope="col">{note.played_tile ? tileWords(note.played_tile) : 'played'}</th>
                   <th scope="col">
                     {note.advised_tile ? tileWords(note.advised_tile) : 'advised'}
@@ -452,9 +454,14 @@
     opacity: 0.6;
   }
 
+  /* No wider than it needs to be read across, as the review of the game
+     draws the same numbers (DecisionReplay), and each column's values under
+     its heading: across the whole review a column was hundreds of pixels
+     wide, and a value set at its right edge read as the next column's. */
   .numbers {
     border-collapse: collapse;
     width: 100%;
+    max-width: 560px;
     table-layout: fixed;
     overflow-wrap: anywhere;
     font-size: 0.82rem;
@@ -477,7 +484,6 @@
 
   .numbers td {
     padding: 1px 14px 1px 0;
-    text-align: right;
   }
 
   .worse {

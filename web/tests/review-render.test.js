@@ -46,6 +46,30 @@ test('turn action reviews retain their readiness and improvement comparisons', (
   assert.match(html, /Hand left/);
   assert.match(html, /1 from waiting/);
   assert.match(html, /Tiles that improve it/);
+  // The table's corner heads nothing, so it is a cell: a header without a
+  // name is announced as a column that has none.
+  assert.match(html, /<thead[^>]*><tr[^>]*><td[^>]*><\/td>/);
+  assert.doesNotMatch(html, /<th\b[^>]*><\/th>/);
+});
+
+test("Club's numbers stand under their headings, in a table no wider than the review of the game draws the same numbers", () => {
+  // The styles a browser would lay the table out by, from the two
+  // components' own rules: a value set at the right of a column hundreds of
+  // pixels wide, under a heading at its left, read as the next column's.
+  const rule = (source, selector) => {
+    const style = source.slice(source.indexOf('<style>'));
+    const found = new RegExp(`(?:^|[}\\n])\\s*${selector.replace(/[.]/g, '\\.')}\\s*\\{([^}]*)\\}`).exec(style);
+    assert.ok(found, `a rule for ${selector}`);
+    return Object.fromEntries(found[1].split(';').map(part => part.split(':').map(text => text.trim())).filter(([name, value]) => name && value));
+  };
+  const handSource = readFileSync(new URL('../src/lib/Review.svelte', import.meta.url), 'utf8');
+  const replaySource = readFileSync(new URL('../src/lib/DecisionReplay.svelte', import.meta.url), 'utf8');
+  const [table, heading, value] = ['.numbers', '.numbers th', '.numbers td'].map(selector => rule(handSource, selector));
+  assert.equal(heading['text-align'], 'left');
+  assert.equal(value['text-align'] ?? 'left', heading['text-align'], 'a value is aligned as its heading is');
+  assert.equal(rule(replaySource, '.numbers td')['text-align'] ?? 'left', rule(replaySource, '.numbers th')['text-align']);
+  assert.equal(table['max-width'], rule(replaySource, '.numbers table')['max-width']);
+  assert.equal(table['max-width'], '560px');
 });
 
 const differing = [{

@@ -250,6 +250,11 @@ test("a move picked before the answer was shown is tagged Now over its tile, in 
   const played = { kind: target.decision.played_kind, tile: target.decision.played_tile ?? null };
   assert.deepEqual(heads(html), [['You', played], ['Now', pick], ['Trained AI', advised]].filter(([, move]) => measured(move)).map(([title]) => title));
   assert.ok(heads(html).includes('Now'), 'a flagged turn measures every move');
+  // The table's corner heads nothing, so it is a cell: a header without a
+  // name is announced as a column that has none.
+  const table = /<details class="numbers[^"]*"[^>]*>([^]*?)<\/details>/.exec(html)[1];
+  assert.match(table, /<thead[^>]*><tr[^>]*><td[^>]*><\/td>/);
+  assert.doesNotMatch(table, /<th\b[^>]*><\/th>/);
   // A pick the review did not measure has no column, and the others keep theirs.
   const unmeasured = { ...target.entry, decisions: target.entry.decisions.map((entry, at) => (at !== target.step ? entry
     : { ...entry, measures: entry.measures.filter(measure => !sameMove(measure, pick.kind, pick.tile)) })) };
