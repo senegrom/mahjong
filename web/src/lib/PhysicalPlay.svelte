@@ -283,9 +283,13 @@
   .record-choices { font-size: .82rem; }
   .record-choices > span { width: 100%; }
   .table-fields, .record-event, .physical-seat { padding: 14px; background: #0003; border: 1px solid #ffffff22; border-radius: 12px; }
-  summary { min-height: 36px; cursor: pointer; font-size: .9rem; }
+  /* What a finger presses is 44 px tall: a panel's summary, its words in the
+     middle, a tick box's label, and the button that removes a discard, which
+     is as wide too. */
+  summary { min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .9rem; }
   .table-fields > :not(summary), .record-event > :not(summary) { margin-top: 12px; }
-  .flags label, .discard-fields label { display: flex; align-items: center; gap: 5px; font-size: .78rem; }
+  .flags label, .discard-fields label { display: flex; align-items: center; gap: 5px; font-size: .78rem; min-height: 44px; }
+  .discard-fields button { min-width: 44px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); flex-shrink: 0; }
   .physical-seats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-items: start; }
   .seat-content, .meld-editor, .discard-editor { display: grid; gap: 12px; }

@@ -45,12 +45,31 @@
 </div>
 
 <style>
-  .tile-entry { display: grid; gap: 8px; min-width: 0; }
+  /* The entry measures itself, since how wide it is follows from the panel it
+     is in, not from the screen: a seat's panel beside another on a tablet is
+     as narrow as a phone. */
+  .tile-entry { display: grid; gap: 8px; min-width: 0; container-type: inline-size; }
   .entry-label { font-size: .8rem; font-weight: 600; }
   .entered { display: flex; flex-wrap: wrap; gap: 5px; align-items: end; }
-  summary { cursor: pointer; min-height: 32px; font-size: .8rem; color: var(--gold); }
+  /* Pressed with a finger too: 44 px, its words in the middle. */
+  summary { cursor: pointer; min-height: 44px; padding-block: 13px; font-size: .8rem; color: var(--gold); }
   .palette { display: grid; grid-template-columns: repeat(9,minmax(0,1fr)); gap: 6px; max-width: 510px; padding: 7px 3px; }
-  .palette :global(button.tile) { width: 100%; min-height: 40px; }
+  .palette :global(button.tile) { width: 100%; min-height: 44px; }
+  /* Nine columns leave a tile 44 px wide, the least a finger presses surely,
+     only where the entry is 450 px wide; on a 390 px phone they left 32 by
+     42. In less the palette has five: each suit as 1 to 5 over 6 to 9, then
+     the winds and the dragons, a row each, so a tile is still where the eye
+     looks for it. Each button is as wide as its column, 48 px or more, and
+     its picture is drawn 36 px wide in the middle: pictures as wide as the
+     columns would make the eight rows 640 px tall on that phone, and these
+     make them 440. The tiles already entered, pressed to take one out, are
+     44 px wide there too. */
+  @container (max-width: 449px) {
+    .palette { grid-template-columns: repeat(5,minmax(0,1fr)); max-width: 310px; }
+    .palette :global(button.tile) { --face-width: 36px; padding-inline: calc((100% - 36px) / 2); }
+    .palette :global(button.tile:is([data-tile^='1'], [data-tile='5z'])) { grid-column-start: 1; }
+    .entered :global(button.tile) { --face-width: 44px; }
+  }
   .notation { display: flex; gap: 8px; margin-top: 8px; }
   input { min-width: 0; flex: 1; }
   input, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 6px 10px; font: inherit; box-sizing: border-box; }

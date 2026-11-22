@@ -170,5 +170,5 @@
   button { min-height: 48px; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; cursor: pointer; justify-self: start; }
   .primary { background: var(--button-accent); color: var(--button-text); font-weight: 600; }
   [role=alert] { color: var(--warning-text); }
-  summary { cursor: pointer; min-height: 36px; }
+  summary { cursor: pointer; min-height: 44px; padding-block: 11px; }
 </style>

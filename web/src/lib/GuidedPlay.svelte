@@ -279,12 +279,14 @@
   button { cursor: pointer; font-size: .82rem; } button:disabled { opacity: .5; cursor: default; }
   .primary { background: var(--button-accent); color: var(--button-text); font-weight: 600; min-height: 48px; }
   .guide-prompt > .primary { justify-self: start; }
-  summary { min-height: 36px; cursor: pointer; font-size: .85rem; line-height: 1.5; }
+  /* What a finger presses is 44 px tall: a summary, its words in the middle,
+     and a tick box's label (below). */
+  summary { min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .85rem; line-height: 1.5; }
   details > :not(summary) { margin-top: 10px; }
   .your-hand { display: grid; gap: 12px; padding: 14px; border: 1px solid #ffffff25; border-radius: 12px; background: #0002; }
   .hand-caption { font-size: .8rem; } .held-tiles, .indicators { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .held-tiles :global(.hand-tile[data-hand-drawn=true]) { margin-left: 10px; }
-  .flags { display: flex; gap: 12px; flex-wrap: wrap; } .flags label { display: flex; align-items: center; gap: 8px; }
+  .flags { display: flex; gap: 12px; flex-wrap: wrap; } .flags label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
   .end-hand, .remembered, .guided-log { border: 1px solid #ffffff22; border-radius: 12px; padding: 12px; }
   .indicators { font-size: .8rem; }
