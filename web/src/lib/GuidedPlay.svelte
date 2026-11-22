@@ -274,7 +274,10 @@
   }
   h4 { margin: 0 0 10px; font-size: .88rem; } h4 span { font-weight: 400; font-size: .78rem; }
   p { margin: 0; font-size: .84rem; line-height: 1.5; }
-  .guide-meta { font-size: .82rem; color: var(--gold); }
+  /* The round, seat and points, and the adviser's label, in the page's ivory:
+     they lie on the felt itself, where the gold they were in read at 2.9 to
+     3.6 to 1, under the 4.5 that text this small needs. */
+  .guide-meta { font-size: .82rem; }
   label { display: grid; gap: 6px; font-size: .8rem; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; }
   .guide-prompt { display: grid; gap: 16px; padding: 20px; border-radius: 14px; border: 1px solid #d8a12a77; background: #0004; }
