@@ -64,8 +64,15 @@
     settingsDialog?.close(); // Restores the opener before another dialog opens.
   }
   function openTable() { closeSettings(); configureTable(); }
+  // Leaving Play never stops its match: the session plays on behind the other
+  // modes, each move saved as it is made, and is there as it stands on coming
+  // back. So a match that is busy holds nobody in Play, least of all one whose
+  // Trained opponent waits for the network's whole download. The guard that
+  // did (mode === 'play' && busy) kept nothing safe: it only kept the few
+  // moves of a turn already asked ahead of another mode's questions at the
+  // one worker, where they now take turns.
   function changeMode(next: GameMode) {
-    if (!ready || (mode === 'play' && busy)) return;
+    if (!ready) return;
     mode = next;
     closeSettings();
   }
@@ -114,7 +121,7 @@
 
 <nav class="game-modes" aria-label="Game mode">
   {#each MODES as [key, before, word, after] (key)}
-    <button class="app-control" aria-label={`${before}${word}${after}`} aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => changeMode(key)}>{#if before}<span class="rest">{before}</span>{/if}{word}{#if after}<span class="rest">{after}</span>{/if}</button>
+    <button class="app-control" aria-label={`${before}${word}${after}`} aria-pressed={mode === key} disabled={!ready} onclick={() => changeMode(key)}>{#if before}<span class="rest">{before}</span>{/if}{word}{#if after}<span class="rest">{after}</span>{/if}</button>
   {/each}
 </nav>
 
@@ -122,7 +129,7 @@
 <div id="game-preferences" class="preferences" class:mobile-open={compact && settingsOpen} bind:this={preferencesElement}>
 <div class="mobile-preferences-head"><strong id="game-settings-title">Game settings</strong><button class="app-control" data-close-settings onclick={closeSettings}>Done</button></div>
 <label class="compact-mode-selector">Game mode
-  <select class="app-control" value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
+  <select class="app-control" value={mode} aria-label="Game mode" disabled={!ready}
     onchange={event => changeMode(event.currentTarget.value as GameMode)}>
     <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option><option value="guided">Guided physical game</option>
   </select>

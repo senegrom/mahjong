@@ -365,6 +365,31 @@ test("the settings offer the review's two hiding settings after the other checkb
     ["Hide Trained AI's move in reviews", true], ["Hide other players' tiles in reviews", false]]);
 });
 
+test("the mode buttons and the phone's mode select are held only until the page is ready, never by a match that is busy", async () => {
+  const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
+    ready: true, busy: false, saveConflict: '', trainedAvailable: true,
+    offline: { coreReady: false, aiReady: false, hasModel: true, phase: 'ai', progress: 12 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {}, ...props });
+  // Whether each of the nav's four buttons is disabled, and the select
+  // that takes their place on the smallest phones.
+  const held = markup => {
+    const nav = /<nav class="game-modes[^"]*"[^>]*>([^]*?)<\/nav>/.exec(markup)[1];
+    const off = attributes => /\sdisabled\b/.test(attributes);
+    return { nav: [...nav.matchAll(/<button\b([^>]*)>/g)].map(([, attributes]) => off(attributes)),
+      select: off(/<select\b([^>]*\baria-label="Game mode"[^>]*)>/.exec(markup)[1]) };
+  };
+  const free = { nav: [false, false, false, false], select: false };
+  assert.deepEqual(held(await settings({})), free);
+  // A Trained opponent that waits, for the network's download on a first
+  // visit, keeps the match busy for minutes: the other modes stay open, and
+  // the match plays on behind them.
+  assert.deepEqual(held(await settings({ mode: 'play', busy: true })), free);
+  for (const mode of ['watch', 'physical', 'guided']) assert.deepEqual(held(await settings({ mode, busy: true })), free, mode);
+  // Until the engine and the tile graphics are in, which the page's own line says.
+  assert.deepEqual(held(await settings({ ready: false })), { nav: [true, true, true, true], select: true });
+});
+
 test('a tile face that could not load is said under its select while the settings are an open dialog, in a line that waits there empty', async () => {
   const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
     ready: true, busy: false, saveConflict: '', trainedAvailable: false,

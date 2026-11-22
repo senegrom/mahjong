@@ -198,6 +198,20 @@ try {
     const chosen = await settings(page);
     assert.deepEqual([chosen.difficulty, chosen.opponents], ['neural', ['neural', 'neural', 'neural']]);
     await page.screenshot({ path: resolve(output, 'trained-default-meanwhile.png'), fullPage: true });
+    // The wait holds nobody in Play either: the other modes open while the
+    // download goes on, and on coming back the match is there as it was,
+    // still waiting, with the offer.
+    const waitingMatch = JSON.stringify(await match(page));
+    assert.deepEqual(await page.$$eval('.game-modes button', buttons => buttons.map(button => button.disabled)), [false, false, false, false],
+      'no mode is held by the waiting match');
+    await page.click('.game-modes button:nth-child(2)');
+    await page.waitForSelector('.agent-watch');
+    assert.equal(await page.$('[data-club-meanwhile]'), null);
+    assert.equal(await page.$eval('.game-modes button:nth-child(2)', button => button.getAttribute('aria-pressed')), 'true');
+    await page.click('.game-modes button:first-child');
+    await page.waitForSelector('[data-club-meanwhile]', { timeout: 60000 });
+    assert.equal(JSON.stringify(await match(page)), waitingMatch, 'the match is as it was');
+    assert.ok((await prompt(page)).includes(`downloading ${DOWNLOAD}`), 'and still waits for the download');
     await page.click('[data-club-meanwhile]');
     await page.waitForFunction(playable => !document.querySelector('[data-club-meanwhile]') && document.querySelector(playable), { timeout: 45000 }, playable);
     assert.equal(await page.$('.failure'), null, 'nothing failed, and nothing asks to be recovered');

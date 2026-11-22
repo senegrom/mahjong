@@ -4,7 +4,21 @@ The browser owns one `MatchSession` at a time. Disposing it aborts outstanding
 inference and frees its WASM game. Every asynchronous continuation checks that
 owner before applying an answer, reporting an error or changing the interface.
 A failed neural opponent remains explicitly Trained until the player retries,
-continues the same position with Club opponents, or starts a new match.
+continues the same position with Club opponents, or starts a new match. One
+that still waits for the network's download can be given to Club as well, by
+**Play Club meanwhile**, which drops its question rather than failing it and
+keeps the player's own table as their stored choice
+([Gameplay interface](UI.md)).
+
+Leaving Play for Agent watch, Physical agent play or the guided game never
+stops the match. The session plays on behind the other mode, each move saved
+as it is made, and is shown as it stands on coming back, so the mode buttons
+and the smallest phones' mode select are held only until the page is ready,
+which its start-up line says. They used to be disabled for as long as the
+match was busy, which on a first visit is the whole of the network's download,
+with nothing to say why. That guard kept nothing safe: it only kept the few
+moves of a turn already asked ahead of another mode's questions at the one
+worker, where they now take turns.
 
 The page has one trained worker, which answers its requests in turn. At a
 hand's result two things ask it: the hand's own notes (**View table / my
