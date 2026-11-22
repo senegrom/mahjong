@@ -6,7 +6,7 @@ import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
 import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
-  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+  moveToken, moveWeight, neighbour, noneSaid, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -248,10 +248,38 @@ test('the review says what its filter keeps as it is chosen, in no order but the
   assert.equal(filterSaid('flagged', { flagged: 1, differed: 3, every: 9 }), '1 flagged decision.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 1, every: 9 }), '1 decision where Trained AI differed.');
   assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 1 }), 'The one decision.');
-  // Where the filter keeps nothing.
+  // Where the filter keeps nothing, of a review whose every hand is reviewed.
   assert.equal(filterSaid('flagged', { flagged: 0, differed: 3, every: 4 }), 'None flagged.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
-  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'No decisions.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'You made no decisions.');
+});
+
+test('a filter that holds no decision is said to hold none only once every hand is reviewed, in the same words in the list and as it is chosen', () => {
+  const none = { flagged: 0, differed: 0, every: 4 };
+  // A hand still to review may hold a flagged decision, or one where Trained
+  // AI differed: until every hand is reviewed there is only none yet.
+  for (const over of [false, true]) {
+    assert.equal(filterSaid('flagged', none, { complete: false, over }), 'None flagged yet.');
+    assert.equal(filterSaid('differed', none, { complete: false, over }), 'None differed yet.');
+    assert.equal(filterSaid('flagged', none, { complete: true, over }), 'None flagged.');
+    assert.equal(filterSaid('differed', none, { complete: true, over }), 'Trained AI agreed at every decision.');
+  }
+  // Every decision is known before Trained AI answers, so that filter holds
+  // none only where the player made none: yet, while the match is played.
+  for (const complete of [false, true]) {
+    assert.equal(filterSaid('every', { ...none, every: 0 }, { complete, over: false }), 'No decisions yet.');
+    assert.equal(filterSaid('every', { ...none, every: 0 }, { complete, over: true }), 'You made no decisions.');
+  }
+  // A filter that holds a decision says how many, whatever is still to review.
+  assert.equal(filterSaid('flagged', { flagged: 2, differed: 2, every: 4 }, { complete: false, over: false }), '2 flagged decisions.');
+  // The list's own line is the same helper's, so the two cannot differ.
+  for (const filter of FILTERS) {
+    for (const review of [{ complete: true, over: true }, { complete: true, over: false }, { complete: false, over: false }]) {
+      assert.equal(noneSaid(filter, review), filterSaid(filter, { flagged: 0, differed: 0, every: 0 }, review), `${filter} ${JSON.stringify(review)}`);
+    }
+  }
+  const screen = readFileSync(new URL('../src/lib/GameReview.svelte', import.meta.url), 'utf8');
+  assert.match(screen, /let empty = \$derived\(counts\[filter\] \|\| !status\.complete \? '' : noneSaid\(filter, status\)\);/, 'the list says it by noneSaid');
 });
 
 test("the table at a step is said in a sentence, each seat says what it was doing, and a hand's line gives both moves", () => {

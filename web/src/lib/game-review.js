@@ -282,14 +282,29 @@ export function hiddenAt(decision, reveal, { hideMove = false, hideTiles = false
  * the tiles over and leaves the move to be answered once Trained AI has. */
 export const revealing = (decision, pick = null) => ({ pick, answer: Boolean(decision) });
 
+/** What the review says where a filter holds no decision, in its list and as
+ * the filter is chosen (filterSaid), in the same words. That none is flagged,
+ * or that Trained AI agreed at every decision, is true only once every hand
+ * is reviewed (`complete`): before that a hand still to review may hold one,
+ * so it says only that there is none yet. Every decision is known before
+ * Trained AI answers, so that filter holds none only where the player made
+ * none: none at all once the match is `over`, none yet while it is played. */
+export function noneSaid(filter, { complete = true, over = true } = {}) {
+  if (filter === 'every') return over ? 'You made no decisions.' : 'No decisions yet.';
+  if (filter === 'flagged') return complete ? 'None flagged.' : 'None flagged yet.';
+  return complete ? 'Trained AI agreed at every decision.' : 'None differed yet.';
+}
+
 /** What the review says as the player chooses its filter: how many decisions
  * Previous and Next now step through, and of which kind, the flagged ones
- * among those where Trained AI differed counted too. Every list is in the
- * order played, so it says no order. It is said as a button is pressed, so
- * it names the decisions without saying that they are shown. */
-export function filterSaid(filter, counts) {
+ * among those where Trained AI differed counted too; or, where the filter
+ * holds none, what that means of the `review` so far, `{ complete, over }`
+ * (noneSaid). Every list is in the order played, so it says no order. It is
+ * said as a button is pressed, so it names the decisions without saying that
+ * they are shown. */
+export function filterSaid(filter, counts, review = {}) {
   const count = counts[filter], s = count === 1 ? '' : 's';
-  if (!count) return { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.', every: 'No decisions.' }[filter];
+  if (!count) return noneSaid(filter, review);
   return {
     flagged: `${count} flagged decision${s}.`,
     differed: `${count} decision${s} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}.`,
