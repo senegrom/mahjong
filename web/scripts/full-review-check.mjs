@@ -331,7 +331,7 @@ try{
  // the sheet steps aside to show what the press asked for.
  const SIZES=[[1100,900],[390,844],[320,568],[844,390],[568,320]];
  const resultButton=(p,text)=>p.evaluateHandle(text=>[...document.querySelectorAll('.screen .buttons button')].find(el=>el.textContent.trim()===text),text);
- const focusOn=p=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h3')?'the review':a?.matches('.standings h2')?'the standings'
+ const focusOn=p=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h2')?'the review':a?.matches('.standings h2')?'the standings'
   :a?.matches('.screen')?'the result':a?.matches('.result-chip')?'the chip':!a||a===document.body?'the page':a.outerHTML.slice(0,80);});
  const ringed=p=>p.evaluate(()=>document.activeElement?.matches(':focus-visible')??false);
  const sheetShown=p=>p.$eval('.screen',el=>getComputedStyle(el).display!=='none');
@@ -380,11 +380,11 @@ try{
    assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
    await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
    if(sheet)assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
-   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
    assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
    // What a screen reader says of it: the hand's review, by its heading.
-   const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
-   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',3]);
+   const heading=await p.$('.review h2'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',2]);
    assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'your decisions this hand');
    await settle(p);
    assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
@@ -429,14 +429,14 @@ try{
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
    const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
    await pointerPress(p,button,touch);await p.waitForSelector('.review');
-   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
    assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
    assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
    await settle(p);
    if(sheet){
     assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
     assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
-   }else assert.ok(await uncovered(await p.$('.review h3')),`the review's heading is brought into view, uncovered, ${where}`);
+   }else assert.ok(await uncovered(await p.$('.review h2')),`the review's heading is brought into view, uncovered, ${where}`);
    noErrors(p);
   }
  });
@@ -456,10 +456,10 @@ try{
     const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
     await p.waitForSelector('.review[data-reviewing]');
     assert.equal(await p.$eval('.review select',el=>el.value),'strong',`Trained AI reviews ${where}`);
-    await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+    await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
     assert.equal(await focusOn(p),'the review',`focus goes on to the review under way ${where}`);
-    const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
-    assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',3,true]);
+    const heading=await p.$('.review h2'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+    assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',2,true]);
     await p.waitForFunction(()=>[...document.querySelectorAll('.review [role="status"]')].some(el=>/^Trained AI is reviewing your decisions/.test(el.textContent.trim())),
      {timeout:5000});
     await settle(p);
@@ -953,7 +953,7 @@ try{
  // review of the game does, so that the two give a hand one figure, and its
  // line says so in place of an adviser's answer, kept back or not. Club's
  // notes do not say which moves those were: the page asks the engine.
- await check('the hand\'s notes leave an only move out of the decisions matched, and say so on its line',async()=>{
+ await check('the hand\'s notes leave an only move out of the decisions matched and say so on its line, and a keyboard scrolls their list',async()=>{
   const m=MatchSession.restore(Game,JSON.stringify(riichiWon));let expected;
   try{expected=m.engine.review().map((note,index)=>({only:m.engine.review_choices(index).length===1,agreed:note.agreed}));}finally{m.dispose();}
   const only=expected.filter(row=>row.only).length,counted=expected.length-only,matched=expected.filter(row=>!row.only&&row.agreed).length;
@@ -972,6 +972,15 @@ try{
     expected.map(row=>row.only?'Only move':null),`each only move says so, and no other decision does, ${where}`);
    assert.equal(await p.$$eval('.review li:has(.only) :is(.advised, .why, .numbers, .policy-preference)',els=>els.length),0,
     `an only move's line gives no adviser's answer ${where}`);
+   // The list scrolls in a box of its own, and nothing in it takes focus: the
+   // box does, named and said to be a list, so that a keyboard scrolls it.
+   const list=await p.$('.review ol');
+   await list.focus();
+   const listed=await p.accessibility.snapshot({root:list,interestingOnly:false});
+   assert.deepEqual([listed?.role,listed?.name,await list.evaluate(el=>el===document.activeElement)],['list','decisions',true],`the list takes focus ${where}`);
+   assert.ok(await list.evaluate(el=>el.scrollHeight>el.clientHeight&&el.scrollTop===0),`the hand's decisions overflow their box ${where}`);
+   await p.keyboard.press('End');
+   await p.waitForFunction(()=>document.querySelector('.review ol').scrollTop>0,{timeout:5000});
    noErrors(p);
   }
  });

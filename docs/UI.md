@@ -217,7 +217,12 @@ screen reader reads the heading out, in the region "your decisions this hand",
 so the player hears where they are, also while Trained AI is still reviewing
 the hand. The region is not marked busy meanwhile: a screen reader may keep
 what a busy region says until it is busy no longer, and the line that says
-the review is under way is in it.
+the review is under way is in it. The heading is a second-level one, as the
+result's own, the standings' and the review of the game's are. The review is a
+part of the page beside the result, not a part of it, and on a phone the
+result's sheet steps aside as the review opens, its heading out of the page's
+outline with it: a third-level heading then followed the page's first, or the
+standings', with no second between them.
 
 Where the result is not a sheet, at desktop width and held sideways on a phone
 wider than 760 pixels, it covered nothing, and the review opens below it, often
@@ -360,6 +365,13 @@ decision (13)**); a hand without such a move reads as before ("13 of 14
 decisions matched Trained AI 0.1.3000."). Trained AI's notes say which moves
 were the only ones; Club's do not, so the page asks the engine how many moves
 were open at each, while the hand is still there to ask.
+
+The decisions are a list, which says so in so many words, since Safari does
+not tell VoiceOver that a list drawn without markers is one. It scrolls in a
+box of its own, at most 42% of the screen tall, and nothing in it takes focus,
+so the box itself does, named "decisions", for a keyboard to scroll it: Safari
+gives a scrolling box no focus by itself, which left a keyboard no way to the
+list's lower lines.
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so

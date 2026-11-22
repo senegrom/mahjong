@@ -451,3 +451,16 @@ test("an only move is left out of the count of decisions matched, as the review 
   const then = find(line.alternate, node => node.type === 'IfBlock');
   assert.equal(source(then.test), 'hiding', 'asked before whether the answers are kept back');
 });
+
+test("the hand's review is headed at the page's second level, and its list of decisions takes focus and says that it is a list", () => {
+  // The result's heading, the standings' and the review of the game's are
+  // second-level too: on a phone the result steps aside as this review opens,
+  // and a third-level heading then followed the page's first.
+  const html = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
+  assert.match(html, /<h2 tabindex="-1"[^>]*>Your hand, looked at again<\/h2>/);
+  assert.doesNotMatch(html, /<h[1-6]\b(?<!<h2)/, 'no other heading');
+  // The list scrolls in a box of its own with nothing in it to tab to, so the
+  // box takes focus, for the keys that scroll; and it is a list in so many
+  // words, which Safari does not say of one drawn without markers.
+  assert.match(html, /<ol role="list" aria-label="decisions" tabindex="0"[^>]*>/);
+});

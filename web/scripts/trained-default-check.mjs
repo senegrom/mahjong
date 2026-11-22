@@ -244,7 +244,7 @@ try {
     // goes on to the review's heading rather than dropping to the page.
     // Retry, pressed by keyboard: the retry fails as the first try did, and
     // says so in an alert of its own.
-    const onHeading = () => page.evaluate(() => document.activeElement?.matches('.review h3') ?? false);
+    const onHeading = () => page.evaluate(() => document.activeElement?.matches('.review h2') ?? false);
     await page.$eval('.review [role="alert"]', el => { el.dataset.first = ''; });
     await page.focus('.review [data-review-retry]');
     await page.keyboard.press('Enter');

@@ -17,7 +17,12 @@
    */
   // Trained AI is the default adviser, as readSettings has it. The heading
   // is bound so that the result's button, which goes as it opens the review,
-  // can hand focus to it (App). `onask` is told as the review begins to ask
+  // can hand focus to it (App). It is a second-level heading, as the
+  // result's own, the standings' and the review of the game's are: the
+  // review is a part of the page beside the result, not a part of it, and on
+  // a phone the result's sheet steps aside as it opens, its heading out of
+  // the page's outline with it, where a third-level one then followed the
+  // page's first or the standings'. `onask` is told as the review begins to ask
   // Trained AI, and answers what to call once it stops asking: the review of
   // the game so far, which asks the same worker, waits for it meanwhile
   // (App). Without a listener there is nothing to tell. `hideAnswers` is the
@@ -160,7 +165,7 @@
      for the checks, which wait for the review by it. -->
 <section class="review" class:hiding aria-label="your decisions this hand" data-reviewing={reviewing ? '' : undefined}>
   <header>
-    <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
+    <h2 tabindex="-1" bind:this={heading}>Your hand, looked at again</h2>
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
@@ -211,7 +216,14 @@
            keyboard focus stays on it. -->
       <button class="answers" data-show-answers onclick={() => { answersShown = !answersShown; }}>{answersShown ? 'Hide answers' : 'Show answers'}</button>
     {/if}
-    <ol>
+    <!-- The list scrolls in a box of its own, and nothing in it takes
+         focus, so the box does, for the keys that scroll to scroll it: a
+         browser that gives such a box no focus by itself, as Safari, left
+         a keyboard no way to its lower lines. It says that it is a list in
+         so many words, as the review of the game's lists do (ReviewIndex):
+         Safari does not tell VoiceOver that one drawn without markers is. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <ol role="list" aria-label="decisions" tabindex="0">
       {#each listed as note, index (index)}
         <li class:agreed={note.agreed && !hiding}>
           {#if note.call_tile}<p class="call-context">Response to <Tile tile={note.call_tile} size="tiny" dora={hints && (note.dora_types ?? []).includes(note.call_tile)} /> from {note.call_from}</p>{/if}
@@ -315,7 +327,7 @@
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  h3 {
+  h2 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
@@ -328,14 +340,14 @@
      the edge of the screen, below the game's bar where that stays at the top
      of the screen (AppSettings), and on a phone clear of the result's chip at
      the foot of the screen (ScoreScreen). */
-  h3:focus { outline: none; }
-  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-  h3 { scroll-margin: 8px 0; }
+  h2:focus { outline: none; }
+  h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h2 { scroll-margin: 8px 0; }
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h3 { scroll-margin-top: 72px; }
+    h2 { scroll-margin-top: 72px; }
   }
   @media (max-width: 760px) {
-    h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+    h2 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }
