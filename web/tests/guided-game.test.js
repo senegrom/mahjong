@@ -300,7 +300,7 @@ test('rejects fifth copies, incomplete setup, stale events and rolls back invali
   let g = start(0, '1111m456p789s123z');
   // The tile drawn is the one at the table, so one entered before it was not.
   assert.throws(() => act(g, { type: 'draw', tile: '1m' }),
-    /^Error: All four copies of 1 characters are already accounted for\. Undo back to the one entered by mistake\.$/);
+    /^Error: All four copies of 1 characters are already accounted for\. Correct the one entered by mistake, or undo back to it\.$/);
   assert.equal(g.state.position.wall, 70);
   // A fifth copy typed into the starting hand was never entered: nothing is
   // to be undone, and the hand is left as it was.
@@ -311,7 +311,7 @@ test('rejects fifth copies, incomplete setup, stale events and rolls back invali
   assert.deepEqual(four.state.position.players[0].hand, parseTiles('1111m'));
   // An opponent's call that would show a fifth copy is refused the same way.
   const called = pass(discard(start(3, '555m456p789s1123z'), '5m'));
-  assert.throws(() => act(called, { type: 'call', seat: 2, kind: 'pon' }), /four copies of 5 characters.*Undo back to the one entered by mistake\.$/);
+  assert.throws(() => act(called, { type: 'call', seat: 2, kind: 'pon' }), /four copies of 5 characters.*Correct the one entered by mistake, or undo back to it\.$/);
   assert.throws(() => act(g, { type: 'continue' }), /no longer/);
   g = emptyGuided(); g.state.position.players[0].score = null;
   assert.throws(() => act(g, { type: 'setup' }), /points/);
@@ -319,6 +319,59 @@ test('rejects fifth copies, incomplete setup, stale events and rolls back invali
   g = act(g, { type: 'setup' });
   assert.throws(() => act(g, { type: 'hand' }), /exactly 13/);
   assert.throws(() => act(start(), { type: 'discard', tile: '9z' }), /Choose a tile/);
+});
+
+test('one remembered tile is corrected in place: a discard, or a tile of the hand, as a step that Undo takes back', () => {
+  // North holds a 3 characters. East's discard is entered as another by
+  // mistake (it was the 3 circles), South and West throw the real ones, and
+  // the fourth real one, North's draw, is then refused as a fifth.
+  let g = start();
+  for (const tile of ['3m', '3m', '3m']) g = next(pass(discard(g, tile)));
+  assert.throws(() => act(g, { type: 'draw', tile: '3m' }),
+    /^Error: All four copies of 3 characters are already accounted for\. Correct the one entered by mistake, or undo back to it\.$/);
+  const fixed = act(g, { type: 'correct', seat: 0, index: 0, from: '3m', tile: '3p' });
+  assert.equal(fixed.state.position.players[0].discards[0].tile, '3p');
+  assert.deepEqual({ ...fixed.state.position.players[0].discards[0], tile: '3m' }, g.state.position.players[0].discards[0], 'nothing else of it changes');
+  assert.equal(fixed.state.stage, 'turn');
+  assert.equal(fixed.log.at(-1), 'Corrected East’s discard: 3 characters → 3 circles');
+  assert.deepEqual(undoGuided(fixed), g, 'a correction is a step');
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(fixed)), fixed);
+  // The draw that was refused is now taken, and advised on by the engine.
+  const drawn = act(fixed, { type: 'draw', tile: '3m' });
+  assert.equal(drawn.state.stage, 'decision');
+  // A tile of the hand, at a decision: the engine reads the corrected table.
+  const held = act(drawn, { type: 'correct', from: '1z', tile: '4z' });
+  assert.deepEqual(held.state.position.players[3].hand.filter(tile => tile[1] === 'z').sort(), ['1z', '2z', '3z', '4z']);
+  assert.equal(held.log.at(-1), 'Corrected your hand: east wind → north wind');
+  assert.ok(inspect(held).some(c => c.kind === 'discard' && c.tile === '4z'));
+  // The tile just drawn is corrected as the draw it was.
+  const redrawn = act(drawn, { type: 'correct', from: '3m', tile: '9p' });
+  assert.equal(redrawn.state.position.drawn, '3m', 'another copy of it is still the draw');
+  const lone = act(act(fixed, { type: 'draw', tile: '5z' }), { type: 'correct', from: '5z', tile: '6z' });
+  assert.equal(lone.state.position.drawn, '6z');
+  // What cannot be put right in place says what to do instead, and changes nothing.
+  assert.throws(() => act(g, { type: 'correct', seat: 0, index: 0, from: '9m', tile: '3p' }), /no longer/);
+  assert.throws(() => act(g, { type: 'correct', seat: 0, index: 5, from: '3m', tile: '3p' }), /no longer/);
+  assert.throws(() => act(g, { type: 'correct', from: '9p', tile: '3p' }), /not in your hand/);
+  assert.throws(() => act(g, { type: 'correct', seat: 1, index: 0, from: '3m', tile: '3m' }), /already/);
+  assert.throws(() => act(g, { type: 'correct', seat: 1, index: 0, from: '3m', tile: '9z' }), /Choose a tile/);
+  // A fifth copy by correction is refused with nothing to undo.
+  assert.throws(() => act(drawn, { type: 'correct', seat: 0, index: 0, from: '3p', tile: '3m' }),
+    /^Error: All four copies of 3 characters are already accounted for\.$/);
+  // The discard on offer is entered again by Undo, since the answer to it would change.
+  const offered = discard(next(choose(drawn, 'discard', '3m')), '8p');
+  assert.throws(() => act(offered, { type: 'correct', seat: 3, index: 0, from: '8p', tile: '8s' }), /no longer/);
+  assert.throws(() => act(offered, { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
+  assert.throws(() => act(pass(offered), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
+  assert.equal(act(next(pass(offered)), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }).state.position.players[0].discards[1].tile, '8s');
+  // A called discard is part of its set, and a riichi hand is fixed.
+  const called = next(act(pass(discard(start(), '5z')), { type: 'call', seat: 2, kind: 'pon' }));
+  assert.throws(() => act(called, { type: 'correct', seat: 0, index: 0, from: '5z', tile: '6z' }), /called set/);
+  const riichi = structuredClone(g); riichi.state.position.players[3].riichi = 'riichi';
+  assert.throws(() => act(riichi, { type: 'correct', from: '1z', tile: '4z' }), /riichi/);
+  // Nor is a finished hand's table corrected: its result is undone first.
+  const over = act(g, { type: 'finish', result: 'Other hand end', kind: 'manual' });
+  assert.throws(() => act(over, { type: 'correct', seat: 0, index: 0, from: '3m', tile: '3p' }), /no longer the next step/);
 });
 
 test('exhaustion waits for last-discard calls, then next hand rotates scores and the followed seat', () => {

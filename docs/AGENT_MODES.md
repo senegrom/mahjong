@@ -298,7 +298,22 @@ A fifth copy of a tile is refused where it is entered. Typed into the
 starting hand it was never entered, so the line says only that all four
 copies are accounted for, and what was typed stays in the field to be
 corrected. At a draw, a discard, an indicator or a call the tile is the one
-on the table, so the line adds: "Undo back to the one entered by mistake."
+on the table, so the line adds: "Correct the one entered by mistake, or undo
+back to it."
+
+**Correct a tile**, under the remembered table, puts one tile right in place:
+a discard of any seat, or a tile of your own hand. Choose where it is and
+which it is, then the tile it really is. Undo keeps thirty steps and a
+discard takes three, so a mistake more than ten discards back was out of its
+reach, and the only ways on were to enter a tile that was not played or to
+end the hand by hand. A correction is a step of its own: the history says
+what was changed, Undo takes it back, and the adviser is asked again of the
+corrected table. It changes that one tile and nothing else, so a move of
+your own recorded wrongly is two corrections, the discard and the tile left
+in the hand. Three things are not corrected in place, and the line says to
+undo instead: the discard still on offer, since the answer to it would
+change; a discard that was called, which is part of its set; and a hand in
+riichi. A finished hand's table is corrected after its result is undone.
 
 Each step draws the next prompt in place of the one that was pressed, and the
 control that had focus goes with it. Focus is handed on to the new prompt's

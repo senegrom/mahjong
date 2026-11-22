@@ -116,6 +116,24 @@ try {
       assert.equal((await saved(page)).state.nextSeat, seat);
       await tile(page, t); await passAndContinue(page);
     }
+    // East's first discard, entered as the 9 characters, was the 9 circles:
+    // it is put right in place, a step of its own that Undo takes back.
+    const first = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards[0].tile, GUIDED_KEY);
+    await page.click('.remembered .correct > summary');
+    await page.select('[aria-label="Where the tile to correct is"]', '0');
+    await page.select('[aria-label="The tile to correct"]', '0');
+    await page.click('.correct .tile-entry summary');
+    // A correction that is refused is said under the palette it was pressed in.
+    await page.click('.correct .palette button[data-tile="9m"]');
+    await page.waitForFunction(() => document.querySelector('.correct [role="alert"]')?.textContent === 'It is already that tile');
+    assert.equal(await page.$('.guide-prompt .failure'), null);
+    await page.click('.correct .palette button[data-tile="9p"]');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.log.at(-1) === 'Corrected East’s discard: 9 characters → 9 circles', {}, GUIDED_KEY);
+    assert.equal(await first(), '9p');
+    assert.equal(await page.$('.correct [role="alert"]'), null);
+    assert.equal(await page.$eval('.guided-seats section:first-child .pool .tile', el => el.dataset.tile), '9p', 'the remembered table shows it');
+    await button(page, 'Undo last step');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards[0].tile === '9m', {}, GUIDED_KEY);
     assert.match(await page.$eval('.guide-prompt h3', el => el.textContent), /draw/);
     await tile(page, '4z'); await choice(page);
     let game = await saved(page);

@@ -42,6 +42,14 @@
   // the adviser's reading of their hands is named by, as the rest of the
   // guide names seats.
   let others = $derived([1, 2, 3].map(step => WINDS[(position.seat + step) % 4]));
+  // The one tile Correct a tile puts right (guided-game.js, `correct`): where
+  // it is, your hand or a seat's discards, and which, a tile of the hand by
+  // its name or a discard by its place in that seat's row.
+  let fixPlace = $state('hand'), fixWhich = $state('');
+  let fixTiles = $derived(fixPlace === 'hand'
+    ? [...new Set(hand)].map(tile => ({ key: tile, words: tileWords(tile) }))
+    : (position.players[fixPlace]?.discards ?? []).map((discard, index) => ({ key: String(index),
+      words: `${index + 1} · ${tileWords(discard.tile)}${discard.claimed ? ' · called' : ''}` })));
   // Trained advice may be waiting for the network's first download.
   let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
 
@@ -134,6 +142,18 @@
   }
   function undo() {
     if (!blocked) { game = undoGuided(snapshot()); failure = ''; }
+  }
+  // A correction the table refuses is thrown back to the palette that was
+  // pressed, which says it there (TileEntry): the prompt's own line is a
+  // screen above the remembered table. Focus stays on the palette, which the
+  // correction leaves in place.
+  function correct(tile) {
+    if (blocked) return;
+    if (fixWhich === '') throw new Error('Choose the tile to correct first');
+    const event = fixPlace === 'hand' ? { type: 'correct', from: fixWhich, tile }
+      : { type: 'correct', seat: fixPlace, index: Number(fixWhich), from: position.players[fixPlace]?.discards[Number(fixWhich)]?.tile, tile };
+    if (!act(event)) { const refusal = failure; failure = ''; throw new Error(refusal); }
+    fixWhich = '';
   }
   async function restart() {
     if (!loaded || conflict || !window.confirm('Start a new guided game? This replaces its saved progress.')) return;
@@ -251,6 +271,24 @@
       <details class="remembered" open><summary>Remembered table · {position.counters} honba · {position.riichi_sticks} riichi sticks</summary>
         <div class="indicators"><span>Dora indicators</span>{#each position.indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
         <div class="guided-seats">{#each position.players as player, i (i)}<section class:followed={i === position.seat} aria-label={`${WINDS[i]} remembered table`}><h4>{WINDS[i]}{i === position.seat ? ' · You' : ''} <span>{player.score?.toLocaleString()}{player.riichi !== 'none' ? ' · Riichi' : ''}</span></h4><Discards discards={player.discards} {dora} /><Melds melds={viewMelds(player)} {dora} size="tiny" /></section>{/each}</div>
+        <!-- One tile entered by mistake, put right in place: Undo reaches ten
+             discards back and no further. Not while a call waits for its
+             answer or once the hand is over, where Undo comes first. -->
+        {#if !['claim-response', 'over'].includes(state.stage)}
+          <details class="correct"><summary>Correct a tile</summary>
+            <div class="fields">
+              <label>Where<select aria-label="Where the tile to correct is" bind:value={fixPlace} onchange={() => fixWhich = ''}>
+                <option value="hand">Your hand</option>
+                {#each position.players as player, i (i)}{#if player.discards.length}<option value={i}>{WINDS[i]} discards</option>{/if}{/each}
+              </select></label>
+              <label>Which<select aria-label="The tile to correct" bind:value={fixWhich}>
+                <option value="">Choose tile</option>
+                {#each fixTiles as entry (entry.key)}<option value={entry.key}>{entry.words}</option>{/each}
+              </select></label>
+            </div>
+            <TileEntry label="The tile it really is" onadd={correct} />
+          </details>
+        {/if}
       </details>
     {/if}
     {#if game.log.length}<details class="guided-log"><summary>Game history · {game.log.length} steps</summary><ol>{#each game.log as entry, i (i)}<li>{entry}</li>{/each}</ol></details>{/if}
@@ -298,6 +336,7 @@
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
   .end-hand, .remembered, .guided-log { border: 1px solid #ffffff22; border-radius: 12px; padding: 12px; }
   .indicators { font-size: .8rem; }
+  .correct { border-top: 1px solid #ffffff22; }
   .guided-seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .guided-seats section { min-width: 0; padding: 12px; background: #0003; border-radius: 10px; }
   .guided-seats .followed { outline: 1px solid #d8a12a77; }

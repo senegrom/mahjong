@@ -40,8 +40,9 @@ export function viewMelds(player) {
 }
 
 /** What a table event's fifth copy says the player can do: the tile entered
- * now is the one on the table, so one of the four before it was not. */
-const MISTAKEN = 'Undo back to the one entered by mistake.';
+ * now is the one on the table, so one of the four before it was not, and is
+ * put right in place (the `correct` event) or undone back to. */
+const MISTAKEN = 'Correct the one entered by mistake, or undo back to it.';
 
 /** Count only tiles actually seen, with claimed discards counted in their set.
  * A fifth copy is refused, in a sentence that ends with `remedy` where the
@@ -173,7 +174,7 @@ function forbiddenAfterCall(p, player) {
  * Unknown opponents' hands remain empty throughout; no wall is simulated. */
 export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement) {
   const state = structuredClone(game.state);
-  let p = state.position, label;
+  let p = state.position, label, remedy = MISTAKEN;
   const actor = () => WINDS[state.nextSeat];
   switch (event.type) {
     case 'setup':
@@ -305,6 +306,42 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       state.stage = 'over'; p.phase = 'over'; state.result = event.result; label = event.result;
       break;
     }
+    case 'correct': {
+      // One tile of the remembered table put right in place: a discard of
+      // any seat (`seat`, `index`) or a tile of the player's own hand, each
+      // named by the tile it was entered as (`from`). Undo keeps thirty steps
+      // and a discard takes three, so a mistake more than ten discards back
+      // was out of its reach. It is a step like any other: the copies are
+      // counted again, the engine reads the table again at a decision, and
+      // Undo takes it back. It changes that tile and nothing else, so what
+      // depends on more than the tile is left to Undo: the discard on offer,
+      // whose answer would change; a called discard, which is in its set;
+      // and a riichi hand, which the engine holds to its wait.
+      requireStage(state, 'turn', 'decision', 'responses', 'kan-response', 'indicator');
+      requireTile(event.tile);
+      if (event.from === event.tile) throw new Error('It is already that tile');
+      if (event.seat == null) {
+        const mine = p.players[p.seat], at = mine.hand.indexOf(event.from);
+        if (at < 0) throw new Error('That tile is not in your hand');
+        if (mine.riichi !== 'none') throw new Error('A hand in riichi is not corrected: undo back to the mistaken entry');
+        mine.hand[at] = event.tile;
+        // The tile just drawn, corrected, is still the draw.
+        if (p.drawn === event.from && !mine.hand.includes(event.from)) p.drawn = event.tile;
+        label = `Corrected your hand: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
+      } else {
+        const discards = p.players[event.seat]?.discards ?? [], entry = discards[event.index];
+        if (!entry || entry.tile !== event.from) throw new Error('That discard is no longer there');
+        if (entry.claimed) throw new Error('That discard is in a called set: undo back to the call');
+        if (p.phase === 'call' && p.pending_kind === 'discard' && event.seat === p.turn && event.index === discards.length - 1) {
+          throw new Error('Undo to enter the discard on offer again');
+        }
+        entry.tile = event.tile;
+        label = `Corrected ${WINDS[event.seat]}’s discard: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
+      }
+      // Nothing was entered, so a fifth copy here leaves nothing to undo.
+      remedy = '';
+      break;
+    }
     case 'settle':
       requireStage(state, 'over');
       label = applySettlement(state, event.input ?? {}, scoreSettlement);
@@ -333,7 +370,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
     }
     default: throw new Error('Unknown guided event');
   }
-  visibleCounts(p, MISTAKEN);
+  visibleCounts(p, remedy);
   if (state.stage === 'decision') validateDecision(p);
   return { state, past: [...game.past.slice(-29), { state: structuredClone(game.state), logLength: game.log.length }], log: [...game.log, label] };
 }
