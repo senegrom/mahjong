@@ -110,7 +110,14 @@ between hands.
   events since the previous decision and its table of what each move leaves,
   which start folded and are taken from the page by a step that has none, all
   stay as the player leaves them across steps, hands and the hands reviewed
-  meanwhile.
+  meanwhile. The other modes keep theirs the same way. The physical editor's
+  seat panels were open by whether the seat was the analysed one, so a panel
+  opened for another seat shut at the first key typed into it, and the number
+  went to the page; a tile palette was open by its `expanded` setting, so it
+  shut after every tile; and Agent watch's setup was open by whether a game
+  was on, so it shut at every move. Now a saved table opens on the analysed
+  seat's panel, a seat's panel opens as that seat becomes the analysed one,
+  and Watch's setup folds as a game starts; nothing else opens or folds them.
 - The review's list keeps the line of the decision on show in view by setting
   the scroll of its own box, the column it is on a wide screen or its box of
   hands where it is folded, never by `scrollIntoView`, which would move the

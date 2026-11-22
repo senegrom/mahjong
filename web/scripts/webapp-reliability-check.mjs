@@ -169,6 +169,40 @@ try {
     assert.equal(await page.evaluate(key => localStorage.getItem(key), SAVE_KEY), 'preserved regular match');
     assert.deepEqual(errors, []);
   });
+  for (const width of [1100, 390]) await check(`the physical editor's panels and palettes stay as the player leaves them at ${width}px`, async context => {
+    const initial = emptyPosition();
+    const { page, errors } = await open(context, { mode: 'physical', width, fixture: initial });
+    const seat = place => `.physical-seat:nth-child(${place})`;
+    const isOpen = selector => page.$eval(selector, details => details.open);
+    // East is the analysed seat, so its panel is open. Its palette is opened
+    // once and takes two tiles running: it used to shut after the first.
+    const hand = `${seat(1)} .seat-content > .tile-entry`;
+    await page.click(`${hand} summary`);
+    for (const tile of ['1m', '2m']) await page.click(`${hand} .palette button[data-tile="${tile}"]`);
+    const entered = structuredClone(initial); entered.players[0].hand = ['1m', '2m'];
+    await expectPosition(page, entered);
+    assert.equal(await isOpen(`${hand} details`), true, 'the palette stays open');
+    // South is not analysed. Its panel is opened by its summary and a whole
+    // score typed into it: it used to shut at the first key, and the rest of
+    // the number was typed at the page.
+    await page.click(`${seat(2)} > summary`);
+    await number(page, `${seat(2)} .fields input[type="number"]`, '25000');
+    const scored = structuredClone(entered); scored.players[1].score = 25000;
+    await expectPosition(page, scored);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2))], [true, true], 'both panels as the player left them');
+    // A panel the player folds stays folded through an edit elsewhere, and
+    // analysing another seat opens that seat's panel and folds none.
+    await page.click(`${seat(1)} > summary`);
+    await number(page, `${seat(2)} .fields input[type="number"]`, '26000');
+    const again = structuredClone(scored); again.players[1].score = 26000;
+    await expectPosition(page, again);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2))], [false, true], 'the analysed seat stays folded');
+    await page.select('[aria-label="Analyse seat"]', '2');
+    const west = structuredClone(again); west.seat = 2; west.turn = 2;
+    await expectPosition(page, west);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2)), await isOpen(seat(3))], [false, true, true]);
+    assert.deepEqual(errors, []);
+  });
 } finally {
   await browser?.close();
   await new Promise(done => server.close(done));

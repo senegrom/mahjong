@@ -39,6 +39,11 @@
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
   let fileNote = $state('');
+  // Whether the table's setup is open: until a game starts, then as the
+  // watcher leaves it. Set from the game instead (`open={!view}`), Svelte set
+  // it again at every move, so it shut under a watcher choosing the next
+  // game's agents while this one played on.
+  let setupOpen = $state(true);
   let configured = false;
   const positions = ['Followed agent', 'Right', 'Opposite', 'Left'];
   let recommendedTile = $derived(!busy && ['discard', 'riichi'].includes(analysis?.choice.kind) ? analysis.choice.tile : null);
@@ -87,6 +92,7 @@
   }
   function start() {
     configured = true;
+    setupOpen = false;
     fileNote = '';
     standingsFocused = false;
     watch?.dispose();
@@ -142,7 +148,7 @@
 
 <section class="agent-watch" aria-label="Agent watch">
   <div class="watch-heading"><h2>Agent watch</h2><span>Follow one seat through a full game.</span></div>
-  <details open={!view} class="watch-setup">
+  <details bind:open={setupOpen} class="watch-setup">
     <summary>Agents at the table{#if watch} · following {agentName(watch.lineup[0])}{/if}</summary>
     <div class="agent-fields">
       {#each positions as position, index (index)}

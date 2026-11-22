@@ -26,6 +26,13 @@
   let numericEdit = null;
   let eventSeat = $state(0);
   let eventKind = $state('draw');
+  // Which seats' panels are open, which is the player's to say. A saved table
+  // opens on the analysed seat's alone, and a seat's panel opens as it becomes
+  // the analysed one (below). Set from the table instead (`open={index ===
+  // position.seat}`), Svelte set them again at every edit, so a panel opened
+  // for another seat shut at the first key typed into it.
+  let seatOpen = $state([true, false, false, false]);
+  let openedSeat = 0;
   let request = null;
   let loaded = $state(false);
   let closed = false;
@@ -45,6 +52,8 @@
     const saved = await store.read();
     if (closed) return;
     position = saved; unreadable = store.unreadable; saveConflict = ''; history = []; recorded = null; loaded = true;
+    openedSeat = saved.seat;
+    seatOpen = saved.players.map((_, index) => index === saved.seat);
   }
   onMount(() => {
     store = createStore();
@@ -69,6 +78,12 @@
       analysis = null; failure = '';
     }
     if (loaded && !unreadable && !saveConflict) void store.save(snapshot());
+  });
+  // Another seat analysed, by the selector, a recorded draw or Undo, opens
+  // that seat's panel. No other change opens or folds one.
+  $effect(() => {
+    const seat = position.seat;
+    if (seat !== openedSeat) { openedSeat = seat; seatOpen[seat] = true; }
   });
   const snapshot = () => JSON.parse(JSON.stringify(position));
   function edit(change, group = null) {
@@ -206,7 +221,7 @@
   </details>
   <div class="physical-seats">
     {#each position.players as player, index (index)}
-      <details class="physical-seat" open={index === position.seat}>
+      <details class="physical-seat" bind:open={seatOpen[index]}>
         <summary><strong>{WINDS[index]}</strong> · {player.hand.length ? `${player.hand.length} concealed tiles` : 'Unknown hand'} · {player.score?.toLocaleString()}</summary>
         <div class="seat-content">
           <div class="fields"><label>Points<input type="number" min="-100000" max="200000" step="100" bind:value={() => player.score, value => editNumber(value, `score-${index}`, (p, n) => { p.players[index].score = n; })} onblur={endNumberEdit} /></label>

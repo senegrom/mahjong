@@ -1,8 +1,14 @@
 <script>
+  import { untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import { parseTiles } from './physical-position.js';
   import { TILE_TYPES, tileWords } from './tiles.js';
   let { label, tiles = [], onchange = null, onadd = null, limit = 14, expanded = false } = $props();
+  // The palette is the player's to open and fold: `expanded` only says how it
+  // starts. Set from the prop (`open={expanded}`), Svelte set it again whenever
+  // anything drawn beside it changed, the count in its summary among them, so
+  // it shut under the player after every tile.
+  let open = $state(untrack(() => expanded));
   let text = $state('');
   let error = $state('');
   function add(values) {
@@ -22,7 +28,7 @@
 <div class="tile-entry">
   <span class="entry-label">{label}</span>
   {#if tiles.length}<div class="entered">{#each tiles as tile, index (index)}<Tile {tile} size="small" title={`Remove ${tileWords(tile)}`} onclick={onchange ? () => onchange(tiles.filter((_, i) => i !== index)) : null} />{/each}</div>{/if}
-  <details open={expanded}>
+  <details bind:open>
     <summary>{onadd ? 'Choose a tile' : `Add tiles · ${tiles.length}/${limit}`}</summary>
     <div class="palette" role="group" aria-label={label}>
       {#each TILE_TYPES as tile (tile)}<Tile {tile} size="small" title={`Add ${tileWords(tile)} to ${label}`} onclick={() => add([tile])} disabled={!onadd && tiles.length >= limit} muted={false} />{/each}
