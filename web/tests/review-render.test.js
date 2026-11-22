@@ -358,3 +358,39 @@ test("with Trained AI's move hidden, the hand's notes edge every decision alike,
   assert.equal(agreedEdge({ agreed: true }, false), true, 'once they are shown');
   assert.equal(agreedEdge({ agreed: false }, false), false);
 });
+
+/** What the review derives under `name`, as it is written in its source. */
+function derivedSource(name) {
+  const init = find(parse(reviewSource, { modern: true }).instance.content, node => node.type === 'VariableDeclarator' && node.id.name === name)?.init;
+  assert.equal(init?.callee?.name, '$derived', `the review derives ${name}`);
+  return reviewSource.slice(init.arguments[0].start, init.arguments[0].end);
+}
+
+test("the line that says Trained AI is reviewing never changes as the review goes on: how far it has got is beside it, and its region is not marked busy", () => {
+  // A status line is read out whenever its words change, so the count, which
+  // changes at every decision, and the download's note, at every percent,
+  // are no part of it. The two are derived apart, read here from the
+  // component's own source, as Svelte runs them.
+  const said = state => {
+    const context = vm.createContext({ notes: Array.from({ length: 14 }, () => ({})), completed: 0, download: '', ...state });
+    context.progress = vm.runInContext(`(${derivedSource('progress')})`, context);
+    return [context.progress, vm.runInContext(`(${derivedSource('count')})`, context)];
+  };
+  const words = 'Trained AI is reviewing your decisions…';
+  assert.deepEqual(said({ linesKnown: true, reviewing: true }), [words, '0 of 14']);
+  assert.deepEqual(said({ linesKnown: true, reviewing: true, completed: 9 }), [words, '9 of 14'], 'the same words at every count');
+  assert.deepEqual(said({ linesKnown: true, reviewing: true, download: 'downloading the trained network 37%' }),
+    [words, '0 of 14 · downloading the trained network 37%'], 'and at every percent of a download');
+  // Neither before the line is known to a screen reader, nor once the review is over.
+  assert.deepEqual(said({ linesKnown: false, reviewing: true, completed: 3 }), ['', '']);
+  assert.deepEqual(said({ linesKnown: true, reviewing: false, completed: 14 }), ['', '']);
+  // As first drawn: the status line waits empty and out of sight, alone in
+  // its line; the count is no part of it; and nothing marks the region busy,
+  // which could keep a screen reader from saying the line at all.
+  const html = render(Review, { props: { notes: differing, trainedAvailable: true, engine: {} } }).body;
+  assert.match(html, /<div class="[^"]*\bvisually-hidden\b[^"]*"><p data-review-progress="" role="status"[^>]*><\/p>/);
+  assert.doesNotMatch(html, /data-review-count|aria-busy/);
+  const line = find(parse(reviewSource, { modern: true }).fragment, node => node.type === 'RegularElement'
+    && node.attributes.some(attribute => attribute.name === 'data-review-progress'));
+  assert.equal(reviewSource.slice(line.fragment.nodes[0].start, line.fragment.nodes.at(-1).end), '{progress}', 'the status line holds the words alone');
+});

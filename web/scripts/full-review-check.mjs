@@ -434,9 +434,11 @@ try{
   }
  });
  // Most players review with the default adviser, Trained AI, whose review is
- // still under way as the review opens, its region busy: the heading must
- // take focus and be named all the same.
- await check('View table / my hand, pressed by keyboard while Trained AI reviews, hands focus to the busy review',async()=>{
+ // still under way as the review opens: the heading must take focus and be
+ // named all the same, and the line that says Trained AI is reviewing says
+ // only that, in a region not marked busy, which a screen reader may keep
+ // quiet until it is done; how far the review has got is beside the line.
+ await check('View table / my hand, pressed by keyboard while Trained AI reviews, hands focus to the review under way',async()=>{
   for(const [width,height] of [[1100,900],[390,844],[320,568]]){
    const p=await open(wins[0],{width,height,reduced:true,adviser:null,trained:true}),where=`at ${width}x${height}`;
    try{
@@ -445,10 +447,10 @@ try{
     await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
     holding=true;
     const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
-    await p.waitForSelector('.review[aria-busy="true"]');
+    await p.waitForSelector('.review[data-reviewing]');
     assert.equal(await p.$eval('.review select',el=>el.value),'strong',`Trained AI reviews ${where}`);
     await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
-    assert.equal(await focusOn(p),'the review',`focus goes on to the busy review ${where}`);
+    assert.equal(await focusOn(p),'the review',`focus goes on to the review under way ${where}`);
     const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
     assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',3,true]);
     await p.waitForFunction(()=>[...document.querySelectorAll('.review [role="status"]')].some(el=>/^Trained AI is reviewing your decisions/.test(el.textContent.trim())),
@@ -456,7 +458,11 @@ try{
     await settle(p);
     assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
     assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
-    assert.equal(await p.$eval('.review',el=>el.getAttribute('aria-busy')),'true',`the review is still under way ${where}`);
+    assert.deepEqual(await p.$eval('.review',el=>[el.hasAttribute('data-reviewing'),el.getAttribute('aria-busy')]),[true,null],
+     `the review is still under way, and not marked busy ${where}`);
+    assert.deepEqual(await p.$eval('.review',el=>[el.querySelector('[data-review-progress]').textContent.trim(),
+     /^0 of \d+/.test(el.querySelector('[data-review-count]')?.textContent.trim()??''),Boolean(el.querySelector('[role="status"] [data-review-count]'))]),
+     ['Trained AI is reviewing your decisions…',true,false],`the status line says only that Trained AI is reviewing, the count beside it ${where}`);
     noErrors(p);
    }finally{release();}
   }

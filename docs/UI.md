@@ -215,7 +215,9 @@ however the button was pressed: the review is what the press brought, and on a
 phone the table and the hand that the sheet uncovered are just above it. A
 screen reader reads the heading out, in the region "your decisions this hand",
 so the player hears where they are, also while Trained AI is still reviewing
-the hand and the region is busy.
+the hand. The region is not marked busy meanwhile: a screen reader may keep
+what a busy region says until it is busy no longer, and the line that says
+the review is under way is in it.
 
 Where the result is not a sheet, at desktop width and held sideways on a phone
 wider than 760 pixels, it covered nothing, and the review opens below it, often
@@ -312,12 +314,16 @@ standings and the settings' **Export game** say their own failures the same
 way, beside their own buttons (below); the notice line now says only what the
 trained network picker could not do.
 
-The review's own status lines, that Trained AI is reviewing the hand and how
-far it has got, and that Club reviews in its place while the network cannot be
-reached, come into the page with the review. They wait in it, empty and out of
-sight, until the review has been drawn and a tenth of a second more, before
-their words arrive, so that a screen reader can hear them after the heading it
-reads out as focus arrives.
+The review's own status lines, that Trained AI is reviewing the hand, and that
+Club reviews in its place while the network cannot be reached, come into the
+page with the review. They wait in it, empty and out of sight, until the review
+has been drawn and a tenth of a second more, before their words arrive, so that
+a screen reader can hear them after the heading it reads out as focus arrives.
+The first says only "Trained AI is reviewing your decisions…", once. How far
+the review has got, and the download it may be waiting for ("3 of 14", "0 of 14
+· downloading the trained network 37%"), is drawn beside it, on the same line,
+and is no part of the status line: it changes at every decision and at every
+percent, and a status line is read out whenever its words change.
 
 With Trained AI as the adviser, each decision gives Trained AI's weight for its
 own choice and, where the player chose otherwise, for the player's move; a

@@ -230,7 +230,11 @@ try {
     await page.waitForSelector('.screen .quiet'); await page.click('.screen .quiet');
     await page.waitForSelector('select[aria-label="Review adviser"]');
     await downloading(page, '.review');
-    assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions… 0 of \d+ · downloading the trained network/);
+    // The status line says only that Trained AI is reviewing; the count and
+    // the download's note, which change too often to be read out, are beside it.
+    assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions…\s*0 of \d+ · downloading the trained network/);
+    assert.equal(await page.$eval('.review [data-review-progress]', el => el.textContent.trim()), 'Trained AI is reviewing your decisions…');
+    assert.match(await page.$eval('.review [data-review-count]', el => el.textContent.trim()), /^0 of \d+ · downloading the trained network/);
     release();
     await page.waitForSelector('.review [role="alert"] [data-review-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0, 'the trained review asked for the network');

@@ -53,11 +53,14 @@
     const frame = requestAnimationFrame(() => { timer = setTimeout(() => { linesKnown = true; }, 100); });
     return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
   });
-  // Why Club reviews in Trained AI's place, while it does, and how far
-  // Trained AI has got, while it reviews.
+  // Why Club reviews in Trained AI's place, while it does, and that Trained
+  // AI is reviewing, while it does. How far it has got is drawn beside that
+  // line, not in it: the count changes at every decision, and the download's
+  // note at every percent, too often to be read out, and a status line is
+  // read out whenever its words change.
   let fallback = $derived(linesKnown && adviser === 'strong' && reviewer === 'club' && notes.length ? reviewFallbackNote(engine) : '');
-  let progress = $derived(linesKnown && reviewing
-    ? `Trained AI is reviewing your decisions… ${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
+  let progress = $derived(linesKnown && reviewing ? 'Trained AI is reviewing your decisions…' : '');
+  let count = $derived(progress ? `${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
@@ -124,7 +127,11 @@
   }
 </script>
 
-<section class="review" class:hiding aria-label="your decisions this hand" aria-busy={reviewing}>
+<!-- Not marked busy while Trained AI reviews: a screen reader may keep what a
+     busy region says until it is busy no longer, and the line that says the
+     review is under way is in it, empty again by then. `data-reviewing` is
+     for the checks, which wait for the review by it. -->
+<section class="review" class:hiding aria-label="your decisions this hand" data-reviewing={reviewing ? '' : undefined}>
   <header>
     <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
     <label class="adviser">Review adviser
@@ -144,10 +151,16 @@
     {/if}
   </header>
 
-  <p class:visually-hidden={!progress} data-review-progress role="status">{progress}</p>
+  <!-- The status line says only that Trained AI is reviewing, once; how far
+       it has got is beside it, on the same line, where it is read when it is
+       looked for and never read out as it changes. -->
+  <div class="progress" class:visually-hidden={!progress}>
+    <p data-review-progress role="status">{progress}</p>
+    {#if count}<p data-review-count>{count}</p>{/if}
+  </div>
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if reviewing}<!-- The status line above says how far it has got. -->
+  {:else if reviewing}<!-- The line above says that it is, and how far it has got. -->
   {:else if failure}
     <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
       <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
@@ -299,6 +312,12 @@
   option { background: #17241f; color: var(--ivory); }
   .retry { cursor: pointer; }
   .policy-help { font-size: .8rem; opacity: .75; margin: 8px 0 0; }
+  /* That Trained AI is reviewing, and how far it has got, read as one line,
+     a word's space apart, with a paragraph's room above and below; the count
+     takes a line of its own where the two do not fit. */
+  .progress { display: flex; flex-wrap: wrap; gap: 0 .3em; }
+  .progress:not(.visually-hidden) { margin: 1em 0; }
+  .progress p { margin: 0; }
   .call-context { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .8rem; }
 
   .summary,

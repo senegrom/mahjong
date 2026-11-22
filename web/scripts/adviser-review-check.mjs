@@ -55,7 +55,7 @@ async function openReview(page) {
 }
 
 async function strongResults(page) {
-  await page.waitForFunction(() => document.querySelector('.review[aria-busy="false"] .policy-preference'), { timeout: 90000 });
+  await page.waitForFunction(() => document.querySelector('.review:not([data-reviewing]) .policy-preference'), { timeout: 90000 });
   await page.evaluate(() => [...document.querySelectorAll('.review .tabs button')]
     .find(button => button.textContent.includes('Every decision'))?.click());
   await page.waitForFunction(count => document.querySelectorAll('.review li').length === count, {}, notes.length);
