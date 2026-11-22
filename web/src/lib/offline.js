@@ -119,26 +119,75 @@ function activated(registration) {
   if (registration.active) return Promise.resolve();
   const installing = registration.installing ?? registration.waiting;
   if (!installing) return Promise.reject(new Error('Offline installation did not start.'));
+  const ended = installEnd(installing);
   return new Promise((resolve, reject) => {
     // The install goes on after the page stops waiting for it, and the page
-    // goes on listening. One that fails later is said and tried again, where
-    // the page used to go on asking the player to stay connected; one that
-    // finishes later takes control of the page (refreshWhenControlled).
+    // goes on listening (installEnd). One that fails later is said and tried
+    // again, where the page used to go on asking the player to stay
+    // connected; one that finishes later takes control of the page
+    // (refreshWhenControlled).
     let waiting = true;
     const timer = setTimeout(() => {
       waiting = false;
       reject(new Error('Still saving for offline play. Stay connected until this status says ready.'));
     }, 120000);
-    const changed = () => {
-      if (!['activated', 'redundant'].includes(installing.state)) return;
-      clearTimeout(timer); installing.removeEventListener('statechange', changed);
-      if (installing.state === 'activated') { resolve(); return; }
-      const failed = new Error('Game download incomplete. It will be tried again; stay connected.');
+    ended.then(() => { clearTimeout(timer); resolve(); }, failed => {
+      clearTimeout(timer);
       if (waiting) reject(failed); else update({ coreWarning: failed.message });
-      retryInstall();
-    };
-    installing.addEventListener('statechange', changed); changed();
+    });
   });
+}
+// Why a first install failed, as its worker said before it went
+// (MAHJONG_INSTALL_FAILED in the service worker), and whether one has failed
+// with nothing said yet: the word and the worker's end reach the page in
+// either order.
+let installSaid = null, installUnexplained = false, hearing = false;
+function hearInstalls() {
+  if (hearing) return;
+  hearing = true;
+  navigator.serviceWorker.addEventListener('message', ({ data, source }) => {
+    if (data?.type !== 'MAHJONG_INSTALL_FAILED' || source?.scriptURL !== script) return;
+    installSaid = { storage: Boolean(data.storage), error: String(data.error ?? '') };
+    if (installUnexplained) update({ coreWarning: installFailure() });
+  });
+}
+/** How an installing worker ends: activated, or failed with what the game's
+ * line then says (installFailure). One listener a worker, however many
+ * starts wait on it, so that its failure is judged once. */
+const installs = new WeakMap();
+function installEnd(installing) {
+  if (!installs.has(installing)) {
+    // What a worker before this one said of its failure is over with it.
+    installSaid = null;
+    installUnexplained = false;
+    const ended = new Promise((resolve, reject) => {
+      const changed = () => {
+        if (!['activated', 'redundant'].includes(installing.state)) return;
+        installing.removeEventListener('statechange', changed);
+        if (installing.state === 'activated') resolve(); else reject(new Error(installFailure()));
+      };
+      installing.addEventListener('statechange', changed); changed();
+    });
+    ended.catch(() => {});
+    installs.set(installing, ended);
+  }
+  return installs.get(installing);
+}
+/** What the game's line says of a first install that failed, which is tried
+ * again by itself (retryInstall) unless storage refused it: with no room, or
+ * storage that refuses, another attempt helps as little as a reconnect, and
+ * the line says what storage said instead. */
+function installFailure() {
+  const said = installSaid;
+  installSaid = null;
+  installUnexplained = !said;
+  if (said?.storage) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    return said.error;
+  }
+  retryInstall();
+  return 'Game download incomplete. It will be tried again; stay connected.';
 }
 /** A first install that failed is tried again by itself while the page stays
  * open: after five seconds, then twice as long each time, up to five minutes.
@@ -233,7 +282,10 @@ async function prepareCore(info) {
       update({ ...ready, coreWarning: '' });
       return ready;
     } catch (error) {
-      update({ coreReady: false, coreWarning: `Game and tile download incomplete: ${error.message} It will retry automatically when you reconnect or reopen the app.` });
+      // Storage that refuses says so itself, by what it refused: a reconnect
+      // would not help it.
+      update({ coreReady: false, coreWarning: error.name === 'NetworkStorageError' ? error.message
+        : `Game and tile download incomplete: ${error.message} It will retry automatically when you reconnect or reopen the app.` });
       return null;
     }
   })().finally(() => { coreJob = null; });
@@ -262,6 +314,7 @@ export function startOffline() {
     try {
       // Existing registration is local. Never make a successful online check
       // a prerequisite for launching an already downloaded app on a plane.
+      hearInstalls();
       registration = await navigator.serviceWorker.getRegistration(base.href);
       if (registration?.scope !== base.href || registration?.active?.scriptURL !== script) registration = null;
       if (!registration) registration = await navigator.serviceWorker.register(script, { scope: base.href, updateViaCache: 'none' });
@@ -433,7 +486,7 @@ async function saveTrained(handOver, live) {
       refused ??= error;
     }
     if (refused) {
-      trainedSays('incomplete', `${refused.message} Online play is still available; reconnect before playing offline.`, { aiReady: false });
+      trainedSays('incomplete', `${refused.message} Online play is still available.`, { aiReady: false });
       return handed ? { aiReady: false, ...handed } : null;
     }
     // No worker here to keep a runtime: the start says why, and play goes on

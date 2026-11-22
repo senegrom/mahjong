@@ -26,10 +26,17 @@ async function cached(cache, entry) {
 const IDLE_MS = 60000;
 const failure = url => (kind, detail) => kind === 'status' ? `Download failed: ${url} (HTTP ${detail})`
   : kind === 'timeout' ? `Download stalled: ${url}` : `Incomplete or outdated download: ${url}`;
+// What storage refused, when it refuses one of the worker's own files: said
+// by what the player loses, not by the file.
+const SAVED_AS = { core: 'The game', ai: 'The AI runtime' };
+const refused = (entry, cause) => networkTransfer.storageError(cause, undefined, SAVED_AS[entry.group] ?? entry.url);
+/** Whether a failure is storage's own: no room, or storage that refuses. */
+const storageRefused = error => error.name === 'NetworkStorageError'
+  || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(error.name);
 async function ensure(entry, durable = true) {
   let cache, hit;
   try { cache = await caches.open(CACHE); hit = await cached(cache, entry); }
-  catch (error) { if (durable) throw networkTransfer.storageError(error); }
+  catch (error) { if (durable) throw refused(entry, error); }
   if (hit) return hit;
   if (!downloads.has(entry.hash)) {
     const task = (async () => {
@@ -40,7 +47,7 @@ async function ensure(entry, durable = true) {
       const saved = new Response(bytes, { headers: { 'Content-Type': type, 'Content-Length': String(entry.bytes),
         'X-Mahjong-SHA256': entry.hash, 'X-Content-Type-Options': 'nosniff' } });
       try {
-        if (!cache) throw networkTransfer.storageError();
+        if (!cache) throw new Error('storage unavailable');
         await cache.put(keyFor(entry), saved.clone());
         return { response: saved, stored: true };
       } catch (error) { return { response: saved, stored: false, error }; }
@@ -48,7 +55,7 @@ async function ensure(entry, durable = true) {
     downloads.set(entry.hash, task);
   }
   const answer = await downloads.get(entry.hash);
-  if (durable && !answer.stored) throw networkTransfer.storageError(answer.error);
+  if (durable && !answer.stored) throw refused(entry, answer.error);
   return answer.response.clone();
 }
 const networkUrl = network => `${network.origin}/${network.object}`;
@@ -142,14 +149,31 @@ async function pruneObsoleteContent() {
     if (url.pathname.startsWith(prefix) && !keep.has(request.url)) await cache.delete(request);
   }
 }
+/** Tells this installation's pages, controlled or not: a worker whose
+ * install fails is gone before a page could ask it why. Other projects'
+ * pages on the same origin are not told. */
+async function tellPages(message) {
+  try {
+    for (const client of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) {
+      if (client.url.startsWith(scope.href)) client.postMessage(message);
+    }
+  } catch { /* Nobody to tell. */ }
+}
 self.addEventListener('install', event => {
   // The game only: an install still running when the browser's event deadline
   // passes is discarded, so the trained network is never part of one. A page
-  // of this version saves it after activation when Trained is wanted (or the
+  // saves it by itself, beside this install, when Trained is wanted (or the
   // previous version's page saves it while this one waits). Failed updates
   // leave the active worker and every verified asset intact. Normal
   // waiting-worker lifecycle: no forced upgrade during a live match.
-  event.waitUntil(prepare('core'));
+  //
+  // An install that fails says why before it goes (offline.js): a device
+  // with no room is not helped by being told to reconnect, and is not tried
+  // again every few minutes.
+  event.waitUntil(prepare('core').catch(async error => {
+    await tellPages({ type: 'MAHJONG_INSTALL_FAILED', error: error.message, storage: storageRefused(error) });
+    throw error;
+  }));
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
@@ -181,13 +205,12 @@ self.addEventListener('message', event => {
       try {
         const cache = await caches.open(CACHE);
         await cache.put(requestedKey(), new Response('requested'));
-      } catch (error) { throw networkTransfer.storageError(error); }
+      } catch (error) { throw networkTransfer.storageError(error, undefined, 'Trained AI'); }
     }
     return prepare(groupOf[event.data.type], progress, version);
   })();
   event.waitUntil(work.then(value => port.postMessage({ value }))
-    .catch(error => port.postMessage({ error: error.message, storage: error.name === 'NetworkStorageError'
-      || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(error.name) })));
+    .catch(error => port.postMessage({ error: error.message, storage: storageRefused(error) })));
 });
 self.addEventListener('fetch', event => {
   const request = event.request, url = new URL(request.url);

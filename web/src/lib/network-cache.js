@@ -13,9 +13,12 @@ export function validateNetwork(expect) {
 }
 
 /** bytes, when given, are verified bytes storage refused: usable online by
- * whoever catches this, and never a claim that anything was stored. */
-export function storageError(cause, bytes) {
-  const error = new Error(`The network is not saved offline: ${cause?.message ?? cause ?? 'storage unavailable'}`);
+ * whoever catches this, and never a claim that anything was stored. `what`
+ * names what was refused, the network unless the service worker says
+ * otherwise of a file of its own: a full device refuses the game's files
+ * before it ever comes to the network. */
+export function storageError(cause, bytes, what = 'The network') {
+  const error = new Error(`${what} is not saved offline: ${cause?.message ?? cause ?? 'storage unavailable'}`);
   error.name = 'NetworkStorageError';
   if (bytes) error.bytes = bytes;
   return error;

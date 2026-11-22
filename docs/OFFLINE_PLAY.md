@@ -57,7 +57,13 @@ again by itself when the finished worker takes control of the page. A first
 install that fails, within that wait or after it, is said in the same line and
 tried again by itself while the page stays open and connected: after five
 seconds, then twice as long each time, up to five minutes, each attempt
-keeping the files it finished. Offline, a reconnect starts it instead. The
+keeping the files it finished. Offline, a reconnect starts it instead. An
+install or a repair that storage refused, for want of room or otherwise, is
+not told as a lost connection: the line says what was refused and what the
+browser said of it ("The game is not saved offline: …"), as the install's
+worker told the page before it went, and such an install is not tried again
+by itself. The same holds for the trained AI, whose line names the runtime
+or the network and says that online play is still available. The
 optional download/retry button requests only the trained AI package, not an
 already complete game or its graphics.
 

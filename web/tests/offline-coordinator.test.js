@@ -25,7 +25,7 @@ function fakeWorker({ calls, asked, network, stored, info, faults, label = '' })
       asked.push([label + type, version]);
       queueMicrotask(() => {
         const reply = () => ({ ...info, aiReady: info.runtime && stored.has(network.url), network });
-        if (type === 'MAHJONG_PREPARE_CORE' && faults.core) port.postMessage({ error: 'Connection lost' });
+        if (type === 'MAHJONG_PREPARE_CORE' && faults.core) port.postMessage(faults.core === true ? { error: 'Connection lost' } : faults.core);
         else if (type === 'MAHJONG_PREPARE_AI' && faults.ai) port.postMessage({ error: 'AI interrupted', storage: faults.storage });
         else {
           if (type === 'MAHJONG_PREPARE_CORE') info.coreReady = true;
@@ -101,12 +101,25 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   // before a failed install is tried again is never left to the clock: the
   // test ends it (retries), and reads how long it would have been.
   const retries = [];
-  const wait = (fn, ms) => ([120000, 15000, 180000].includes(ms)
-    ? setTimeout(fn, impatient && ms !== 180000 ? 20 : ms) : retries.push({ fn, ms }));
+  let waits = 0;
+  const wait = (fn, ms) => {
+    if ([120000, 15000, 180000].includes(ms)) return setTimeout(fn, impatient && ms !== 180000 ? 20 : ms);
+    retries.push({ id: `retry ${++waits}`, fn, ms });
+    return retries.at(-1).id;
+  };
+  const clear = id => {
+    const at = retries.findIndex(retry => retry.id === id);
+    if (at >= 0) retries.splice(at, 1); else clearTimeout(id);
+  };
+  /** The installing worker tells its pages why its install failed, before it goes. */
+  function installFailed(error, storage, scriptURL = active.scriptURL) {
+    serviceWorker.dispatchEvent(Object.assign(new Event('message'),
+      { data: { type: 'MAHJONG_INSTALL_FAILED', error, storage }, source: { scriptURL } }));
+  }
   // offline.js's imports, network-store.js and the page's choice of network
   // in trained-network.js, are stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
-    URL, MessageChannel, setTimeout: wait, clearTimeout, caches: {}, isSecureContext: true, WeakSet,
+    URL, MessageChannel, setTimeout: wait, clearTimeout: clear, caches: {}, isSecureContext: true, WeakSet,
     networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick,
     // The page's own record of a saved network: a header check, never a read.
     networkIsStored: async (url = network.url) => stored.has(url),
@@ -121,7 +134,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
     } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'prepareNetwork', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
   return { api, calls, asked, info, faults, stored, saves, navigator, retries, state: () => latest,
-    registrations: () => registrations, finishInstall, finishUpdate, claim };
+    registrations: () => registrations, finishInstall, finishUpdate, installFailed, claim };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
 /** Settles until `met()` holds, for work that takes several messages. */
@@ -228,6 +241,7 @@ test('a first install that fails after the page stopped waiting is said, and tri
   // A file stalled, or the browser's few minutes ran out. Nothing else looks
   // again: no reconnect, no return to the app, no Trained request.
   c.finishInstall('redundant');
+  await settle();
   assert.match(panel(c.state()), /Game download incomplete\. It will be tried again; stay connected\./);
   assert.doesNotMatch(panel(c.state()), /Still saving/);
   assert.deepEqual(c.retries.map(retry => retry.ms), [5000]);
@@ -263,6 +277,70 @@ test('each failed install waits twice as long as the last before the next, up to
     }
   }
   assert.deepEqual(waited, [5000, 10000, 20000, 40000, 80000, 160000, 300000, 300000]);
+});
+
+test('a first install that storage refused says so, and is neither tried again nor told to reconnect', async () => {
+  const why = 'The game is not saved offline: Quota exceeded.';
+  // The worker's word and its end reach the page in either order.
+  for (const order of ['said first', 'gone first']) {
+    const c = coordinator({ registered: false, coreReady: true, installs: true });
+    const started = c.api.startOffline();
+    await until(() => c.state().installing, 'the install runs');
+    if (order === 'said first') c.installFailed(why, true);
+    c.finishInstall('redundant');
+    assert.equal(await started, null);
+    if (order === 'gone first') {
+      assert.match(c.state().coreWarning, /It will be tried again/);
+      assert.equal(c.retries.length, 1);
+      c.installFailed(why, true);
+    }
+    assert.equal(c.state().coreWarning, why, order);
+    assert.match(panel(c.state()), /The game is not saved offline: Quota exceeded\./);
+    assert.deepEqual(c.retries, [], `${order}: another attempt would be refused the same`);
+  }
+  // A failure that is not storage's, or word from another project's worker, changes nothing: it is tried again.
+  for (const [error, storage, from] of [['Download stalled: tiles/Chun.svg', false], [why, true, 'https://test.invalid/plateloader/sw.js']]) {
+    const c = coordinator({ registered: false, coreReady: true, installs: true });
+    const started = c.api.startOffline();
+    await until(() => c.state().installing, 'the install runs');
+    c.installFailed(error, storage, from);
+    c.finishInstall('redundant');
+    assert.equal(await started, null);
+    assert.equal(c.state().coreWarning, 'Game download incomplete. It will be tried again; stay connected.');
+    assert.deepEqual(c.retries.map(retry => retry.ms), [5000]);
+  }
+});
+
+test('a repair that storage refuses says what was refused, without asking for a reconnect', async () => {
+  const c = coordinator({ coreReady: true });
+  await c.api.startOffline();
+  c.info.coreReady = false;
+  c.faults.core = { error: 'The game is not saved offline: Quota exceeded.', storage: true };
+  await c.api.refreshOffline();
+  assert.equal(c.state().coreWarning, 'The game is not saved offline: Quota exceeded.');
+  assert.equal(c.state().coreReady, false);
+  // A lost connection is still told as one.
+  c.faults.core = true;
+  await c.api.refreshOffline();
+  assert.match(c.state().coreWarning, /Game and tile download incomplete: Connection lost.*when you reconnect or reopen the app/);
+});
+
+test('storage that refuses the trained AI leaves online play, and nobody is told to reconnect', async () => {
+  // The runtime, by the worker; the network, by the page; no room for the network at all.
+  for (const [options, arrange, said] of [
+    [{ failAi: true, storageFailure: true }, () => {}, /^AI interrupted Online play is still available\.$/],
+    [{ held: false }, c => { c.faults.network = Object.assign(new Error('The network is not saved offline: Quota exceeded.'), { name: 'NetworkStorageError' }); },
+      /^The network is not saved offline: Quota exceeded\. Online play is still available\.$/],
+    [{ held: false }, c => { c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 }); },
+      /^The network is not saved offline: this device has too little free storage for it\. Online play is still available\.$/],
+  ]) {
+    const c = coordinator({ coreReady: true, ...options });
+    arrange(c);
+    await c.api.startOffline();
+    assert.equal(await c.api.prepareOfflineAi(), null);
+    assert.equal(c.state().phase, 'incomplete');
+    assert.match(c.state().warning, said);
+  }
 });
 
 test('an update already installing when the page begins to watch is reported, and saved ahead, once it has installed', async () => {
