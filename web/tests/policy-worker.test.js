@@ -12,7 +12,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null, policy = null } = {}) {
+function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null, policy = null, waits = false } = {}) {
   const loads = [], releases = [], runs = [], tensors = [], messages = [], scopes = [];
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
@@ -49,8 +49,9 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
   const self = { postMessage: message => messages.push(message) };
   loadModule('policy.worker.js', { ort, policyWeights, self, URL, MEMORY_LIMITS_MIB, isMemoryError,
     // The network arrives as bytes from its bucket; the address stands in for
-    // them here, so what loaded is still recognisable.
-    networkBytes: async ({ url, scope }) => { scopes.push(scope); return url; },
+    // them here, so what loaded is still recognisable. With `waits`, another
+    // window is at the same network first, and the transfer says that it waits.
+    networkBytes: async ({ url, scope, onWaiting }) => { scopes.push(scope); if (waits) onWaiting(); return url; },
     loadMemoryControls: async url => {
       assert.equal(url, 'https://test.invalid/ort/0123abcd/memory-budget.mjs');
       return { memoryBudget };
@@ -196,4 +197,12 @@ test('a review batch is one forward pass, each position answered with its own be
   assert.deepEqual(analyses, [policyWeights(logits.slice(0, 2), [1, 1]), policyWeights(logits.slice(2, 4), [1, 0]),
     policyWeights(logits.slice(4), [1, 1])]);
   assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');
+});
+
+test('a worker that waits for another window\'s download says so, which is its sign of life meanwhile', async () => {
+  const h = harness({ waits: true });
+  await h.send(1);
+  const notes = h.messages.filter(message => message.progress).map(message => message.progress);
+  assert.deepEqual(notes, ['loading the network', 'waiting for another window to download the network', 'starting the network', 'network ready']);
+  assert.equal(h.messages.find(message => message.analysis)?.id, 1);
 });

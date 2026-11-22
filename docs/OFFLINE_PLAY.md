@@ -113,6 +113,14 @@ saved. A network that cannot be fetched fails the Trained opponent at once; a
 runtime that cannot be saved is said in the panel once the network has been,
 and the opponent plays on with the runtime the site serves.
 
+One window or worker at a time fetches a network. A second tab, or the
+installed app beside a tab, that asks for the same network meanwhile waits its
+turn under a Web Lock and then finds it saved, where each used to fetch all of
+it beside the other; an opponent's worker that waits says so on the table.
+After three minutes it goes ahead regardless, since the window it waits for
+may have been suspended by the browser. Without Web Locks each fetches for
+itself, as before.
+
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
 bytes, not the server. Offline, Trained is offered only when the service worker

@@ -60,9 +60,12 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   // The bytes rather than the address: the network comes from a bucket on
   // another origin and is kept in Cache Storage, which the runtime knows
   // nothing about. What it is handed has already been hashed, against the
-  // listed network at that address.
+  // listed network at that address. Another window that is at the same
+  // network goes first (network-transfer.js): the wait is said, which is
+  // also the sign of life the page times this worker's silence by.
   const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
-    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`) });
+    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
+    onWaiting: () => note('waiting for another window to download the network') });
   handed = null;
   note('starting the network');
   const session = await ort.InferenceSession.create(bytes, {

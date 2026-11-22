@@ -3,12 +3,42 @@
  * offline startup never imports a network dependency. Only pages and their
  * workers download the network: a service-worker event is abandoned after a
  * few minutes, which a slow link needs for 100 MB. */
-import { digestOf, networkCache, storageError, validateNetwork, verifiedDownload } from './network-cache.js';
+import { digestOf, networkCache, networkCacheName, storageError, validateNetwork, verifiedDownload } from './network-cache.js';
 
 export { NETWORK_CACHE, hasStoredNetwork, networkCacheName, pruneNetworkCache, validateNetwork } from './network-cache.js';
 // A page has no event deadline, so a slow but progressing transfer may take
 // hours; a stalled one still ends after a minute without bytes.
 const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
+/** How long one waits its turn at a network before going ahead regardless
+ * (alone), and how often it says meanwhile that it waits. */
+export const TURN_MS = 3 * 60 * 1000, WAITING_MS = 30000;
+
+/** Runs `task` while no other window or worker of this site is at the same
+ * network: under a Web Lock named `name`, held across check, download and
+ * store. A second tab, or the opponent's worker beside a page that is saving
+ * the network, then waits its turn and finds the network stored, where each
+ * used to fetch all of it beside the other. While it waits it tells
+ * `onWaiting` every WAITING_MS, for whoever watches it for a sign of life.
+ * After TURN_MS it goes ahead without the lock: its holder may be a window
+ * the browser has suspended, which would keep it waiting for ever. Where the
+ * browser has no Web Locks, or refuses this one, the task runs as it always
+ * did. */
+async function alone(name, task, onWaiting) {
+  const locks = globalThis.navigator?.locks;
+  if (typeof locks?.request !== 'function') return task();
+  let began = false;
+  const wait = new AbortController();
+  const limit = setTimeout(() => wait.abort(), TURN_MS);
+  const told = onWaiting ? setInterval(onWaiting, WAITING_MS) : undefined;
+  const stop = () => { clearTimeout(limit); clearInterval(told); };
+  const run = () => { began = true; stop(); return task(); };
+  try { return await locks.request(name, { signal: wait.signal }, run); } catch (error) {
+    // The task's own failure is its caller's. A lock refused, or not had in
+    // time, is no reason not to run it.
+    if (began) throw error;
+    return run();
+  } finally { stop(); }
+}
 
 /** The stored network's bytes where they are the ones expected, or null.
  * Only an entry read whole and found to be other bytes is deleted. One that
@@ -60,24 +90,28 @@ export async function storedNetworkBytes({ url, expect, scope } = {}) {
 
 /** Verified bytes are usable online even when storage fails. Durable callers
  * explicitly require a successful cache write; they must never claim readiness
- * from a transient in-memory download. Errors never publish unverified bytes. */
-export async function verifiedNetworkBytes({ url, expect, onProgress,
+ * from a transient in-memory download. Errors never publish unverified bytes.
+ * One window or worker at a time is at a network (alone): another that asks
+ * meanwhile waits, telling `onWaiting`, and then reads what the first stored. */
+export async function verifiedNetworkBytes({ url, expect, onProgress, onWaiting,
   requireStored = false, timeouts, scope } = {}) {
   validateNetwork(expect);
   const cache = await networkCache(scope);
-  const held = await verifiedCached(cache, url, expect);
-  if (held) return held;
-  const bytes = await downloadNetwork(url, expect, onProgress, timeouts);
-  try {
-    if (!cache) throw storageError();
-    // A Response copies the bytes it is given, so the caller keeps its own.
-    // These headers are the record hasStoredNetwork reads.
-    await cache.put(url, new Response(bytes, {
-      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length),
-        'X-Mahjong-SHA256': expect.sha256 },
-    }));
-  } catch (error) {
-    if (requireStored) throw storageError(error, bytes);
-  }
-  return bytes;
+  return alone(`${networkCacheName(scope)}:${url}`, async () => {
+    const held = await verifiedCached(cache, url, expect);
+    if (held) return held;
+    const bytes = await downloadNetwork(url, expect, onProgress, timeouts);
+    try {
+      if (!cache) throw storageError();
+      // A Response copies the bytes it is given, so the caller keeps its own.
+      // These headers are the record hasStoredNetwork reads.
+      await cache.put(url, new Response(bytes, {
+        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length),
+          'X-Mahjong-SHA256': expect.sha256 },
+      }));
+    } catch (error) {
+      if (requireStored) throw storageError(error, bytes);
+    }
+    return bytes;
+  }, onWaiting);
 }

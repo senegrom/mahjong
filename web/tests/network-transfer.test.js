@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
 import v8 from 'node:v8';
 import vm from 'node:vm';
-import { hasStoredNetwork, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { TURN_MS, WAITING_MS, hasStoredNetwork, networkCacheName, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
 import { verifiedDownload } from '../src/lib/network-cache.js';
 
 /** Runs the garbage collector now, so that a test can ask what is still
@@ -246,4 +246,90 @@ test('a deadline ends a wait that the transport never does, at once and on every
     read: () => (sent ? new Promise(() => {}) : (sent = true, Promise.resolve({ done: false, value: good.slice(0, 1) }))) };
   t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, headers: new Headers(), body: { getReader: () => reader } }));
   await assert.rejects(verifiedDownload('https://cdn.invalid/models/g1/stalled', expect, { idleMs: 15, totalMs: 1000, describe: kind => kind }), /timeout/);
+});
+
+/** A browser's Web Locks, as verifiedNetworkBytes asks them: one holder a
+ * name at a time, the others in the order they asked, and a wait that its
+ * signal ends. Installed on this process's navigator for one test. */
+function webLocks(t, { refuses = false } = {}) {
+  const tails = new Map(), asked = [];
+  const locks = { asked, request(name, options, task = options) {
+    asked.push(name);
+    if (refuses) return Promise.reject(new DOMException('Locks are not allowed here', 'SecurityError'));
+    const before = tails.get(name) ?? Promise.resolve();
+    const granted = new Promise((resolve, reject) => {
+      before.then(resolve);
+      options.signal?.addEventListener('abort', () => reject(new DOMException('The wait was ended', 'AbortError')));
+    });
+    const held = granted.then(() => task({ name }));
+    tails.set(name, Promise.allSettled([before, held]));
+    return held;
+  } };
+  Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value: locks });
+  t.after(() => { delete globalThis.navigator.locks; });
+  return locks;
+}
+/** No Web Locks at all, as in a browser without them. */
+function noWebLocks(t) {
+  Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value: undefined });
+  t.after(() => { delete globalThis.navigator.locks; });
+}
+// A transfer that takes a turn of the loop, as any real one takes far longer.
+const slowly = async () => { await setImmediate(); return new Response(good); };
+
+test('two that ask for one network at once fetch it once: the second waits its turn and reads what the first stored', async t => {
+  const locks = webLocks(t), f = fixture(t, { network: slowly });
+  const [first, second] = await Promise.all([verifiedNetworkBytes({ url, expect }), verifiedNetworkBytes({ url, expect, requireStored: true })]);
+  assert.deepEqual([first, second], [good, good]);
+  assert.equal(f.fetches(), 1);
+  // One lock for the network, by the cache it is stored in and its address.
+  assert.deepEqual(locks.asked, Array(2).fill(`${networkCacheName()}:${url}`));
+  // Another network is not kept waiting behind it.
+  const other = 'https://cdn.invalid/models/g2/' + expect.sha256;
+  await Promise.all([verifiedNetworkBytes({ url: other, expect }), verifiedNetworkBytes({ url, expect })]);
+  assert.equal(new Set(locks.asked).size, 2);
+});
+
+test('without Web Locks, or with a lock the browser refuses, a network is fetched as it always was', async t => {
+  await t.test('no Web Locks', async t => {
+    noWebLocks(t);
+    const f = fixture(t, { network: slowly });
+    assert.deepEqual(await Promise.all([verifiedNetworkBytes({ url, expect }), verifiedNetworkBytes({ url, expect })]), [good, good]);
+    assert.equal(f.fetches(), 2, 'each for itself, as before');
+  });
+  await t.test('a lock refused', async t => {
+    const locks = webLocks(t, { refuses: true }), f = fixture(t);
+    assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+    assert.deepEqual([locks.asked.length, f.fetches()], [1, 1]);
+  });
+});
+
+test('a download that fails under the lock fails once, and lets the next one in', async t => {
+  webLocks(t);
+  let broken = true;
+  const f = fixture(t, { network: () => (broken ? new Response('', { status: 503 }) : new Response(good)) });
+  await assert.rejects(verifiedNetworkBytes({ url, expect }), /could not be fetched: 503/);
+  assert.equal(f.fetches(), 1, 'its own failure is not a refused lock: it is not run again');
+  broken = false;
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+});
+
+test('one that waits its turn says so, and goes ahead after three minutes whoever still holds the lock', async t => {
+  const locks = webLocks(t), f = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  // Another window is at the network and never finishes: suspended, say.
+  void locks.request(`${networkCacheName()}:${url}`, () => new Promise(() => {}));
+  let waits = 0;
+  const asked = verifiedNetworkBytes({ url, expect, onWaiting: () => { waits++; } });
+  for (let turn = 0; turn < 5; turn++) await setImmediate();
+  assert.deepEqual([waits, f.fetches()], [0, 0], 'a short wait is not said');
+  t.mock.timers.tick(WAITING_MS);
+  t.mock.timers.tick(WAITING_MS);
+  assert.deepEqual([waits, f.fetches()], [2, 0]);
+  t.mock.timers.tick(TURN_MS - 2 * WAITING_MS);
+  assert.deepEqual(await asked, good);
+  assert.equal(f.fetches(), 1);
+  const said = waits;
+  t.mock.timers.tick(TURN_MS);
+  assert.equal(waits, said, 'and says no more once it has gone ahead');
 });
