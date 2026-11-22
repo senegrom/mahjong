@@ -5,7 +5,7 @@
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, noneSaid, playlist, revealing } from './game-review.js';
-  import { REVIEW_WIDE, heldEnter, moveHandFocus, reviewKey, waitingNote } from './ui.js';
+  import { REVIEW_WIDE, heldEnter, moveHandFocus, repeatedClick, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -283,8 +283,9 @@
   // review has now, or to the name of the hand whose Review went; and when
   // nothing is left to press, to Next, or Previous at the end. The second
   // press of a double click or tap lands on the button that took the place of
-  // the one the first pressed, and was meant for that one: let go.
-  const again = event => event.detail > 1;
+  // the one the first pressed, and was meant for that one: let go, as play
+  // lets go of it on a tile or a call (repeatedClick).
+  const again = repeatedClick;
   let focusWas = null;
   $effect.pre(() => {
     void status;

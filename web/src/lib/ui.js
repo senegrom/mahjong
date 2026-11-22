@@ -107,6 +107,19 @@ export function pressedByKeyboard(event) {
   return event?.detail === 0;
 }
 
+/** Whether a click is the second or a later one of a multiple click, such as
+ * a double click's second press: a click's detail counts them (UI Events).
+ * Play draws each decision where the last one was, a tile or a button in the
+ * same place, and against opponents that answer at once the next is there
+ * before a double click's second press lands, which would answer it too: two
+ * tiles thrown by one double click. So a control whose first press has
+ * already acted lets the rest of a multiple click go, as the review's buttons
+ * that take each other's place do. A click made for a key counts none, and is
+ * never let go here (heldMove). */
+export function repeatedClick(event) {
+  return (event?.detail ?? 0) > 1;
+}
+
 /** Hands focus on to a heading that says where the player now is, and moves
  * the page to show it, by as little movement as will, only when the caller
  * asks: for a press by keyboard, whose player follows focus and is shown a
@@ -145,6 +158,31 @@ export function acceptsHandKey(event, hand) {
   if (target.closest('input, select, textarea, a, [contenteditable]:not([contenteditable="false"])')) return false;
   const button = target.closest('button');
   return !button || button.classList.contains('tile');
+}
+
+/** Whether play's keys in the hand act on this key, each once however long
+ * it is held: Enter and Space throw the marked tile, a digit the tile of its
+ * place, r goes to the riichi choices and t wins by self-draw. A repeat of
+ * one of these is cancelled, so that a held key throws no second tile. A
+ * repeat of any other key is left to the browser, to scroll the page or to
+ * move focus with. The arrows move the marker at every repeat, and Escape
+ * clears it; both are handled before this is asked. */
+export function handKeyActs(key) {
+  return key === 'Enter' || key === ' ' || /^[0-9rt]$/i.test(key ?? '');
+}
+
+/** Whether a keydown is Enter held down on a tile of the player's `hand` or
+ * on one of their choices in play (`data-moves`): a call, the confirmation's
+ * Discard and Cancel. Enter presses a button as it goes down and again at
+ * every repeat, and the next decision's tile or button is drawn where the
+ * pressed one was, so a held Enter would answer one decision after another.
+ * It presses once, with the keys' setting on or off and whatever else is
+ * held with it. Space presses a button as it is let go, once however long it
+ * is held. */
+export function heldMove(event, hand) {
+  if (!event.repeat || event.key !== 'Enter') return false;
+  const target = event.target;
+  return Boolean(target?.closest?.('[data-moves] button') || (hand?.contains(target) && target.closest?.('button')));
 }
 
 /** What a key does in the game's review, by name, or null: 'previous' and

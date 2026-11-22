@@ -82,6 +82,28 @@ test('AI failure remains explicit and retry succeeds without changing opponents'
   fail = false; await match.retry(); assert.equal(match.failure, ''); assert.equal(match.needsRecovery, false); match.dispose();
 });
 
+test('a deal whose first Trained move fails is recorded all the same, though the press answers false', async () => {
+  // The page lets a finished hand's notes go by this, what the engine did,
+  // not by whether the new hand's opponents then answered (App, nextHand).
+  class Dealing extends FakeGame {
+    constructor(...args) { super(...args); this.ended = true; this.pending = false; }
+    hand_is_over() { return this.ended; }
+    next_hand() { this.ended = false; this.pending = this.external; }
+  }
+  let fail = true;
+  const match = new MatchSession(Dealing, 1, 'neural', { ai: async () => { if (fail) throw new Error('offline'); return sure(0); } });
+  try {
+    assert.equal(await match.nextHand(), false);
+    assert.deepEqual(match.commands, [{ type: 'next' }]);
+    assert.equal(match.engine.ended, false, 'the next hand is dealt');
+    assert.equal(match.needsRecovery, true);
+    // Retried, the hand goes on from the deal, which is not dealt again.
+    fail = false;
+    assert.equal(await match.retry(), true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'next' }, ...played(0)]);
+  } finally { match.dispose(); }
+});
+
 test('continue with Club changes the engine in place and survives restoration', async () => {
   const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => {throw new Error('offline');}});
   await match.run(); const engine = match.engine; await match.continueWithClub();

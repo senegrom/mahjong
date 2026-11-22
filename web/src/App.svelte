@@ -23,7 +23,7 @@
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
+  import { RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
@@ -534,8 +534,13 @@
     if (choice && canDiscard(tile)) void choose(choice);
   }
 
-  function selectTile(tile, index) {
-    if (!canDiscard(tile)) return;
+  // Without confirmation a press throws its tile, and against opponents that
+  // answer at once the next turn's tile is in its place before the second
+  // press of a double click lands, which is let go (repeatedClick). With
+  // confirmation the first press only selects, and a second on the same tile
+  // is how it is thrown.
+  function selectTile(tile, index, event) {
+    if (!canDiscard(tile) || (!confirmDiscards && repeatedClick(event))) return;
     picked = null;
     if (confirmDiscards && selected !== index) selected = index;
     else discard(tile);
@@ -550,7 +555,12 @@
   }
 
   async function onKey(event) {
-    if (mode !== 'play' || !shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
+    if (mode !== 'play') return;
+    // Enter held down on a tile or on one of the player's choices presses it
+    // once, with the keys on or off: its repeats would answer the decisions
+    // that follow, each drawn where the last one was (heldMove).
+    if (heldMove(event, handElement)) { event.preventDefault(); return; }
+    if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
@@ -563,7 +573,13 @@
       picked = moveHandFocus(handElement, step);
       return;
     }
-    if (event.repeat) { event.preventDefault(); return; }
+    // A key held down throws no second tile and makes no second choice. Only
+    // the keys that act here are taken from the browser: a held arrow down,
+    // Page Down or Tab still scrolls the page or moves focus on.
+    if (event.repeat) {
+      if (handKeyActs(event.key)) event.preventDefault();
+      return;
+    }
     if (event.key === 'Enter' || event.key === ' ') {
       const focused = event.target.closest('[data-hand-index]');
       const index = focused ? Number(focused.dataset.handIndex) : picked;
@@ -617,9 +633,16 @@
     // it had.
     matchReview?.stop();
     matchInsight?.stop();
+    const recorded = owner.commands.length;
     const advanced = await owner.nextHand();
-    if (session !== owner || !advanced) return;
-    if (!owner.over) { notes = null; failures.result = ''; return; }
+    if (session !== owner || owner.closed) return;
+    // The deal is recorded before the new hand's opponents are asked, so a
+    // Trained opponent that fails on its first move leaves the hand dealt and
+    // the press unanswered. The notes and the failure line of the hand before
+    // go with that hand all the same, by what the engine did: kept, they
+    // would open as the next result's review, of a hand no longer there.
+    if (owner.commands.length > recorded && !owner.over) { notes = null; failures.result = ''; }
+    if (!advanced || !owner.over) return;
     // A game whose every hand was reviewed as it was played joins the trend
     // as it ends, rather than whenever its review is next opened, which may
     // be never. Should the review not be taken on to the finished match, the

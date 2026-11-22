@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
-  import { callLabel, callTiles, quadOnOffer } from '../ui.js';
+  import { callLabel, callTiles, quadOnOffer, repeatedClick } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
 
   // All actions return to App's guarded match session. The controls do not
@@ -24,6 +24,15 @@
   // are. So their news is said by one region that is always here.
   let announcement = $derived(offered ? `${discarder} ${robbing ? 'declared a kan of' : 'discarded'} the ${tileWords(offered)}`
     : chosen ? `Selected: ${tileWords(chosen)}` : '');
+  // A press on a choice acts once. The next decision's buttons are drawn
+  // where these were, and against opponents that answer at once they are
+  // there before the second press of a double click lands, which would
+  // answer the next decision too: it is let go (repeatedClick). Enter held
+  // down on one presses it once as well, which App sees to for every button
+  // in a `data-moves` row (heldMove).
+  function press(event: MouseEvent, act: () => void) {
+    if (!repeatedClick(event)) act();
+  }
 </script>
 
 <p class="visually-hidden" role="status">{announcement}</p>
@@ -41,9 +50,9 @@
   {:else}Choose a call, or pass.{/if}
 </p>
 {#if chosen}
-  <div class="confirm-discard">
+  <div class="confirm-discard" data-moves>
     <span>Selected: {tileWords(chosen)}</span>
-    <button class="app-control primary" onclick={() => { if (selectedTile) discard(selectedTile); }}>Discard {tileWords(chosen)}</button>
+    <button class="app-control primary" onclick={event => press(event, () => { if (selectedTile) discard(selectedTile); })}>Discard {tileWords(chosen)}</button>
     <button class="app-control" onclick={oncancel}>Cancel</button>
   </div>
 {/if}
@@ -56,10 +65,10 @@
         <span class="call-message"><strong>{discarder}</strong><span>{robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></span>
       </div>
     {/if}
-    <div class="call-options">
+    <div class="call-options" data-moves>
       {#each callChoices as choice, index (index)}
         <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
-          aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
+          aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={event => press(event, () => choose(choice))}>
           <span class="call-label">{callLabel(choice, robbing)}</span>
           <span class="call-word">{callLabel(choice, robbing).split(' — ')[0]}</span>
           {#if callTiles(choice, view.pending_discard).length}
