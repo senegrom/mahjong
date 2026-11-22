@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { TILE_TYPES, tileFile, tileWords } from '../src/lib/tiles.js';
-import { faceImage, fitRecord, imageAttributes, placeStudyImage } from './face-fit.mjs';
+import { RASTER_MIME, faceImage, faceRaster, fitRecord, imageAttributes, placeStudyImage, rasterSize } from './face-fit.mjs';
 
 // Export selected artwork; newer studies use documented optimized sources.
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -221,13 +221,19 @@ for (const [candidate, tile, label, sourceId, crop] of definitions) {
     : fullFaceSources.has(sourceId)
       ? readFileSync(path.join(root, source))
       : execFileSync('convert', [path.join(root, source), '-crop', `${width}x${height}+${x}+${y}`, '+repage', '-strip', 'PNG:-'], { maxBuffer: 8 * 1024 * 1024 });
+  // What the page is sent is the lossless crop at the size of the box it is
+  // drawn in, as WebP (face-fit.mjs). A face that is not exported again keeps
+  // the files it has, which are recorded as they stand and never read for
+  // what is in them.
   if (selected) {
     writeFileSync(path.join(out, png), raster);
     const { radius, preserveAspectRatio } = facePresentation;
-    writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="${preserveAspectRatio}" href="data:image/png;base64,${raster.toString('base64')}"/></svg>\n`);
+    const shipped = faceRaster(path.join(out, png), image);
+    writeFileSync(path.join(out, svg), `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Van Gogh</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${imageAttributes(image)} preserveAspectRatio="${preserveAspectRatio}" href="data:${RASTER_MIME};base64,${shipped.bytes.toString('base64')}"/></svg>\n`);
   }
   manifest.tiles.push({ candidate, tile, name, label, source, status: 'approved', png, svg,
-    crop: { x, y, width, height }, ...fitted, pngSha256: hash(raster) });
+    crop: { x, y, width, height }, ...fitted, pngSha256: hash(raster), svgSha256: hash(readFileSync(path.join(out, svg))),
+    rasterMimeType: RASTER_MIME, raster: rasterSize(image) });
 }
 const approved = manifest.tiles.map(entry => entry.tile);
 manifest.remaining = TILE_TYPES.filter(tile => !approved.includes(tile));

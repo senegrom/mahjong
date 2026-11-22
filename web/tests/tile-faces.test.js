@@ -13,6 +13,40 @@ import { componentLoader } from './fixtures/load-component.js';
 const publicRoot = new URL('../public/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('tiles/matisse/manifest.json', publicRoot), 'utf8'));
 const faces = TILE_FACE_OPTIONS.map(face => face.value);
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+/** The size in pixels of a WebP, read from its header: a lossy one's frame,
+ * a lossless one's, or the canvas of one that carries transparency. */
+function webpSize(bytes) {
+  assert.equal(bytes.toString('latin1', 0, 4), 'RIFF');
+  assert.equal(bytes.toString('latin1', 8, 12), 'WEBP');
+  const kind = bytes.toString('latin1', 12, 16);
+  if (kind === 'VP8 ') return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+  if (kind === 'VP8L') { const bits = bytes.readUInt32LE(21); return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }; }
+  assert.equal(kind, 'VP8X');
+  return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 };
+}
+
+/** The raster a face's SVG carries, checked against what its manifest entry
+ * says ships: the face of that digest, carrying a WebP of a pixel to a unit
+ * of the box it is drawn in. Answers the raster's size. */
+function shippedRaster(svg, entry) {
+  assert.equal(sha256(svg), entry.svgSha256, entry.svg);
+  const embedded = svg.match(/<image clip-path="url\(#face\)" x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)" preserveAspectRatio="none" href="data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)"\/>/);
+  assert.ok(embedded, entry.svg);
+  assert.equal(embedded[3], 'image/webp');
+  assert.equal(entry.rasterMimeType, 'image/webp');
+  const size = webpSize(Buffer.from(embedded[4], 'base64'));
+  assert.deepEqual(size, { width: Math.ceil(Number(embedded[1])), height: Math.ceil(Number(embedded[2])) }, entry.svg);
+  return size;
+}
+
+/** The size of the raster a face carries where it is a WebP, and nothing
+ * for an AVIF, whose header this does not read. */
+function webpOrAvifSize(svg) {
+  const embedded = svg.match(/href="data:image\/webp;base64,([A-Za-z0-9+/=]+)"/);
+  return embedded ? webpSize(Buffer.from(embedded[1], 'base64')) : {};
+}
 
 test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes K and uses Almond Blossom C for white dragon and Painter C for red dragon', () => {
   const approved = ['1p', '5p', '3s', '3m', '7z', '1s', '2p', '9p', '6s', '5z', '1z', '4z', '2m', '4m', '2s', '4s', '7s', '8s', '5s', '9s', '3p', '5m', '6m', '7m', '4p', '8m', '6p', '7p', '9m', '8p', '6z', '1m', '2z', '3z'];
@@ -52,9 +86,11 @@ test('Van Gogh preserves selected Almond Branches, East A and Winter B, excludes
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(svg, /rx="26"/);
     if (entry.png) {
+      // The approved pixels are the lossless crop, which is kept and not
+      // published; the face ships that crop at its own size (face-fit.mjs).
       const png = readFileSync(new URL(`tiles/van-gogh/${entry.png}`, publicRoot));
       assert.equal(hash(png), entry.pngSha256);
-      assert.ok(svg.includes(`data:image/png;base64,${png.toString('base64')}`));
+      assert.deepEqual(shippedRaster(svg, entry), entry.raster, tile);
     } else {
       assert.equal(hash(svg), entry.svgSha256);
       assert.equal(entry.rasterMimeType, ['5s', '2m', '2s', '3s', '4s', '9m', '6z', '1m', '2z', '4z', '3z', '5z', '7z', '6m'].includes(tile) ? 'image/avif' : 'image/webp');
@@ -76,9 +112,33 @@ test('all 34 Matisse faces resolve to approved art with no placeholders', () => 
     const svg = readFileSync(new URL(url, publicRoot), 'utf8');
     assert.match(svg, /viewBox="0 0 300 400"/);
     assert.match(url, /\/approved\//);
-    assert.match(svg, /data:image\/png;base64,/);
+    const entry = manifest.tiles.find(entry => entry.tile === tile);
+    assert.equal(url, `tiles/matisse/${entry.svg}`);
+    assert.equal(sha256(readFileSync(new URL(`tiles/matisse/${entry.png}`, publicRoot))), entry.pngSha256, tile);
+    assert.deepEqual(shippedRaster(svg, entry), entry.raster, tile);
   }
   assert.equal(tileImage('8m', 'matisse'), 'tiles/matisse/approved/Man8.svg');
+  // The white dragon's lit twin ships the same way.
+  const foil = manifest.tiles.find(entry => entry.tile === '5z').foil;
+  assert.equal(sha256(readFileSync(new URL(`tiles/matisse/${foil.png}`, publicRoot))), foil.pngSha256);
+  assert.deepEqual(shippedRaster(readFileSync(new URL(`tiles/matisse/${foil.svg}`, publicRoot), 'utf8'), foil), foil.raster);
+});
+
+test('no artist face is sent at more than its own size', () => {
+  // A face is drawn at most 60 CSS pixels wide. Each used to carry its
+  // lossless crop, up to 1086 by 1448 pixels and 4 MB, and the two sets
+  // together were 61 MB of a first visit's download. Now a face carries a
+  // raster of about a pixel a unit, and the sets stay small.
+  let total = 0;
+  for (const url of TILE_IMAGE_URLS.filter(url => /^tiles\/(matisse|van-gogh)\//.test(url))) {
+    const svg = readFileSync(new URL(url, publicRoot));
+    total += svg.length;
+    assert.ok(svg.length <= 160 * 1024, `${url} is ${svg.length} bytes`);
+    assert.doesNotMatch(svg.toString('utf8'), /data:image\/png/, url);
+    const { width, height } = webpOrAvifSize(svg.toString('utf8'));
+    if (width) assert.ok(width <= 340 && height <= 500, `${url} carries ${width}x${height} pixels`);
+  }
+  assert.ok(total <= 4 * 1024 * 1024, `the artists' faces are ${total} bytes`);
 });
 
 

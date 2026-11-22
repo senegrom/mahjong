@@ -25,6 +25,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "8986c6817d65fa262d4b55403e5a6e87a2d1727f527276252e1985057309a4a7",
+      "svgSha256": "bb90b28f2ddd249066064df7f37d36f48ee869376a06ebb370b8d358a8efa55f",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Approved rim-free update of direction B: black disk and ivory cut-paper rosette on edge-to-edge golden yellow. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping."
     },
     {
@@ -41,6 +48,13 @@
         "y": 60,
         "width": 504,
         "height": 663
+      },
+      "pngSha256": "cd297284b69070f82513fe27e6e91d1d142a424b390065562a3163e327430f18",
+      "svgSha256": "48c25f6d4fa8a7e118a85a2dabddf8a5ee9454cf56127eb99dad41e922f117d7",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "B: two yellow and magenta cut-paper rosettes on ultramarine, with contrasting petals and blue centres."
     },
@@ -74,6 +88,13 @@
           "height": 401.26
         }
       },
+      "pngSha256": "25a200be6dfc27b6c8e44512e66e6fc451514416e9fee29cf236e988018c390e",
+      "svgSha256": "15559c6fe0ce3427c22bdd623888f1f22a344fc91dcb5ca84e2944c2a8628e86",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 326,
+        "height": 402
+      },
       "notes": "C: three apricot, mint and carmine cut-paper rosettes in a loose S on deep purple, with coloured centres."
     },
     {
@@ -105,6 +126,13 @@
           "height": 408
         }
       },
+      "pngSha256": "6e20985c3bafabe016b3e58861250450dcb82f153be38de2e3c4de9bbe5e0750",
+      "svgSha256": "8299a89a2b0fa86fda88fca52c9df1f0e9ddfcea174a46b7db87348edeb5f5dd",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 310,
+        "height": 408
+      },
       "notes": "Éclipse A: four irregular ultramarine rings with vermilion wedges on warm ivory, in an asymmetric cut-paper dance. The lossless crop preserves the selected artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -121,6 +149,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "4488c45068d761a2174caa3942ccf99eeead64d41e6311a650beae1fd5feefce",
+      "svgSha256": "fcded35cac05c6b32428a5d17a372e372f1b4753fdf24a875ade981fbf367e23",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Five Suns: five distinct cobalt, vermilion, raspberry and mint cut-paper disks dance around an oversized centre on full-bleed sunflower yellow. Varied leaf, pinwheel and crescent counterforms keep all five disks separate and countable. The complete approved 3:4 artwork is preserved, with the shared bleed and rounded clipping and no ivory rim."
     },
@@ -152,6 +187,13 @@
           "width": 307.31,
           "height": 408
         }
+      },
+      "pngSha256": "f9afd8352d725988b9046ca1d7e39924e0d3bdf16ad498314c49ece82c6de20a",
+      "svgSha256": "4dae218642d1c4b776b85be15d3360ee2fe2a371f1a1615a648a65d50d4ecb7e",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 308,
+        "height": 408
       },
       "notes": "C: six coral, chartreuse and orange cut-paper rosettes in three loose pairs on forest green, with broad open cuts and contrasting centres. The lossless crop excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
@@ -185,6 +227,13 @@
           "height": 426.24
         }
       },
+      "pngSha256": "4f83ee698ed54cb626253a671efe4d62d83cdb1c22a50954d2d854988bb615b0",
+      "svgSha256": "630033af17881558565315e9c775c6d90311678013b25fbf71c520b0d50f6f85",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 302,
+        "height": 427
+      },
       "notes": "Ivory Garden A: seven blue, vermilion and green cut-paper rosettes in a loose 2-3-2 arrangement on ivory, with contrasting centres. The flat crop preserves the selected source pixels and excludes the study label and surround; it uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -202,6 +251,13 @@
         "width": 544,
         "height": 729
       },
+      "pngSha256": "0bc5a1bd0c948474da7f352427c4a62063e281e1214d4d2d7b246c2d3478c99b",
+      "svgSha256": "46fcbdeed971a822ee7df581ae920e1b207cab5e6b7f240b9e91713d2d66edba",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Cut & Swap C: eight indigo and chartreuse cut-paper disks in four pairs across a sweeping divided colour field, with coral inserts. The lossless crop preserves all eight complete disks and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -218,6 +274,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "ee6af5c74a54d4c05a7caddb0139f992dd6ceedbaa63f84a05e4c57598ae56fe",
+      "svgSha256": "d92db2603cc3309740fb0d491e9a1b36b9ff8b9357e61ca535e09528d6b72777",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Red Rhythm C: eight lemon-yellow, ivory and mint disks with varied botanical, spiral and lobed cut-outs surround one larger cobalt-blue disk with a curling mint frond on vermilion. Exactly nine complete disks remain distinct and countable. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping."
     },
@@ -250,6 +313,13 @@
           "height": 408
         }
       },
+      "pngSha256": "00a18f33afd238d96212011d8b1b3e7db5ac0b09bb37fb5c3bd36329c55e1d45",
+      "svgSha256": "525538892cc36f8776f1324d2c48e1209f6b183f5ae232838737e1b41085f22e",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 308,
+        "height": 408
+      },
       "notes": "Cut & Swap C: two mint and forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field. Every visible part of the face stays green for All Green. The lossless crop preserves both complete forms and excludes the presentation label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset rim."
     },
     {
@@ -266,6 +336,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "f55fd530237c73b5db2e77464316438cb4031dd83aab0d36650f7b2710a06658",
+      "svgSha256": "01f51b6cc2d344b43c6ba3026fffb0e5925b939b1c737cc530741e91a4389d69",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Chapel Windows B: three deep-forest bamboo silhouettes, one above two, cut through a flowing mint-green field on emerald. Every visible part of the face stays green for All Green. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping."
     },
@@ -299,6 +376,13 @@
           "height": 413.42
         }
       },
+      "pngSha256": "4e9221c96d00064b648219c31abf254fa60879a6637f7b1c5951906f056a61fa",
+      "svgSha256": "1c0ac925ce0c9dcaca3e74ef5ed262fa6bd3b0b4a7a80ebe790c468e38085af2",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 302,
+        "height": 414
+      },
       "notes": "Chapel B: four pale-green sculptural bamboo cut-outs on a deep forest-green field. All artwork stays green for All Green. The flat face excludes the study labels and surround, with the shared full-face fit and rounded clipping."
     },
     {
@@ -315,6 +399,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "1f96c1b2f705820d2b3fe46f07ab8f0452888f22b82a3563cdba99685c1d49ad",
+      "svgSha256": "dfe5c796c61cbc1e3ae9e2539aee036bf9d313bee1b715478f7f199a03b1a1dc",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Cut & Swap C: two mint and two forest-green bamboo cut-outs exchange foreground and background colours across a sweeping divided green field, with a sinuous vermilion fifth stalk. Exactly five complete plants remain separate and countable. The complete approved 1086 × 1448 source is preserved losslessly, with colour reaching every edge and the shared 3:4 face, bleed and rounded clipping removing any ivory rim."
     },
@@ -333,6 +424,13 @@
         "width": 948,
         "height": 1264
       },
+      "pngSha256": "627dae1e471acc29682e656fb0e58bde13846794b0b4183675525b7b72ac72fb",
+      "svgSha256": "a79d793889afd075fc250ff93a5c4df4ce068f8a9c5af02876dfa6bcec451e1a",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Green Carnival D: six distinct abstract green cut-outs dance around an open centre on deep forest green. The final crisp, glow-free artwork stays entirely green for All Green. The lossless 3:4 crop excludes the presentation label and surround, using the shared bleed and rounded clipping."
     },
     {
@@ -349,6 +447,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "39430ff25b0b729dd5a73fb0e68721a528a0ae4189f3de827f5554cfc69b02a7",
+      "svgSha256": "8b1ed4f8fbc2a56de596eb8fddf024e1653c290ea0f745d495c79f377192ab8c",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Leap A: one coral and six green cut-paper forms leap and curl across an electric-blue field. The exact approved blue-background candidate retains seven separate silhouettes. The complete flat 3:4 source is preserved at native resolution, with colour reaching every edge and the shared bleed and rounded clipping removing any white rim."
     },
@@ -367,6 +472,13 @@
         "width": 967,
         "height": 1281
       },
+      "pngSha256": "29f880256155c5292f2c7146ca14d9125ae7b1b3c72ab0ab309d5b1d34b25737",
+      "svgSha256": "9f0b46eaf89ea6ede9e447d3a65cd74670f91b22bf948af54582514ba365e0b4",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Wild Growth C: eight mint and dark-forest bamboo fronds burst around an open centre on emerald green. All artwork stays green for All Green. The lossless crop preserves the selected artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -383,6 +495,13 @@
         "y": 0,
         "width": 1090,
         "height": 1443
+      },
+      "pngSha256": "67319f35882504a3c4fe8a9257f75dd466d834063ded06c46f52400201bf1b7c",
+      "svgSha256": "f28e05668108cf4529e83f052aa509eef73e9cdcfb48cbd6aa4353834ff90469",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Emerald surround: the selected green-border revision keeps nine green, ivory and yellow jointed ribbons in three staggered groups on the wavy ultramarine field. Emerald replaces the former ivory surround and fills every outer edge and corner. The complete approved source is preserved at native resolution with the shared 3:4 face, bleed and rounded clipping."
     },
@@ -415,6 +534,13 @@
           "height": 434.97
         }
       },
+      "pngSha256": "a0d6a5c699bbda6a20ea3dc0eef5e02d993a1d4fe44b814117835a0f885051d4",
+      "svgSha256": "fe3132a92c902b9c6296bb6411d83454c2757ffb0faa47e77c3123cbb865728f",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 435
+      },
       "notes": "Chapel Stencil C from the second, bolder board: a broad deep-forest-green 東 with four coral-pink cut-out windows and an ivory upper crossbar on coral pink. The lossless crop preserves the selected source pixels and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping with no inset border."
     },
     {
@@ -431,6 +557,13 @@
         "y": 47,
         "width": 992,
         "height": 1306
+      },
+      "pngSha256": "ee37ff0ff4b8cbf247fbe5eb60ead6f37611066838c75f61c04a282965af2c91",
+      "svgSha256": "516d6ad3f960e3796ef14aa96417db51363f0c0deeaa0296e8e16165314cc425",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Paper Window D: vermilion 南 cut through a sweeping lemon-yellow chasuble, with a blush-pink lower-left shape on vermilion. Both interior horizontal bars remain clear. The lossless crop preserves the selected original artwork, excludes the presentation label and surround, and uses the shared 3:4 face, bleed and rounded clipping with no inset rim."
     },
@@ -463,6 +596,13 @@
           "height": 415.17
         }
       },
+      "pngSha256": "605a5230bc0eac420c3e08f238ad61d1745001de00e7b4a14ec5f05d0eb77d47",
+      "svgSha256": "ecc466ac76d08de40656b1df884ab9355b2bf50fb582af7bda11fddf166db75c",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 416
+      },
       "notes": "Cut-out C: sculptural ivory 西 with a cobalt-blue top stroke on vermilion. The flat crop excludes the study label and surround, using the shared full-face fit, bleed and rounded clipping."
     },
     {
@@ -479,6 +619,13 @@
         "y": 85,
         "width": 523,
         "height": 700
+      },
+      "pngSha256": "cfe49101303309142fb07bcae57f9c58f69eb0d66617728eb56e7276dc4ac23a",
+      "svgSha256": "096b7aec48298243e6f3012f494696834719d4b5d325ecfcce2a21e16b99e95b",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Ribbon Dance B: lemon and coral-pink 北 with a mint accent on ultramarine. The corrected five-stroke character includes the diagonal arm on the right. The flat crop preserves the selected artwork and excludes the label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
@@ -512,6 +659,13 @@
           "height": 422.74
         }
       },
+      "pngSha256": "39512eadbf30dec0e61d0e69a18f68117b121450c3e20c6e94efd1f27f66942c",
+      "svgSha256": "a3d415844c70856ee5bd76dfbfc445aba2cd6de631e00c8ee8b32e7524dd1bbc",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 301,
+        "height": 423
+      },
       "notes": "Chapel Flame C: a pale-pink sculptural enclosure and a sweeping lemon-yellow central ribbon form 中 on vermilion. The lossless crop preserves the selected artwork, excludes the study label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -528,6 +682,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "648c9fdc753fb16fb5285b2092d27bf3058aaba94b5a01a2e040638ce17b7732",
+      "svgSha256": "99c360a51560747c8e3da1985500d8ed93ad0fcea15663a0fa7137162f7f10f5",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Dance B, approved rimless revision: a sweeping yellow 一 above sculptural vermilion 萬 on deep purple. Purple fills the entire flat face after removal of the old ivory rim. The complete 1086 × 1448 source is exported losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
@@ -546,6 +707,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "286c8d59d30bf23e6b469263a94bd79e46fbf121e0a7cec0c7cc64265c5bf60d",
+      "svgSha256": "b86df18aa584e7095908fae618726d506f39b3847dbddfa02c89b1f95ab31023",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Jazz Dance: vivid coral-vermilion 萬 interlocks with a cobalt sweep and a small magenta accent above two separate yellow and ivory strokes forming 二 on deep purple. The complete flat 1086 × 1448 approved source fills the face without an ivory rim and is exported losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -562,6 +730,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "6f3cd5aa7503cbd8d724202714f7d2250a1b49b8a6e964ff27cb0b204ec1c453",
+      "svgSha256": "24bcec8f85925c6acf495704929836398c8ad3483e807825a3f8ce5ca3a30007",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Jazz A, approved rim-free revision: yellow, ivory and pink strokes form 三 above a vermilion-and-pink 萬 with an oversized kicking stroke. Deep purple reaches every edge with no ivory rim or physical bevel. The complete flat 1086 × 1448 artwork is preserved losslessly with the shared 3:4 face, bleed and rounded clipping."
     },
@@ -580,6 +755,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "3b4b6d864a92c563bfbfa45e2a58634ee7bf0c0bcd867b612888e658b64e7237",
+      "svgSha256": "16bbba5bba7d37f28fa9fef73134d28eafe5283dbceff15ecbff8718d46bc076",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Interlock C, with the requested ivory-white outer enclosure of 四, two upright yellow interior strokes and a sweeping pink 萬 on deep purple. The former red section is ivory-white. The complete flat 3:4 artwork is preserved at native resolution, using the shared bleed and rounded clipping."
     },
     {
@@ -596,6 +778,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "a26b1d6c53aaffbbb46dcbb21066eba1549bf55f036c2ed5abaf653e4becae6b",
+      "svgSha256": "24b3f8caa63a9f1d674f821f50221a8bd95362b6aa47c1a8ccbae67bff783198",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Dance: mint and vermilion cut-paper strokes form 五 with yellow 萬 and a cobalt crescent on deep purple. Reinterpreted from the selected fifth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
     },
@@ -614,6 +803,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "8956652d6f8330edd5a16292b105cae7173b62226e61856b43332b22ff9b07f1",
+      "svgSha256": "7e0ab04ee53eb70a7ecfbf6f5d7bb877e28bacd8c1a80dba4a348cb3aca6e3b6",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Chasuble: purple 六 cut through a yellow silhouette, with vermilion 萬 and teal offcuts. Reinterpreted from the selected fourth alternative and approved for play. The complete source is preserved with the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -630,6 +826,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "52a7c1f1453a7c492af3585154f81ee9c3e33410df08dd1e30cc6bd7a7229d71",
+      "svgSha256": "6465c8911d0b80c1bcbfa65d6f65c5749ed51e3ec69be9cfb3f42c4b83db861e",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Approved rim-free update of Cut-out C: pink 萬 at upper left, oversized pale-yellow 七 below and a red accent on edge-to-edge deep purple. The complete flat 3:4 artwork has no ivory rim, physical bevel or surrounding shadow and is preserved at native resolution with the shared bleed and rounded clipping."
     },
@@ -648,6 +851,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "dee6abc9a175bf368006e8ac6137b4a013246fd46988ce12cc8d0d38cfce767c",
+      "svgSha256": "1accea83e18efb75947dc72eb59e31e091fe46c457fbe85dc6252de4d9058388",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Open wings D: two sweeping yellow and coral strokes form 八 below ivory 萬, with a broad cobalt cut-paper field on deep purple. The exact approved candidate is preserved as a complete flat 1086 × 1448 source, with the shared 3:4 face, bleed and rounded clipping and no inset rim. Completes all 34 Matisse tile faces."
     },
     {
@@ -664,6 +874,13 @@
         "y": 0,
         "width": 1086,
         "height": 1448
+      },
+      "pngSha256": "deab4864d5c4982f8acb3c7900f0a9f9594c1395cc72fe51e67070398fcde67f",
+      "svgSha256": "1b2afea0f4740b5bb8e67eb742da4a91e170f3165541f47ff82a77f7183d7795",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Jazz: the exact sixth alternative selected by Carl, with fragmented coral 九 over a tilted cobalt field, ivory 萬 at lower left and a yellow wedge on deep purple. The complete flat source is preserved with the shared 3:4 face, bleed and rounded clipping."
     },
@@ -682,6 +899,13 @@
         "width": 962,
         "height": 1300
       },
+      "pngSha256": "9f3e141161ffde065abc34e7861b484f8afe96bd4185059be328d6f3a018040e",
+      "svgSha256": "083c9839ae9aadddc72226e62927504d3694a9a6f59d8fe64c238248309c3927",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Carnival C, with the requested colour swap: one dancing pink bird with an oversized vermilion wing, curling purple tail and yellow accents on green. The green wing and vermilion background colours have exchanged places. The lossless crop preserves the revised artwork and excludes the study label and surround, using the shared 3:4 face, bleed and rounded clipping."
     },
     {
@@ -698,6 +922,13 @@
         "y": 24,
         "width": 963,
         "height": 1308
+      },
+      "pngSha256": "ce28f634b675cc2b5129f1f77776b609bac6549ac035b4f5e4c67d87bb4e68e5",
+      "svgSha256": "3da4dd624d12abd75d8da87b3931535a2cc0986773fe9d2a57e0153e414614d1",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
       },
       "notes": "Chapel B: forest-green 發 cut through an organic mint-green silhouette, with an emerald accent on a forest-green field. Every visible part of the face stays in shades of green for All Green. The lossless crop preserves the selected source pixels, excludes the label and surround, and uses the shared 3:4 face, bleed and rounded clipping."
     },
@@ -716,6 +947,13 @@
         "width": 1086,
         "height": 1448
       },
+      "pngSha256": "aa53cf85dc5718a316312817f00ed3a1f3e5252e77822659a8a8c1ab40882458",
+      "svgSha256": "1a5ab711499e3f880d0668c11584dccf62ca2d25062a3cbd61ea51217101ab51",
+      "rasterMimeType": "image/webp",
+      "raster": {
+        "width": 306,
+        "height": 408
+      },
       "notes": "Tidal A: a full-bleed cobalt-blue surround with a loose asymmetric inner edge frames the quiet ivory ribbon dragon. The complete approved 3:4 artwork is preserved with the shared bleed and rounded clipping. The matching silver dora state uses the same full canvas and crop.",
       "foil": {
         "png": "approved/Haku-foil.png",
@@ -727,6 +965,13 @@
           "y": 0,
           "width": 1086,
           "height": 1448
+        },
+        "pngSha256": "bd63828da31bf28261b531b571d8e1b63d1a4b15752788d8d48f8116408aaaa0",
+        "svgSha256": "3238932e420f9f23602167d20146d7f2479d5d9b5f62f7eac774191ca8148dfc",
+        "rasterMimeType": "image/webp",
+        "raster": {
+          "width": 306,
+          "height": 408
         }
       }
     }
