@@ -510,6 +510,15 @@ try {
     const south=JSON.parse(snapshot.state)[0].seats.find(s=>s.seat==='south');
     assert.ok(south.melds.some(m=>m.kind==='chii'&&m.claimed_tile==='2m'));noErrors(page);
   });
+  await check('a result left behind by another window\'s move cannot be pressed, and says to reload beside its buttons',async()=>{
+    const a=await open(endSave);const b=await open(endSave,{sharedContext:a.browserContext()});
+    assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[false,false,false,false,false]);
+    await a.bringToFront();await a.click('.screen .primary');
+    await b.bringToFront();await b.waitForSelector('.save-conflict');
+    assert.equal(await b.$eval('[data-result-failure]',n=>n.textContent.trim()),'Reload the latest match to continue here.');
+    assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[true,true,true,true,true]);
+    noErrors(a);noErrors(b);
+  });
   await check('two real tabs cannot roll back progress on pagehide; reload resumes latest',async()=>{
     const a=await open(initial);const b=await open(initial,{sharedContext:a.browserContext()});
     await a.bringToFront();await a.click('.hand button:not(:disabled)');

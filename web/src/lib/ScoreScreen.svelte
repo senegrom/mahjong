@@ -38,6 +38,10 @@
     dora = [],
     bets = 0,
     busy = false,
+    // None of these buttons can do anything: another window has taken the
+    // match on (App). They cannot be pressed, and the line after them says
+    // what to do instead (failure).
+    blocked = false,
     hints = true,
     // What the first seat, the one the view belongs to, is called: the
     // person playing, or in Watch the agent being followed.
@@ -234,17 +238,17 @@
 
   <div class="buttons">
     {#if finalHand}<span class="final-caption">Final hand</span>
-    {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
-    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
-    {#if onlog}<button class="quiet" onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
+    {:else}<button disabled={busy || blocked} class="primary" onclick={onnext}>Next hand</button>{/if}
+    {#if onreview && !reviewed}<button class="quiet" disabled={blocked} onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
+    {#if onlog}<button class="quiet" disabled={blocked} onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
          both there too. Before the end nothing else offers the review of the
          game so far or the file, so this sheet offers them at every size. -->
-    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
-    {:else if ongamereview}<button class="quiet" data-review-game onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, this one first">Review game <span class="so-far">so far</span></button>{/if}
-    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
-    {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game disabled={blocked} onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
+    {:else if ongamereview}<button class="quiet" data-review-game disabled={blocked} onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, this one first">Review game <span class="so-far">so far</span></button>{/if}
+    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game disabled={blocked} onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
+    {:else if ongame}<button class="quiet" data-save-game disabled={blocked} onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
     <!-- Why a press on these buttons could not be done, said where the
          player pressed one. A screen reader hears a status line only once it
          knows it, so the line waits here, empty and out of sight, for its

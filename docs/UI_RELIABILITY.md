@@ -218,7 +218,12 @@ iPhone/Safari test.
 Saved-match commands run inside a same-origin Web Lock. Each write compares the
 exact revision originally read, so a stale window cannot take over merely by
 acquiring the lock later. Other windows stop accepting moves when storage changes
-and offer **Reload latest match**. Nothing is saved by `pagehide`; successful
+and offer **Reload latest match**, in an alert at the top of the page. Where the
+player is says it too, since that alert lies above the screen from a result at
+desktop width and under the result's sheet on a phone: the turn's prompt while a
+hand is played, and at a hand's result or the final standings the line after
+their buttons, which cannot be pressed there any more ("Reload the latest match
+to continue here."). Nothing is saved by `pagehide`; successful
 commands were already saved in their transaction. Returning from the back/forward
 cache reloads the current match. Browsers without usable storage/Web Locks may
 play without shared persistence and show a warning rather than use a racy fallback.

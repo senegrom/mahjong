@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
-  import { callLabel, callTiles, quadOnOffer, repeatedClick } from '../ui.js';
+  import { RELOAD_TO_CONTINUE, callLabel, callTiles, quadOnOffer, repeatedClick } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
 
   // All actions return to App's guarded match session. The controls do not
@@ -37,7 +37,7 @@
 
 <p class="visually-hidden" role="status">{announcement}</p>
 <p id="hand-help" class="prompt" class:staged={Boolean(offered)} role="status">
-  {#if saveConflict}Reload the latest match to continue here.
+  {#if saveConflict}{RELOAD_TO_CONTINUE}
   {:else if failure}Choose a recovery option above to continue.
   {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
   {:else if myTurn}

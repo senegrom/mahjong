@@ -129,6 +129,14 @@ export function land(heading, scroll) {
   if (scroll) heading?.scrollIntoView({ block: 'nearest' });
 }
 
+/** What play says wherever a press can do nothing because another window has
+ * taken the match on (App's saveConflict): in the turn's prompt while a hand
+ * is played, and beside the result's and the standings' buttons, which
+ * cannot be pressed meanwhile. The page's own alert, with its Reload latest
+ * match, is at the top of the page, above the screen from the result at
+ * desktop width and under the result's sheet on a phone. */
+export const RELOAD_TO_CONTINUE = 'Reload the latest match to continue here.';
+
 /** Where a hand's result is a sheet over the table and the hand, as
  * ScoreScreen's styles have it: on a phone held upright, and on a small one
  * held sideways, up to 760 pixels wide. */

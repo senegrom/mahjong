@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
-import { meldWords } from '../src/lib/ui.js';
+import { RELOAD_TO_CONTINUE, meldWords } from '../src/lib/ui.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
@@ -402,6 +402,28 @@ test('Watch calls its first seat the followed agent, and its draw keeps the riic
   for (const markup of [draw, standings]) assert.doesNotMatch(markup, /\bYou\b/);
   // Play keeps calling it you.
   assert.match(await sheet(ended([], 'Exhaustive draw')), /<th scope="row"[^>]*>You<\/th>/);
+});
+
+test("once another window has taken the match on, the result's and the standings' buttons cannot be pressed, and each set's own line says to reload", async () => {
+  // Whether each button of some markup is disabled, in the order drawn.
+  const disabled = markup => [...markup.matchAll(/<button\b([^>]*)>/g)].map(([, attributes]) => /\sdisabled\b/.test(attributes));
+  const line = (markup, name) => text(new RegExp(`<p class="[^"]*"[^>]*\\b${name}\\b[^>]*role="status"[^>]*>([^<]*)</p>`).exec(markup)?.[1] ?? 'no line');
+  const offered = { onreview() {}, onlog() {}, ongame() {}, ongamereview: () => true, failure: '' };
+  const draw = ended([], 'Exhaustive draw');
+  // As play draws them: every button live, and the line waiting, empty.
+  const result = await sheet(draw, offered);
+  assert.deepEqual(disabled(result), [false, false, false, false, false], 'Next hand, the two reviews and the two files');
+  assert.equal(line(result, 'data-result-failure'), '');
+  // Taken on elsewhere, App hands both the same words.
+  const left = await sheet(draw, { ...offered, blocked: true, failure: RELOAD_TO_CONTINUE });
+  assert.deepEqual(disabled(left), [true, true, true, true, true]);
+  assert.equal(line(left, 'data-result-failure'), 'Reload the latest match to continue here.');
+  const table = props => html('Standings.svelte', { onagain() {}, onsave() {}, onreview() {}, failure: '', standings: [
+    { player: 0, tied: false, place: 1, seat: 'east', score: 40000, uma: 15000, total: 25000, you: true }], ...props });
+  assert.deepEqual(disabled(await table({})), [false, false, false]);
+  const over = await table({ blocked: true, failure: RELOAD_TO_CONTINUE });
+  assert.deepEqual(disabled(over), [true, true, true], 'Play again, the review and the file');
+  assert.equal(line(over, 'data-standings-failure'), 'Reload the latest match to continue here.');
 });
 
 test("every result offers Trained AI's review of the game: of the game so far before the last hand, at every size, and of the whole game at the final hand, where the standings it covers on a phone offer it too", async () => {

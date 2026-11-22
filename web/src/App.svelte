@@ -23,7 +23,7 @@
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, waitingNote } from './lib/ui.js';
+  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
@@ -901,14 +901,18 @@
            while a hand is played on a phone held sideways (choicesInSeat). -->
       {#snippet controls()}
         <section class="controls" aria-label="your choices" bind:this={callElement}>
+          <!-- Once another window has taken the match on, no button of the
+               standings or of the result can do anything here: they cannot
+               be pressed, and each set's own line says to reload, as the
+               turn's prompt does while a hand is played. -->
           {#if standings}
             <Standings {standings} onagain={() => start()} onsave={() => saveGame('standings')} onreview={() => reviewGame('standings')}
-              failure={failures.standings} bind:heading={standingsHeading} />
+              failure={saveConflict ? RELOAD_TO_CONTINUE : failures.standings} blocked={Boolean(saveConflict)} bind:heading={standingsHeading} />
           {/if}
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
-              bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
+              bets={view.riichi_sticks ?? 0} onnext={nextHand} blocked={Boolean(saveConflict)}
+              onreview={showReview} reviewed={notes !== null} failure={saveConflict ? RELOAD_TO_CONTINUE : failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)}
               onchip={shown => { resultChip = shown; }} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
