@@ -318,6 +318,12 @@ test('a slow device that held after a hand offers the next hand or the rest, wit
   assert.equal(buttonSaid(html, 'data-rest'), 'Review the rest');
   assert.match(html, /<details class="list[^"]*" data-review-index="" open="">/, 'the hands are open to choose from');
   assert.match(html, /data-review-hand="1"[^>]*aria-label="Review: East 2"/);
+  // A hold whose time a decision is gone, the review's batches having moved
+  // to the graphics card or back since it was measured, says how far the
+  // review has got and no time: never "about 0.0 seconds a decision".
+  const moved = page({ review: review({ held: true, slow: false, positionMs: null, decisionMs: null, estimate: null, hands: [done(0), hand(1), hand(2)] }) });
+  assert.match(moved, /role="status"[^>]*>Reviewed 1 of 3 hands\.</);
+  assert.doesNotMatch(text(moved), /seconds a decision|NaN/);
 });
 
 test('on a wide screen the list is a column of its own, after the decision in the page and headed for a screen reader, and nothing is folded', () => {

@@ -328,7 +328,10 @@
       return status.requested ? 'Trained AI cannot be reached right now.' : 'Waiting until Trained AI can be reached.';
     }
     if (status.busy) return reviewing ? `Reviewing ${reviewing.name}…` : 'Reviewing your game…';
-    if (status.held) {
+    // A hold says how long a decision takes here, while the review has that
+    // time: it has none once its batches run elsewhere than where it was
+    // measured, and the review then lifts the hold itself (MatchReview.notify).
+    if (status.held && status.decisionMs != null) {
       return `Reviewed ${reviewed} of ${status.hands.length} hands; about ${(status.decisionMs / 1000).toFixed(1)} seconds a decision on this device.`;
     }
     return `Reviewed ${reviewed} of ${status.hands.length} hands.`;

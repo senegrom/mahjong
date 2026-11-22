@@ -1044,7 +1044,13 @@ takes over half a second a position holds after each hand
 ("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
 offers **Review next hand** or **Review the rest**; any hand can also be
 reviewed alone by **Review** in its header in the list, which opens by itself
-once, when the review turns out that slow. After that the list, like the trend,
+once, when the review turns out that slow. A hold is made for a device measured
+slow, so it is lifted where the review's batches move to the graphics card
+meanwhile, or back from it, as on the passes of a search pressed during the
+hold: the time measured says nothing of where they run now, the review has no
+time a decision to offer the next hand by, and it goes on by itself with the
+hands queued, holding again after the next only if it measures the device slow
+there too. After that the list, like the trend,
 stays as the player leaves it, open or folded, as the review goes on. These
 buttons replace one another as the review goes, so focus is handed on rather
 than dropped: from **Stop** to **Continue** and back, from a hand's **Review**

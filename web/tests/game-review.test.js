@@ -788,6 +788,74 @@ test('a slow device holds after each hand until the player asks for the next one
   } finally { review.dispose(); }
 });
 
+test("a hold lifts once the review's batches run elsewhere than where the device was measured slow, and the review goes on with the hands queued", async () => {
+  // A desktop whose WebAssembly takes over half a second a position holds
+  // after its first hand. Its graphics card comes ready meanwhile, as on the
+  // passes of a search pressed during the hold, and the page has the review
+  // tell its screen (App, reportRuntime). The time measured on WebAssembly
+  // says nothing of the card, so the hold made for it is lifted: the review
+  // goes on by itself, in the card's larger passes, and holds no more.
+  let clock = 0, most = BATCH, told = 0;
+  const sizes = [];
+  const review = new MatchReview(Game, game, { now: () => clock, batchMost: () => most, onChange: () => { told++; }, analyzeBatch: async (positions, signal) => {
+    clock += positions.length * (most === BATCH ? SLOW_MS + 100 : 5);
+    sizes.push(positions.length);
+    await turn();
+    if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+    return positions.map(position => decisive(position.mask));
+  } });
+  const reviewed = () => review.hands.filter(hand => hand.status === 'done').length;
+  try {
+    review.review();
+    await settled(review);
+    assert.deepEqual([review.held, review.slow, reviewed()], [true, true, 1]);
+    // Told of anything else, as of a later hand of the match, the hold stands.
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [true, false], 'a slow device still holds for the player\'s word');
+    // The card ready: no time a position, so no time a decision to offer the
+    // next hand by, and the device no longer known to be slow.
+    most = GPU_BATCH;
+    assert.deepEqual([review.positionMs, review.decisionMs, review.slow, review.held], [null, null, false, true]);
+    const before = told, asked = sizes.length;
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [false, true], 'the hold is lifted, and the review goes on');
+    assert.ok(told > before, 'its screen is told');
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete, 'every hand queued is reviewed');
+    assert.equal(review.held, false);
+    assert.ok(Math.max(...sizes.slice(asked)) > BATCH, `in the card's passes: ${sizes.slice(asked).join(' ')}`);
+    assert.deepEqual([review.positionMs, review.slow], [5, false], 'timed afresh there');
+  } finally { review.dispose(); }
+});
+
+test("a hold lifted for the graphics card comes back after the next hand where that is slow too", async () => {
+  // Whatever the batches moved to, the device is measured afresh there, and
+  // a slow one holds again for the player's word.
+  let clock = 0, most = BATCH;
+  const review = new MatchReview(Game, game, { now: () => clock, batchMost: () => most, analyzeBatch: async (positions, signal) => {
+    clock += positions.length * (SLOW_MS + 100);
+    await turn();
+    if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+    return positions.map(position => decisive(position.mask));
+  } });
+  const reviewed = () => review.hands.filter(hand => hand.status === 'done').length;
+  try {
+    review.review();
+    await settled(review);
+    assert.deepEqual([review.held, reviewed()], [true, 1]);
+    most = GPU_BATCH;
+    review.notify();
+    await settled(review);
+    assert.deepEqual([review.held, review.slow, review.complete], [true, true, false], 'held again, measured slow there');
+    assert.ok(reviewed() > 1, 'after at least the next hand');
+    // Stopped, it holds nothing and goes on only by the player's word.
+    review.stop();
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [false, false]);
+  } finally { review.dispose(); }
+});
+
 test('on a slow device the review asks fewer decisions a batch, as many as take about ten seconds at the speed it has measured', async () => {
   // 2.5 seconds a position, some fifteen times desktop Chromium: eight would
   // take twenty seconds, and keep whatever is sent behind them waiting as

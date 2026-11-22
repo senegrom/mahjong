@@ -466,7 +466,24 @@ export class MatchReview {
     return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions), suits: true };
   }
 
-  notify() { if (!this.closed) this.onChange(this); }
+  /** Tells whoever shows the review that it has changed. The page tells it
+   * so too as the review's batches move to the graphics card or back (App,
+   * reportRuntime), where the time a position is none until a batch is
+   * measured there (positionMs). A hold was made for a device measured slow,
+   * and while it holds nothing but that move can leave the device not known
+   * to be slow: the hold is then lifted first, and the review goes on with
+   * the hands queued, as on any device not yet measured. Its screen would
+   * otherwise offer the next hand by a time a decision it no longer has,
+   * for a wait the card may make a hundred times shorter. Should the device
+   * turn out slow there too, the review holds again after the next hand. */
+  notify() {
+    if (this.closed) return;
+    if (this.held && !this.slow) {
+      this.held = false;
+      void this.pump();
+    }
+    this.onChange(this);
+  }
 
   /** Tells onComplete, once, that every hand of the finished match is
    * reviewed. The game so far is not yet a game for the trend, which
