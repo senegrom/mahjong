@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parse } from 'svelte/compiler';
-import { REVIEW_WIDE, heldEnter, reviewKey } from '../src/lib/ui.js';
+import { REVIEW_WIDE, heldEnter, repeatedClick, reviewKey } from '../src/lib/ui.js';
 
 /** An element of the page, inside a field where `field` says so, as
  * `closest` finds one around it. */
@@ -83,13 +83,13 @@ test("the review's controls, which take each other's place, let go of the second
   const buttons = all(controls, node => node.type === 'RegularElement' && node.name === 'button');
   assert.deepEqual(buttons.map(button => button.attributes.find(a => a.name.startsWith('data-'))?.name),
     ['data-stop-review', 'data-next-hand', 'data-rest', 'data-continue']);
-  const [again] = all(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'again'
-    && node.init?.type === 'ArrowFunctionExpression');
-  assert.ok(again);
+  // What the handlers ask of a click: the test play's presses share (ui.js).
+  const [again] = all(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'again' && node.init?.type === 'Identifier');
+  assert.equal(again?.init.name, 'repeatedClick');
   for (const button of buttons) {
     const pressed = [];
     const review = new Proxy({}, { get: (_, name) => () => pressed.push(name) });
-    const context = vm.createContext({ review });
+    const context = vm.createContext({ review, repeatedClick });
     context.again = vm.runInContext(source.slice(again.init.start, again.init.end), context);
     const handler = button.attributes.find(a => a.name === 'onclick').value.expression;
     const click = vm.runInContext(`(${source.slice(handler.start, handler.end)})`, context);

@@ -262,32 +262,78 @@ test("a guided step hands focus on to the next prompt's heading, and a refused o
     (guided.source.match(/<h3[ >]/g) ?? []).length, 'every prompt heading can take focus');
 });
 
-test('direct agent-mode entry leaves regular saves untouched until Play is opened', () => {
+/** The page's own effect that restores the saved match as Play is first
+ * entered, from its source, run on a stand-in for the page's state: what it
+ * calls goes to `calls`, and `values` replaces or adds to the state. */
+async function restoring(calls, saved, values = {}) {
+  const { standInFor } = await import('../src/lib/opponents.js');
   const effect = find(app.ast.instance, node => node.type === 'CallExpression' && node.callee?.name === '$effect'
     && app.source.slice(node.start, node.end).includes('playStarted'));
   assert.ok(effect);
   const callback = effect.arguments[0];
+  const state = { ready: true, mode: 'physical', playStarted: false,
+    matchStore: { read() { calls.push('read'); return saved; } },
+    start() { calls.push('start'); }, update() {}, Game: {}, callbacks: {},
+    restored: { opponents: ['neural', 'neural', 'neural'], over: false },
+    MatchSession: { restore(_Game, text) {
+      assert.equal(text, 'saved-match'); calls.push('restore');
+      return { ...state.restored, run() { calls.push('run'); } };
+    } },
+    downloadAi() { calls.push('download'); }, session: null, notice: '', failure: '',
+    // What a restored match is read against, and where a finished one lands
+    // on a phone: no table of the player's own in the record, and no phone.
+    standInFor, storedTable: null, returnTable: undefined, matchMedia: () => ({ matches: false }), RESULT_SHEET: '(max-width: 760px)',
+    tick: () => Promise.resolve(), land(...args) { calls.push(['land', ...args]); }, standingsHeading: 'the heading',
+    // Svelte's untrack, which the effect uses to keep its dependencies to readiness and the mode.
+    untrack: task => task(), ...values,
+  };
+  const context = vm.createContext(state);
+  return { state, run: vm.runInContext(`(${app.source.slice(callback.start, callback.end)})`, context) };
+}
+
+test('direct agent-mode entry leaves regular saves untouched until Play is opened', async () => {
   for (const saved of [null, 'saved-match']) {
-    const calls = [];
-    const state = { ready: true, mode: 'physical', playStarted: false,
-      matchStore: { read() { calls.push('read'); return saved; } },
-      start() { calls.push('start'); }, update() {}, Game: {}, callbacks: {},
-      MatchSession: { restore(_Game, text) {
-        assert.equal(text, 'saved-match'); calls.push('restore');
-        return { opponents: ['neural'], run() { calls.push('run'); } };
-      } },
-      downloadAi() { calls.push('download'); }, session: null, notice: '', failure: '',
-      // Svelte's untrack, which the effect uses to keep its dependencies to readiness and the mode.
-      untrack: task => task(),
-    };
-    const context = vm.createContext(state);
-    const run = vm.runInContext(`(${app.source.slice(callback.start, callback.end)})`, context);
+    const calls = [], { state, run } = await restoring(calls, saved);
     run(); state.mode = 'watch'; run();
     assert.deepEqual(calls, []);
     state.mode = 'play'; run();
     const expected = saved ? ['read', 'restore', 'download', 'run'] : ['read', 'start'];
     assert.deepEqual(calls, expected);
+    assert.equal(state.failure, '');
     state.mode = 'physical'; run(); state.mode = 'play'; run();
     assert.deepEqual(calls, expected, 'switching back keeps the same regular session');
+  }
+});
+
+test('a restored match is a stand-in only against a table the record itself holds, and a finished one lands on its standings on a phone', async () => {
+  const trained = ['neural', 'neural', 'neural'], club = ['club', 'club', 'club'];
+  // Club where the player's stored table says Trained: the table stays their
+  // choice, and the network they wait for goes on being fetched.
+  let calls = [], { state, run } = await restoring(calls, 'saved-match', { mode: 'play', storedTable: trained, restored: { opponents: club, over: false } });
+  run();
+  assert.deepEqual(state.returnTable, trained);
+  assert.deepEqual(calls, ['read', 'restore', 'download', 'run']);
+  // No table in the record, as after a reset or under an address that asks
+  // for one: the match's own table stands, and Club asks for no network.
+  calls = [];
+  ({ state, run } = await restoring(calls, 'saved-match', { mode: 'play', restored: { opponents: club, over: false } }));
+  run();
+  assert.equal(state.returnTable, null);
+  assert.deepEqual(calls, ['read', 'restore', 'run']);
+  // The same table is no stand-in.
+  ({ state, run } = await restoring([], 'saved-match', { mode: 'play', storedTable: trained }));
+  run();
+  assert.equal(state.returnTable, null);
+  // A finished match where the result is a sheet over the standings opens
+  // on them: focus and the top of the screen go to their heading, once the
+  // page has drawn them. Elsewhere the result takes focus itself.
+  for (const [sheet, over, landed] of [[true, true, true], [true, false, false], [false, true, false]]) {
+    calls = [];
+    ({ state, run } = await restoring(calls, 'saved-match', { mode: 'play', restored: { opponents: club, over },
+      matchMedia: query => ({ matches: sheet && query === '(max-width: 760px)' }) }));
+    run();
+    await Promise.resolve();
+    assert.deepEqual(calls.filter(Array.isArray), landed ? [['land', 'the heading', true, 'start']] : [], `sheet ${sheet}, over ${over}`);
+    assert.equal(state.failure, '');
   }
 });
