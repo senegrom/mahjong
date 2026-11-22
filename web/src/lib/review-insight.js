@@ -27,6 +27,7 @@
  */
 import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
 import { percent } from './ui.js';
+import { WEIGHT_BOUND } from './webgpu.js';
 
 /** Below this margin, the log of the player's weight over the best other
  * move's, the search is not offered: in the prototype nothing small ever
@@ -39,10 +40,19 @@ export const MARGIN_FLOOR = -7;
  * review. Passes of 32 cost only about 3% less a position in the page's
  * runtime, too little for a wait four times as long. */
 export const PASS = 8;
-/** How far the unedited table's weights may stand from the review's own: a
- * forward pass of other positions beside it may round its last digits
- * otherwise, while a table that replayed differently moves them far more. */
-const SAME_WEIGHT = 1e-4;
+/** How far the unedited table's weights may stand from the review's own: as
+ * far as the graphics card's answers may stand from WebAssembly's before the
+ * card is given a review's batches (WEIGHT_BOUND in webgpu.js). The two are
+ * one bound because they are one comparison: a hand reviewed on WebAssembly,
+ * as the first of a visit is, before the card has shown itself, is asked
+ * again on the card once that serves, and one reviewed on the card is asked
+ * on WebAssembly once the card is declined. Held to a tenth of what the card
+ * was let through at, a card that differed by more than that was told at
+ * every such decision that Trained AI answered its table differently. A
+ * forward pass of other positions beside the table rounds its last digits
+ * far within the bound, and a table that replayed differently moves its
+ * weights far beyond it. */
+const SAME_WEIGHT = WEIGHT_BOUND;
 /** The single changes nearest to flipping it that are paired, two at a time. */
 const PAIRED = 8;
 /** The most tables a search asks after its single changes: every pair of the

@@ -6,6 +6,7 @@ import { BATCH } from '../src/lib/game-review.js';
 import { MARGIN_FLOOR, PASS, applyEdits, changesMeet, explainWhy, firstHandGives, judge, moveWords, notChecked, scoreEdit, searchOffered,
   singleEdits, tablesAtMost, tablesFirstAsked, visibleCounts, whatWouldChangeItsMind } from '../src/lib/review-insight.js';
 import { RULE_DECIDES, trainedAsk } from '../src/lib/review-insight-policy.js';
+import { WEIGHT_BOUND, agreement } from '../src/lib/webgpu.js';
 import { saidLines, saidOfChange, searchWhereOnly, standInAsk, standInQuestion } from './fixtures/insight-panel.js';
 import { planesDigest, recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
 import { mirroringNetwork } from './fixtures/renamed-planes.js';
@@ -344,16 +345,26 @@ test('every change makes a table the rules accept, changed as its words say and 
     ['none', north.score + 1000, entry.position.riichi_sticks - 1]);
 });
 
-test('a search stops where the unedited table\'s weights stand further from the review\'s than rounding, and goes on within it', async () => {
-  // The review's own weights for East 3 #5 with the west wind's moved: by
-  // 2e-4 Trained AI's answer to the unedited table is not the review's, and
-  // by 5e-5 it is, a forward pass beside other tables rounding no further.
+test('a search stops where the unedited table\'s weights stand further from the review\'s than the graphics card\'s may from WebAssembly\'s, and goes on within that', async () => {
+  // The review's own weights for East 3 #5 with the west wind's moved. The
+  // review may have judged the hand on WebAssembly and the search ask on
+  // the graphics card, or the other way about, so the two may stand as far
+  // apart as a card the page lets through stands from WebAssembly
+  // (WEIGHT_BOUND, webgpu.js): beyond that Trained AI's answer to the
+  // unedited table is not the review's, and within it it is.
   const entry = question('e3-5');
   const moved = by => entry.weights.map(move => (move.tile === '3z' ? { ...move, weight: move.weight + by } : move));
-  const far = await panel(entry, { weights: moved(2e-4) });
+  const far = await panel(entry, { weights: moved(2 * WEIGHT_BOUND) });
   assert.deepEqual([far.search.status, far.search.unlike, far.asked], ['unlike the review', 'discard 3z', [PASS]]);
-  const near = await panel(entry, { weights: moved(5e-5) });
-  assert.deepEqual([near.search.status, near.unanswered], ['searched', []]);
+  for (const by of [WEIGHT_BOUND / 2, 0.9 * WEIGHT_BOUND, 5e-5]) {
+    const near = await panel(entry, { weights: moved(by) });
+    assert.deepEqual([near.search.status, near.unanswered], ['searched', []], `moved by ${by}`);
+  }
+  // What the card is held to, the search is held to: a card whose answers
+  // pass the one test never fails the other.
+  const card = entry.weights.map(move => ({ action: 0, weights: [move.weight] }));
+  assert.equal(agreement(card, card.map(row => ({ ...row, weights: [row.weights[0] + 0.9 * WEIGHT_BOUND] }))), null);
+  assert.match(agreement(card, card.map(row => ({ ...row, weights: [row.weights[0] + 2 * WEIGHT_BOUND] }))), /weight/);
 });
 
 /** The tables of a finished game's decisions where the player throws a tile

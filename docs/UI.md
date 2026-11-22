@@ -883,7 +883,13 @@ riichi or not, not while Trained AI cannot be reached, and not where the Why
 line found that Trained AI does not answer the decision's table as the review
 recorded. A search finding that first says so ("Asked again, Trained AI
 answered this table differently, so no change was tried."), and the Why line
-is then Not checked too. A search asks 23 to 61 tables, those Trained AI
+is then Not checked too. A table is answered as the review recorded where each
+move's weight is within a thousandth of the review's, the bound the graphics
+card's answers are held to against WebAssembly's before the card is given a
+review's batches ([WebGPU on desktops](ONNX_RUNTIME.md#webgpu-on-desktops)): the first hand of a visit is
+reviewed on WebAssembly and asked again on the card once that serves, so a
+tighter bound here told a card the page had let through that it answered
+differently. A search asks 23 to 61 tables, those Trained AI
 hesitates over twice (102 of the recorded searches' 237): 5 to 14 seconds at
 desktop Chromium's 157 ms a position, 16 to 44 seconds at half a second. A
 step to another decision, **Cancel**, closing the review, the next deal and

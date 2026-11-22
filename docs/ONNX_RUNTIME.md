@@ -123,7 +123,11 @@ declined:
 - Every run must agree with WebAssembly: each move's weight within 0.001 of
   WebAssembly's (`WEIGHT_BOUND`; the largest difference measured on a
   GeForce RTX 5070 Ti over 368 positions was 6.5e-6), and the same best move
-  unless WebAssembly's own two best are closer than 0.002. The runs' median
+  unless WebAssembly's own two best are closer than 0.002. The review's
+  reasoning holds a table it asks again to the same bound (`review-insight.js`):
+  a hand reviewed on WebAssembly is asked again on the card once that serves,
+  so a card let through here is never told there that it answers differently.
+  The runs' median
   must be at most half of what WebAssembly takes for as many positions
   (`SPEEDUP`), at the least time a position it has shown, over the sample
   and the batches it answers while the card is brought up: a batch that
