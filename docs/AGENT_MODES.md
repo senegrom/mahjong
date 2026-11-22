@@ -215,6 +215,10 @@ Select the seat being analysed and enter its concealed hand, including any
 drawn tile. Keep unknown hands empty. Tile notation is `123m456p789s11z`:
 `m` means characters, `p` circles, `s` bamboo, and `1z` through `7z` mean
 East, South, West, North, White, Green, Red. Tap entered tiles to remove them.
+A palette draws nine tiles to a row where its panel leaves each 44 px wide,
+and five where it does not, as on a phone: each suit as 1 to 5 over 6 to 9,
+then the winds and the dragons. A panel or a palette stays open or folded as
+you leave it.
 
 Set the current round, scores, sticks, wall count, dora indicators, melds, and
 discards. Scores are after paid riichi declarations. Discard order starts at
