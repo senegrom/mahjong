@@ -5,11 +5,12 @@ import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
  * page is saving the network for offline play (on a first visit, the whole
  * 116 MB), and that download's progress is the wait: `offline.phase` is 'ai'
  * from the moment a Trained player is chosen until the network and its
- * runtime are both saved, and `offline.progress` counts the two, the network
- * for 95 of its hundred (offline.js). The download does not wait for a first
- * visit's service worker, which saves the game and tile pictures, about
- * 7 MB, beside it: `offline.installing` says only that this install still
- * runs, and is the note where no trained save is under way. */
+ * runtime are both saved, and `offline.progress` is the percent of the
+ * network received, held at 99 until the runtime is saved too (offline.js).
+ * The download does not wait for a first visit's service worker, which saves
+ * the game and tile pictures, about 7 MB, beside it: `offline.installing`
+ * says only that this install still runs, and is the note where no trained
+ * save is under way. */
 export function waitingNote(note, offline) {
   if (note) return note;
   if (offline?.phase === 'ai') return `downloading the trained network ${offline.progress ?? 0}%`;

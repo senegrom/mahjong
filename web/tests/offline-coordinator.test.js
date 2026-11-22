@@ -415,8 +415,7 @@ test('one save: the network by the page, the runtime by the worker, and the work
   assert.equal(c.state().aiReady, true);
   assert.equal(c.state().phase, 'ready');
   assert.equal(c.state().progress, 100);
-  assert.ok(progress.includes(47), 'half the network is half of the 95 it counts for');
-  assert.deepEqual(progress, [...progress].sort((a, b) => a - b), 'the progress never goes back');
+  assert.deepEqual([...new Set(progress)], [0, 50, 99], 'the share of the network received, short of whole until the save is');
   await c.api.prepareOfflineAi();
   assert.equal(c.saves.length, 1, 'a saved network is never fetched again');
 });
@@ -433,9 +432,9 @@ test('a first visit saves its network at once, beside the install, and the runti
   await settle();
   assert.deepEqual(c.calls, [], 'nothing waited for the worker');
   const { phase, progress, installing, aiReady } = c.state();
-  assert.deepEqual({ phase, progress, installing, aiReady }, { phase: 'ai', progress: 95, installing: true, aiReady: false },
+  assert.deepEqual({ phase, progress, installing, aiReady }, { phase: 'ai', progress: 99, installing: true, aiReady: false },
     'the save is not whole: its runtime waits for the worker');
-  assert.match(panel(c.state()), /Saving AI… 95%/);
+  assert.match(panel(c.state()), /Saving AI… 99%/);
   c.finishInstall('activated');
   assert.equal((await job).aiReady, true);
   assert.deepEqual(c.calls, ['MAHJONG_STATUS', 'MAHJONG_STATUS', 'MAHJONG_PREPARE_AI', 'MAHJONG_NETWORK_SAVED']);
@@ -446,7 +445,7 @@ test('a first visit saves its network at once, beside the install, and the runti
   assert.deepEqual([...new Set(said)], ['ai', 'ready']);
 });
 
-test('the two parts of a save finish in either order, and its progress counts both', async () => {
+test('the two parts of a save finish in either order, and it is whole only when both are done', async () => {
   // The runtime first: the network's transfer is held until the worker has saved the runtime.
   const c = coordinator({ coreReady: true, held: false });
   let release;
@@ -455,12 +454,14 @@ test('the two parts of a save finish in either order, and its progress counts bo
   const progress = [];
   c.api.watchOffline(value => { if (value.phase === 'ai') progress.push(value.progress); });
   const job = c.api.prepareOfflineAi();
-  await until(() => c.calls.includes('MAHJONG_PREPARE_AI') && c.state().progress === 5, 'the runtime is saved first');
-  assert.equal(c.state().phase, 'ai', 'and the save is not whole without its network');
+  await until(() => c.info.runtime, 'the runtime is saved first');
+  await settle();
+  assert.deepEqual([c.state().phase, c.state().progress], ['ai', 0], 'none of the network has arrived, and the save is not whole');
   assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
   release();
   assert.equal((await job).aiReady, true);
-  assert.deepEqual([...new Set(progress)], [0, 5, 52, 100]);
+  assert.deepEqual([...new Set(progress)], [0, 50, 99]);
+  assert.deepEqual([c.state().phase, c.state().progress], ['ready', 100]);
   assert.equal(c.calls.at(-1), 'MAHJONG_NETWORK_SAVED');
 });
 
@@ -517,12 +518,19 @@ test('a runtime owed to a worker that came late is saved when that worker takes 
 });
 
 test('where nothing can be saved the page leaves the network to the opponent\'s worker', async () => {
-  const c = coordinator({ held: false });
-  delete c.navigator.serviceWorker;
-  assert.equal(await c.api.prepareNetwork(), null);
-  assert.equal(await c.api.prepareOfflineAi(), null);
-  assert.deepEqual(c.saves, []);
-  assert.equal(c.state().phase, 'unavailable');
+  // A browser without service workers, and one where they are switched off:
+  // the name is there and what it gives is not, as in a private window, and
+  // as the browser checks that put a worker of their own in the page's place
+  // leave it.
+  for (const without of [c => { delete c.navigator.serviceWorker; }, c => { c.navigator.serviceWorker = undefined; }]) {
+    const c = coordinator({ held: false });
+    without(c);
+    assert.equal(await c.api.prepareNetwork(), null);
+    assert.equal(await c.api.prepareOfflineAi(), null);
+    assert.deepEqual(c.saves, [], 'the page fetches nothing');
+    assert.equal(c.state().phase, 'unavailable');
+    assert.match(panel(c.state()), /Offline storage is unavailable here/);
+  }
 });
 
 test('a page download that fails is incomplete and a storage failure is only an offline warning', async () => {

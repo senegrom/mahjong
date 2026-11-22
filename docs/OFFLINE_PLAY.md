@@ -124,9 +124,9 @@ The two are saved side by side, in either order. The page begins the network
 the moment a Trained player is chosen and waits for no service worker; the
 worker saves the runtime once it is active, on a first visit after its
 install, or, where that install outlasts the page's wait for it, when it takes
-control of the page. The panel's percentage counts both, the network for 95
-of its hundred, and it says **Offline: game + AI ready** only once both are
-saved. A network that cannot be fetched fails the Trained opponent at once; a
+control of the page. The panel's percentage, and the table's, is the share of
+the network received; it is held at 99 until the runtime is saved too, and
+the panel says **Offline: game + AI ready** only once both are saved. A network that cannot be fetched fails the Trained opponent at once; a
 runtime that cannot be saved is said in the panel once the network has been,
 and the opponent plays on with the runtime the site serves.
 

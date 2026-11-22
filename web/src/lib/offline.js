@@ -56,8 +56,13 @@ function trainedSays(phase, warning, values) {
   update(values);
 }
 /** Whether nothing can be saved here at all: a development server, a browser
- * without service workers or Cache Storage, or a page not served securely. */
-const unsupported = () => import.meta.env.DEV || !('serviceWorker' in navigator) || !('caches' in globalThis) || !isSecureContext;
+ * without service workers or Cache Storage, or a page not served securely.
+ * Read by what the browser gives, not by the name alone: the trained save
+ * asks this before it fetches anything, and where service workers are
+ * switched off (a private window, or a check that puts its own worker in
+ * the page's place) the network is left to the opponent's worker, as it
+ * was when the save still waited for a worker to start. */
+const unsupported = () => import.meta.env.DEV || !navigator.serviceWorker || !globalThis.caches || !isSecureContext;
 export function watchOffline(listener) {
   listeners.add(listener);
   listener(state);
@@ -389,9 +394,6 @@ export async function refreshOffline() {
   fillRequested(info);
   return info;
 }
-/** The runtime's share of a trained save's progress, in whole percent: its
- * few megabytes beside the network's hundred and more. */
-const RUNTIME_SHARE = 5;
 /** Saves the trained network this page plays, with its runtime. It is
  * downloaded only when a Trained player is chosen (or was, in an earlier
  * version), and one job runs at a time.
@@ -403,7 +405,13 @@ const RUNTIME_SHARE = 5;
  * alone (prepareNetwork). The runtime follows, by the worker that serves it,
  * once that worker is there. A network that cannot be had ends the job there
  * and then, so that a retry starts another; a runtime that cannot be saved
- * is said once the network has been. */
+ * is said once the network has been.
+ *
+ * While it runs the phase is 'ai', and the progress is the percent of the
+ * network received: what the table's note calls it, and nearly all of the
+ * save, the runtime being four megabytes of its hundred and more. It is held
+ * at 99 until the runtime is saved too and the worker told, so that it never
+ * says a save is whole that is not. */
 export function prepareOfflineAi() {
   if (aiJob) return aiJob;
   wanted = true;
@@ -438,11 +446,10 @@ async function saveTrained(handOver, live) {
   // fetches the network for itself: online-only browsers still work.
   if (unsupported()) { await startOffline(); return null; }
   const network = playedNetwork(), url = networkUrl(network);
-  // How much of each part is done, from 0 to 1, and the progress they make
-  // between them.
-  const done = { network: 0, runtime: 0 };
+  // How much of the network is in hand, from 0 to 1.
+  let received = 0;
   const saving = () => {
-    if (live()) trainedSays('ai', '', { progress: Math.floor((100 - RUNTIME_SHARE) * done.network + RUNTIME_SHARE * done.runtime) });
+    if (live()) trainedSays('ai', '', { progress: Math.min(99, Math.floor(100 * received)) });
   };
   // The runtime, by the worker that serves it, once that worker is there:
   // on a first visit after its install, which the network does not wait for.
@@ -454,12 +461,7 @@ async function saveTrained(handOver, live) {
     if (live()) update(info);
     if (info.aiReady) return info;
     saving();
-    await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
-      done.runtime = total ? bytes / total : 0;
-      saving();
-    });
-    done.runtime = 1;
-    saving();
+    await request('MAHJONG_PREPARE_AI');
     return info;
   })();
   // Judged below, once the network is in hand.
@@ -469,15 +471,15 @@ async function saveTrained(handOver, live) {
     // as it was: said as a warning at the end, never as a failed download.
     let handed = null, refused = null;
     const stored = await networkIsStored(url, network);
-    if (stored) done.network = 1;
+    if (stored) received = 1;
     else {
       saving();
       try {
         await saveNetwork(url, network, ({ bytes, total }) => {
-          done.network = total ? bytes / total : 0;
+          received = total ? bytes / total : 0;
           saving();
         });
-        done.network = 1;
+        received = 1;
         saving();
       } catch (error) {
         if (error.name !== 'NetworkStorageError') throw error;
