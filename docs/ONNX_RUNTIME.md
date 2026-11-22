@@ -270,9 +270,12 @@ The page downloads the network, never the service worker: a worker's install,
 activation or message event is abandoned after a few minutes (five in Chrome)
 and a half-received body is not kept, so 100 MB on a slow link never finished
 and the update was retried, and failed, on every start. Installation and
-activation fetch the game alone. The worker saves the few megabytes of
-runtime; the page then fetches, verifies and stores the network in an
-installation-scoped v2 cache and tells the worker it is saved. A player who
+activation fetch the game alone. The page fetches, verifies and stores the
+network in an installation-scoped v2 cache, beginning the moment a Trained
+player is chosen: it waits for no worker, so a first visit's network arrives
+beside the install and the first Trained move waits for the network alone
+(`prepareNetwork` in `offline.js`). The worker saves the few megabytes of
+runtime once it is active, and the page tells it when both are saved. A player who
 once asked for Trained offline has each later version's runtime and network
 saved by the running page while the update waits, after the page's own
 network and never beside another network download, or else by the update's

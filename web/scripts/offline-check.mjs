@@ -307,9 +307,10 @@ try {
       const reg=await navigator.serviceWorker.getRegistration();
       return Boolean(reg?.active);
     });
-    // The runtime is saved before the network is fetched, so a runtime that
-    // cannot be saved spends none of the network's 116 MB.
-    assert.equal(count.get(modelPath) ?? 0,0);
+    // The network is saved at once, whatever becomes of the runtime, which is
+    // said incomplete once the network is in hand: its 116 MB are fetched
+    // once, and the retry fetches the runtime alone.
+    assert.equal(count.get(modelPath),1);
     failPath=null;
     await p.click('.settings-trigger'); await openPanel(p, '.offline-settings summary'); await p.click('.offline-settings button'); await ready(p); await p.click('.mobile-preferences-head button');
     assert.equal(count.get(modelPath),1); assert.ok(count.get(runtimePath)>=1);

@@ -13,7 +13,7 @@ const NETWORK_URL = networkUrl(MANIFEST);
 const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
   MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => MANIFEST, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
-  networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
+  networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
   // Batches stay on WebAssembly here; the graphics card's routing has tests of its own (webgpu.test.js).
   batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {}, ...globals,
 }, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
@@ -63,7 +63,7 @@ test('concurrent decisions share one worker and preserve a pending turn', async 
     terminate() { this.terminated = true; }
     answer(message, payload) { this.onmessage({ data: { id: message.id, ...payload } }); }
   }
-  const api = policy({ Worker, prepareOfflineAi: (...args) => new Promise(resolve => downloads.push({ args, resolve })) });
+  const api = policy({ Worker, prepareNetwork: (...args) => new Promise(resolve => downloads.push({ args, resolve })) });
   t.after(() => api.resetPolicy());
   const planes = () => new Float32Array(34);
   const mask = [1, 1];
@@ -370,7 +370,7 @@ test('bytes offline storage refused are handed to the fresh worker once, not dow
     terminate() { this.terminated = true; }
     say(id, payload) { this.onmessage({ data: { id, ...payload } }); }
   }
-  const api = policy({ Worker, prepareOfflineAi: async () => ({ aiReady: false, unstoredNetwork: bytes }) });
+  const api = policy({ Worker, prepareNetwork: async () => ({ unstoredNetwork: bytes }) });
   t.after(() => api.resetPolicy());
   const ask = () => api.chooseAction(new Float32Array(34), [1, 1]);
   const first = ask(), second = ask();

@@ -16,9 +16,9 @@ opponents are the default for a new player, so a first match starts their
 download by itself, and
 the table shows its progress while a Trained opponent waits for it; the hand
 review, Agent watch and a guided game show it too when their first Trained
-advice is what starts the download. On a first visit the network's download
-begins only once the game and every tile graphic are saved, which reports no
-percentage, so until then the table says that the game is being saved first.
+advice is what starts the download. The network's download begins at once, on
+a first visit beside the saving of the game and every tile graphic, which it
+does not wait for; the first Trained move waits for the network alone.
 A player whose saved table is Club or
 Beginner can select a Trained opponent, or choose **Download trained AI for
 offline play** in the status panel without changing the current match. Wait
@@ -76,9 +76,12 @@ still saved, at the cost of keeping each one picked (about 117 MB apiece).
 A network the site stops listing goes the way an older version's does: it
 is kept only while it is the one saved before the current one.
 
-Loading the network into the opponent's worker is its own phase. Where the page
-could not save the network (no service worker, an installation still running, a
-hard reload, a storage failure), the worker downloads it itself, showing its
+Loading the network into the opponent's worker is its own phase. The worker is
+asked only once the page has the network in hand, so the two never fetch it
+side by side, and it does not wait for the runtime to be saved, which it loads
+from the site. Where the page cannot save the network (a browser without
+service workers or Cache Storage, or storage with no room for it), the worker
+downloads it itself, showing its
 progress. That phase has no fixed deadline: it ends when the worker has reported
 nothing for two minutes. The 20-second deadline for a move starts only once the
 network is loaded and the worker begins that move. A Retry after a failed start
@@ -100,6 +103,15 @@ short after a few minutes, too soon for the network on a slow link (see
 [cache lifetime and upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)).
 A page has no such deadline: a transfer that keeps receiving bytes may take up
 to three hours, and one that stalls for a minute fails and can be retried.
+The two are saved side by side, in either order. The page begins the network
+the moment a Trained player is chosen and waits for no service worker; the
+worker saves the runtime once it is active, on a first visit after its
+install, or, where that install outlasts the page's wait for it, when it takes
+control of the page. The panel's percentage counts both, the network for 95
+of its hundred, and it says **Offline: game + AI ready** only once both are
+saved. A network that cannot be fetched fails the Trained opponent at once; a
+runtime that cannot be saved is said in the panel once the network has been,
+and the opponent plays on with the runtime the site serves.
 
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded

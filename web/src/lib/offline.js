@@ -4,7 +4,10 @@
  * The service worker saves the game and the few megabytes of runtime. The
  * trained network is saved here, by the page: a worker's install, activation
  * or message event is abandoned after a few minutes, and a slow link needs
- * longer than that for 100 MB. A page has no such deadline.
+ * longer than that for 100 MB. A page has no such deadline, and it waits for
+ * no worker either: it begins the network the moment a Trained player is
+ * chosen, beside a first visit's install, and the runtime follows once the
+ * worker is there (prepareOfflineAi).
  *
  * A build lists several networks and a page plays one of them, the one its
  * player picked (trained-network.js). Every message names that pick, so the
@@ -16,21 +19,45 @@ const script = new URL('sw.js', base).href;
 let worker = null;
 let boot = null;
 let aiJob = null;
+// The network's part of that job, which is all the opponent's worker waits
+// for (prepareNetwork).
+let networkJob = null;
 let coreJob = null;
 // A player who asked for Trained offline keeps it across upgrades: each
-// version's page saves its own network, automatically once per page.
+// version's page saves its own network, automatically once per page. So does
+// one who asked on this page before its worker was there to save the runtime
+// (wanted).
 let filled = false;
+let wanted = false;
 const updatesSaved = new WeakSet();
 /** The state before anything is known, which App also renders until its
  * first report. Each update replaces the state; none is changed in place. */
 export const INITIAL_OFFLINE = Object.freeze({ supported: null, coreReady: false, aiReady: false, hasModel: false,
   phase: 'checking', progress: 0, warning: '', coreWarning: '', installing: false, persistent: false, updateReady: false });
 let state = INITIAL_OFFLINE;
+// The phase and its warning have two sources, which run side by side: the
+// start says checking, ready or unavailable, and a trained save says ai while
+// it runs and incomplete once it has failed. The save's word stands over the
+// start's until the save is whole.
+let started = { phase: state.phase, warning: state.warning };
+let trained = null;
 const listeners = new Set();
 function update(values) {
-  state = { ...state, ...values };
+  state = { ...state, ...values, ...(trained ?? started) };
   for (const listener of listeners) listener(state);
 }
+function startSays(phase, warning, values) {
+  started = { phase, warning };
+  update(values);
+}
+/** A trained save's word on the phase, or none once it is whole. */
+function trainedSays(phase, warning, values) {
+  trained = phase ? { phase, warning } : null;
+  update(values);
+}
+/** Whether nothing can be saved here at all: a development server, a browser
+ * without service workers or Cache Storage, or a page not served securely. */
+const unsupported = () => import.meta.env.DEV || !('serviceWorker' in navigator) || !('caches' in globalThis) || !isSecureContext;
 export function watchOffline(listener) {
   listeners.add(listener);
   listener(state);
@@ -156,9 +183,11 @@ async function withNetwork(info) {
   return { ...info, aiReady: await networkIsStored(undefined, undefined, info.network) };
 }
 /** Once per page, for a player who asked for Trained offline: a new
- * version's network (and runtime) is saved by its page after activation. */
+ * version's network (and runtime) is saved by its page after activation. So
+ * is the runtime of one who asked on this page while its worker was not
+ * there yet: a first install that outlasted the save's wait for it. */
 function fillRequested(info) {
-  if (filled || !info?.aiRequested || info.aiReady || !info.hasModel || !info.coreReady || !navigator.onLine) return;
+  if (filled || !info || !(info.aiRequested || wanted) || info.aiReady || !info.hasModel || !info.coreReady || !navigator.onLine) return;
   filled = true;
   void prepareOfflineAi().catch(() => {});
 }
@@ -200,8 +229,8 @@ function refreshWhenControlled() {
 export function startOffline() {
   if (boot) return boot;
   const attempt = (async () => {
-    if (import.meta.env.DEV || !('serviceWorker' in navigator) || !('caches' in globalThis) || !isSecureContext) {
-      update({ supported: false, phase: 'unavailable', warning: 'Offline saving is unavailable here. Keep a connection for this session.' });
+    if (unsupported()) {
+      startSays('unavailable', 'Offline saving is unavailable here. Keep a connection for this session.', { supported: false });
       return null;
     }
     let registration = null;
@@ -212,8 +241,8 @@ export function startOffline() {
       if (registration?.scope !== base.href || registration?.active?.scriptURL !== script) registration = null;
       if (!registration) registration = await navigator.serviceWorker.register(script, { scope: base.href, updateViaCache: 'none' });
       // A first visit's worker saves the whole game and every tile graphic
-      // before it activates, and a Trained player's network waits for that.
-      // The install reports no progress, so say that it is running.
+      // before it activates. The install reports no progress, so say that it
+      // is running; a Trained player's network is saved beside it.
       const installing = !registration.active;
       if (installing) update({ installing: true });
       try { await activated(registration); }
@@ -231,7 +260,7 @@ export function startOffline() {
           navigator.serviceWorker.addEventListener('controllerchange', changed); changed();
         });
       }
-      update({ supported: true, phase: 'ready', warning: '' });
+      startSays('ready', '', { supported: true });
       const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
       // This version's own network first; a waiting update's queues behind it.
       fillRequested(info);
@@ -249,12 +278,10 @@ export function startOffline() {
         // or one that failed, or a page a hard reload loaded past its
         // worker. Say which, beside the game's own status, and drop what an
         // earlier attempt that never reached a worker said.
-        update({ supported: true, phase: 'checking', warning: '', coreReady: false, aiReady: false,
-          coreWarning: error.message });
+        startSays('checking', '', { supported: true, coreReady: false, aiReady: false, coreWarning: error.message });
         refreshWhenControlled();
       } else {
-        update({ supported: false, coreReady: false, aiReady: false, phase: 'unavailable',
-          warning: `Offline saving is not ready: ${error.message}` });
+        startSays('unavailable', `Offline saving is not ready: ${error.message}`, { supported: false, coreReady: false, aiReady: false });
       }
       return null;
     }
@@ -275,45 +302,125 @@ export async function refreshOffline() {
   fillRequested(info);
   return info;
 }
+/** The runtime's share of a trained save's progress, in whole percent: its
+ * few megabytes beside the network's hundred and more. */
+const RUNTIME_SHARE = 5;
 /** Saves the trained network this page plays, with its runtime. It is
  * downloaded only when a Trained player is chosen (or was, in an earlier
- * version), and one job runs at a time. */
+ * version), and one job runs at a time.
+ *
+ * Its two parts run side by side, and the save is whole when both are done,
+ * in either order, and the worker has been told. The page begins the network
+ * at once. It waits for no service worker: a first visit's worker is still
+ * saving the game then, and the first Trained move waits for the network
+ * alone (prepareNetwork). The runtime follows, by the worker that serves it,
+ * once that worker is there. A network that cannot be had ends the job there
+ * and then, so that a retry starts another; a runtime that cannot be saved
+ * is said once the network has been. */
 export function prepareOfflineAi() {
   if (aiJob) return aiJob;
-  aiJob = (async () => {
-    if (!(await startOffline())) return null; // Online-only browsers still work, with a visible warning.
-    // This action adds only the trained network/runtime. Core preparation has
-    // its own automatic startup/reconnect path and is not opt-in.
+  wanted = true;
+  let handOver, over = false;
+  const inHand = new Promise(resolve => { handOver = resolve; });
+  const job = saveTrained(handOver, () => !over).finally(() => { over = true; aiJob = null; });
+  // Settled as soon as the network is in hand, or with the job where it ends
+  // without one: after the job has been let go, so that whoever hears that
+  // the network failed can ask again at once and start another.
+  networkJob = Promise.race([inHand, job.then(() => null)]);
+  networkJob.catch(() => {});
+  aiJob = job;
+  return job;
+}
+/** What the opponent's worker waits for before it loads the network, and no
+ * more: the network's part of prepareOfflineAi, which this starts. It
+ * answers as soon as the page has the network in hand: null where it is
+ * stored, or where the page leaves it to that worker to fetch (nothing can
+ * be saved here, or storage has no room for it), and `{ unstoredNetwork }`,
+ * verified bytes storage refused, for that worker to take over. It fails
+ * where the network could not be had. Whether the runtime is saved yet is
+ * not its business: the worker loads it from the site either way. */
+export function prepareNetwork() {
+  void prepareOfflineAi().catch(() => {});
+  return networkJob;
+}
+/** One trained save (prepareOfflineAi). `handOver(handed)` is told the moment
+ * the network is in hand, and `live()` says whether the job still runs: its
+ * runtime part can outlast it, and then says nothing more. */
+async function saveTrained(handOver, live) {
+  // Nothing can be saved here. The start says so, and the opponent's worker
+  // fetches the network for itself: online-only browsers still work.
+  if (unsupported()) { await startOffline(); return null; }
+  const network = playedNetwork(), url = networkUrl(network);
+  // How much of each part is done, from 0 to 1, and the progress they make
+  // between them.
+  const done = { network: 0, runtime: 0 };
+  const saving = () => {
+    if (live()) trainedSays('ai', '', { progress: Math.floor((100 - RUNTIME_SHARE) * done.network + RUNTIME_SHARE * done.runtime) });
+  };
+  // The runtime, by the worker that serves it, once that worker is there:
+  // on a first visit after its install, which the network does not wait for.
+  // This adds only the runtime. Core preparation has its own automatic
+  // startup/reconnect path and is not opt-in.
+  const runtime = (async () => {
+    if (!(await startOffline())) return null;
     const info = await withNetwork(await request('MAHJONG_STATUS'));
-    update(info);
+    if (live()) update(info);
     if (info.aiReady) return info;
-    update({ phase: 'ai', progress: 0, warning: '' });
-    try {
-      // The runtime first, by the worker that serves it: a runtime that
-      // cannot be saved spends none of the network's bytes.
-      await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
-        update({ progress: total ? Math.floor(20 * bytes / total) : 0 });
-      });
-      const network = playedNetwork();
-      await saveNetwork(networkUrl(network), network, ({ bytes, total }) => {
-        update({ progress: 20 + (total ? Math.floor(80 * bytes / total) : 0) });
-      });
-      // The worker now keeps this network, the one saved before it and those
-      // its build lists, and no other.
-      const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
-      update({ ...verified, phase: 'ready', progress: 100, warning: '' });
-      void persistentStorage();
-      return verified;
-    } catch (error) {
-      if (error.name === 'NetworkStorageError') {
-        update({ aiReady: false, phase: 'incomplete', warning: `${error.message} Online play is still available; reconnect before playing offline.` });
+    saving();
+    await request('MAHJONG_PREPARE_AI', ({ bytes, total }) => {
+      done.runtime = total ? bytes / total : 0;
+      saving();
+    });
+    done.runtime = 1;
+    saving();
+    return info;
+  })();
+  // Judged below, once the network is in hand.
+  runtime.catch(() => {});
+  try {
+    // Storage that refuses, the network or the runtime, leaves online play
+    // as it was: said as a warning at the end, never as a failed download.
+    let handed = null, refused = null;
+    const stored = await networkIsStored(url, network);
+    if (stored) done.network = 1;
+    else {
+      saving();
+      try {
+        await saveNetwork(url, network, ({ bytes, total }) => {
+          done.network = total ? bytes / total : 0;
+          saving();
+        });
+        done.network = 1;
+        saving();
+      } catch (error) {
+        if (error.name !== 'NetworkStorageError') throw error;
+        refused = error;
         // Bytes verified but refused by storage go to the opponent's worker,
         // which would otherwise download the same network again.
-        return error.bytes ? { aiReady: false, unstoredNetwork: error.bytes } : null;
+        if (error.bytes) handed = { unstoredNetwork: error.bytes };
       }
-      update({ aiReady: false, phase: 'incomplete', warning: `AI download incomplete: ${error.message}` });
-      throw error;
     }
-  })().finally(() => { aiJob = null; });
-  return aiJob;
+    handOver(handed);
+    let info = null;
+    try { info = await runtime; } catch (error) {
+      if (error.name !== 'NetworkStorageError') throw error;
+      refused ??= error;
+    }
+    if (refused) {
+      trainedSays('incomplete', `${refused.message} Online play is still available; reconnect before playing offline.`, { aiReady: false });
+      return handed ? { aiReady: false, ...handed } : null;
+    }
+    // No worker here to keep a runtime: the start says why, and play goes on
+    // online. Nor is there anything to tell a worker that found both saved.
+    if (!info || (stored && info.aiReady)) { trainedSays(null); return info; }
+    // The worker now keeps this network, the one saved before it and those
+    // its build lists, and no other.
+    const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
+    trainedSays(null, '', { ...verified, progress: 100 });
+    void persistentStorage();
+    return verified;
+  } catch (error) {
+    trainedSays('incomplete', `AI download incomplete: ${error.message}`, { aiReady: false });
+    throw error;
+  }
 }

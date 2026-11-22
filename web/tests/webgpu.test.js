@@ -767,7 +767,7 @@ test('the page sends single decisions to its WebAssembly worker alone, and batch
   const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout, Worker,
     MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => READY, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    navigator: { onLine: true }, networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
+    navigator: { onLine: true }, networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
     batchesOnCard: (positions, signal, wasm) => { routed.push(positions.length); return wasm(positions, signal); },
     resetCard: reason => resets.push(reason),
   }, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'resetPolicy']);

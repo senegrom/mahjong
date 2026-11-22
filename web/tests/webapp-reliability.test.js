@@ -14,7 +14,7 @@ const deferred = () => {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 };
-function client(t, prepareOfflineAi) {
+function client(t, prepareNetwork) {
   const workers = [];
   class Worker {
     constructor() { this.messages = []; this.terminated = false; workers.push(this); }
@@ -26,7 +26,7 @@ function client(t, prepareOfflineAi) {
   }
   const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, prepareOfflineAi, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
+    URL, DOMException, Worker, setTimeout, clearTimeout, prepareNetwork, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     networkUrl: network => network.url, playedNetwork: () => ({ url: 'https://test.invalid/network' }),

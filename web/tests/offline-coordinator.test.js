@@ -101,12 +101,17 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
       onProgress?.({ bytes: 1, total: 2 });
       stored.add(url);
       return new Uint8Array(1);
-    } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
+    } }, ['startOffline', 'refreshOffline', 'prepareOfflineAi', 'prepareNetwork', 'watchOffline'], { 'import.meta.env.DEV': 'false' });
   api.watchOffline(value => latest = value);
   return { api, calls, asked, info, faults, stored, saves, navigator, state: () => latest,
     registrations: () => registrations, finishInstall, claim };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await setImmediate(); };
+/** Settles until `met()` holds, for work that takes several messages. */
+async function until(met, what) {
+  for (let turn = 0; turn < 50 && !met(); turn++) await settle();
+  assert.ok(met(), what);
+}
 
 test('startup automatically fills a missing game/graphics cache without requesting AI', async () => {
   const c = coordinator();
@@ -154,8 +159,8 @@ test('an interrupted first registration retries on reconnect without an AI downl
 });
 
 test('a first visit says the game is installing until its worker activates or fails', async () => {
-  // A Trained default's network waits for this install, which reports no
-  // progress of its own; the table can only say that it is running.
+  // The install reports no progress of its own; the panel can only say that
+  // it is running.
   for (const ending of ['activated', 'redundant']) {
     const c = coordinator({ registered: false, coreReady: true, installs: true });
     const started = c.api.startOffline();
@@ -179,7 +184,8 @@ test('a first visit says the game is installing until its worker activates or fa
 });
 
 test('a first install that outlasts the page\'s wait is shown as running, and as ready once its worker takes control', async () => {
-  // Below about 5 Mbit/s the first install outlasts the page's two minutes.
+  // Below about 0.5 Mbit/s the first install, about 7 MB, outlasts the page's
+  // two minutes.
   const c = coordinator({ registered: false, coreReady: true, installs: true, controlled: false, impatient: true });
   const seen = [];
   c.api.watchOffline(value => seen.push(value));
@@ -243,7 +249,7 @@ test('storage failure is a visible offline warning, not a prohibition on online 
   assert.equal(c.state().aiReady, true);
 });
 
-test('the page saves the network after the worker saves the runtime, once', async () => {
+test('one save: the network by the page, the runtime by the worker, and the worker told once', async () => {
   const c = coordinator({ coreReady: true, held: false });
   await c.api.startOffline();
   const progress = [];
@@ -253,16 +259,115 @@ test('the page saves the network after the worker saves the runtime, once', asyn
   assert.deepEqual(c.saves, [{ url: NETWORK.url, expect: NETWORK, requireStored: true }]);
   assert.equal(c.state().aiReady, true);
   assert.equal(c.state().phase, 'ready');
-  assert.ok(progress.includes(60), 'the network is the last four fifths of the progress');
+  assert.equal(c.state().progress, 100);
+  assert.ok(progress.includes(47), 'half the network is half of the 95 it counts for');
+  assert.deepEqual(progress, [...progress].sort((a, b) => a - b), 'the progress never goes back');
   await c.api.prepareOfflineAi();
   assert.equal(c.saves.length, 1, 'a saved network is never fetched again');
 });
 
-test('a runtime that cannot be saved spends none of the network\'s bytes', async () => {
+test('a first visit saves its network at once, beside the install, and the runtime follows when the worker is there', async () => {
+  // The install is still running: no worker is active to be asked anything.
+  const c = coordinator({ registered: false, coreReady: true, installs: true, held: false });
+  const phases = [];
+  c.api.watchOffline(value => phases.push(value.phase));
+  const job = c.api.prepareOfflineAi();
+  // What the opponent's worker waits for is in hand while the game is saved.
+  assert.equal(await c.api.prepareNetwork(), null);
+  assert.deepEqual(c.saves, [{ url: NETWORK.url, expect: NETWORK, requireStored: true }]);
+  await settle();
+  assert.deepEqual(c.calls, [], 'nothing waited for the worker');
+  const { phase, progress, installing, aiReady } = c.state();
+  assert.deepEqual({ phase, progress, installing, aiReady }, { phase: 'ai', progress: 95, installing: true, aiReady: false },
+    'the save is not whole: its runtime waits for the worker');
+  assert.match(panel(c.state()), /Saving AI… 95%/);
+  c.finishInstall('activated');
+  assert.equal((await job).aiReady, true);
+  assert.deepEqual(c.calls, ['MAHJONG_STATUS', 'MAHJONG_STATUS', 'MAHJONG_PREPARE_AI', 'MAHJONG_NETWORK_SAVED']);
+  assert.equal(c.saves.length, 1);
+  assert.match(panel(c.state()), /Offline: game \+ AI ready/);
+  // The start's own word, checking and then ready, never stood over the save's.
+  const said = phases.slice(phases.indexOf('ai'));
+  assert.deepEqual([...new Set(said)], ['ai', 'ready']);
+});
+
+test('the two parts of a save finish in either order, and its progress counts both', async () => {
+  // The runtime first: the network's transfer is held until the worker has saved the runtime.
+  const c = coordinator({ coreReady: true, held: false });
+  let release;
+  c.faults.transfer = () => new Promise(done => { release = done; });
+  await c.api.startOffline();
+  const progress = [];
+  c.api.watchOffline(value => { if (value.phase === 'ai') progress.push(value.progress); });
+  const job = c.api.prepareOfflineAi();
+  await until(() => c.calls.includes('MAHJONG_PREPARE_AI') && c.state().progress === 5, 'the runtime is saved first');
+  assert.equal(c.state().phase, 'ai', 'and the save is not whole without its network');
+  assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
+  release();
+  assert.equal((await job).aiReady, true);
+  assert.deepEqual([...new Set(progress)], [0, 5, 52, 100]);
+  assert.equal(c.calls.at(-1), 'MAHJONG_NETWORK_SAVED');
+});
+
+test('the opponent\'s worker waits for the network alone, and a network that failed can be asked again at once', async () => {
+  const c = coordinator({ registered: false, coreReady: true, installs: true, held: false });
+  c.faults.network = new Error('The network could not be fetched: 503');
+  await assert.rejects(c.api.prepareNetwork(), /could not be fetched/);
+  assert.equal(c.state().phase, 'incomplete');
+  assert.match(c.state().warning, /AI download incomplete/);
+  // The install still runs, and the first save's runtime still waits for it:
+  // the retry starts another save all the same, and its network is fetched.
+  c.faults.network = null;
+  assert.equal(await c.api.prepareNetwork(), null);
+  assert.equal(c.saves.length, 2);
+  assert.equal(c.state().phase, 'ai');
+  c.finishInstall('activated');
+  await until(() => c.state().aiReady, 'the runtime follows');
+  assert.equal(c.state().phase, 'ready');
+});
+
+test('the network is saved whatever becomes of the runtime, which is said once the network is in hand', async () => {
+  // The owner's choice: the first Trained move comes before the bytes a
+  // runtime that cannot be saved would have spared.
   const c = coordinator({ coreReady: true, held: false, failAi: true });
   await c.api.startOffline();
-  await assert.rejects(c.api.prepareOfflineAi(), /AI interrupted/);
+  const job = c.api.prepareOfflineAi(), failed = assert.rejects(job, /AI interrupted/);
+  assert.equal(await c.api.prepareNetwork(), null, 'online play has its network');
+  await failed;
+  assert.equal(c.saves.length, 1);
+  assert.equal(c.state().phase, 'incomplete');
+  assert.match(c.state().warning, /AI download incomplete: AI interrupted/);
+  assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
+  // The retry fetches no network again.
+  c.faults.ai = false;
+  assert.equal((await c.api.prepareOfflineAi()).aiReady, true);
+  assert.equal(c.saves.length, 1);
+});
+
+test('a runtime owed to a worker that came late is saved when that worker takes control', async () => {
+  // The install outlasts the save's wait for it, as on a slow first visit.
+  const c = coordinator({ registered: false, coreReady: true, installs: true, controlled: false, impatient: true, held: false });
+  const job = c.api.prepareOfflineAi();
+  assert.equal(await c.api.prepareNetwork(), null);
+  assert.equal(await job, null, 'no worker yet to save the runtime');
+  assert.equal(c.saves.length, 1);
+  assert.equal(c.state().phase, 'checking');
+  assert.equal(c.calls.includes('MAHJONG_PREPARE_AI'), false);
+  c.finishInstall('activated');
+  c.claim();
+  await until(() => c.state().aiReady, 'the page saves the runtime by itself');
+  assert.ok(c.calls.includes('MAHJONG_PREPARE_AI'));
+  assert.equal(c.saves.length, 1, 'and fetches no network again');
+  assert.match(panel(c.state()), /Offline: game \+ AI ready/);
+});
+
+test('where nothing can be saved the page leaves the network to the opponent\'s worker', async () => {
+  const c = coordinator({ held: false });
+  delete c.navigator.serviceWorker;
+  assert.equal(await c.api.prepareNetwork(), null);
+  assert.equal(await c.api.prepareOfflineAi(), null);
   assert.deepEqual(c.saves, []);
+  assert.equal(c.state().phase, 'unavailable');
 });
 
 test('a page download that fails is incomplete and a storage failure is only an offline warning', async () => {

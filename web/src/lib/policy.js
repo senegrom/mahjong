@@ -1,7 +1,7 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 /* global __RUNTIME_DIRECTORY__ */
-import { prepareOfflineAi, refreshOffline } from './offline.js';
+import { prepareNetwork, refreshOffline } from './offline.js';
 import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
@@ -31,6 +31,10 @@ let loading;
 // Preparation belongs to the runtime lifetime, not to every decision. Even
 // when durability is unavailable, a verified resident network can keep playing.
 // Explicit downloads and foreground status checks still verify offline storage.
+// It is the page's own save of the network and no more (prepareNetwork): the
+// worker is asked once the page has the network in hand, so that it never
+// fetches a second copy beside the page's, and it does not wait for the
+// runtime to be saved, which it loads from the site.
 let preparation = null;
 // Verified network bytes that offline storage refused, for the next worker.
 let unstored = null;
@@ -107,7 +111,7 @@ function backstop(id) {
 
 function preparePolicy() {
   if (!preparation) {
-    const held = prepareOfflineAi().then(prepared => {
+    const held = prepareNetwork().then(prepared => {
       if (preparation === held) unstored = prepared?.unstoredNetwork ?? null;
     }, error => {
       if (preparation === held) preparation = null;
