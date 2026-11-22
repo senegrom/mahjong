@@ -41,8 +41,34 @@ test('riichi is rendered once, with separate conditional meters and the actual s
   assert.match(body, /Riichi 2m, given riichi/);
   assert.match(body, /class="weight-row[^"]*\bbest\b[^"]*" data-choice="Riichi 2m"/);
   assert.equal((body.match(/<button /g) ?? []).length, 3, 'only actual moves are clickable, not the declaration heading');
-  assert.match(body, /aria-label="Play Riichi 1m"/); assert.match(body, /aria-label="Play Riichi 2m"/);
   assert.doesNotMatch(body, /plays its highest weight|60\.0%/);
+});
+
+test("a row's button is called by what the row shows: the verb, the move, its weight and whose choice it is", async () => {
+  // A button's own name replaces what is drawn in it, so it carries the
+  // weight the row writes, in the row's own words.
+  const names = markup => [...markup.matchAll(/<button class="choice-action[^"]*"[^>]* aria-label="([^"]*)"/g)].map(([, name]) => name);
+  const body = await html('AgentWeights.svelte', { analysis: analysis(), onchoose() {} });
+  assert.deepEqual(names(body), ['Play: Riichi 2m, 75.0% given riichi, agent choice', 'Play: Riichi 1m, 25.0% given riichi', 'Play: Discard 3m, 20.0%']);
+  // The words under the chosen row are the name's last, so they are not read twice.
+  assert.match(body, /<span class="selected-label[^"]*" aria-hidden="true">Agent choice<\/span>/);
+  // A guided game records the move rather than plays it.
+  const recorded = await html('AgentWeights.svelte', { analysis: analysis(), onchoose() {}, verb: 'Record' });
+  assert.deepEqual(names(recorded).map(name => name.split(':')[0]), ['Record', 'Record', 'Record']);
+  // A stage not evaluated and a kan the network cannot name say so, not 0%.
+  const kan = { kind: 'concealed-kan', tile: '7z', label: 'Extra kan', weight: null };
+  const chosen = { ...discard, weight: .8 };
+  const bare = await html('AgentWeights.svelte', { onchoose() {}, analysis: analysis({ choice: chosen,
+    choices: [chosen, { ...reachA, weight: .2, conditionalWeight: null }, kan] }) });
+  assert.deepEqual(names(bare), ['Play: Discard 3m, 80.0%, agent choice', 'Play: Riichi 1m, not evaluated', 'Play: Extra kan, unscored']);
+  // A built-in agent has no weights: its rows are the move, and its choice.
+  const club = await html('AgentWeights.svelte', { onchoose() {}, analysis: { agent: 'club', kind: 'selection', choice: reachA,
+    choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
+  assert.deepEqual(names(club), ['Play: Riichi 1m, agent choice', 'Play: Discard 3m']);
+  // Rows that are not buttons are read as they are drawn, the words under the chosen one too.
+  const read = await html('AgentWeights.svelte', { analysis: analysis() });
+  assert.deepEqual(names(read), []);
+  assert.match(read, /<span class="selected-label[^"]*">Agent choice<\/span>/);
 });
 
 test('display order and aggregate weights do not change the blue selected-move marker', async () => {

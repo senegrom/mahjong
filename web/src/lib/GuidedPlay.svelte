@@ -187,7 +187,7 @@
       {:else if state.stage === 'decision'}
         <p class="eyebrow">Agent advice</p><h3>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
         {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
-        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} disabled={busy || blocked} />
+        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} verb="Record" disabled={busy || blocked} />
           <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
         {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>
           {#if failure && isTrained(state.agent)}<button data-guided-club onclick={() => edit(s => { s.agent = 'club'; })}>Use Club as adviser</button>{/if}{/if}

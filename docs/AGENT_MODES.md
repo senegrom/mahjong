@@ -121,6 +121,12 @@ multiplied into one weight, and Trained AI's move stays the advice whatever
 the rows show. The declaration row is not a button: a discard must still be
 chosen and confirmed.
 
+Where the rows are buttons, in Watch and a guided game, a screen reader hears
+each by what its row shows, since a button's name stands in place of what is
+drawn in it: what pressing it does, the move, its weight, and that it is the
+agent's choice ("Play: discards the 3 circles, 62.5%, agent choice"; "Record:
+…" in a guided game, "not evaluated" or "unscored" where the row says so).
+
 The value is the network's estimate of the reward it learned from, which the
 model manifest records for each network as its trainer was given it, so it is
 named and explained by the network the page plays. 0.1.810 and 0.1.410 show

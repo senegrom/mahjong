@@ -6,7 +6,19 @@
   import { percent } from './ui.js';
   import { valueWords } from './trained-network.js';
   import { RULE_WORDS, ruleLine, ruleSaid } from './trained-move.js';
-  let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
+  // With `onchoose` each row is a button, and `verb` is what pressing it does
+  // with the move: Play in Agent watch, Record in a guided game.
+  let { analysis = null, onchoose = null, disabled = false, dora = [], verb = 'Play' } = $props();
+  // What a row's button is called. A button's own name stands in place of all
+  // that is drawn in it, so the name says what the row shows: the move, its
+  // weight as the row writes it, and that it is the agent's choice. Named by
+  // the move alone, every row read alike and no weight was ever heard.
+  const rowName = (choice, weight, conditional, selected) => [
+    `${verb}: ${choice.label}`,
+    analysis.kind !== 'policy' ? '' : weight == null ? (conditional ? 'not evaluated' : 'unscored')
+      : `${percent(weight)}${conditional ? ' given riichi' : ''}`,
+    selected ? 'agent choice' : '',
+  ].filter(Boolean).join(', ');
   // A signed estimate of the reward the network learned from, which differs
   // between networks: the words name it and say what it pays.
   const worth = value => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)}`;
@@ -45,9 +57,10 @@
       {@const weight = conditional ? choice.conditionalWeight : choice.weight}
       <div class="weight-row" class:best={selected} data-choice={choice.label}>
         {#if onchoose}
-          <button class="choice-action" {disabled} onclick={() => onchoose(choice)} aria-label={`Play ${choice.label}`}>{@render rowContent(choice, weight, conditional)}</button>
+          <button class="choice-action" {disabled} onclick={() => onchoose(choice)} aria-label={rowName(choice, weight, conditional, selected)}>{@render rowContent(choice, weight, conditional)}</button>
         {:else}{@render rowContent(choice, weight, conditional)}{/if}
-        {#if selected}<span class="selected-label">Agent choice</span>{/if}
+        <!-- The button's name has said it already. -->
+        {#if selected}<span class="selected-label" aria-hidden={onchoose ? 'true' : undefined}>Agent choice</span>{/if}
       </div>
     {/snippet}
     <div class="weight-list">
