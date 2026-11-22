@@ -850,7 +850,7 @@
   {:else if ready && mode === 'guided'}
     <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} />
   {:else if ready && mode === 'physical'}
-    <PhysicalPlay {trainedAvailable} {storage} />
+    <PhysicalPlay {trainedAvailable} {storage} {offline} {workerNote} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
       <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} onclose={closeGameReview} {shortcuts} {touch}

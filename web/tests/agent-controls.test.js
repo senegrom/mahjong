@@ -195,16 +195,17 @@ test('physical play\'s editor leaves a riichi it moved no draw of the turn it le
   assert.equal(state.history.at(-1).players[0].drew_at_riichi, '1m', 'Undo brings the table back with it');
 });
 
-test("Watch, a guided game and both reviews show the worker's own download as Play's table does", async () => {
+test("Watch, a guided game, physical play and both reviews show the worker's own download as Play's table does", async () => {
   const { waitingNote } = await import('../src/lib/ui.js');
   const app = component('../src/App.svelte');
   const note = 'downloading the network 37%';
-  for (const [name, tag] of [['AgentWatch', 'AgentWatch'], ['GuidedPlay', 'GuidedPlay'], ['Review', 'Review'], ['GameReview', 'GameReview']]) {
+  for (const [name, tag] of [['AgentWatch', 'AgentWatch'], ['GuidedPlay', 'GuidedPlay'], ['PhysicalPlay', 'PhysicalPlay'], ['Review', 'Review'],
+    ['GameReview', 'GameReview']]) {
     const { source, ast } = component(`../src/lib/${name}.svelte`);
     const download = find(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'download');
     const shown = download.init.arguments[0];
     const state = { waitingNote, workerNote: note, offline: null, isTrained: agent => agent === 'full',
-      state: { agent: 'full' }, watch: { lineup: ['full', 'club', 'club', 'club'] } };
+      state: { agent: 'full' }, agent: 'full', watch: { lineup: ['full', 'club', 'club', 'club'] } };
     assert.equal(vm.runInContext(source.slice(shown.start, shown.end), vm.createContext(state)), note, name);
     // The page hands each the note.
     const used = find(app.ast.fragment, node => node.type === 'Component' && node.name === tag);

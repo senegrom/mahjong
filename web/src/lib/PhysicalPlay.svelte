@@ -5,13 +5,16 @@
   import { analysisOf, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
+  import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
 
-  let { trainedAvailable, storage } = $props();
+  let { trainedAvailable, storage, offline = null, workerNote = '' } = $props();
   let position = $state(emptyPosition());
   let agent = $state('club');
+  // A Trained analysis may be waiting for the network's first download.
+  let download = $derived(isTrained(agent) ? waitingNote(workerNote, offline) : '');
   let agentChosen = $state(false);
   let analysis = $state(null);
   let analyzedKey = '';
@@ -189,6 +192,9 @@
     <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable || agent === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{agentName(key)}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
+  <!-- Trained takes a second or two a table, and minutes while its network
+       is first downloaded, which the line says as Watch and a guided game do. -->
+  {#if busy && isTrained(agent)}<p role="status">The agent is thinking…{download ? ` ${download}` : ''}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   {#if recorded?.key === JSON.stringify(position)}<p role="status">{recorded.message}</p>{/if}
   {#if analysis}

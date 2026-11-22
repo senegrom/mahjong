@@ -223,7 +223,10 @@ call identify the tile just claimed. For a response identify the discarding
 seat and pending tile; kan-robbery windows have separate kinds. **Show agent
 weights** validates the table and analyses it. A number left empty or typed
 out of its range is asked for by name first ("The honba count must be 0 to
-100"), since a number field takes whatever is typed. Editing cancels stale advice.
+100"), since a number field takes whatever is typed. While Trained is asked,
+a line says that the agent is thinking and, during the network's first
+download, how far that has got, as Watch and a guided game say it. Editing
+cancels stale advice.
 Record the move actually played, even when it differs from the suggestion.
 
 **Record the next physical move** adds a known hand's actual draw or records

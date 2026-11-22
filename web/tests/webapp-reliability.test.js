@@ -172,6 +172,8 @@ function editor() {
     players: Array.from({ length: 4 }, () => ({ score: 31000, hand: [], melds: [], discards: [], riichi: 'none', ippatsu: false, furiten: false })) });
   const context = vm.createContext({
     structuredClone, emptyPosition, withoutStaleDraw, $state: value => value, $effect() {}, $props: () => ({}),
+    // What the component derives is read once here: the note of a download, of which there is none.
+    $derived: value => value, isTrained: agent => agent === 'full', waitingNote: () => '',
     onMount() {}, onDestroy() {}, PhysicalAnalysis: class {},
   });
   const script = physicalSource.slice(physicalScript.start, physicalScript.end).replace(/^\s*import .*;$/gm, '');
