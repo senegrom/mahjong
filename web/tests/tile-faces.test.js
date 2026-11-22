@@ -28,16 +28,15 @@ function webpSize(bytes) {
 }
 
 /** The raster a face's SVG carries, checked against what its manifest entry
- * says ships: a WebP of that digest, a pixel to a unit of the box it is
- * drawn in. Answers its size. */
+ * says ships: the face of that digest, carrying a WebP of a pixel to a unit
+ * of the box it is drawn in. Answers the raster's size. */
 function shippedRaster(svg, entry) {
+  assert.equal(sha256(svg), entry.svgSha256, entry.svg);
   const embedded = svg.match(/<image clip-path="url\(#face\)" x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)" preserveAspectRatio="none" href="data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)"\/>/);
   assert.ok(embedded, entry.svg);
   assert.equal(embedded[3], 'image/webp');
   assert.equal(entry.rasterMimeType, 'image/webp');
-  const bytes = Buffer.from(embedded[4], 'base64');
-  assert.equal(sha256(bytes), entry.rasterSha256, entry.svg);
-  const size = webpSize(bytes);
+  const size = webpSize(Buffer.from(embedded[4], 'base64'));
   assert.deepEqual(size, { width: Math.ceil(Number(embedded[1])), height: Math.ceil(Number(embedded[2])) }, entry.svg);
   return size;
 }

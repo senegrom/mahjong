@@ -26,8 +26,8 @@
         "height": 1448
       },
       "pngSha256": "8986c6817d65fa262d4b55403e5a6e87a2d1727f527276252e1985057309a4a7",
+      "svgSha256": "bb90b28f2ddd249066064df7f37d36f48ee869376a06ebb370b8d358a8efa55f",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "060e50f1ac780ba2eece6883a151ab21195dae77a1c40fe1c4082514f090f9b7",
       "raster": {
         "width": 306,
         "height": 408
@@ -50,8 +50,8 @@
         "height": 663
       },
       "pngSha256": "cd297284b69070f82513fe27e6e91d1d142a424b390065562a3163e327430f18",
+      "svgSha256": "48c25f6d4fa8a7e118a85a2dabddf8a5ee9454cf56127eb99dad41e922f117d7",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "66de4a2dc4b59c8d12362c4755e308b592b6fb3bdfff4aa1c793b306d7e8713d",
       "raster": {
         "width": 306,
         "height": 408
@@ -89,8 +89,8 @@
         }
       },
       "pngSha256": "25a200be6dfc27b6c8e44512e66e6fc451514416e9fee29cf236e988018c390e",
+      "svgSha256": "15559c6fe0ce3427c22bdd623888f1f22a344fc91dcb5ca84e2944c2a8628e86",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "d168f65c45746622281340bd97e40a1907eab6504f4c4be2f4e4816839577edf",
       "raster": {
         "width": 326,
         "height": 402
@@ -127,8 +127,8 @@
         }
       },
       "pngSha256": "6e20985c3bafabe016b3e58861250450dcb82f153be38de2e3c4de9bbe5e0750",
+      "svgSha256": "8299a89a2b0fa86fda88fca52c9df1f0e9ddfcea174a46b7db87348edeb5f5dd",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "bcc555e092a971fed3e546dddfff8e4ff1d7c3a6187e61b400bffab1229df9c9",
       "raster": {
         "width": 310,
         "height": 408
@@ -151,8 +151,8 @@
         "height": 1448
       },
       "pngSha256": "4488c45068d761a2174caa3942ccf99eeead64d41e6311a650beae1fd5feefce",
+      "svgSha256": "fcded35cac05c6b32428a5d17a372e372f1b4753fdf24a875ade981fbf367e23",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "2b2bdb24a1d527a4270f063d8beb8380e48663ac2e3830cf2b1e9b6b6f818fd8",
       "raster": {
         "width": 306,
         "height": 408
@@ -189,8 +189,8 @@
         }
       },
       "pngSha256": "f9afd8352d725988b9046ca1d7e39924e0d3bdf16ad498314c49ece82c6de20a",
+      "svgSha256": "4dae218642d1c4b776b85be15d3360ee2fe2a371f1a1615a648a65d50d4ecb7e",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "2a0f9f3e298f10d854f246e9f8f7cdc6f84ac4e38f0d8c99a9aefc43fbaa32d1",
       "raster": {
         "width": 308,
         "height": 408
@@ -228,8 +228,8 @@
         }
       },
       "pngSha256": "4f83ee698ed54cb626253a671efe4d62d83cdb1c22a50954d2d854988bb615b0",
+      "svgSha256": "630033af17881558565315e9c775c6d90311678013b25fbf71c520b0d50f6f85",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "b3c668a87d90220beae3347152eca3c10e60bcbfcbd34320e5476aa0bb01473d",
       "raster": {
         "width": 302,
         "height": 427
@@ -252,8 +252,8 @@
         "height": 729
       },
       "pngSha256": "0bc5a1bd0c948474da7f352427c4a62063e281e1214d4d2d7b246c2d3478c99b",
+      "svgSha256": "46fcbdeed971a822ee7df581ae920e1b207cab5e6b7f240b9e91713d2d66edba",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "7090b30b93d899dbcedd5cf224b613d5031e9d27c89dfca2eade49a6e556aea8",
       "raster": {
         "width": 306,
         "height": 408
@@ -276,8 +276,8 @@
         "height": 1448
       },
       "pngSha256": "ee6af5c74a54d4c05a7caddb0139f992dd6ceedbaa63f84a05e4c57598ae56fe",
+      "svgSha256": "d92db2603cc3309740fb0d491e9a1b36b9ff8b9357e61ca535e09528d6b72777",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "939b61a6ba482c6a38f0dab0563d3c235a15444254c1f1aa2caebb9b7609e442",
       "raster": {
         "width": 306,
         "height": 408
@@ -314,8 +314,8 @@
         }
       },
       "pngSha256": "00a18f33afd238d96212011d8b1b3e7db5ac0b09bb37fb5c3bd36329c55e1d45",
+      "svgSha256": "525538892cc36f8776f1324d2c48e1209f6b183f5ae232838737e1b41085f22e",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "b355199c22338669b10f632c8f535df5d523e5ca10a4e51cb94b206102d7d30a",
       "raster": {
         "width": 308,
         "height": 408
@@ -338,8 +338,8 @@
         "height": 1448
       },
       "pngSha256": "f55fd530237c73b5db2e77464316438cb4031dd83aab0d36650f7b2710a06658",
+      "svgSha256": "01f51b6cc2d344b43c6ba3026fffb0e5925b939b1c737cc530741e91a4389d69",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "2c229f29e956ba39c614acfff80a1eb72da1e5619d1fc0bb9c31cad4d6bf4719",
       "raster": {
         "width": 306,
         "height": 408
@@ -377,8 +377,8 @@
         }
       },
       "pngSha256": "4e9221c96d00064b648219c31abf254fa60879a6637f7b1c5951906f056a61fa",
+      "svgSha256": "1c0ac925ce0c9dcaca3e74ef5ed262fa6bd3b0b4a7a80ebe790c468e38085af2",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "a3b6aff36637001fdf54d3661a1ac2f9fb7ba965b2637a3d4b86d41e8f17ca2c",
       "raster": {
         "width": 302,
         "height": 414
@@ -401,8 +401,8 @@
         "height": 1448
       },
       "pngSha256": "1f96c1b2f705820d2b3fe46f07ab8f0452888f22b82a3563cdba99685c1d49ad",
+      "svgSha256": "dfe5c796c61cbc1e3ae9e2539aee036bf9d313bee1b715478f7f199a03b1a1dc",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "3c807516e4b50190cf783edcbe148c158868f6c14d40a7a39e8627e54c525976",
       "raster": {
         "width": 306,
         "height": 408
@@ -425,8 +425,8 @@
         "height": 1264
       },
       "pngSha256": "627dae1e471acc29682e656fb0e58bde13846794b0b4183675525b7b72ac72fb",
+      "svgSha256": "a79d793889afd075fc250ff93a5c4df4ce068f8a9c5af02876dfa6bcec451e1a",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "a57098198185c0a44df17b48ef38cce08ca128ccc16c8f78a7125fe7b7be7ca4",
       "raster": {
         "width": 306,
         "height": 408
@@ -449,8 +449,8 @@
         "height": 1448
       },
       "pngSha256": "39430ff25b0b729dd5a73fb0e68721a528a0ae4189f3de827f5554cfc69b02a7",
+      "svgSha256": "8b1ed4f8fbc2a56de596eb8fddf024e1653c290ea0f745d495c79f377192ab8c",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "69fc28c0e380fe6cba1d8bfdf56da8c7333fd0045d02f93cb15a215f4ae71e56",
       "raster": {
         "width": 306,
         "height": 408
@@ -473,8 +473,8 @@
         "height": 1281
       },
       "pngSha256": "29f880256155c5292f2c7146ca14d9125ae7b1b3c72ab0ab309d5b1d34b25737",
+      "svgSha256": "9f0b46eaf89ea6ede9e447d3a65cd74670f91b22bf948af54582514ba365e0b4",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "f8b5a5a74d93b2054667667238255921150e6bf6d169cc56bad17b03f45c3be4",
       "raster": {
         "width": 306,
         "height": 408
@@ -497,8 +497,8 @@
         "height": 1443
       },
       "pngSha256": "67319f35882504a3c4fe8a9257f75dd466d834063ded06c46f52400201bf1b7c",
+      "svgSha256": "f28e05668108cf4529e83f052aa509eef73e9cdcfb48cbd6aa4353834ff90469",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "b3ff6a399c53bc23cc2d8e837702d0e5e787dc1c01a1b20e14439fdcd839b800",
       "raster": {
         "width": 306,
         "height": 408
@@ -535,8 +535,8 @@
         }
       },
       "pngSha256": "a0d6a5c699bbda6a20ea3dc0eef5e02d993a1d4fe44b814117835a0f885051d4",
+      "svgSha256": "fe3132a92c902b9c6296bb6411d83454c2757ffb0faa47e77c3123cbb865728f",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "5c9e6e0e8f60f2e4a5b9602287eb999c5e5f7c6923974d223dcc289c26bb7cfd",
       "raster": {
         "width": 306,
         "height": 435
@@ -559,8 +559,8 @@
         "height": 1306
       },
       "pngSha256": "ee37ff0ff4b8cbf247fbe5eb60ead6f37611066838c75f61c04a282965af2c91",
+      "svgSha256": "516d6ad3f960e3796ef14aa96417db51363f0c0deeaa0296e8e16165314cc425",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "1982b486066905c1e27d1eaa095b10a3f5221fcd70e8e5792e281702240b434d",
       "raster": {
         "width": 306,
         "height": 408
@@ -597,8 +597,8 @@
         }
       },
       "pngSha256": "605a5230bc0eac420c3e08f238ad61d1745001de00e7b4a14ec5f05d0eb77d47",
+      "svgSha256": "ecc466ac76d08de40656b1df884ab9355b2bf50fb582af7bda11fddf166db75c",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "359829047b77fbdab60bed6a9ddf0b701c86ee480e34fed587ac0f927107d010",
       "raster": {
         "width": 306,
         "height": 416
@@ -621,8 +621,8 @@
         "height": 700
       },
       "pngSha256": "cfe49101303309142fb07bcae57f9c58f69eb0d66617728eb56e7276dc4ac23a",
+      "svgSha256": "096b7aec48298243e6f3012f494696834719d4b5d325ecfcce2a21e16b99e95b",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "0aa37b21dad3378e3fe57f19763aec2e50b32d5ce9e65257214bc955cdf94ced",
       "raster": {
         "width": 306,
         "height": 408
@@ -660,8 +660,8 @@
         }
       },
       "pngSha256": "39512eadbf30dec0e61d0e69a18f68117b121450c3e20c6e94efd1f27f66942c",
+      "svgSha256": "a3d415844c70856ee5bd76dfbfc445aba2cd6de631e00c8ee8b32e7524dd1bbc",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "8c11e513cd73d06cae10fac3087cd66887197a0980349bbe37c745f428e2edd8",
       "raster": {
         "width": 301,
         "height": 423
@@ -684,8 +684,8 @@
         "height": 1448
       },
       "pngSha256": "648c9fdc753fb16fb5285b2092d27bf3058aaba94b5a01a2e040638ce17b7732",
+      "svgSha256": "99c360a51560747c8e3da1985500d8ed93ad0fcea15663a0fa7137162f7f10f5",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "97fd4fdafddb2f65165c7e549ab8a1a42b3d02c9c9fd092eeb9bbfe3d1e3b612",
       "raster": {
         "width": 306,
         "height": 408
@@ -708,8 +708,8 @@
         "height": 1448
       },
       "pngSha256": "286c8d59d30bf23e6b469263a94bd79e46fbf121e0a7cec0c7cc64265c5bf60d",
+      "svgSha256": "b86df18aa584e7095908fae618726d506f39b3847dbddfa02c89b1f95ab31023",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "0d60d4638974e5166f284b782d4ecba63126ff3d061dcd4ce9bd3ad7f5faf678",
       "raster": {
         "width": 306,
         "height": 408
@@ -732,8 +732,8 @@
         "height": 1448
       },
       "pngSha256": "6f3cd5aa7503cbd8d724202714f7d2250a1b49b8a6e964ff27cb0b204ec1c453",
+      "svgSha256": "24bcec8f85925c6acf495704929836398c8ad3483e807825a3f8ce5ca3a30007",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "a6454ba7ed4edb21e823d539bbd46a5e217211dee6a7d640ea78298c01981a40",
       "raster": {
         "width": 306,
         "height": 408
@@ -756,8 +756,8 @@
         "height": 1448
       },
       "pngSha256": "3b4b6d864a92c563bfbfa45e2a58634ee7bf0c0bcd867b612888e658b64e7237",
+      "svgSha256": "16bbba5bba7d37f28fa9fef73134d28eafe5283dbceff15ecbff8718d46bc076",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "92836a91fec26e232d1b7b265ca8c5d8f1445501e3aac41aea3c8cc2cb2d5da0",
       "raster": {
         "width": 306,
         "height": 408
@@ -780,8 +780,8 @@
         "height": 1448
       },
       "pngSha256": "a26b1d6c53aaffbbb46dcbb21066eba1549bf55f036c2ed5abaf653e4becae6b",
+      "svgSha256": "24b3f8caa63a9f1d674f821f50221a8bd95362b6aa47c1a8ccbae67bff783198",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "e6542b7a8ec7cadd704f261a69387ad9994f63d22e97589f38572984ce01c39b",
       "raster": {
         "width": 306,
         "height": 408
@@ -804,8 +804,8 @@
         "height": 1448
       },
       "pngSha256": "8956652d6f8330edd5a16292b105cae7173b62226e61856b43332b22ff9b07f1",
+      "svgSha256": "7e0ab04ee53eb70a7ecfbf6f5d7bb877e28bacd8c1a80dba4a348cb3aca6e3b6",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "1cc43f369c1aa38be23f4ad9c282e91b30b2bc807d97b8019487c922348696bb",
       "raster": {
         "width": 306,
         "height": 408
@@ -828,8 +828,8 @@
         "height": 1448
       },
       "pngSha256": "52a7c1f1453a7c492af3585154f81ee9c3e33410df08dd1e30cc6bd7a7229d71",
+      "svgSha256": "6465c8911d0b80c1bcbfa65d6f65c5749ed51e3ec69be9cfb3f42c4b83db861e",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "e4627b5f0c86064da0ef1db8e7efe392949ad90906e7ae4215efa92ed0358fc1",
       "raster": {
         "width": 306,
         "height": 408
@@ -852,8 +852,8 @@
         "height": 1448
       },
       "pngSha256": "dee6abc9a175bf368006e8ac6137b4a013246fd46988ce12cc8d0d38cfce767c",
+      "svgSha256": "1accea83e18efb75947dc72eb59e31e091fe46c457fbe85dc6252de4d9058388",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "cb9f66f42815a738970ceac36a3acae5e2697bd0b99fc460bb962af102496e64",
       "raster": {
         "width": 306,
         "height": 408
@@ -876,8 +876,8 @@
         "height": 1448
       },
       "pngSha256": "deab4864d5c4982f8acb3c7900f0a9f9594c1395cc72fe51e67070398fcde67f",
+      "svgSha256": "1b2afea0f4740b5bb8e67eb742da4a91e170f3165541f47ff82a77f7183d7795",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "3dd1cb5bb52e8ea4f4f142e5d90f993f24605260d8c8a33d6af0f37b475e5d92",
       "raster": {
         "width": 306,
         "height": 408
@@ -900,8 +900,8 @@
         "height": 1300
       },
       "pngSha256": "9f3e141161ffde065abc34e7861b484f8afe96bd4185059be328d6f3a018040e",
+      "svgSha256": "083c9839ae9aadddc72226e62927504d3694a9a6f59d8fe64c238248309c3927",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "c78ce058ff737f4faa92522ae39ec5aa3c1fc91aeff132139d0dcc00647f1dd0",
       "raster": {
         "width": 306,
         "height": 408
@@ -924,8 +924,8 @@
         "height": 1308
       },
       "pngSha256": "ce28f634b675cc2b5129f1f77776b609bac6549ac035b4f5e4c67d87bb4e68e5",
+      "svgSha256": "3da4dd624d12abd75d8da87b3931535a2cc0986773fe9d2a57e0153e414614d1",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "efd0c3fcc23c956b58df595e49750989d25269387ce84e237fec0b4e7e9c9868",
       "raster": {
         "width": 306,
         "height": 408
@@ -948,8 +948,8 @@
         "height": 1448
       },
       "pngSha256": "aa53cf85dc5718a316312817f00ed3a1f3e5252e77822659a8a8c1ab40882458",
+      "svgSha256": "1a5ab711499e3f880d0668c11584dccf62ca2d25062a3cbd61ea51217101ab51",
       "rasterMimeType": "image/webp",
-      "rasterSha256": "e80b007faf47489835b072e10e2bce50f39eb1086bc5b7d2f5c3c0de6b459422",
       "raster": {
         "width": 306,
         "height": 408
@@ -967,8 +967,8 @@
           "height": 1448
         },
         "pngSha256": "bd63828da31bf28261b531b571d8e1b63d1a4b15752788d8d48f8116408aaaa0",
+        "svgSha256": "3238932e420f9f23602167d20146d7f2479d5d9b5f62f7eac774191ca8148dfc",
         "rasterMimeType": "image/webp",
-        "rasterSha256": "d331fce788f005c8ac7a99ec4dfaba1d7db802cb407e97827602936a1583ce13",
         "raster": {
           "width": 306,
           "height": 408

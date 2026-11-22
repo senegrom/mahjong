@@ -79,9 +79,10 @@ export function placeStudyImage(study, box) {
  * face as approved/<Name>.png and never published. What the page is sent is
  * that crop scaled to the box the face draws it in, a pixel to each of the
  * face's 300 by 400 units, as WebP (face_raster.py, which needs Python with
- * Pillow; PYTHON names the interpreter where `python` is not it). The game
- * draws a face at most 60 CSS pixels wide, so nothing a player sees is lost,
- * and a face costs some 10 to 80 KB to send rather than up to 4 MB. */
+ * Pillow; PYTHON names the interpreter where it is not `python` on Windows
+ * or `python3` elsewhere). The game draws a face at most 60 CSS pixels wide,
+ * so nothing a player sees is lost, and a face costs some 10 to 80 KB to
+ * send rather than up to 4 MB. */
 export const RASTER_MIME = 'image/webp';
 
 /** The raster's size for a face's picture box: the whole pixels that cover it. */
@@ -93,12 +94,7 @@ export function rasterSize(box) {
 export function faceRaster(cropPath, box) {
   const { width, height } = rasterSize(box);
   const script = fileURLToPath(new URL('./face_raster.py', import.meta.url));
-  const bytes = execFileSync(process.env.PYTHON ?? 'python', [script, cropPath, String(width), String(height)], { maxBuffer: 8 * 1024 * 1024 });
+  const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+  const bytes = execFileSync(python, [script, cropPath, String(width), String(height)], { maxBuffer: 8 * 1024 * 1024 });
   return { bytes, width, height };
-}
-
-/** The raster a face's SVG embeds, as its bytes and media type, or null. */
-export function embeddedRaster(svg) {
-  const match = String(svg).match(/href="data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)"/);
-  return match ? { mimeType: match[1], bytes: Buffer.from(match[2], 'base64') } : null;
 }

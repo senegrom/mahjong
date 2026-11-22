@@ -50,7 +50,7 @@ test('production includes the reduced runtime and all tile faces, not model file
   assert.ok((await readFile(join(dist, page[0]), 'utf8')).includes(runtime), 'the page names the shipped runtime folder');
   for (const file of TILE_IMAGE_URLS) assert.ok(names.includes(file), `Missing playable artwork: ${file}`);
   assert.equal(names.some(name => /\.onnx$/i.test(name)), false, 'the only model is remote');
-  assert.equal(names.some(name => /^tiles\/.*\.png$/.test(name)), false, 'PNG crops duplicate the unchanged embedded SVG pixels');
+  assert.equal(names.some(name => /^tiles\/.*\.png$/.test(name)), false, 'the lossless crops are kept for the record, not published');
   assert.equal(names.some(name => /^tiles\/.*(?:README\.md|preview\.html|manifest\.json)$/.test(name)), false);
   const reduced = (await stat(join(web, 'runtime/ort-wasm-simd-threaded.wasm'))).size;
   const generic = (await stat(join(web, 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm'))).size;

@@ -2,7 +2,7 @@
 
 A complete set of 34 tile faces inspired by Henri Matisse's cut-paper designs and the mass vestments for the Chapelle du Rosaire. The artwork was generated and refined with Carl in ChatGPT on 7–8 September 2026.
 
-Each face's approved pixels are a lossless crop of its study, kept as `approved/<Name>.png` and not published. The playable `approved/<Name>.svg` carries that crop scaled to the box the face draws it in, about 306 × 408 pixels, as a quality-90 WebP (`web/scripts/face_raster.py`): the game draws a face at most 60 CSS pixels wide, and a full-size crop cost about 2 MB a face to send. The [manifest](manifest.json) records both digests.
+Each face's approved pixels are a lossless crop of its study, kept as `approved/<Name>.png` and not published. The playable `approved/<Name>.svg` carries that crop scaled to the box the face draws it in, about 306 × 408 pixels, as a quality-90 WebP (`web/scripts/face_raster.py`): the game draws a face at most 60 CSS pixels wide, and a full-size crop cost about 2 MB a face to send. The [manifest](manifest.json) records the digest of each crop (`pngSha256`) and of each face as it ships (`svgSha256`).
 
 ## Approved faces
 
@@ -127,7 +127,7 @@ The game clips the face and foil together and draws one outer shadow. Hint rings
 
 [manifest.json](manifest.json) records tile IDs, approval status, source paths, SHA-256 hashes and exact crop rectangles. The original boards are in [docs/design/matisse/studies](../../../../docs/design/matisse/studies). They preserve the earlier East studies and the new bolder alternatives; only Chapel Stencil C from the second board is the current approved East face. The earlier regular-grid bamboo in the five-dot board is superseded by the fan design.
 
-To reproduce the exports, install Node.js and ImageMagick (`convert`), then run from the repository root:
+To reproduce the exports, install Node.js, ImageMagick (`convert`) and Python with Pillow (set `PYTHON` to the interpreter where it is not `python` on Windows or `python3` elsewhere), then run from the repository root:
 
 ```sh
 node web/scripts/export-matisse-tiles.mjs

@@ -96,7 +96,7 @@ function exportCrop(source, crop, png, svg, label, fit) {
   const svgText = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" role="img" aria-labelledby="title"><title id="title">${label} — Matisse study</title><defs><clipPath id="face"><rect width="300" height="400" rx="${radius}"/></clipPath></defs><image clip-path="url(#face)" ${image} preserveAspectRatio="${preserveAspectRatio}" href="data:${RASTER_MIME};base64,${shipped.bytes.toString('base64')}"/></svg>\n`;
   writeFileSync(path.join(out, svg), svgText);
   // What a manifest records of a face as it ships, beside its lossless crop.
-  return { pngSha256: sha256(raster), rasterMimeType: RASTER_MIME, rasterSha256: sha256(shipped.bytes), raster: { width: shipped.width, height: shipped.height } };
+  return { pngSha256: sha256(raster), svgSha256: sha256(svgText), rasterMimeType: RASTER_MIME, raster: { width: shipped.width, height: shipped.height } };
 }
 
 const manifest = { version: 2, canvas: { width: 300, height: 400 }, facePresentation, tiles: [], placeholders: [] };
