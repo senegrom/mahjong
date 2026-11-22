@@ -2,11 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
-import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
+import { MORTAL_REACH, sameMove, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, GPU_BATCH, batchFor, scanMatch } from '../src/lib/game-review.js';
 import { PASS, movesOf, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { sameMove } from '../src/lib/action-weights.js';
-import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight,
+import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, keptTime, questionOf, reasonedAbout, reviewInsight,
   searchTime, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
@@ -16,7 +15,7 @@ import { DAMA_RULE, MORTAL_AGARI } from '../src/lib/trained-move.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { probe, tsumo } from './fixtures/last-hand-tables.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
-import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
+import { eachDecision, handTables, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -111,7 +110,7 @@ const askOnce = (ask, tables) => ask(tables);
 const insightOf = (network, asking = new Asking(), notes = new Asking(), batches = new Asking()) => ({ asking, notes, batches,
   insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, askBoth: askOnce }) });
 
-test('a hand\'s tables are the positions the engine writes at the hand\'s end, read from a replay of their own', () => {
+test('a hand\'s tables, as these tests write them, are the positions the engine writes at the hand\'s end', () => {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot), written = [];
   eachDecision(Game, snapshot, ({ hand, position }) => { written[hand.index] = [...(written[hand.index] ?? []), position]; });
   for (const hand of hands) assert.deepEqual(handTables(Game, snapshot, hand), written[hand.index], hand.name);
@@ -366,11 +365,17 @@ test('a table where the seat may both add to its pon and declare a quad is read 
 
 /** The review check's game as its review holds it once Trained AI has
  * answered the recorded decisions named (reviewedDecision), every other
- * decision of the game not reviewed yet. `read` counts how often its saved
- * commands are read, which a hand's tables are replayed from. */
+ * decision of the game not reviewed yet, each hand with a decision answered
+ * holding its tables, as a review writes them with its decisions. `read`
+ * counts how often its saved commands are read: the reasoning replays
+ * nothing, so never. */
 function reviewOf(asked = [entry]) {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot).map(hand => ({ ...hand, decisions: hand.frames.map(() => null) }));
-  for (const question of asked) hands[question.record.hand].decisions[question.record.decision] = reviewedDecision(question);
+  for (const question of asked) {
+    const hand = hands[question.record.hand];
+    hand.decisions[question.record.decision] = reviewedDecision(question);
+    hand.tables ??= handTables(Game, snapshot, hand);
+  }
   let read = 0;
   return { review: { hands, snapshot: { ...snapshot, get commands() { read++; return snapshot.commands; } } }, get read() { return read; } };
 }
@@ -409,11 +414,11 @@ test('a table where a last-hand rule would overrule the answer\'s best move is a
   assert.ok((await answer(probe(0), 17)).moves.length);
 });
 
-test("a match's reasoning writes a hand's tables once, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
+test("a match's reasoning reads a hand's tables from its review, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
   const network = recordedNetwork(), { insight: reasoning } = insightOf(network), held = reviewOf(), heard = [];
   const insight = new MatchInsight(Game, held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
   // The decision before it in its hand, agreed with, and the one after it,
-  // not reviewed: nothing to say, and no hand replayed to say it.
+  // not reviewed: nothing to say.
   const hand = held.review.hands[entry.record.hand], step = entry.record.decision;
   hand.decisions[step - 1] = { ...hand.decisions[step], advised_tile: hand.decisions[step].played_tile };
   assert.deepEqual([insight.at(`${hand.index}:${step - 1}`), insight.at(`${hand.index}:${step + 1}`), held.read], [null, null, 0]);
@@ -432,7 +437,7 @@ test("a match's reasoning writes a hand's tables once, says nothing of a decisio
   insight.leave(keyOf(entry));
   assert.deepEqual(saidLines(insight.at(keyOf(entry)).why.result), [WHY_SAID]);
   assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away, asked once');
-  assert.equal(held.read, 1, "the hand's tables are written once");
+  assert.equal(held.read, 0, "the hand's tables are the review's: no match is replayed to write them");
   assert.deepEqual(heard, ['asking', 'done'], 'every change is heard');
 });
 
@@ -614,11 +619,10 @@ test("the search is not offered below the margin floor, nor where the Why line f
   assert.equal(insight.at(keyOf(entry)).offered, false);
 });
 
-test('a hand that cannot be replayed to write its tables says nothing of its decisions, and asks nothing', () => {
+test('a hand whose tables the review could not write says nothing of its decisions, and asks nothing', () => {
   const held = reviewOf(), sizes = [];
-  // A saved first move that no table could hold.
-  const { commands } = held.review.snapshot;
-  held.review.snapshot = { ...held.review.snapshot, commands: [{ type: 'choose', kind: 'discard', tile: '9z' }, ...commands.slice(1)] };
+  // The hand reviewed, its decisions answered, and no table to ask about.
+  held.review.hands[entry.record.hand].tables = null;
   const insight = new MatchInsight(Game, held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
   assert.equal(insight.at(keyOf(entry)), null);
   insight.explain(keyOf(entry));

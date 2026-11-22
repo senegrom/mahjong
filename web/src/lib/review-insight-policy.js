@@ -50,7 +50,6 @@
 import { MORTAL_REACH, weightsByChoice } from './action-weights.js';
 import { BATCH, batchFor } from './game-review.js';
 import { PASS, explainWhy, movesOf, notChecked, tablesAtMost, tablesFirstAsked, whatWouldChangeItsMind } from './review-insight.js';
-import { MatchSession } from './session.js';
 import { averagedAnswers } from './suits.js';
 import { bestOpen, ruleDecides } from './trained-move.js';
 
@@ -174,24 +173,9 @@ export function trainedAsk({ PhysicalAnalysis, analyzeBatch, gate = () => null, 
  * way, the first one's answered first. */
 export const anyGate = (...askings) => () => askings.map(asking => asking.gate()).find(Boolean) ?? null;
 
-/** The table at each of a reviewed hand's decisions, as the engine writes it
- * (Game.review_position), from the match the review replays: the saved
- * match's commands played again, from its first deal to the hand's end, on
- * an engine of its own, so the review's own replay is left where it is. */
-export function handTables(Game, snapshot, hand) {
-  const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
-  try {
-    match.advance(false);
-    for (const command of snapshot.commands.slice(0, hand.end)) {
-      match.apply(command);
-      match.advance(false);
-    }
-    return hand.frames.map((_, index) => match.engine.review_position(index));
-  } finally { match.dispose(); }
-}
-
-/** What a reviewed decision asks: its table (`handTables`), the player's move
- * and Trained AI's choice, and the review's own weights. */
+/** What a reviewed decision asks: its table, as the review wrote it with the
+ * hand's decisions (MatchReview, `hand.tables`), the player's move and
+ * Trained AI's choice, and the review's own weights. */
 export function questionOf(decision, position) {
   return { position, played: { kind: decision.played_kind, tile: decision.played_tile ?? null },
     preferred: { kind: decision.advised_kind, tile: decision.advised_tile ?? null }, weights: movesOf(decision.weighted) };
@@ -297,8 +281,10 @@ const failureOf = error => error?.message ?? String(error);
  * asked a decision at a time, by its key ("hand:step"), as the review shows
  * it. The page keeps one for the match beside the review (App).
  *
- * A hand's tables are written once, from a replay of their own (handTables),
- * the first time one of its decisions is shown. A decision's Why line is
+ * A hand's tables are the review's, written as the hand was reviewed, where
+ * its replay stood at the hand's end (`hand.tables`): nothing is replayed
+ * here. The first argument, the engine's class, is taken for the page, which
+ * still hands it over, and not used. A decision's Why line is
  * worked out as the decision is shown (`explain`), and what would change
  * Trained AI's mind only on the player's word (`search`); each is kept once
  * it is had, so a decision shown again asks nothing again. Only the decision
@@ -311,16 +297,12 @@ const failureOf = error => error?.message ?? String(error);
  * has one, and asked again on the next explain or search. `onChange` hears
  * every change. */
 export class MatchInsight {
-  constructor(Game, review, reasoning, { onChange = () => {} } = {}) {
-    this.Game = Game;
+  constructor(_Game, review, reasoning, { onChange = () => {} } = {}) {
     this.review = review;
     this.reasoning = reasoning;
     this.onChange = onChange;
-    // Each hand's tables by its index, null where they could not be
-    // written; how many tables each decision's search asks first and at
-    // most; and each decision's Why line and search, under way or had, by
-    // its key.
-    this.tables = new Map();
+    // How many tables each decision's search asks first and at most; and
+    // each decision's Why line and search, under way or had, by its key.
     this.counts = new Map();
     this.whys = new Map();
     this.searches = new Map();
@@ -329,17 +311,12 @@ export class MatchInsight {
   notify() { this.onChange(this); }
 
   /** A reviewed decision's question (questionOf), or null where version 1
-   * says nothing of it (reasonedAbout) or its hand cannot be replayed to
-   * write its tables, which then says nothing of any of its decisions. */
+   * says nothing of it (reasonedAbout) or the review could not write its
+   * hand's tables, which then says nothing of any of its decisions. */
   question(key) {
     const [index, step] = key.split(':').map(Number), hand = this.review.hands[index], decision = hand?.decisions?.[step];
     if (!reasonedAbout(decision)) return null;
-    if (!this.tables.has(index)) {
-      let tables = null;
-      try { tables = handTables(this.Game, this.review.snapshot, hand); } catch { /* Nothing is said of a hand that cannot be replayed. */ }
-      this.tables.set(index, tables);
-    }
-    const position = this.tables.get(index)?.[step];
+    const position = hand.tables?.[step];
     return position ? questionOf(decision, position) : null;
   }
 

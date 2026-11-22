@@ -61,3 +61,16 @@ export function eachDecision(Game, snapshot, visit) {
     }
   } finally { match.dispose(); }
 }
+
+/** The table at each of a hand's decisions, as the engine writes it at the
+ * hand's end (Game.review_position), from a replay of the match of its own:
+ * what a review keeps of a hand it has reviewed (MatchReview, `hand.tables`),
+ * for a test that has no review to read it from. */
+export function handTables(Game, snapshot, hand) {
+  const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
+  try {
+    match.advance(false);
+    for (const command of snapshot.commands.slice(0, hand.end)) { match.apply(command); match.advance(false); }
+    return hand.frames.map((_, index) => match.engine.review_position(index));
+  } finally { match.dispose(); }
+}

@@ -1464,12 +1464,18 @@ test('a game joins the trend once, as the match ends, also when every hand was r
   } finally { earlier.dispose(); }
 });
 
-test('a closed review asks nothing more and frees its replay', async () => {
+test('a closed review asks nothing more and frees its replay, and the session its hands are scanned on', async () => {
   const review = new MatchReview(Game, game, { analyzeBatch: network() });
   review.review();
   review.dispose();
   await settled(review);
   assert.equal(review.replay, null);
+  assert.equal(review.scan, null);
+  // A match under way keeps the session to scan on from, until it is closed.
+  const playing = new MatchReview(Game, savedAfter(game, scanMatch(Game, game)[1].end), { analyzeBatch: network() });
+  assert.ok(playing.scan, 'kept while the match is under way');
+  playing.dispose();
+  assert.equal(playing.scan, null);
   const before = review.decisions.length;
   review.review();
   await settled(review);
@@ -1559,4 +1565,107 @@ test('two moves are the same move by their kind and tile, a move that names no t
 
 test('how far a hand is from waiting is said in the same words wherever a review says it', () => {
   assert.deepEqual([-1, 0, 1, 4].map(fromWaiting), ['complete', 'waiting', '1 from waiting', '4 from waiting']);
+});
+
+/** A review's hands as a scan gives them, without what the review adds. */
+const scannedOf = review => review.hands.map(({ status: _status, decisions: _decisions, ...hand }) => hand);
+
+test("a match scanned on from each hand's result gives the hands a scan from the first deal gives, on one session let go as the match ends", () => {
+  // The tile-throwing game, and one whose player calls every set and quad.
+  // The review is taken on at every hand's result, as a player who opens it
+  // after every hand takes it, and then to the finished match.
+  for (const finished of [game, finishedGame(16, 'beginner', { calls: true })]) {
+    const whole = scanMatch(Game, finished);
+    const review = new MatchReview(Game, savedAfter(finished, whole[0].end), { analyzeBatch: network() });
+    try {
+      const session = review.scan;
+      assert.ok(session, 'a match under way keeps the session it was scanned on');
+      for (const hand of whole.slice(1)) {
+        review.extend(savedAfter(finished, hand.end));
+        assert.equal(review.scan, session, `the same session at the result of ${hand.name}`);
+        assert.deepEqual(scannedOf(review), whole.slice(0, hand.index + 1), `seed ${finished.seed}, at the result of ${hand.name}`);
+        assert.equal(review.over, false);
+      }
+      review.extend(finished);
+      assert.deepEqual(scannedOf(review), whole, `seed ${finished.seed}, finished`);
+      assert.equal(review.over, true);
+      assert.equal(review.scan, null, 'a finished match has no more to scan');
+    } finally { review.dispose(); }
+    // A finished match keeps no session at all.
+    const over = new MatchReview(Game, finished, { analyzeBatch: network() });
+    try {
+      assert.equal(over.scan, null);
+      assert.deepEqual(scannedOf(over), whole);
+    } finally { over.dispose(); }
+  }
+});
+
+test('a scan that cannot go on gives way to one from the first deal, and a match that cannot be replayed is refused as before, changing nothing', () => {
+  const whole = scanMatch(Game, game), later = savedAfter(game, whole[3].end);
+  const review = new MatchReview(Game, savedAfter(game, whole[1].end), { analyzeBatch: network() });
+  try {
+    // The session lost: the hands played since are scanned from the first
+    // deal instead, the same hands, and so is every later result.
+    const lost = review.scan;
+    lost.on = () => { throw new Error('The session is gone'); };
+    review.extend(later);
+    assert.equal(review.scan, null, 'the session is let go');
+    assert.deepEqual(scannedOf(review), whole.slice(0, 4));
+    review.extend(savedAfter(game, whole[5].end));
+    assert.deepEqual(scannedOf(review), whole.slice(0, 6));
+    assert.equal(review.scan, null);
+  } finally { review.dispose(); }
+  // A later save that did not end where its commands lead is refused, by the
+  // scan that went on and by the one from the first deal alike, and the
+  // review is as it was; the true save is taken on after it all the same.
+  const kept = new MatchReview(Game, savedAfter(game, whole[1].end), { analyzeBatch: network() });
+  try {
+    const astray = { ...later, state: later.state.replace(/"score":(\d+)/, (_, score) => `"score":${Number(score) + 100}`) };
+    assert.notEqual(astray.state, later.state);
+    const before = kept.snapshot;
+    assert.throws(() => kept.extend(astray), /^Error: The replay did not end where the match did$/);
+    assert.deepEqual([kept.hands.length, kept.snapshot === before], [2, true]);
+    // A save in the middle of a hand, too.
+    const playing = savedAfter(game, whole[2].end - 1);
+    assert.throws(() => kept.extend(playing), /^Error: (A hand is still being played|The replay did not end where the match did)$/);
+    assert.equal(kept.hands.length, 2);
+    kept.extend(later);
+    assert.deepEqual(scannedOf(kept), whole.slice(0, 4));
+  } finally { kept.dispose(); }
+});
+
+test("a reviewed hand keeps the table at each of its decisions, written where the review's replay stands at the hand's end", async () => {
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    assert.ok(review.hands.every(hand => hand.tables === undefined), 'none before a hand is reviewed');
+    const asked = [review.hands.length - 1, 1];
+    review.review(asked);
+    await settled(review);
+    assert.equal(review.failure, '');
+    for (const index of asked) {
+      const hand = review.hands[index], match = atHandEnd(game, hand.end);
+      try {
+        assert.equal(hand.status, 'done');
+        assert.ok(hand.frames.length > 0 && hand.tables.length === hand.frames.length, hand.name);
+        // The positions the engine writes at the hand's end, as plain data.
+        const written = hand.frames.map((_, step) => JSON.parse(JSON.stringify(match.engine.review_position(step))));
+        assert.deepEqual(JSON.parse(JSON.stringify(hand.tables)), written, hand.name);
+      } finally { match.dispose(); }
+    }
+    assert.ok(review.hands.filter(hand => !asked.includes(hand.index)).every(hand => hand.tables === undefined), 'and none for a hand not reviewed');
+  } finally { review.dispose(); }
+  // A hand whose tables the engine cannot write is reviewed all the same,
+  // without them, and its decisions are judged as any other's.
+  const write = Game.prototype.review_position;
+  Game.prototype.review_position = () => { throw new Error('No table for this decision'); };
+  const without = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    without.review([1]);
+    await settled(without);
+    assert.deepEqual([without.failure, without.hands[1].status, without.hands[1].tables], ['', 'done', null]);
+    assert.equal(without.hands[1].decisions.length, without.hands[1].frames.length);
+  } finally {
+    Game.prototype.review_position = write;
+    without.dispose();
+  }
 });

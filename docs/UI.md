@@ -605,7 +605,11 @@ the match did, or the review refuses to start and says why ("The game could
 not be replayed for review: The replay did not end where the match did. Your
 saved match is unchanged."). A replay that ends where the match did, but in a
 hand still being played, is refused too ("A hand is still being played"),
-though a review opens only at a result. At the end of each hand the review
+though a review opens only at a result. While the match is under way the
+review keeps the engine it scanned the match's hands on, and at each later
+result scans on from the last one, not from the first deal again; a scan that
+cannot go on gives way to one from the first deal, and a finished match keeps
+none. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
 a forward pass, fewer on a slow device: Mortal's planes for each decision as it
 was made, then, where the move is a riichi, the network's or one decline-last
@@ -614,7 +618,13 @@ asked again of the game with characters and circles renamed, in a forward pass
 of their own, and judged by the mean of the two answers' logits, and the last
 hand's rules are played over that ([Agent modes](AGENT_MODES.md)). A move
 with one legal choice, such as the discard after riichi, is not asked and is
-left out of every figure.
+left out of every figure. There too, where its replay stands at the hand's
+end, the review writes the table at each of the hand's decisions as a typed-in
+position (the engine's `review_position`), which its reasoning about a
+decision changes and asks about again (below): written when the reasoning
+first wanted one, each hand took a replay of its own from the first deal,
+while the page drew. A hand whose tables cannot be written is reviewed all the
+same, and the reasoning says nothing of its decisions.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, settle_physical } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { scanMatch } from '../src/lib/game-review.js';
-import { handTables } from '../src/lib/review-insight-policy.js';
+import { handTables } from './fixtures/review-check-game.js';
 import { analysisInput, analysisOf, emptyPosition, parsePhysical, parseTiles, recordChoice, recordDiscard, recordDraw, withoutStaleDraw } from '../src/lib/physical-position.js';
 import { emptyGuided, guidedEvent, parseGuided, GUIDED_FORMAT } from '../src/lib/guided-game.js';
 
