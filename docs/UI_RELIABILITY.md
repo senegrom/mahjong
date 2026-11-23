@@ -20,6 +20,17 @@ with nothing to say why. That guard kept nothing safe: it only kept the few
 moves of a turn already asked ahead of another mode's questions at the one
 worker, where they now take turns.
 
+Two things follow from sharing that worker with a match left busy behind
+another mode. A request of the other mode's that runs past its own deadline
+ends the worker and fails every request waiting on it (below), Play's
+pending Trained question among them, so the match fails as if its own
+opponent had not answered, while the player is away (and a request of Play's
+that runs out fails the other mode's the same way). That failure is seen
+only on coming back: the page's recovery banner, with **Retry trained
+opponent** and Club, is drawn only in Play, so the other mode says nothing
+of it, and Play shows it, with its recovery, as it is opened again. Nothing is lost: the match waits, at the failed seat, for
+the player's choice as after any failure.
+
 The page has one trained worker, which answers its requests in turn. At a
 hand's result two things ask it: the hand's own notes (**View table / my
 hand**, or **Review final hand** at the last hand), a decision at a time, and
