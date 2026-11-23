@@ -450,7 +450,7 @@ export function prepareOfflineAi() {
   networkTaken = false;
   let handOver, over = false;
   const inHand = new Promise(resolve => { handOver = resolve; });
-  const job = saveTrained(handOver, () => !over).finally(() => {
+  const job = saveTrained(handOver, () => !over, () => { over = true; }).finally(() => {
     over = true; aiJob = null;
     // Bytes storage refused that no opponent's worker asked for are gone
     // with the job: a Trained opponent would download the network again.
@@ -486,9 +486,10 @@ export function networkReleased() {
   update({ network: 'none' });
 }
 /** One trained save (prepareOfflineAi). `handOver(handed)` is told the moment
- * the network is in hand, and `live()` says whether the job still runs: its
- * runtime part can outlast it, and then says nothing more. */
-async function saveTrained(handOver, live) {
+ * the network is in hand, `live()` says whether the job still runs, and
+ * `end()` says it no longer does: its runtime part can outlast it, and then
+ * says nothing more. */
+async function saveTrained(handOver, live, end) {
   // Nothing can be saved here. The start says so, and the opponent's worker
   // fetches the network for itself: online-only browsers still work. The
   // network is left at 'none', since that worker has it all to fetch.
@@ -571,6 +572,10 @@ async function saveTrained(handOver, live) {
     void persistentStorage(true);
     return verified;
   } catch (error) {
+    // Over before the failure is said: a runtime part still running would
+    // otherwise say 'ai' over it again, in the turns before the job settles
+    // and its finally ends it.
+    end();
     // A network that could not be had is none; one in hand stays as it was
     // said when the runtime, or the word to the worker, failed after it.
     trainedSays('incomplete', `AI download incomplete: ${error.message}`, { aiReady: false, ...(had ? {} : { network: 'none' }) });
