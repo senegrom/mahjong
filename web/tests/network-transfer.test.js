@@ -561,6 +561,19 @@ test('a stall is resumed from where it stopped, and a transfer that keeps stalli
   assert.deepEqual(new Set(always.asked), new Set([null]), 'nothing in hand, nothing to ask a range of');
 });
 
+test('a link that breaks more often than the attempts allow goes on while every break brought new bytes', async t => {
+  // Two bytes a request, eight requests: seven breaks, more than RESUME.attempts.
+  const answers = Array.from({ length: 8 }, (_, index) => () => {
+    const from = 2 * index, chunk = packed.slice(from, from + 2);
+    const init = from ? { status: 206, headers: { 'Content-Range': `bytes ${from}-15/16` } } : {};
+    return new Response(index === 7 ? chunk : breaking(chunk), init);
+  });
+  assert.ok(answers.length - 1 > RESUME.attempts);
+  const h = host(t, answers);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.equal(h.fetches(), 8);
+});
+
 test('a body that ends short is a break too, and the total deadline ends every attempt and pause', async t => {
   const h = host(t, [() => new Response(packed.slice(0, 7)), () => part(7, 16)]);
   assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);

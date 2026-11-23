@@ -94,7 +94,8 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
  * connection fails (a TypeError, as fetch and its body throw for a network
  * error) or whose body ends short keeps the bytes it received and is asked
  * again, after `pauseMs`, for the rest, `Range: bytes=<received>-`, up to
- * `resume` times before it fails as it would have without. A 206 is taken
+ * `resume` times in a row without new bytes before it fails as it would
+ * have without. A 206 is taken
  * from where its Content-Range says it starts, at or before the bytes in
  * hand; one that starts after them, or whose Content-Range cannot be read or
  * names another size, is let go and the next request asks for the whole. A
@@ -181,9 +182,12 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
   if (totalMs) total = setTimeout(() => { overall = new Error(describe('timeout')); end(overall); wake?.(); }, totalMs);
   try {
     let response;
-    for (let attempt = 0; ; attempt++) {
+    // An attempt that brought bytes no earlier one had does not count against
+    // the budget: a link that drops often but keeps advancing goes on.
+    for (let attempt = 0, best = 0; ; attempt++) {
       try { response = await receive(); break; } catch (error) {
         letGo(); clearTimeout(idle);
+        if (shown > best) { best = shown; attempt = 0; }
         if (attempt >= resume || overall || !(error?.resumable || error instanceof TypeError)) throw overall ?? error;
       }
       await new Promise(done => { wake = done; pause = setTimeout(done, pauseMs); });
