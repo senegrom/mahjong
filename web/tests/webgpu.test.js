@@ -190,7 +190,8 @@ test('the card is brought up only after WebAssembly has answered a second batch 
   assert.equal(s.workers.length, 1);
   assert.equal(s.card.state(), 'starting');
   assert.equal(s.workers[0].messages[0].open.url, networkUrl(READY));
-  assert.deepEqual({ ...s.workers[0].messages[0].open.expect }, { bytes: READY.bytes, sha256: READY.sha256 });
+  assert.deepEqual({ ...s.workers[0].messages[0].open.expect }, { bytes: READY.bytes, sha256: READY.sha256,
+    ...(READY.packing ? { packing: READY.packing, storedBytes: READY.storedBytes } : {}) });
   assert.equal(s.workers[0].messages[0].open.webgpu, 'https://test.invalid/mahjong/ort-webgpu/aaaa/');
   // While it starts, everything still goes to WebAssembly.
   await s.ask(8);

@@ -53,6 +53,7 @@ test('production manifest reports sizes, scoped cache version and deterministic 
   // Every listed network goes to the worker, the default first, and a page
   // saves the one it plays.
   assert.deepEqual(first.networks.map(network => network.version), NETWORKS.map(network => network.version));
-  assert.equal(first.bytes.network, first.networks[0].bytes);
+  // What it downloads: the packed file of a packed network.
+  assert.equal(first.bytes.network, first.networks[0].packing ? first.networks[0].storedBytes : first.networks[0].bytes);
   assert.ok((await readFile(join(output, 'sw.js'), 'utf8')).includes('pruneNetworkCache'));
 });

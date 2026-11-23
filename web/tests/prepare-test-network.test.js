@@ -5,7 +5,9 @@ import { NETWORKS } from '../src/lib/model-manifest.js';
 import { PAGE_ORIGIN, listedNetworkProblems } from '../scripts/prepare-test-network.mjs';
 
 // The model host's own code, over a bucket holding the objects named.
-function host(held, { packed = [] } = {}) {
+// Packed networks are stored with no encoding, as publish uploads them.
+const PACKED = NETWORKS.filter(network => network.packing).map(network => network.object);
+function host(held, { packed = PACKED } = {}) {
   const asked = [];
   const env = { MODELS: { async get(key) {
     if (!held.includes(key)) return null;
@@ -40,7 +42,7 @@ test('a packed network is asked for as stored without an encoding and served in 
   const { fetch } = host(NETWORKS.map(network => network.object), { packed: [first.object] });
   assert.deepEqual(await listedNetworkProblems(listed, { fetch }), []);
   // Stored gzipped after all, its range would mean nothing.
-  const gzipped = host(NETWORKS.map(network => network.object));
+  const gzipped = host(NETWORKS.map(network => network.object), { packed: [] });
   const problems = await listedNetworkProblems(listed, { fetch: gzipped.fetch });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /is packed but served encoded$/);
@@ -58,7 +60,7 @@ test('a listed network whose object is gone is named, and the others are still a
 });
 
 test('a listed network the page may not read, is not gzipped or cannot be reached is named', async () => {
-  const [network] = NETWORKS;
+  const network = NETWORKS.find(listed => !listed.packing);
   const answer = headers => async () => new Response(null, { status: 200, headers });
   for (const [fetch, expected] of [
     [answer({ 'Content-Encoding': 'gzip' }), /does not let https:\/\/senegrom\.github\.io read it$/],
