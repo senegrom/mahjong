@@ -157,6 +157,11 @@ export class MatchSession {
     // match was given to Club that way (clubMeanwhile).
     this.standIn = false;
     this.stoodIn = false;
+    // Whether an opponent's question is out, unanswered: only then can Club
+    // stand in. `thinking` stays set after the last answer, until the run
+    // has let go of the save lock, and a stand-in asked for then would take
+    // nothing.
+    this.asking = false;
   }
 
   get view() { return this.engine.view(); }
@@ -333,12 +338,13 @@ export class MatchSession {
           this.thinking = true;
           this.notify();
           let actions = null;
+          this.asking = true;
           try { actions = await this.trainedMove(); }
           catch (error) {
             // Given to Club while it was asked (clubMeanwhile), the question
             // was dropped: it did not fail.
             if (this.closed || !this.standIn) throw error;
-          }
+          } finally { this.asking = false; }
           if (this.closed) return false;
           if (this.standIn) {
             // Club takes every Trained seat here, in the run that was
@@ -380,7 +386,7 @@ export class MatchSession {
    * that the match turned to Club this way, not after a failure, which the
    * page reads to keep the player's own table as their preference (App). */
   clubMeanwhile() {
-    if (this.closed || !this.thinking || this.standIn) return false;
+    if (this.closed || !this.asking || this.standIn) return false;
     this.standIn = true;
     // The question ends as its signal does; later ones have a signal of
     // their own, and the match's end stops whichever is current.

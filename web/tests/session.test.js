@@ -178,6 +178,24 @@ test('Club meanwhile lets go of an answer that came as it was asked for, and is 
   assert.deepEqual([closing.commands, closing.failure], [[], '']);
 });
 
+test('Club meanwhile is not taken once the last answer is in, while the run still holds the save lock', async () => {
+  // The run's guard, as the page's save lock does, lets go only some time
+  // after the run's last move is played; the match is still thinking then.
+  const answered = deferred(), release = deferred();
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async () => sure(0),
+    guard: async task => { const result = await task(); answered.resolve(); await release.promise; return result; } });
+  try {
+    const run = match.run();
+    await answered.promise;
+    assert.equal(match.thinking, true, 'the run has not ended');
+    assert.equal(match.clubMeanwhile(), false, 'nobody is awaited any more, so the press is not taken');
+    release.resolve();
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, played(0));
+    assert.deepEqual([match.stoodIn, match.engine.external, match.abort.signal.aborted], [false, true, false]);
+  } finally { match.dispose(); }
+});
+
 test("a stand-in is Club where the player's own table says Trained, and nothing else", () => {
   const trained = ['neural', 'neural', 'neural'], club = ['club', 'club', 'club'];
   assert.deepEqual(standInFor(trained, club), trained);
