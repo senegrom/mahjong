@@ -93,7 +93,7 @@ export interface SettingsProps extends OfflineStatusProps {
    * the pick (it reloads the page), false to keep the one playing. */
   onnetworkchange?: (version: string) => boolean;
   difficulty: Difficulty; opponents: Opponent[];
-  ready: boolean; busy: boolean; saveConflict: string; trainedAvailable: boolean;
+  ready: boolean; saveConflict: string; trainedAvailable: boolean;
   changeOpponents: (event: Event & { currentTarget: HTMLSelectElement }) => void;
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;

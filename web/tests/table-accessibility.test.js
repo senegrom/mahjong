@@ -322,7 +322,7 @@ test("a review's words over a tile are said after its name, and a line is kept f
 // The tile guide in the settings, as the page draws it.
 async function tileGuide() {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: false,
+    ready: true, saveConflict: '', trainedAvailable: false,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
@@ -354,7 +354,7 @@ test("the tile guide says the blue ring is Trained AI's choice in a review, as i
 
 test("the settings offer the review's two hiding settings after the other checkboxes, so that those keep their places", async () => {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
+    ready: true, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
@@ -367,7 +367,7 @@ test("the settings offer the review's two hiding settings after the other checkb
 
 test("the mode buttons and the phone's mode select are held only until the page is ready, never by a match that is busy", async () => {
   const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: true,
+    ready: true, saveConflict: '', trainedAvailable: true,
     offline: { coreReady: false, aiReady: false, hasModel: true, phase: 'ai', progress: 12 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {}, ...props });
@@ -380,19 +380,18 @@ test("the mode buttons and the phone's mode select are held only until the page 
       select: off(/<select\b([^>]*\baria-label="Game mode"[^>]*)>/.exec(markup)[1]) };
   };
   const free = { nav: [false, false, false, false], select: false };
-  assert.deepEqual(held(await settings({})), free);
   // A Trained opponent that waits, for the network's download on a first
   // visit, keeps the match busy for minutes: the other modes stay open, and
-  // the match plays on behind them.
-  assert.deepEqual(held(await settings({ mode: 'play', busy: true })), free);
-  for (const mode of ['watch', 'physical', 'guided']) assert.deepEqual(held(await settings({ mode, busy: true })), free, mode);
+  // the match plays on behind them. AppSettings is not told whether the
+  // match is busy at all.
+  for (const mode of ['play', 'watch', 'physical', 'guided']) assert.deepEqual(held(await settings({ mode })), free, mode);
   // Until the engine and the tile graphics are in, which the page's own line says.
   assert.deepEqual(held(await settings({ ready: false })), { nav: [true, true, true, true], select: true });
 });
 
 test('a tile face that could not load is said under its select while the settings are an open dialog, in a line that waits there empty', async () => {
   const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: false,
+    ready: true, saveConflict: '', trainedAvailable: false,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {}, ...props });

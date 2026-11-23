@@ -50,7 +50,7 @@
 <main>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts {tileFace}
     network={MANIFEST.version} onnetworkchange={version => { callbacks.push(`network:${version}`); return false; }}
-    difficulty="custom" {opponents} ready={true} busy={false} saveConflict="" trainedAvailable={false} {offline}
+    difficulty="custom" {opponents} ready={true} saveConflict="" trainedAvailable={false} {offline}
     changeOpponents={() => configureTable()} startFresh={() => { callbacks.push('new'); return true; }} {configureTable}
     downloadAi={() => { callbacks.push('download'); offline = { ...offline, phase: 'ready', aiReady: true }; }}
     onfacechange={face => { tileFace = face; callbacks.push(`face:${face}`); }}

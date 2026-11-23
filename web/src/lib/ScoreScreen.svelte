@@ -335,6 +335,10 @@
   .result-failure { flex-basis: 100%; margin: 0; font-size: .82rem; scroll-margin: 8px 0; }
   .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px; border: 1px solid var(--button-accent); border-radius: 999px; background: var(--button-accent); color: var(--button-text); font-weight: 650; cursor: pointer; }
   .buttons button.quiet { border-color: rgba(255,255,255,.25); background: transparent; color: inherit; font-weight: 500; }
+  /* One that cannot be pressed, under a save conflict or Next hand while the
+     turn is busy, is drawn as the standings' and the app's other controls
+     draw theirs (controls.css). */
+  .buttons button:disabled { opacity: .55; cursor: default; }
   /* Beside the standings, which offer the same review and file, they are not
      repeated. */
   .buttons .whole-game { display: none; }

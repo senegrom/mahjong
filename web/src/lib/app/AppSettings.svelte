@@ -20,7 +20,7 @@
     shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
     tileFace, pendingTileFace = null, faceWarning = '',
     network = playedNetwork().version, runtime = null, onnetworkchange,
-    difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
+    difficulty, opponents, ready, saveConflict, trainedAvailable, offline,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
   }: SettingsProps = $props();

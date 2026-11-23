@@ -921,7 +921,7 @@
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
     {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
-    {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
+    {difficulty} {opponents} {ready} {saveConflict} {trainedAvailable} {offline}
     {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   <!-- On a phone the Tile face select is in the settings' dialog, and while
