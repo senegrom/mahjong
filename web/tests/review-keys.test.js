@@ -83,9 +83,12 @@ test("the review's controls, which take each other's place, let go of the second
   const buttons = all(controls, node => node.type === 'RegularElement' && node.name === 'button');
   assert.deepEqual(buttons.map(button => button.attributes.find(a => a.name.startsWith('data-'))?.name),
     ['data-stop-review', 'data-next-hand', 'data-rest', 'data-continue']);
-  // What the handlers ask of a click: the test play's presses share (ui.js).
-  const [again] = all(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'again' && node.init?.type === 'Identifier');
-  assert.equal(again?.init.name, 'repeatedClick');
+  // What the handlers ask of a click, from the page's own source too, with
+  // ui.js's tests in reach; whatever it is, the presses below must be let go
+  // or taken as play's are.
+  const again = ast.instance.content.body.flatMap(statement => statement.type === 'VariableDeclaration' ? statement.declarations : [])
+    .find(declared => declared.id.name === 'again' && declared.init);
+  assert.ok(again, 'the handlers ask `again` of a click');
   for (const button of buttons) {
     const pressed = [];
     const review = new Proxy({}, { get: (_, name) => () => pressed.push(name) });

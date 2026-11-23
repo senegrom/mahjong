@@ -204,14 +204,38 @@ try {
   // What the player has chosen since the match held `from` commands: a tile, or a call's kind.
   const chosen=async(page,from)=>(await saved(page)).commands.slice(from).filter(c=>c.type==='choose').map(c=>c.tile??c.kind);
   const more=(page,count)=>page.waitForFunction((key,count)=>JSON.parse(localStorage.getItem(key)).commands.length>count,{},SAVE_KEY,count);
-  const heldEnter=(page,selector,held={})=>page.$eval(selector,(node,held)=>{
-    const event=new KeyboardEvent('keydown',{key:'Enter',repeat:true,bubbles:true,cancelable:true,...held}); node.dispatchEvent(event); return event.defaultPrevented;
-  },held);
+  // Enter pressed down on what has focus, and then again without being let
+  // go: the browser's own repeat, a trusted keydown with repeat set, which
+  // presses a focused button as the first did unless the page cancels it.
+  // `ready` is awaited between the two, for the next decision to be there.
+  const holdEnter=async(page,ready,with_=[])=>{
+    for(const key of with_)await page.keyboard.down(key);
+    await page.keyboard.down('Enter');await ready();
+    const repeated=page.evaluate(()=>new Promise(done=>addEventListener('keydown',event=>done(event.repeat),{once:true,capture:true})));
+    await page.keyboard.down('Enter');
+    assert.equal(await repeated,true,'the second keydown is a repeat');
+    await page.keyboard.up('Enter');for(const key of with_.reverse())await page.keyboard.up(key);
+  };
+  await check('Enter held down on a tile presses it once, whatever is held with it, with the keys on or off',async()=>{
+    // With Select before discarding on, the first press selects the tile and
+    // leaves it focused, and a second press on it throws it: the repeat lands
+    // on the tile it pressed, and must throw nothing.
+    for(const shortcuts of [true,false]) {
+      const page=await open(turnAgainSave,{confirm:true,shortcuts}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]', where=`with the keys ${shortcuts?'on':'off'}`;
+      const tile=await page.$eval(first,n=>n.dataset.tile);
+      await page.focus(first);
+      await holdEnter(page,async()=>{await page.waitForSelector('.confirm-discard');await pause(150);},['Shift']);
+      await pause(300);
+      assert.equal((await saved(page)).commands.length,before,`the repeat throws nothing ${where}`);
+      assert.ok(await page.$('.confirm-discard'),`the tile stays selected ${where}`);
+      assert.equal(await page.evaluate(()=>document.activeElement?.dataset.handIndex),'0',`and focused ${where}`);
+      // Pressed again, a press of its own, it is thrown.
+      await page.keyboard.press('Enter'); await more(page,before);
+      assert.deepEqual(await chosen(page,before),[tile],where); noErrors(page);
+    }
+  });
   await check('a double click on a tile throws that tile, not the next turn\'s too',async()=>{
     const page=await open(turnAgainSave), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
-    // Enter held down on a tile presses it once, whatever is held with it:
-    // the click the browser would make for each repeat is cancelled.
-    assert.equal(await heldEnter(page,first,{shiftKey:true}),true); assert.equal((await saved(page)).commands.length,before);
     const at=await middle(page,first), thrown=await page.$eval(first,n=>n.dataset.tile);
     await press(page,at);
     // Club answers at once: the turn is back, with a tile to throw where the
@@ -262,15 +286,20 @@ try {
       noErrors(page);
     }
   });
-  await check('the second press of a double click and a held Enter answer no call, and a press of its own does',async()=>{
+  await check('the second press of a double click answers no call, and a press of its own does',async()=>{
     const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';
     const at=await middle(page,pass);
     await press(page,at,2); await pause(300);
     assert.equal((await saved(page)).commands.length,before,'the second press of a double click is let go');
-    await page.focus(pass); assert.equal(await heldEnter(page,pass),true,'Enter held down on a call presses it once');
-    assert.equal((await saved(page)).commands.length,before);
     await press(page,at); await more(page,before);
     assert.deepEqual(await chosen(page,before),['pass']); noErrors(page);
+  });
+  await check('Enter held down on a call answers it once',async()=>{
+    const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';
+    await page.focus(pass);
+    await holdEnter(page,async()=>{await more(page,before);await pause(150);});
+    await pause(300);
+    assert.deepEqual(await chosen(page,before),['pass'],'the repeat answers nothing more'); noErrors(page);
   });
   await check('a deal whose first Trained move fails lets go of the hand\'s review, and the next result offers its own',async()=>{
     const page=await open(neuralEndSave,{mock:{fail:true}});
