@@ -85,7 +85,9 @@ saved last, the one saved before it, its build's default, and every network
 the player picked for as long as the build lists it, which it remembers in
 its retention record: a player who goes back to a network picked earlier
 finds it still saved, at the cost of keeping each one picked (about 117 MB
-apiece). A former default that the player never picked is not kept for being
+apiece for a network published whole, 59 MB for one published packed at half
+precision; see [half precision on the
+wire](ONNX_RUNTIME.md#half-precision-on-the-wire)). A former default that the player never picked is not kept for being
 listed: it goes once two newer networks are saved, and is downloaded again
 if it is ever picked. Listed networks go only after a page has saved one,
 never when a new version first starts, so an update takes nothing away on a
@@ -117,11 +119,18 @@ reviews on WebAssembly, for that visit, as everyone else does. Play is never
 on the card.
 
 The service worker saves the runtime (a few megabytes); the page saves the
-network itself (over 100 MB), because a browser cuts a service worker's work
-short after a few minutes, too soon for the network on a slow link (see
-[cache lifetime and upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)).
-A page has no such deadline: a transfer that keeps receiving bytes may take up
-to three hours, and one that stalls for a minute fails and can be retried.
+network itself (59 MB packed, over 100 MB for a network published whole),
+because a browser cuts a service worker's work short after a few minutes, too
+soon for the network on a slow link (see [cache lifetime and
+upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)). A page has no such
+deadline: a transfer that keeps receiving bytes may take up to three hours.
+A packed network's transfer that stalls for a minute, or whose connection
+drops, keeps what it received and asks for the rest two seconds later, up to
+five times, the whole file's digest still deciding; one that fails after
+that, and any stall of a network published whole, which its host stores
+gzipped and cannot serve in part, fails and can be retried, from the start.
+Every percentage and size said of the network is of what is downloaded, the
+packed file where the network is packed, and never goes back.
 The two are saved side by side, in either order. The page begins the network
 the moment a Trained player is chosen and waits for no service worker; the
 worker saves the runtime once it is active, on a first visit after its
@@ -148,8 +157,9 @@ it beside the other; a page or an opponent's worker that waits says so, in
 the panel and on the table, as soon as its wait begins. A page that only
 saves the network finds it by the record the other window's write left, and
 does not read it again. The window that holds the lock says it is alive as
-its bytes arrive, at most once a second, on a BroadcastChannel, and is waited
-for however slow its link: one that waits goes ahead regardless only after
+its bytes arrive, at most once a second, and as it asks again for the rest of
+a packed network, on a BroadcastChannel, and is waited for however slow its
+link: one that waits goes ahead regardless only after
 75 seconds without a word, the download's own minute without bytes and a
 little more, since the window it waits for may have been suspended by the
 browser. Without BroadcastChannel it goes ahead after three minutes, as
@@ -217,7 +227,7 @@ When the browser reports too little free storage for the network, the page does
 not download it only to have it refused; the opponent's worker fetches it once
 for the session. When storage refuses a network the page has already verified,
 those bytes go to the worker instead of being downloaded again.
-These checks never read the 116 MB again: they read the size and digest
+These checks never read the network again: they read the size and digest
 recorded when the network was verified and stored. The network is checked in
 full again each time it is loaded to play (see [verification and
 memory](ONNX_RUNTIME.md#verification-and-memory)).
@@ -242,6 +252,11 @@ cache isolation and failed upgrades.
 The cold-restart checks also refuse game assets at the HTTP server, so ordinary
 HTTP caching cannot conceal a missing offline file. Existing small-phone layout
 assertions remain part of verification.
+`scripts/packed-network-check.mjs` packs the default network, serves it
+through the model worker's code from a stand-in bucket and builds the site
+listing it packed: the first download is cut twice and must resume by byte
+ranges, store the packed file and play, the opponents' worker widening it,
+and a page opened again plays from what is stored with the bucket refusing.
 `scripts/network-picker-check.mjs` picks each listed network but the default
 in the production build and then the default again, and checks that each page
 asks for its own network's address alone, names it, and that the real service
