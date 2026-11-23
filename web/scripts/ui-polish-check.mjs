@@ -134,17 +134,22 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
     assert.ok(hand.at(-1).right<=edge,`the drawn tile is inside the hand at ${width}`);
     assert.deepEqual(p.errors,[]);
   }
-  // The same with a scrollbar's width gone from the window, as a desktop's
-  // has, at each step's first width and the pixel before it.
-  for(const width of [761,779,780,835,836,891,892,909]){
+  // The same with a scrollbar's 17 pixels gone from the window, as a
+  // desktop's has: each step then begins 17 pixels later, and these are each
+  // step's first width and the pixel before it.
+  for(const [width,tile] of [[761,40],[796,40],[797,44],[852,44],[853,48],[908,48],[909,52]]){
     const p=await open(start.snapshot,width,1000,async page=>{await page.evaluateOnNewDocument(()=>document.addEventListener('DOMContentLoaded',()=>{document.documentElement.style.paddingRight='17px';}));});
-    const tops=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(tile=>Math.round(tile.getBoundingClientRect().top)));
-    assert.equal(new Set(tops).size,1,`one row at ${width} with a scrollbar: ${tops.join(' ')}`);
+    const hand=await p.$$eval('.hand [data-hand-index]',tiles=>tiles.map(shown=>({top:Math.round(shown.getBoundingClientRect().top),width:shown.getBoundingClientRect().width})));
+    assert.equal(new Set(hand.map(shown=>shown.top)).size,1,`one row at ${width} with a scrollbar: ${hand.map(shown=>shown.top).join(' ')}`);
+    assert.ok(hand.every(shown=>shown.width===tile),`${tile} pixels a tile at ${width} with a scrollbar: ${hand[0].width}`);
   }
  });
  await check('a phone draws the opponents\u2019 discards as large as six to a row fit, and the modes in one row',async()=>{
-  // They were 14 pixels wide on every phone, and 11.5 under 360.
-  for(const [width,height,least] of [[320,568,12.5],[360,740,15],[375,667,15.5],[390,844,16.5],[412,915,17.5],[430,932,18.5]]){
+  // They were 14 pixels wide on every phone, and 11.5 under 360. The first
+  // two screens are narrower than any step but the least, and the last is a
+  // phone held sideways, whose seats are 88 pixels wide: a full row with a
+  // riichi's tile was 8.5 pixels wider than its seat there.
+  for(const [width,height,least] of [[280,653,10.5],[300,653,11.5],[320,568,12.5],[360,740,15],[375,667,15.5],[390,844,16.5],[412,915,17.5],[430,932,18.5],[667,375,11.5]]){
     const p=await open(riichi,width,height);
     const seats=await p.$$eval('.place',places=>places.map(place=>{
       const seat=place.querySelector('.seat'),style=getComputedStyle(seat),inner=seat.getBoundingClientRect().right-parseFloat(style.paddingRight)-parseFloat(style.borderRightWidth);
@@ -166,7 +171,7 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
     for(const row of rows)assert.ok(row.gap>=1&&row.rings.length>=6&&row.rings.every(ring=>ring<=row.gap),`at ${width} a ring fits between two discards: ${row.rings[0]} in ${row.gap}`);
     const modes=await p.$eval('.game-modes',el=>({shown:getComputedStyle(el).display!=='none',height:el.getBoundingClientRect().height,
       names:[...el.querySelectorAll('button')].map(button=>[button.getAttribute('aria-label'),button.textContent,button.innerText.trim()])}));
-    if(modes.shown){
+    if(modes.shown&&width<620){
       // One word each, and their whole names still said and still their text.
       assert.ok(modes.height<=52,`the modes take one row at ${width}: ${modes.height}`);
       assert.deepEqual(modes.names,[['Play','Play','Play'],['Agent watch','Agent watch','Watch'],['Physical agent play','Physical agent play','Physical'],['Guided physical game','Guided physical game','Guided']]);

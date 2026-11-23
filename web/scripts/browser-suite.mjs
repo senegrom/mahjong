@@ -16,15 +16,17 @@ import { fileURLToPath } from 'node:url';
 // In run order, each with the seconds it took in CI on 23 October 2026 (main,
 // run 39946819194), which balance the shards; last-hand-rules-check.mjs's and
 // webgpu-check.mjs's are estimates until a CI run times them (in CI, whose
-// Chrome has no WebGPU adapter, the second only says so). The timestamps of
-// the == lines in a CI log give new ones.
+// Chrome has no WebGPU adapter, the second only says so), and
+// ui-polish-check.mjs's is of 22 November 2026 (run 44975682086), with its
+// cases for the table at each size. The timestamps of the == lines in a CI
+// log give new ones.
 const scripts = [
   ['component-check.mjs', 43], ['agent-defaults-check.mjs', 14], ['cleanup-check.mjs', 17],
   ['webapp-reliability-check.mjs', 10], ['trained-default-check.mjs', 11], ['network-picker-check.mjs', 63],
   ['guided-game-check.mjs', 26], ['adviser-riichi-check.mjs', 7], ['last-hand-rules-check.mjs', 6], ['adviser-review-check.mjs', 16],
   ['agent-watch-check.mjs', 85], ['ui-regression.mjs', 84], ['tile-effects-check.mjs', 8],
   ['full-review-check.mjs', 308], ['game-review-check.mjs', 735], ['discard-readiness-check.mjs', 32],
-  ['mixed-opponents-check.mjs', 27], ['ui-polish-check.mjs', 9], ['trained-model-check.mjs', 12],
+  ['mixed-opponents-check.mjs', 27], ['ui-polish-check.mjs', 41], ['trained-model-check.mjs', 12],
   ['toolchain-check.mjs', 26], ['offline-check.mjs', 59], ['webgpu-check.mjs', 3],
 ];
 // A number missing or not a number can leave scripts out of every shard.

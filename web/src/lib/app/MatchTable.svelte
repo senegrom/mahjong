@@ -150,8 +150,11 @@
      pixel between the tiles a ring around one is a pixel wide, a
      fourteenth of the tile as on a wide screen's rows, so that it covers
      no neighbour (Tile). A browser without container queries keeps the
-     sizes above. A review's table keeps its own (below), and its rows
-     their two pixels, which the outline of a tile on offer needs
+     sizes above, which fit with the same pixel and padding: 28 takes 104
+     pixels of a seat 111 wide at 360, and 23 takes 88 of 97 at 320. A seat
+     under 88 pixels wide, on a screen under 292, has discards 10.5 wide,
+     which fit one of 82. A review's table keeps its own (below), and its
+     rows their two pixels, which the outline of a tile on offer needs
      (Discards): play outlines none. */
   @media (max-width: 760px) {
     /* Four pixels between the seats, as held sideways, for the discards. */
@@ -159,11 +162,11 @@
   }
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     .place { container: seat / inline-size; }
-    @container seat (min-width: 94.7px) {
-      .board:not(.review) .place :global(.seat) { --tile-width: 25px; padding-inline: 4px; }
-      .board:not(.review) .place :global(.pool.compact) { column-gap: 1px; }
-      .board:not(.review) .place :global(.pool.compact .tile) { --ring-width: 1px; }
-    }
+    .board:not(.review) .place :global(.seat) { padding-inline: 4px; }
+    .board:not(.review) .place :global(.pool.compact) { column-gap: 1px; }
+    .board:not(.review) .place :global(.pool.compact .tile) { --ring-width: 1px; }
+    @container seat (max-width: 87.83px) { .board:not(.review) .place :global(.seat) { --tile-width: 21px; } }
+    @container seat (min-width: 94.7px) { .board:not(.review) .place :global(.seat) { --tile-width: 25px; } }
     @container seat (min-width: 101px) { .board:not(.review) .place :global(.seat) { --tile-width: 27px; } }
     @container seat (min-width: 110.5px) { .board:not(.review) .place :global(.seat) { --tile-width: 30px; } }
     @container seat (min-width: 113.7px) { .board:not(.review) .place :global(.seat) { --tile-width: 31px; } }

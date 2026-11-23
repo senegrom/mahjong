@@ -210,7 +210,7 @@
   @container mine (max-width: 765.98px) { .hand { --tile-width: 44px; } }
   @container mine (max-width: 709.98px) { .hand { --tile-width: 40px; } }
   /* A browser without container queries steps by the window's width instead,
-     each step counted with a scrollbar's 17 pixels and four to spare. */
+     each step counted with a scrollbar's 17 pixels and seven to spare. */
   @supports not (container-type: inline-size) {
     @media (min-width: 761px) and (max-width: 912.98px) and (min-height: 501px) {
       .mine:not(.listed) .hand { --tile-width: 48px; }

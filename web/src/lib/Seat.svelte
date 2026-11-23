@@ -301,7 +301,9 @@
     border-radius: 999px;
     /* A backing of its own, the deep felt with a little gold, on which the
        word is 5.3 to 1: over the table's lighter middle a tint alone left
-       it near 4. */
+       it near 4. The first line is the light theme's mix, for a browser
+       that cannot mix colours. */
+    background: #3d532f;
     background: color-mix(in srgb, var(--felt-deep) 82%, var(--gold) 18%);
     color: var(--gold-text);
     font-size: .66rem;

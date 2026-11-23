@@ -17,17 +17,18 @@ How the table is laid out follows the window, its height as well as its width.
 - **From 968 pixels wide and 900 high** the three opponents sit around the
   centre, Opposite above it and Left and Right beside it, their discards 27
   pixels wide.
-- **Under 900 pixels high, or under 968 wide, as a tablet is,** from 761
-  pixels wide and over 500 high, the table is the dense one: the centre a bar across the top and the opponents in one row
-  under it, Left, Opposite and Right, their discards 22 pixels wide. Where a
-  seat is 300 pixels wide or more, its discards stand beside its name, score
-  and called sets rather than under them, so the seat is only as tall as three
-  rows of discards. Around its centre the table is 426 to 477 pixels high, and
-  in a 1366 by 768 laptop's browser, 650 pixels high, the hand lay wholly under
-  the screen as the turn began; the dense table is 228. Measured in Chromium
-  at 1366x650 and 1280x600, the whole hand is on the first screen, early in a
-  hand (452 to 552 pixels down) and late in one against a riichi (484 to 584).
-  Under 700 pixels high the page's rows also stand 8 pixels apart, not 14.
+- **Under 900 pixels high, or under 968 wide, as a tablet is,** from 761 pixels
+  wide and over 500 high, the table is the dense one: the centre a bar across
+  the top and the opponents in one row under it, Left, Opposite and Right,
+  their discards 22 pixels wide. Where a seat is 300 pixels wide or more, its
+  discards stand beside its name, score and called sets rather than under them,
+  so the seat is only as tall as three rows of discards. Around its centre the
+  table is 426 to 477 pixels high, and in a 1366 by 768 laptop's browser, 650
+  pixels high, the hand lay wholly under the screen as the turn began; the
+  dense table is 228. Measured in Chromium at 1366x650 and 1280x600, the whole
+  hand is on the first screen, early in a hand (452 to 552 pixels down) and
+  late in one against a riichi (484 to 584). Under 700 pixels high the page's
+  rows also stand 8 pixels apart, not 14.
 - **From 761 pixels wide the player's hand is one row.** Fourteen tiles of 52
   pixels need a window 889 wide, or 906 with a scrollbar. Under that the tile
   just drawn used to wrap onto a row of its own, so that the seat grew and
@@ -44,14 +45,14 @@ How the table is laid out follows the window, its height as well as its width.
   under 360. The seat is measured as a container and its width names the size,
   in steps; a browser without container queries keeps the old sizes, and a
   review's table its own. The rows have one pixel between their tiles there,
-  and the ring around a dora is one pixel wide, so that it covers no
-  neighbour. Larger ones would need the table laid out anew, since a third of
-  a phone's width is all a seat has. The four modes' buttons show one word each under 620 pixels
-  wide, Play, Watch, Physical and Guided, in one row of 50 pixels where their
-  whole names took 82; a screen reader still hears the whole names. The play
-  area scrolls with the page: it used to stay six pixels from the top of the
-  screen as the page moved, under the game's bar, which stays there too, and
-  a play area taller than the screen held a call's buttons under its foot.
+  and the ring around a dora is one pixel wide, so that it covers no neighbour.
+  Larger ones would need the table laid out anew, since a third of a phone's
+  width is all a seat has. The four modes' buttons show one word each under 620
+  pixels wide, Play, Watch, Physical and Guided, in one row of 50 pixels where
+  their whole names took 82; a screen reader still hears the whole names. The
+  play area scrolls with the page: it used to stay six pixels from the top of
+  the screen as the page moved, under the game's bar, which stays there too,
+  and a play area taller than the screen held a call's buttons under its foot.
   While the result's chip shows, the page ends 56 pixels lower, so that its
   last line can be scrolled clear of the chip. In the settings' dialog an
   opened section stays where it was pressed, rather than going to the foot of
