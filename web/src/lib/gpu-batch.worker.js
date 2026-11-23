@@ -43,6 +43,14 @@ async function open({ url, expect, scope, webgpu }, fetched) {
   const adapter = await webgpuAdapter(self.navigator?.gpu);
   if (!adapter) throw new Refusal('no graphics card adapter, or only one that runs on the processor', true);
   let bytes;
+  // Read without the lock the page and the opponent's worker take to fetch
+  // the network (network-transfer.js): this only reads what is stored, and
+  // never fetches it, so it cannot download it beside them. Asked while one
+  // of them downloads it, it finds none stored and refuses, and the card is
+  // declined for this visit (gpu-batches.js). Its one write deletes an entry
+  // it read whole and found to be other bytes; a window about to download
+  // deletes such an entry itself first, and stores the network it fetched
+  // minutes later, long after this has read and hashed it.
   try { bytes = await storedNetworkBytes({ url, expect, scope }); }
   catch (error) { throw new Refusal(`the network could not be read: ${said(error)}`, false); }
   if (!bytes) throw new Refusal('the network is not saved on this device', false);

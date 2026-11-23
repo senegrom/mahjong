@@ -16,9 +16,9 @@ opponents are the default for a new player, so a first match starts their
 download by itself, and
 the table shows its progress while a Trained opponent waits for it; the hand
 review, Agent watch and a guided game show it too when their first Trained
-advice is what starts the download. On a first visit the network's download
-begins only once the game and every tile graphic are saved, which reports no
-percentage, so until then the table says that the game is being saved first.
+advice is what starts the download. The network's download begins at once, on
+a first visit beside the saving of the game and every tile graphic, which it
+does not wait for; the first Trained move waits for the network alone.
 A player whose saved table is Club or
 Beginner can select a Trained opponent, or choose **Download trained AI for
 offline play** in the status panel without changing the current match. Wait
@@ -53,7 +53,17 @@ startup, on reconnect and when returning to the app. This recovery never opts
 into AI. A first install that outlasts the page's two-minute wait, one that
 failed, and a page that a hard reload loaded past its worker are each named in
 the game's line, never reported as storage the browser lacks; the panel checks
-again by itself when the finished worker takes control of the page. The
+again by itself when the finished worker takes control of the page. A first
+install that fails, within that wait or after it, is said in the same line and
+tried again by itself while the page stays open and connected: after five
+seconds, then twice as long each time, up to five minutes, each attempt
+keeping the files it finished. Offline, a reconnect starts it instead. An
+install or a repair that storage refused, for want of room or otherwise, is
+not told as a lost connection: the line says what was refused and what the
+browser said of it ("The game is not saved offline: …"), as the install's
+worker told the page before it went, and such an install is not tried again
+by itself. The same holds for the trained AI, whose line names the runtime
+or the network and says that online play is still available. The
 optional download/retry button requests only the trained AI package, not an
 already complete game or its graphics.
 
@@ -70,15 +80,27 @@ them all. A page plays one, the one picked (or the default), for as long as
 it is open: picking another reloads the page. That network alone is what
 the page asks for, checks against its own size and SHA-256, saves and runs,
 and every message to the worker names the pick, so the worker reports
-whether that network is saved, never another. The worker deletes no network
-its build lists: a player who goes back to a network saved earlier finds it
-still saved, at the cost of keeping each one picked (about 117 MB apiece).
-A network the site stops listing goes the way an older version's does: it
-is kept only while it is the one saved before the current one.
+whether that network is saved, never another. The worker keeps the network
+saved last, the one saved before it, its build's default, and every network
+the player picked for as long as the build lists it, which it remembers in
+its retention record: a player who goes back to a network picked earlier
+finds it still saved, at the cost of keeping each one picked (about 117 MB
+apiece). A former default that the player never picked is not kept for being
+listed: it goes once two newer networks are saved, and is downloaded again
+if it is ever picked. Listed networks go only after a page has saved one,
+never when a new version first starts, so an update takes nothing away on a
+plane. A network the site stops listing goes the way an older
+version's does: it is kept only while it is the one saved before the current
+one. A page that plays a picked network and finds it saved already tells the
+worker once, so that a pick made before picks were remembered, and never
+downloaded since, is kept like any other.
 
-Loading the network into the opponent's worker is its own phase. Where the page
-could not save the network (no service worker, an installation still running, a
-hard reload, a storage failure), the worker downloads it itself, showing its
+Loading the network into the opponent's worker is its own phase. The worker is
+asked only once the page has the network in hand, so the two never fetch it
+side by side, and it does not wait for the runtime to be saved, which it loads
+from the site. Where the page cannot save the network (a browser without
+service workers or Cache Storage, or storage with no room for it), the worker
+downloads it itself, showing its
 progress. That phase has no fixed deadline: it ends when the worker has reported
 nothing for two minutes. The 20-second deadline for a move starts only once the
 network is loaded and the worker begins that move. A Retry after a failed start
@@ -100,6 +122,40 @@ short after a few minutes, too soon for the network on a slow link (see
 [cache lifetime and upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)).
 A page has no such deadline: a transfer that keeps receiving bytes may take up
 to three hours, and one that stalls for a minute fails and can be retried.
+The two are saved side by side, in either order. The page begins the network
+the moment a Trained player is chosen and waits for no service worker; the
+worker saves the runtime once it is active, on a first visit after its
+install, or, where that install outlasts the page's wait for it, when it takes
+control of the page. The panel's percentage, and the table's, is the share of
+the network received; the panel's is held at 99 until the runtime is saved
+too, and the panel says **Offline: game + AI ready** only once both are
+saved. The table speaks only of the network itself: it shows the percentage
+while the network downloads, says so while another window's download of it
+goes first, and says nothing once the network is in hand, when the opponent
+plays though the runtime may still be saving. The offline state says where
+the network stands apart from the whole save (`network`: none, waiting,
+downloading or ready; see `OfflineState` in `web/src/lib/app/types.ts`), and
+a returning player's saved network is ready from the start. A network that
+cannot be fetched fails the Trained opponent at once; a runtime that cannot
+be saved is said in the panel once the network has been, and the opponent
+plays on with the runtime the site serves. Where the network failed during a
+first visit's install, the panel's retry does not wait for the install.
+
+One window or worker at a time fetches a network. A second tab, or the
+installed app beside a tab, that asks for the same network meanwhile waits its
+turn under a Web Lock and then finds it saved, where each used to fetch all of
+it beside the other; a page or an opponent's worker that waits says so, in
+the panel and on the table, as soon as its wait begins. A page that only
+saves the network finds it by the record the other window's write left, and
+does not read it again. The window that holds the lock says it is alive as
+its bytes arrive, at most once a second, on a BroadcastChannel, and is waited
+for however slow its link: one that waits goes ahead regardless only after
+75 seconds without a word, the download's own minute without bytes and a
+little more, since the window it waits for may have been suspended by the
+browser. Without BroadcastChannel it goes ahead after three minutes, as
+before; without Web Locks each fetches for itself. The graphics card's
+review worker reads only a network already saved and never fetches one, so
+it takes no turn.
 
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
@@ -113,9 +169,10 @@ become successful downloads. Retrying requests only missing files. No file has
 a fixed time limit of its own: one that keeps arriving goes on, and one that
 stops for a minute is tried again later. A file that fails does not stop the
 others, and every file an attempt finishes stays saved, so an install the
-browser abandons after its few minutes (five in Chrome) resumes on the next
-visit or reconnect with only what is still missing. Only a link too slow to
-bring the largest tile graphics within those minutes, below about 300 kbit/s,
+browser abandons after its few minutes (five in Chrome) resumes with only what
+is still missing: by itself while the page stays open, and on the next visit
+or reconnect. Only a link too slow to bring the largest file, the rules
+engine's 1.8 MB, within those minutes, a few tens of kilobits a second,
 never completes it; play still works online. Storage is scoped to this app;
 other projects on the same GitHub Pages origin are untouched.
 The service worker responds cache-first and caches neither unknown URLs nor
@@ -129,7 +186,9 @@ the update takes over.
 
 Updates wait until existing Mahjong windows close. An update installs with the
 game and graphics alone, never the network, and on a slow link it resumes over
-several attempts like a first install. When Trained AI was ever requested, the
+several attempts like a first install. The panel says when one has installed,
+whether the browser found it before the page began to watch for one or after.
+When Trained AI was ever requested, the
 update's runtime and network are saved while you play; if that does not
 finish, the update saves them itself once it starts, with the status panel
 showing progress (see [cache lifetime and
@@ -143,8 +202,12 @@ opponents need a connection. Check for **Offline: game + AI ready** after an
 update before flying. The previous network stays stored until the new one is
 saved. No downloaded model is replaced merely because a newer UI was published.
 
-The app requests persistent storage where supported, and reports whether the
-browser granted it. Clearing website data removes downloads. Browsers may also
+The app requests persistent storage where supported, once a trained AI has
+been saved, and reports whether the browser granted it; at every start it
+only reads the answer. Firefox puts that question to the player, so it is
+left until the download they asked for by choosing a Trained player is on the
+device, and asked once for each such download. Clearing website data removes
+downloads. Browsers may also
 evict non-persistent storage under storage pressure; no web app can guarantee
 retention after the operating system deletes its data. Readiness is checked
 against CacheStorage at startup and when the app returns to the foreground,

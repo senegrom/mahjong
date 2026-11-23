@@ -1,7 +1,7 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 /* global __RUNTIME_DIRECTORY__ */
-import { prepareOfflineAi, refreshOffline } from './offline.js';
+import { networkReleased, prepareNetwork, refreshOffline } from './offline.js';
 import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
@@ -31,6 +31,10 @@ let loading;
 // Preparation belongs to the runtime lifetime, not to every decision. Even
 // when durability is unavailable, a verified resident network can keep playing.
 // Explicit downloads and foreground status checks still verify offline storage.
+// It is the page's own save of the network and no more (prepareNetwork): the
+// worker is asked once the page has the network in hand, so that it never
+// fetches a second copy beside the page's, and it does not wait for the
+// runtime to be saved, which it loads from the site.
 let preparation = null;
 // Verified network bytes that offline storage refused, for the next worker.
 let unstored = null;
@@ -54,6 +58,9 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   generation++;
   preparation = null;
   unstored = null;
+  // Bytes storage refused went with this worker, or with `unstored`: the
+  // next worker fetches the network, which the page then no longer has.
+  networkReleased();
   const old = worker;
   worker = null;
   loaded = false;
@@ -107,7 +114,7 @@ function backstop(id) {
 
 function preparePolicy() {
   if (!preparation) {
-    const held = prepareOfflineAi().then(prepared => {
+    const held = prepareNetwork().then(prepared => {
       if (preparation === held) unstored = prepared?.unstoredNetwork ?? null;
     }, error => {
       if (preparation === held) preparation = null;
@@ -137,6 +144,9 @@ function ensureWorker() {
         // the old reservation before asking the browser for bounded headroom.
         worker = null;
         current.terminate();
+        // The replacement loads the network again, and fetches it where
+        // the one ended held bytes storage refused.
+        networkReleased();
         memoryLimitMiB = larger;
         onProgress?.('retrying the agent with more memory');
         onLoading?.('retrying the agent with more memory');
@@ -200,15 +210,13 @@ export async function modelIsAvailable() {
   } catch { return false; }
 }
 
-/** The network's best legal move for this position; it is never sampled.
- * The timeout bounds the decision from when the worker begins it, not the
- * load, nor its wait behind the worker's other requests. */
-export function chooseAction(planes, mask, signal, timeout = DECISION_MS) {
-  return requestPolicy(planes, mask, timeout, signal, false);
-}
-
+/** The network's answer for this position: its best legal move, which is
+ * never sampled, with its weights, its value and its belief. A Trained
+ * opponent plays that move and the advisers show the rest. The deadline
+ * bounds the decision from when the worker begins it, not the load, nor its
+ * wait behind the worker's other requests. */
 export function analyzePolicy(planes, mask, signal) {
-  return requestPolicy(planes, mask, DECISION_MS, signal, true);
+  return requestPolicy(planes, mask, DECISION_MS, signal);
 }
 
 /** The best legal move and weights of several positions, asked in one
@@ -227,10 +235,10 @@ function batchOnWasm(positions, signal) {
   const planes = new Float32Array(positions.length * width);
   positions.forEach((position, index) => planes.set(position.planes, index * width));
   const mask = positions.flatMap(position => Array.from(position.mask));
-  return requestPolicy(planes, mask, DECISION_MS * Math.ceil(positions.length / 4), signal, true, positions.length);
+  return requestPolicy(planes, mask, DECISION_MS * Math.ceil(positions.length / 4), signal, positions.length);
 }
 
-async function requestPolicy(planes, mask, timeout, signal, details, count) {
+async function requestPolicy(planes, mask, timeout, signal, count) {
   // Prepare once before any deadline starts. Cache eviction or a failed
   // persistence retry must not gate a network already resident in ORT.
   if (signal?.aborted) throw new DOMException('Match changed', 'AbortError');
@@ -281,7 +289,7 @@ async function requestPolicy(planes, mask, timeout, signal, details, count) {
       const copy = planes.slice();
       const target = ensureWorker();
       const message = { id, url: networkUrl(playedNetwork()), runtimeBase: runtimeBase(),
-        scope: new URL('./', document.baseURI).href, planes: copy, mask, details, memoryLimitMiB };
+        scope: new URL('./', document.baseURI).href, planes: copy, mask, details: true, memoryLimitMiB };
       if (count) message.count = count;
       const transfer = [copy.buffer];
       // A fresh worker is handed bytes storage refused rather than fetch them.

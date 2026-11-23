@@ -103,9 +103,9 @@ const workerCrypto = {
     return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength);
   } },
 };
-function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', clock } = {}) {
+function worker({ files = bodies, caches = storage(), config = manifest(files), network, remote = 'weights', clock, clients = { async claim() {} } } = {}) {
   const events = {}, counts = new Map();
-  const self = { registration: { scope: base }, clients: { async claim() {} }, addEventListener: (type, fn) => events[type] = fn };
+  const self = { registration: { scope: base }, clients, addEventListener: (type, fn) => events[type] = fn };
   vm.runInNewContext(template.replace('/* OFFLINE_CONFIG */ null', JSON.stringify(config)), {
     self, URL, Request, Response, Map, Set, caches, crypto: workerCrypto, AbortController, DOMException,
     AbortSignal: clock?.AbortSignal ?? AbortSignal,
@@ -315,9 +315,38 @@ test('a file that fails costs the attempt no other file, and the next one fetche
 });
 test('quota errors cannot be misreported as successfully saved offline', async () => {
   const caches = { async open() { return { async match() {}, async put() { throw new Error('QuotaExceededError'); } }; } };
-  const w = worker({ caches }); await assert.rejects(w.install(), /QuotaExceededError/);
+  // Each refusal names what was refused: a full device refuses the game's
+  // files before it ever comes to the network.
+  const w = worker({ caches }); await assert.rejects(w.install(), /^NetworkStorageError: The game is not saved offline: QuotaExceededError$/);
   assert.equal((await status(w)).coreReady, false);
-  await assert.rejects(download(w), /QuotaExceededError/);
+  await assert.rejects(download(w), /^Error: Trained AI is not saved offline: QuotaExceededError$/);
+  // The runtime, where the request for it could still be kept.
+  const marked = { async open() { return { async match() {}, async put(request) {
+    if (!String(request.url ?? request).includes('__offline_meta__')) throw new Error('QuotaExceededError');
+  } }; } };
+  await assert.rejects(download(worker({ caches: marked })), /^Error: The AI runtime is not saved offline: QuotaExceededError$/);
+});
+test('a worker whose install fails tells its own pages why, and whether storage refused it', async () => {
+  const posts = [];
+  const page = url => ({ url, postMessage: data => posts.push([url, JSON.parse(JSON.stringify(data))]) });
+  const clients = { async claim() {}, async matchAll(options) {
+    assert.deepEqual({ ...options }, { type: 'window', includeUncontrolled: true });
+    return [page(base), page(`${base}?mode=watch`), page('https://test.invalid/plateloader/')];
+  } };
+  // No room: storage refuses every write.
+  const full = { async open() { return { async match() {}, async put() { throw new DOMException('Quota exceeded.', 'QuotaExceededError'); } }; } };
+  await assert.rejects(worker({ caches: full, clients }).install(), /The game is not saved offline: Quota exceeded\./);
+  assert.deepEqual(posts.map(([url]) => url), [base, `${base}?mode=watch`], 'another project on the origin is not told');
+  assert.deepEqual(posts[0][1], { type: 'MAHJONG_INSTALL_FAILED', error: 'The game is not saved offline: Quota exceeded.', storage: true });
+  // A file the server refuses is no matter of storage.
+  posts.length = 0;
+  const refusing = worker({ clients, network: name => new Response(bodies[name], { status: name === 'app.js' ? 503 : 200 }) });
+  await assert.rejects(refusing.install(), /Download failed: app\.js \(HTTP 503\)/);
+  assert.deepEqual(posts[0][1], { type: 'MAHJONG_INSTALL_FAILED', error: 'Download failed: app.js (HTTP 503)', storage: false });
+  // An install that succeeds says nothing.
+  posts.length = 0;
+  await worker({ clients }).install();
+  assert.deepEqual(posts, []);
 });
 test('production inventory classifies the external model/runtime package', async t => {
   const root = await mkdtemp(join(tmpdir(), 'mahjong-offline-build-'));
@@ -482,10 +511,11 @@ test('a build that lists several networks reports on the one the page plays, and
   for (const listed of w.config.networks) assert.equal(w.counts.has(externalUrl(listed)), false, 'the worker fetched no network');
 });
 
-test('the worker never deletes a network its build lists, though others were saved after it', async () => {
+test('the worker never deletes a network the player picked while its build lists it, though others were saved after it', async () => {
   // Saved in turn, the first is neither the current network nor the one
   // before it by the time the third is saved, which alone would cost it its
-  // bytes; a player who picked it would have to download it again.
+  // bytes; a player who picked it would have to download it again. The
+  // worker remembers each pick a page names when it has saved it.
   const listed = [['g900', 900], ['g810', 810], ['g410', 410]];
   const w = listingWorker(listed);
   await w.install(); await w.activate(); await download(w);
@@ -495,8 +525,8 @@ test('the worker never deletes a network its build lists, though others were sav
     assert.equal((await status(w, `0.1.${generation}`)).aiReady, true);
   }
   // The next build lists a newer default and one of these. Until its page
-  // saves that default nothing goes; then what it no longer lists does,
-  // except the network current before.
+  // saves that default nothing goes; then the pick it no longer lists does,
+  // and the network current before stays.
   const next = listingWorker([['g1000', 1000], ['g810', 810]], { files: { ...bodies, 'app.js': 'next UI' }, caches: w.caches });
   await next.install(); await next.activate();
   for (const [body, generation] of listed) assert.equal(await kept(w, body, generation), true, `0.1.${generation} before`);
@@ -504,6 +534,31 @@ test('the worker never deletes a network its build lists, though others were sav
   await pageSaves(next, 'g1000');
   assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]
     .map(([body, generation]) => kept(next, body, generation))), [true, true, true, false]);
+});
+
+test('a former default nobody picked goes once two newer networks are saved, though the build still lists it', async () => {
+  // Three builds, each with a newer default, played by a player who picks
+  // nothing. Every build goes on listing the earlier defaults for a player
+  // to pick, and the worker kept each one for as long: 117 MB apiece.
+  const builds = [[['g810', 810], ['g410', 410]], [['g900', 900], ['g810', 810], ['g410', 410]],
+    [['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]];
+  let w, caches;
+  for (const [index, listed] of builds.entries()) {
+    w = listingWorker(listed, { files: { ...bodies, 'app.js': `UI ${index}` }, ...(caches && { caches }) });
+    caches = w.caches;
+    await w.install(); await w.activate(); await download(w);
+    await pageSaves(w, listed[0][0]);
+  }
+  assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810]].map(([body, generation]) => kept(w, body, generation))),
+    [true, true, false], 'the current network and the one before it');
+  // It is still there to pick, and a page that plays it saves it again.
+  assert.equal((await status(w, '0.1.810')).aiReady, false);
+  assert.equal(await pageSaves(w, 'g810', undefined, '0.1.810'), 1);
+  // Picked, it stays whatever is saved after it; the default stays too.
+  assert.equal(await pageSaves(w, 'g410', undefined, '0.1.410'), 1);
+  assert.equal(await pageSaves(w, 'g900', undefined, '0.1.900'), 1);
+  assert.deepEqual(await Promise.all([['g1000', 1000], ['g900', 900], ['g810', 810], ['g410', 410]]
+    .map(([body, generation]) => kept(w, body, generation))), [true, true, true, true]);
 });
 
 test('a waiting update answers for the network its own list gives the player\'s pick', async () => {

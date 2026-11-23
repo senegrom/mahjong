@@ -19,17 +19,24 @@ async function cached(cache, entry) {
   return response?.headers.get('X-Mahjong-SHA256') === entry.hash
     && Number(response.headers.get('Content-Length')) === entry.bytes ? response : null;
 }
-// No fixed cap on a file: on a slow link, four 3 MB tiles share it for
-// minutes, and a file cut off at a fixed time is lost whole, on every
-// attempt. A file that keeps arriving goes on; one silent for a minute has
-// stalled.
+// No fixed cap on a file: four files at a time share the link, and on a
+// slow one the rules engine's 1.8 MB or the runtime's 4 MB take minutes. A
+// file cut off at a fixed time is lost whole, on every attempt. A file that
+// keeps arriving goes on; one silent for a minute has stalled.
 const IDLE_MS = 60000;
 const failure = url => (kind, detail) => kind === 'status' ? `Download failed: ${url} (HTTP ${detail})`
   : kind === 'timeout' ? `Download stalled: ${url}` : `Incomplete or outdated download: ${url}`;
+// What storage refused, when it refuses one of the worker's own files: said
+// by what the player loses, not by the file.
+const SAVED_AS = { core: 'The game', ai: 'The AI runtime' };
+const refused = (entry, cause) => networkTransfer.storageError(cause, undefined, SAVED_AS[entry.group] ?? entry.url);
+/** Whether a failure is storage's own: no room, or storage that refuses. */
+const storageRefused = error => error.name === 'NetworkStorageError'
+  || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(error.name);
 async function ensure(entry, durable = true) {
   let cache, hit;
   try { cache = await caches.open(CACHE); hit = await cached(cache, entry); }
-  catch (error) { if (durable) throw networkTransfer.storageError(error); }
+  catch (error) { if (durable) throw refused(entry, error); }
   if (hit) return hit;
   if (!downloads.has(entry.hash)) {
     const task = (async () => {
@@ -40,7 +47,7 @@ async function ensure(entry, durable = true) {
       const saved = new Response(bytes, { headers: { 'Content-Type': type, 'Content-Length': String(entry.bytes),
         'X-Mahjong-SHA256': entry.hash, 'X-Content-Type-Options': 'nosniff' } });
       try {
-        if (!cache) throw networkTransfer.storageError();
+        if (!cache) throw new Error('storage unavailable');
         await cache.put(keyFor(entry), saved.clone());
         return { response: saved, stored: true };
       } catch (error) { return { response: saved, stored: false, error }; }
@@ -48,7 +55,7 @@ async function ensure(entry, durable = true) {
     downloads.set(entry.hash, task);
   }
   const answer = await downloads.get(entry.hash);
-  if (durable && !answer.stored) throw networkTransfer.storageError(answer.error);
+  if (durable && !answer.stored) throw refused(entry, answer.error);
   return answer.response.clone();
 }
 const networkUrl = network => `${network.origin}/${network.object}`;
@@ -115,14 +122,18 @@ async function prepare(group, progress = () => {}, version) {
   await task;
   return status(version);
 }
-/** The active worker keeps every network its build lists, which its pages
- * may play, the network a page has just saved (at activation, the default)
- * and the one current before it; a waiting or installing update prevents any
- * deletion. */
-async function pruneNetworks(version) {
+/** After a page has saved its network (`saved`), the active worker keeps
+ * that network, the one current before it, its build's default and every
+ * network the player picked while the build lists it. A pick is a listed
+ * version a page names other than the default, which a page plays without
+ * naming one. At activation no page has spoken: the default becomes current
+ * where it is stored, and nothing this build lists is deleted. A waiting or
+ * installing update prevents any deletion. */
+async function pruneNetworks(version, saved = false) {
   const network = networkFor(version);
   await networkTransfer.pruneNetworkCache({
     scope: networkScope, url: networkUrl(network), expect: network, listed: CONFIG.networks.map(networkUrl),
+    saved, picked: network.version === version && network !== CONFIG.networks[0],
     canPrune: () => !self.registration.installing && !self.registration.waiting,
   });
 }
@@ -138,21 +149,39 @@ async function pruneObsoleteContent() {
     if (url.pathname.startsWith(prefix) && !keep.has(request.url)) await cache.delete(request);
   }
 }
+/** Tells this installation's pages, controlled or not: a worker whose
+ * install fails is gone before a page could ask it why. Other projects'
+ * pages on the same origin are not told. */
+async function tellPages(message) {
+  try {
+    for (const client of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) {
+      if (client.url.startsWith(scope.href)) client.postMessage(message);
+    }
+  } catch { /* Nobody to tell. */ }
+}
 self.addEventListener('install', event => {
   // The game only: an install still running when the browser's event deadline
   // passes is discarded, so the trained network is never part of one. A page
-  // of this version saves it after activation when Trained is wanted (or the
+  // saves it by itself, beside this install, when Trained is wanted (or the
   // previous version's page saves it while this one waits). Failed updates
   // leave the active worker and every verified asset intact. Normal
   // waiting-worker lifecycle: no forced upgrade during a live match.
-  event.waitUntil(prepare('core'));
+  //
+  // An install that fails says why before it goes (offline.js): a device
+  // with no room is not helped by being told to reconnect, and is not tried
+  // again every few minutes.
+  event.waitUntil(prepare('core').catch(async error => {
+    await tellPages({ type: 'MAHJONG_INSTALL_FAILED', error: error.message, storage: storageRefused(error) });
+    throw error;
+  }));
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     // Nothing is downloaded here either. The default network, when the page
     // saved it while this version waited, becomes current; one not yet saved
     // leaves the retention record, and the previous version's recoverable
-    // bytes, untouched. No network this build lists is deleted.
+    // bytes, untouched. No network this build lists is deleted here: only
+    // after a page has saved one and named its pick (pruneNetworks).
     await pruneNetworks();
     await pruneObsoleteContent();
     await self.clients.claim();
@@ -169,20 +198,19 @@ self.addEventListener('message', event => {
   const version = typeof event.data.version === 'string' ? event.data.version : undefined;
   const work = (async () => {
     if (event.data.type === 'MAHJONG_STATUS') return status(version);
-    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version); return status(version); }
+    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version, true); return status(version); }
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
       // Remembered across upgrades: later versions' pages save their own
       // network for a player who once asked for Trained offline.
       try {
         const cache = await caches.open(CACHE);
         await cache.put(requestedKey(), new Response('requested'));
-      } catch (error) { throw networkTransfer.storageError(error); }
+      } catch (error) { throw networkTransfer.storageError(error, undefined, 'Trained AI'); }
     }
     return prepare(groupOf[event.data.type], progress, version);
   })();
   event.waitUntil(work.then(value => port.postMessage({ value }))
-    .catch(error => port.postMessage({ error: error.message, storage: error.name === 'NetworkStorageError'
-      || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(error.name) })));
+    .catch(error => port.postMessage({ error: error.message, storage: storageRefused(error) })));
 });
 self.addEventListener('fetch', event => {
   const request = event.request, url = new URL(request.url);

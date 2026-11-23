@@ -35,11 +35,41 @@ export interface PendingOpponent { player: number; position: string }
 export interface OfflineState {
   supported?: boolean | null;
   coreReady: boolean; aiReady: boolean; hasModel: boolean;
+  /** 'ai' while a trained save runs, from the moment a Trained player is
+   * chosen until the network and its runtime are both saved, and 'incomplete'
+   * once one has failed, with `warning` saying why. Otherwise what the start
+   * found: 'checking', 'ready' or 'unavailable'. */
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
+  /** While the phase is 'ai', the percent of the network received, held at
+   * 99 until the runtime is saved too: read only then, and by the table's
+   * note while `network` is 'downloading'. A save that ends whole with its
+   * worker told sets 100. Any other end (one with no worker yet to save the
+   * runtime, one that found everything saved already, one that failed or
+   * that storage refused) leaves the last value, which means nothing once
+   * the phase has moved on. */
   progress: number; warning?: string; coreWarning?: string;
   persistent?: boolean; updateReady?: boolean;
-  /** A first visit's service worker is still saving the game to activate. */
+  /** A first visit's service worker is still saving the game to activate.
+   * A trained save runs beside it and does not wait for it. */
   installing?: boolean;
+  /** Where the trained network itself stands, apart from the whole save
+   * (`phase`), which also waits for the runtime:
+   * - 'none': no network asked for, or the ask failed; or the page leaves it
+   *   to the opponent's worker to fetch (nothing can be saved here, storage
+   *   had no room for it, or bytes storage refused have gone with the
+   *   worker that took them).
+   * - 'waiting': asked for, and waiting its turn behind another window's or
+   *   worker's download of it.
+   * - 'downloading': its bytes are arriving, and `progress` is the percent
+   *   of the network received.
+   * - 'ready': the page has it verified, stored or, where storage refused
+   *   it, held for the opponent's worker: a Trained opponent loads it
+   *   without a long download. Never said while that worker would still
+   *   have to fetch it.
+   * Set by offline.js at every turn: the start's look at what is stored, each
+   * save, its failure and retry. A pick of another network reloads the page,
+   * which starts again from 'none'. */
+  network?: 'none' | 'waiting' | 'downloading' | 'ready';
 }
 export interface OfflineStatusProps {
   offline: OfflineState; downloadAi: () => void; open?: boolean;

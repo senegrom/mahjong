@@ -270,9 +270,12 @@ The page downloads the network, never the service worker: a worker's install,
 activation or message event is abandoned after a few minutes (five in Chrome)
 and a half-received body is not kept, so 100 MB on a slow link never finished
 and the update was retried, and failed, on every start. Installation and
-activation fetch the game alone. The worker saves the few megabytes of
-runtime; the page then fetches, verifies and stores the network in an
-installation-scoped v2 cache and tells the worker it is saved. A player who
+activation fetch the game alone. The page fetches, verifies and stores the
+network in an installation-scoped v2 cache, beginning the moment a Trained
+player is chosen: it waits for no worker, so a first visit's network arrives
+beside the install and the first Trained move waits for the network alone
+(`prepareNetwork` in `offline.js`). The worker saves the few megabytes of
+runtime once it is active, and the page tells it when both are saved. A player who
 once asked for Trained offline has each later version's runtime and network
 saved by the running page while the update waits, after the page's own
 network and never beside another network download, or else by the update's
@@ -294,8 +297,20 @@ Normal waiting-worker activation is retained: there is no forced mid-match
 upgrade.
 
 Only the active worker prunes: at activation and after its page has saved its
-network. Every model its build lists, and the current and previous model
-URLs, are retained; older scoped entries are removed. A network that is not
+network. At activation no page has spoken, and only what the build no longer
+lists is removed, as before: the page about to load may play any listed
+network, perhaps offline, and a pick made before picks were remembered left
+no trace in the record; a page that plays such a pick and finds it saved
+says so once (`MAHJONG_NETWORK_SAVED`), as a save would. After a page's save,
+the current and previous model
+URLs, the build's default and the
+models the player picked are retained; older scoped entries are removed. A
+pick is a listed version a page names with its message, other than the
+default, and the retention record (`__network_retention__`, beside the
+networks) remembers each one saved, as `picked`, for as long as the build
+lists it; a record written before picks were remembered has none. A former
+default nobody picked is therefore removed once two newer networks are
+saved, though the site still lists it. A network that is not
 yet stored, a waiting/installing worker, or an unreadable retention record
 prevents pruning.
 

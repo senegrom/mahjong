@@ -14,7 +14,7 @@ import vm from 'node:vm';
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { MEMORY_LIMITS_MIB, isMemoryError } from '../src/lib/memory-budget.js';
-import { GATE, MOVES, averagedAnswer, averagedAnswers, swapMoves } from '../src/lib/suits.js';
+import { GATE, MOVES, averagedAnswers, swapMoves } from '../src/lib/suits.js';
 import { copyRuntime } from '../scripts/copy-runtime.mjs';
 import { moduleSource } from './fixtures/load-module.js';
 
@@ -134,15 +134,14 @@ try {
       `${question.stage}, ${how}, move ${move}: ${weight} against the player's ${question.weights[move]}`));
   };
   // One at a time, as an opponent, the adviser and the hand's notes ask:
-  // through trained-move.js, a request of one position, as averagedAnswer
-  // sends it.
+  // through trained-move.js, each request one position.
   for (const [at, question] of questions.entries()) {
     runs = [];
-    const answer = await averagedAnswer(async (planes, mask) => {
+    const [answer] = await averagedAnswers(async ([{ planes, mask }]) => {
       current = expected.get(planes);
       assert.ok(current, 'a question is asked of its own planes or its renamed game\'s');
-      return (await answered(question.model, { planes: Float32Array.from(planes), mask: Array.from(mask) })).analysis;
-    }, positions[at]);
+      return [(await answered(question.model, { planes: Float32Array.from(planes), mask: Array.from(mask) })).analysis];
+    }, [positions[at]]);
     assert.deepEqual(runs, question.hesitant ? [1, 1] : [1], `${question.stage}: asked again only where it hesitates`);
     played(question, answer, 'alone');
   }

@@ -23,30 +23,23 @@ const web = fileURLToPath(new URL('../', import.meta.url)), dist = resolve(web, 
 const manifest = JSON.parse(await readFile(resolve(dist, 'offline-manifest.json'), 'utf8'));
 const networkUrl = `${MANIFEST.origin}/${MANIFEST.object}`;
 const ai = new Set(manifest.entries.filter(entry => entry.group === 'ai').map(entry => entry.url));
-const runtime = new Set([...ai].filter(url => url.endsWith('.wasm')));
 
-// The trained AI's own files can be counted, and its runtime held back, so
-// its download can be watched while it is still under way. The tile faces a
-// first visit does not show can be held too: the service worker's install
-// saves them all before it activates, so this keeps it installing.
-const requested = new Map(), waiting = new Set(), installing = new Set();
-let holding = false, holdingFaces = false;
+// The trained AI's own files can be counted. The tile faces a first visit
+// does not show can be held back: the service worker's install saves them
+// all before it activates, so this keeps it installing. The network's own
+// download is held open by the page that asks for it (open's `hold`), so
+// that it can be watched while it is still under way.
+const requested = new Map(), installing = new Set();
+let holdingFaces = false;
 const unusedFace = name => ['tiles/matisse/', 'tiles/van-gogh/'].some(folder => name.startsWith(folder));
 const server = createServer(createFixtureHandler({ root: dist, publicRoot: dist, intercept: async name => {
   requested.set(name, (requested.get(name) ?? 0) + 1);
   if (holdingFaces && unusedFace(name)) await new Promise(done => installing.add(done));
-  if (holding && runtime.has(name)) await new Promise(done => waiting.add(done));
 } }));
-function releaseFaces() {
+function release() {
   holdingFaces = false;
   for (const done of installing) done();
   installing.clear();
-}
-function release() {
-  releaseFaces();
-  holding = false;
-  for (const done of waiting) done();
-  waiting.clear();
 }
 
 // A finished first hand against Club, for the review.
@@ -75,26 +68,30 @@ const chosenClub = { ...previousDefaults, version: 6, reviewHideMove: false, rev
 const cases = browserChecks();
 let browser;
 /** A fresh browser profile. `reachable` answers the availability probe; a
- * download of the network always fails, as it does offline. */
-async function open({ mode = 'play', reachable = true, saved = {} } = {}) {
+ * download of the network always fails, as it does offline: at once, or with
+ * `hold` when the check says so (failNetwork), having been under way until
+ * then. */
+async function open({ mode = 'play', reachable = true, saved = {}, hold = false } = {}) {
   const page = await (await cases.openContext(browser)).newPage();
   page.problems = [];
   page.on('pageerror', error => page.problems.push(error.message));
   await page.setViewport({ width: 1100, height: 900 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.evaluateOnNewDocument(({ url, reachable, saved }) => {
+  await page.evaluateOnNewDocument(({ url, reachable, saved, hold }) => {
     for (const [key, value] of Object.entries(saved)) if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
     const realFetch = window.fetch;
     window.networkDownloads = 0;
+    window.heldDownloads = [];
     window.fetch = (input, options) => {
       const target = input instanceof Request ? input.url : String(input);
       if (target !== url) return realFetch(input, options);
       const method = String(options?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
       if (method === 'HEAD') return Promise.resolve(new Response(null, { status: reachable ? 200 : 404 }));
       window.networkDownloads++;
-      return Promise.reject(new TypeError('Failed to fetch'));
+      const failed = new TypeError('Failed to fetch');
+      return hold ? new Promise((_, reject) => window.heldDownloads.push(() => reject(failed))) : Promise.reject(failed);
     };
-  }, { url: networkUrl, reachable, saved });
+  }, { url: networkUrl, reachable, saved, hold });
   await page.goto(`http://127.0.0.1:${server.address().port}/mahjong/${mode === 'play' ? '' : `?mode=${mode}`}`, { waitUntil: 'domcontentloaded' });
   return page;
 }
@@ -108,15 +105,19 @@ async function clickButton(page, scope, text) {
     .find(button => button.textContent.trim() === text && !button.disabled).click(), scope, text);
 }
 /** Waits until a Trained wait inside `scope` names the network's download,
- * with the runtime held back by the server so that download is under way. */
+ * which the page holds open (open's `hold`) so that it is under way. */
 async function downloading(page, scope) {
   await page.waitForFunction(scope => /downloading the trained network \d+%/.test(document.querySelector(scope)?.textContent ?? ''),
     { timeout: 60000 }, scope);
-  for (const deadline = Date.now() + 30000; !waiting.size;) {
-    assert.ok(Date.now() < deadline, 'the trained runtime never started downloading');
-    await new Promise(done => setTimeout(done, 50));
-  }
+  // The note is said as the save begins, a moment before the page asks for
+  // the network: its turn at the network and what is stored are looked at
+  // first. On a slow machine that moment is long enough to be seen, so the
+  // request is waited for, not expected at once.
+  await page.waitForFunction(() => window.heldDownloads.length > 0, { timeout: 30000 })
+    .catch(() => assert.fail('the trained network never started downloading'));
 }
+/** Ends the download the page holds open: the network cannot be had. */
+const failNetwork = page => page.evaluate(() => { for (const fail of window.heldDownloads.splice(0)) fail(); });
 const check = (name, body) => cases.check(name, async () => {
   requested.clear();
   try { await body(); } finally { release(); }
@@ -128,9 +129,9 @@ try {
   // Nothing in this browser can reach the network's host.
   browser = await launchChrome({ args: [`--host-resolver-rules=MAP ${new URL(networkUrl).hostname} ~NOTFOUND`] });
 
-  await check('a first visit plays Trained opponents, shows their download on the table and continues with Club when it fails', async () => {
-    holding = true; holdingFaces = true;
-    const page = await open();
+  await check('a first visit plays Trained opponents, shows their download on the table beside the install and continues with Club when it fails', async () => {
+    holdingFaces = true;
+    const page = await open({ hold: true });
     await page.waitForSelector('.board');
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'neural');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.opponents?.length === 3, {}, SAVE_KEY);
@@ -138,28 +139,27 @@ try {
     assert.deepEqual(await settings(page), { version: 6, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
       hints: true, confirmDiscards: false, shortcuts: true, tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false,
       reviewFilter: 'flagged' });
-    // East discards first; then, or at once, a Trained opponent waits. On a
-    // first visit the network's download waits for the service worker to
-    // save the game and every tile graphic, about 100 MB with no progress of
-    // its own, and the table says so rather than only "thinking".
-    const install = 'saving the game and tile graphics, then downloading the trained network';
+    // East discards first; then, or at once, a Trained opponent waits. The
+    // network's download does not wait for the service worker, which on a
+    // first visit is still saving the game and every tile graphic: it begins
+    // at once, and the table shows it rather than only "thinking".
+    const download = 'downloading the trained network';
     await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text)
-      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, install);
-    if (!(await prompt(page)).includes(install)) await page.click('.hand button[data-hand-index]:not(:disabled)');
-    await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text), { timeout: 60000 }, install);
+      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, download);
+    if (!(await prompt(page)).includes(download)) await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await downloading(page, '#hand-help');
     for (const deadline = Date.now() + 30000; !installing.size;) {
       assert.ok(Date.now() < deadline, 'the service worker never reached the unused faces');
       await new Promise(done => setTimeout(done, 50));
     }
-    assert.ok((await prompt(page)).includes(install), 'the install is still what the opponent waits for');
-    assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Offline: not ready/);
-    await page.screenshot({ path: resolve(output, 'trained-default-install.png'), fullPage: true });
-    releaseFaces();
-    await downloading(page, '#hand-help');
+    assert.equal(await page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active)), false,
+      'the install is still running, and the network did not wait for it');
     assert.match(await page.$eval('[data-offline-status]', el => el.textContent), /Saving AI… \d+%/);
+    // The runtime is the worker's to save, once it is there.
+    for (const url of ai) assert.equal(requested.get(url) ?? 0, 0, `fetched before the worker was there: ${url}`);
     await page.screenshot({ path: resolve(output, 'trained-default-download.png'), fullPage: true });
     // The network itself cannot be had: the table offers its fallbacks.
-    release();
+    await failNetwork(page);
     await page.waitForSelector('.failure .recovery-actions', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0, 'the network download was attempted');
     const offered = await page.$$eval('.failure .recovery-actions button', buttons => buttons.map(button => button.textContent.trim()));
@@ -223,8 +223,7 @@ try {
   });
 
   await check('a Trained review shows the download it waits for and, when that fails, offers Club, which is then remembered', async () => {
-    holding = true;
-    const page = await open({ saved: { [SAVE_KEY]: JSON.stringify(finished) } });
+    const page = await open({ hold: true, saved: { [SAVE_KEY]: JSON.stringify(finished) } });
     // Opened before or after the probe answers: a review shown by Club in the
     // meantime turns to Trained AI the moment the network is reported.
     await page.waitForSelector('.screen .quiet'); await page.click('.screen .quiet');
@@ -235,7 +234,7 @@ try {
     assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions…\s*0 of \d+ · downloading the trained network/);
     assert.equal(await page.$eval('.review [data-review-progress]', el => el.textContent.trim()), 'Trained AI is reviewing your decisions…');
     assert.match(await page.$eval('.review [data-review-count]', el => el.textContent.trim()), /^0 of \d+ · downloading the trained network/);
-    release();
+    await failNetwork(page);
     await page.waitForSelector('.review [role="alert"] [data-review-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0, 'the trained review asked for the network');
     assert.deepEqual(await page.$$eval('.review [role="alert"] button', buttons => buttons.map(button => button.textContent.trim())),
@@ -261,8 +260,7 @@ try {
   });
 
   await check('Agent watch puts Trained in every seat, shows its download and can watch the same table with Club when the network fails', async () => {
-    holding = true;
-    const page = await open({ mode: 'watch' });
+    const page = await open({ hold: true, mode: 'watch' });
     const lineup = () => page.$$eval('.agent-fields select', selects => selects.map(select => select.value));
     await page.waitForFunction(() => {
       const seats = [...document.querySelectorAll('.agent-fields select')];
@@ -272,7 +270,7 @@ try {
     await page.click('.watch-setup .primary');
     await downloading(page, '.agent-watch');
     assert.match(await page.$eval('.agent-watch', el => el.textContent), /The agents are thinking… downloading the trained network/);
-    release();
+    await failNetwork(page);
     await page.waitForSelector('.agent-watch [role="alert"] [data-watch-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0);
     await page.click('[data-watch-club]');
@@ -284,8 +282,7 @@ try {
   });
 
   await check('a new guided game is advised by Trained, shows its download and offers Club when that advice cannot load', async () => {
-    holding = true;
-    const page = await open({ mode: 'guided' });
+    const page = await open({ hold: true, mode: 'guided' });
     const adviser = '[aria-label="Guided game adviser"]';
     const stage = value => page.waitForSelector(`.guide-prompt[data-stage="${value}"]`);
     const tile = value => page.click(`.guide-prompt .palette button[data-tile="${value}"]`);
@@ -299,7 +296,7 @@ try {
     await tile('4z'); await stage('decision');
     await downloading(page, '.guide-prompt');
     assert.match(await page.$eval('.guide-prompt', el => el.textContent), /Your adviser is thinking… downloading the trained network/);
-    release();
+    await failNetwork(page);
     await page.waitForSelector('[data-guided-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0);
     assert.ok(await page.$('.guide-prompt .failure'));

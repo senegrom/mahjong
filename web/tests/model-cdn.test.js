@@ -11,11 +11,12 @@ const same = 'Wed, 30 Sep 2026 12:00:00 GMT';
 const before = 'Wed, 30 Sep 2026 11:59:59 GMT';
 const after = 'Wed, 30 Sep 2026 12:00:01 GMT';
 const bytes = gzipSync('verified model fixture');
-function bucket({ missing = false } = {}) {
+function bucket({ missing = false, fails = false } = {}) {
   const seen = { reads: 0, cancelled: 0, lookups: 0 };
   return { seen, env: { MODELS: { async get(key) {
     seen.lookups++;
     assert.equal(key, 'models/g1/0123456789abcdef');
+    if (fails) throw new Error('R2 did not answer');
     if (missing) return null;
     return {
       httpEtag: etag, uploaded,
@@ -104,7 +105,7 @@ test('CDN refusals carry CORS headers for an allowed origin, so the page can rea
       const response = await worker.fetch(new Request(target, { method, headers: { Origin: from } }), env);
       assert.equal(response.status, status, name);
       assert.equal(response.headers.get('Access-Control-Allow-Origin'), allowed, `${name} from ${from}`);
-      assert.equal(response.headers.get('Vary'), allowed && 'Origin', `${name} from ${from}`);
+      assert.equal(response.headers.get('Vary'), 'Origin', `${name} from ${from}`);
       assert.equal(response.headers.get('Cache-Control'), 'no-store', name);
     }
   }
@@ -116,4 +117,34 @@ test('CDN preflight, unsupported methods and invalid paths do not touch R2', asy
     assert.equal(response.status, expected);
   }
   assert.equal(seen.lookups, 0);
+});
+test('every CDN response says that it varies by origin, the ones without the CORS header too', async () => {
+  // A copy without the header, immutable for a year, must never be what a
+  // cache hands the site: whoever keeps one has to key it on the origin.
+  const asks = [['GET', {}, 200], ['HEAD', {}, 200], ['GET', { Origin: 'https://elsewhere.invalid' }, 200],
+    ['GET', { 'If-None-Match': etag }, 304], ['GET', { 'If-Match': '"other"' }, 412], ['OPTIONS', {}, 204],
+    ['OPTIONS', { Origin: origin }, 204], ['POST', {}, 405]];
+  for (const [method, headers, status] of asks) {
+    const response = await worker.fetch(new Request(url, { method, headers }), bucket().env);
+    const said = `${method} ${JSON.stringify(headers)}`;
+    assert.equal(response.status, status, said);
+    assert.equal(response.headers.get('Vary'), 'Origin', said);
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'), headers.Origin === origin ? origin : null, said);
+  }
+});
+test('a bucket that does not answer is a refusal the page can read, never cached', async t => {
+  const logged = t.mock.method(console, 'error', () => {});
+  for (const [from, allowed] of [[origin, origin], ['https://elsewhere.invalid', null]]) {
+    for (const method of ['GET', 'HEAD']) {
+      const { env, seen } = bucket({ fails: true });
+      const response = await worker.fetch(new Request(url, { method, headers: { Origin: from } }), env);
+      assert.equal(response.status, 502, `${method} from ${from}`);
+      assert.equal(seen.lookups, 1);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'), allowed);
+      assert.equal(response.headers.get('Vary'), 'Origin');
+      assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      assert.equal(response.headers.get('ETag'), null);
+    }
+  }
+  assert.equal(logged.mock.callCount(), 4, 'each failure is logged for whoever watches the worker');
 });

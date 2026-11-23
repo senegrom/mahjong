@@ -42,10 +42,12 @@ function allowedOrigin(request) {
 
 function corsHeaders(origin) {
   const headers = new Headers();
-  if (!origin) return headers;
-  headers.set('Access-Control-Allow-Origin', origin);
-  // The allowed origin varies by request, so caches must key on it.
+  // Whether a response carries the header depends on who asks, so every
+  // response says so, the ones without it too: a cache that kept one of
+  // those, immutable for a year, could otherwise hand it to the site, whose
+  // CORS check it would fail.
   headers.set('Vary', 'Origin');
+  if (origin) headers.set('Access-Control-Allow-Origin', origin);
   return headers;
 }
 
@@ -115,7 +117,14 @@ export default {
     // cannot express HTTP's precedence between all four request conditions.
     // One lookup supplies both metadata and a stream; rejected/HEAD requests
     // cancel that stream without buffering or reading the model.
-    const object = await env.MODELS.get(key);
+    // A bucket that fails to answer is a refusal like the others: thrown, it
+    // would leave as the platform's own 500, without the CORS headers, and
+    // the page would see a bare network error where it reads a status.
+    let object;
+    try { object = await env.MODELS.get(key); } catch (error) {
+      console.error('The bucket did not answer:', error);
+      return refusal(origin, 502, 'Bucket unavailable');
+    }
     if (object === null) return refusal(origin, 404, 'Not found');
 
     const headers = corsHeaders(origin);

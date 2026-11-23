@@ -767,10 +767,11 @@ test('the page sends single decisions to its WebAssembly worker alone, and batch
   const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout, Worker,
     MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => READY, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
-    navigator: { onLine: true }, networkIsStored: async () => false, prepareOfflineAi: async () => null, refreshOffline: async () => null,
+    navigator: { onLine: true }, networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
+    networkReleased: () => {},
     batchesOnCard: (positions, signal, wasm) => { routed.push(positions.length); return wasm(positions, signal); },
     resetCard: reason => resets.push(reason),
-  }, ['chooseAction', 'analyzePolicy', 'analyzeBatch', 'resetPolicy']);
+  }, ['analyzePolicy', 'analyzeBatch', 'resetPolicy']);
   t.after(() => api.resetPolicy());
   const answered = async (promise, reply) => {
     await setImmediate();
@@ -778,7 +779,7 @@ test('the page sends single decisions to its WebAssembly worker alone, and batch
     worker.onmessage({ data: { id: message.id, ...reply(message) } });
     return promise;
   };
-  assert.equal(await answered(api.chooseAction(new Float32Array(34), [1, 1]), () => ({ action: 1 })), 1);
+  assert.equal(await answered(api.analyzePolicy(new Float32Array(34), [1, 1]), () => ({ action: 1 })), 1);
   await answered(api.analyzePolicy(new Float32Array(34), [1, 1]), () => ({ analysis: { action: 0 } }));
   assert.deepEqual(routed, [], 'no single decision is offered to the card');
   const positions = [0, 1].map(index => ({ planes: new Float32Array(34).fill(index), mask: [1, 1] }));

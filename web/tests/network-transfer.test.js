@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { hasStoredNetwork, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { setImmediate } from 'node:timers/promises';
+import v8 from 'node:v8';
+import vm from 'node:vm';
+import { SILENT_MS, TURN_MS, WAITING_MS, hasStoredNetwork, networkCacheName, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { verifiedDownload } from '../src/lib/network-cache.js';
+
+/** Runs the garbage collector now, so that a test can ask what is still
+ * held. Node exposes it to a context made after the flag is set, which needs
+ * no flag on the test runner's own command line. */
+const collect = (() => { v8.setFlagsFromString('--expose-gc'); return vm.runInNewContext('gc'); })();
 
 const good = Uint8Array.from([1, 2, 3, 4]);
 const expect = { bytes: good.length, sha256: createHash('sha256').update(good).digest('hex') };
@@ -150,12 +159,19 @@ test('overlong streams are cancelled before accepting or retaining excess bytes'
 });
 
 test('a progressing download can outlast its idle deadline', async t => {
+  // Twelve bytes, one every 40 ms: half a second in all against a 200 ms idle
+  // deadline, a gap five times shorter than the deadline, so that a loaded
+  // machine's late timer does not end it.
+  const long = Uint8Array.from({ length: 12 }, (_, i) => i + 1);
+  const identity = { bytes: long.length, sha256: createHash('sha256').update(long).digest('hex') };
   let timer, index = 0;
   fixture(t, { network: () => new Response(new ReadableStream({
-    start(c) { timer = setInterval(() => { c.enqueue(good.slice(index, ++index)); if (index === 4) { clearInterval(timer); c.close(); } }, 10); },
+    start(c) {
+      timer = setInterval(() => { c.enqueue(long.slice(index, ++index)); if (index === long.length) { clearInterval(timer); c.close(); } }, 40);
+    },
     cancel() { clearInterval(timer); },
   })) });
-  assert.deepEqual(await verifiedNetworkBytes({ url, expect, timeouts: { idleMs: 30, totalMs: 500 } }), good);
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect: identity, timeouts: { idleMs: 200, totalMs: 5000 } }), long);
 });
 
 test('storage that refuses a verified download hands its bytes to the caller, so nothing is fetched twice', async t => {
@@ -190,4 +206,257 @@ test('the graphics card\'s reader never downloads, and deletes only what it read
     assert.equal(unread.fetches(), 0, fault);
   }
   assert.equal(stored.fetches(), 0);
+});
+
+test('a download holds no chunk once it is copied, however many arrive', async t => {
+  // 64 chunks of 64 KB. Raced against one promise kept for the whole download,
+  // every one of them stayed alive until the download ended, beside the bytes
+  // they had been copied into: for a network, 117 MB twice over.
+  const size = 65536, count = 64;
+  const whole = new Uint8Array(size * count);
+  const identity = { bytes: whole.length, sha256: createHash('sha256').update(whole).digest('hex') };
+  const chunks = [];
+  const body = new ReadableStream({ pull(controller) {
+    if (chunks.length === count) { controller.close(); return; }
+    const chunk = new Uint8Array(size);
+    chunks.push(new WeakRef(chunk));
+    controller.enqueue(chunk);
+  } }, { highWaterMark: 0 });
+  // The transport's answer as the download reads it, its body the stream itself.
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, headers: new Headers(), body }));
+  // Counted as the digest begins: every chunk has been read and copied, and
+  // the download has not ended. A turn of the loop first, since a weak
+  // reference holds its object until the turn that made it is over.
+  let alive = null;
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  t.mock.method(crypto.subtle, 'digest', async (...given) => {
+    await setImmediate();
+    collect();
+    alive = chunks.filter(chunk => chunk.deref()).length;
+    return digest(...given);
+  });
+  const { bytes } = await verifiedDownload('https://cdn.invalid/models/g1/chunks', identity,
+    { idleMs: 5000, describe: kind => kind });
+  assert.equal(chunks.length, count);
+  assert.equal(bytes.length, whole.length);
+  // The loop's last turn may still hold the chunk it read. Counted at all
+  // first: a digest that never ran here would measure nothing.
+  assert.equal(typeof alive, 'number', 'the digest was never asked, so nothing was counted');
+  assert.ok(alive <= 2, `${alive} of ${count} chunks were still held while the digest ran`);
+});
+
+test('a deadline ends a wait that the transport never does, at once and on every later wait', async t => {
+  // A fetch that ignores its signal: the download's own promise ends the wait.
+  t.mock.method(globalThis, 'fetch', () => new Promise(() => {}));
+  await assert.rejects(verifiedDownload('https://cdn.invalid/models/g1/never', expect, { idleMs: 15, describe: kind => kind }), /timeout/);
+  // A body that stops after its first chunk, and ignores cancellation too.
+  let sent = false;
+  const reader = { cancel: () => new Promise(() => {}),
+    read: () => (sent ? new Promise(() => {}) : (sent = true, Promise.resolve({ done: false, value: good.slice(0, 1) }))) };
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, headers: new Headers(), body: { getReader: () => reader } }));
+  await assert.rejects(verifiedDownload('https://cdn.invalid/models/g1/stalled', expect, { idleMs: 15, totalMs: 1000, describe: kind => kind }), /timeout/);
+});
+
+/** A browser's Web Locks, as verifiedNetworkBytes asks them: one holder a
+ * name at a time, the others in the order they asked, a wait that its
+ * signal ends, and `ifAvailable`, answered with no lock where another holds
+ * the name or waits for it. Installed on this process's navigator for one
+ * test. */
+function webLocks(t, { refuses = false } = {}) {
+  const tails = new Map(), pending = new Map(), asked = [];
+  const locks = { asked, request(name, options, task = options) {
+    asked.push(name);
+    if (refuses) return Promise.reject(new DOMException('Locks are not allowed here', 'SecurityError'));
+    if (options.ifAvailable && pending.get(name)) return (async () => task(null))();
+    pending.set(name, (pending.get(name) ?? 0) + 1);
+    const before = tails.get(name) ?? Promise.resolve();
+    const granted = new Promise((resolve, reject) => {
+      before.then(resolve);
+      options.signal?.addEventListener('abort', () => reject(new DOMException('The wait was ended', 'AbortError')));
+    });
+    const held = granted.then(() => task({ name }));
+    const done = () => { pending.set(name, pending.get(name) - 1); };
+    held.then(done, done);
+    tails.set(name, Promise.allSettled([before, held]));
+    return held;
+  } };
+  Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value: locks });
+  t.after(() => { delete globalThis.navigator.locks; });
+  return locks;
+}
+/** No Web Locks at all, as in a browser without them. */
+function noWebLocks(t) {
+  Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value: undefined });
+  t.after(() => { delete globalThis.navigator.locks; });
+}
+/** BroadcastChannel as the holder and the one waiting use it, delivering at
+ * once to every other open channel of the same name, so that a test with
+ * mocked timers controls when the holder is heard. `open` is every channel
+ * not yet closed. Without `present`, the browser has none. */
+function channels(t, { present = true } = {}) {
+  const open = new Set();
+  class Channel {
+    constructor(name) { this.name = name; this.onmessage = null; this.sent = 0; open.add(this); }
+    postMessage(data) {
+      if (!open.has(this)) throw new DOMException('closed', 'InvalidStateError');
+      this.sent++;
+      for (const other of open) if (other !== this && other.name === this.name) other.onmessage?.({ data });
+    }
+    close() { open.delete(this); }
+  }
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'BroadcastChannel');
+  Object.defineProperty(globalThis, 'BroadcastChannel', { configurable: true, writable: true, value: present ? Channel : undefined });
+  t.after(() => { if (previous) Object.defineProperty(globalThis, 'BroadcastChannel', previous); else delete globalThis.BroadcastChannel; });
+  // What another window holding the lock says, and what is still listening.
+  return { open, holder: name => new Channel(name), listening: () => [...open].filter(channel => channel.onmessage).length };
+}
+// A transfer that takes a turn of the loop, as any real one takes far longer.
+const slowly = async () => { await setImmediate(); return new Response(good); };
+
+test('two that ask for one network at once fetch it once: the second waits its turn and reads what the first stored', async t => {
+  const locks = webLocks(t), f = fixture(t, { network: slowly });
+  const [first, second] = await Promise.all([verifiedNetworkBytes({ url, expect }), verifiedNetworkBytes({ url, expect, requireStored: true })]);
+  assert.deepEqual([first, second], [good, good]);
+  assert.equal(f.fetches(), 1);
+  // One lock for the network, by the cache it is stored in and its address:
+  // taken at once by the first, and asked for twice by the second, which
+  // found it held and waited.
+  assert.deepEqual(locks.asked, Array(3).fill(`${networkCacheName()}:${url}`));
+  // Another network is not kept waiting behind it.
+  const other = 'https://cdn.invalid/models/g2/' + expect.sha256;
+  await Promise.all([verifiedNetworkBytes({ url: other, expect }), verifiedNetworkBytes({ url, expect })]);
+  assert.equal(new Set(locks.asked).size, 2);
+});
+
+test('without Web Locks, or with a lock the browser refuses, a network is fetched as it always was', async t => {
+  await t.test('no Web Locks', async t => {
+    noWebLocks(t);
+    const f = fixture(t, { network: slowly });
+    assert.deepEqual(await Promise.all([verifiedNetworkBytes({ url, expect }), verifiedNetworkBytes({ url, expect })]), [good, good]);
+    assert.equal(f.fetches(), 2, 'each for itself, as before');
+  });
+  await t.test('a lock refused', async t => {
+    const locks = webLocks(t, { refuses: true }), f = fixture(t);
+    assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+    assert.deepEqual([locks.asked.length, f.fetches()], [1, 1]);
+  });
+});
+
+test('a download that fails under the lock fails once, and lets the next one in', async t => {
+  webLocks(t);
+  let broken = true;
+  const f = fixture(t, { network: () => (broken ? new Response('', { status: 503 }) : new Response(good)) });
+  await assert.rejects(verifiedNetworkBytes({ url, expect }), /could not be fetched: 503/);
+  assert.equal(f.fetches(), 1, 'its own failure is not a refused lock: it is not run again');
+  broken = false;
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+});
+
+const lockName = `${networkCacheName()}:${url}`;
+const turns = async () => { for (let turn = 0; turn < 5; turn++) await setImmediate(); };
+
+test('without BroadcastChannel, one that waits its turn says so, and goes ahead after three minutes whoever holds the lock', async t => {
+  const locks = webLocks(t), f = fixture(t);
+  channels(t, { present: false });
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  // Another window is at the network and never finishes: suspended, say.
+  void locks.request(lockName, () => new Promise(() => {}));
+  let waits = 0;
+  const asked = verifiedNetworkBytes({ url, expect, onWaiting: () => { waits++; } });
+  await turns();
+  assert.deepEqual([waits, f.fetches()], [1, 0], 'the wait is said as it begins');
+  t.mock.timers.tick(WAITING_MS);
+  t.mock.timers.tick(WAITING_MS);
+  assert.deepEqual([waits, f.fetches()], [3, 0]);
+  t.mock.timers.tick(TURN_MS - 2 * WAITING_MS - 1);
+  await turns();
+  assert.equal(f.fetches(), 0);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await asked, good);
+  assert.equal(f.fetches(), 1);
+  const said = waits;
+  t.mock.timers.tick(TURN_MS);
+  assert.equal(waits, said, 'and says no more once it has gone ahead');
+});
+
+test('one that finds the network free takes it at once and says no wait', async t => {
+  webLocks(t); channels(t);
+  const f = fixture(t);
+  let waits = 0;
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect, onWaiting: () => { waits++; } }), good);
+  assert.deepEqual([waits, f.fetches()], [0, 1]);
+});
+
+test('a holder still receiving bytes is waited for past three minutes, and its wait hears it no more once over', async t => {
+  const locks = webLocks(t), c = channels(t), f = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  // Another window is at the network on a slow link: it says it is alive as
+  // its bytes arrive, every second, here every ten.
+  let finish;
+  void locks.request(lockName, () => new Promise(done => { finish = done; }));
+  const holder = c.holder(lockName);
+  const asked = verifiedNetworkBytes({ url, expect, requireStored: true });
+  await turns();
+  assert.equal(c.listening(), 1, 'the wait listens for its holder');
+  for (let elapsed = 0; elapsed < 2 * TURN_MS; elapsed += 10000) {
+    holder.postMessage('alive');
+    t.mock.timers.tick(10000);
+  }
+  await turns();
+  assert.equal(f.fetches(), 0, 'six minutes in, the holder is still downloading, and nobody else is');
+  // The holder lets go, and the wait has its turn.
+  finish();
+  assert.deepEqual(await asked, good);
+  assert.equal(f.fetches(), 1);
+  assert.equal(c.listening(), 0, 'no listener outlives its wait');
+});
+
+test('a holder that falls silent is given up on once it has said nothing for as long as a stalled download', async t => {
+  const locks = webLocks(t), c = channels(t), f = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  void locks.request(lockName, () => new Promise(() => {}));
+  const holder = c.holder(lockName);
+  const asked = verifiedNetworkBytes({ url, expect });
+  await turns();
+  // Alive for a minute, then suspended with the browser's window.
+  for (let second = 0; second < 60; second++) { holder.postMessage('alive'); t.mock.timers.tick(1000); }
+  holder.postMessage('alive');
+  t.mock.timers.tick(SILENT_MS - 1);
+  await turns();
+  assert.equal(f.fetches(), 0, 'not before the silence limit');
+  assert.ok(SILENT_MS < TURN_MS, 'sooner than the three minutes a holder used to be given');
+  t.mock.timers.tick(1);
+  assert.deepEqual(await asked, good);
+  assert.equal(f.fetches(), 1);
+  assert.equal(c.listening(), 0, 'no listener outlives its wait');
+});
+
+test('the holder says it is alive as it takes the lock and as bytes arrive, at most once a second, and then closes its channel', async t => {
+  webLocks(t);
+  const c = channels(t);
+  t.mock.timers.enable({ apis: ['Date'] });
+  // One that waits for it, as another window would.
+  const listener = c.holder(lockName);
+  let heard = 0;
+  listener.onmessage = () => { heard++; };
+  // A byte every 600 ms: heard as it takes the lock, and at 1.2 and 2.4 s.
+  fixture(t, { network: () => new Response(new ReadableStream({ start() { this.index = 0; }, pull(controller) {
+    t.mock.timers.tick(600);
+    controller.enqueue(good.slice(this.index, ++this.index));
+    if (this.index === good.length) controller.close();
+  } }, { highWaterMark: 0 })) });
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect }), good);
+  assert.equal(heard, 3);
+  assert.deepEqual([...c.open], [listener], 'the holder\'s channel is closed');
+});
+
+test('a save that needs no bytes finds the network the other window stored by its record, and reads none of it', async t => {
+  const locks = webLocks(t), f = fixture(t, { network: slowly });
+  channels(t);
+  const [first, second] = await Promise.all([verifiedNetworkBytes({ url, expect }),
+    verifiedNetworkBytes({ url, expect, requireStored: true, storeOnly: true })]);
+  assert.deepEqual(first, good);
+  assert.equal(second, null);
+  assert.equal(locks.asked.length, 3, 'the second waited its turn');
+  assert.deepEqual([f.fetches(), f.reads()], [1, 0]);
 });
