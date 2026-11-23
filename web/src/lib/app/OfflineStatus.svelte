@@ -20,7 +20,7 @@
           : `Saving the trained network and runtime… ${offline.progress}%`)
         : 'Only the trained network and its runtime need this extra download. Trained opponents and advisers, the default, start it automatically; Beginner and Club never need it.')}</p>
     {#if offline.hasModel && !offline.aiReady}
-      <button class="app-control" data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
+      <button class="app-control" data-download-ai onclick={downloadAi} disabled={offline.supported === false || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>
     {/if}
     <p class="offline-detail">{offline.persistent ? 'Persistent storage granted.' : 'Your browser can remove website downloads when storage is low.'} Clearing website data removes downloads. On iPhone, check this status inside the Home Screen app before flying.</p>
     {#if offline.updateReady}<p>A new version is downloaded. Close all Mahjong windows and reopen to use it; this match is saved.</p>{/if}

@@ -18,6 +18,17 @@ test('an interrupted trained download shows a retry while the game itself stays 
   assert.doesNotMatch(html, /<button[^>]*data-download-ai[^>]*disabled/);
 });
 
+test('a network that failed during a first install can be retried before the game is saved, and not where nothing can be', () => {
+  // The install still runs: the game is not saved yet, and the start has not
+  // said whether saving works (supported null).
+  const first = show({ coreReady: false, aiReady: false, supported: null, installing: true, phase: 'incomplete', warning: 'AI download incomplete' });
+  assert.match(first, /<button[^>]*data-download-ai[^>]*>Retry trained AI download/);
+  assert.doesNotMatch(first, /<button[^>]*data-download-ai[^>]*disabled/);
+  assert.match(show({ coreReady: false, aiReady: false, supported: false, phase: 'unavailable' }),
+    /<button[^>]*data-download-ai[^>]*disabled/);
+  assert.match(show({ aiReady: false, supported: true, phase: 'ai', progress: 3 }), /<button[^>]*data-download-ai[^>]*disabled/);
+});
+
 test('trained readiness updates during the download and after it completes', () => {
   assert.match(show({ aiReady: false, phase: 'ai', progress: 40 }), /Saving AI… 40%/);
   assert.match(show({ aiReady: false }), /Download trained AI for offline play/);
