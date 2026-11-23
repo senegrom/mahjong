@@ -265,8 +265,8 @@ card (`card: true`) and holds the others' Chrome to offering none.
 Downloaded and cached model bytes are checked against the manifest's exact
 size and digest before inference, the packed file's for a packed network.
 Transfers have idle and total deadlines, and a decoded-byte ceiling; a packed
-network's transfer that stalls or breaks is asked for the rest by a byte range
-up to five times (`RESUME` in `network-cache.js`), a 206 used from where its
+network's transfer that stalls or breaks is asked for the rest by a byte range,
+up to five times in a row without new bytes (`RESUME` in `network-cache.js`), a 206 used from where its
 Content-Range says it starts, at or before the bytes in hand, and a 200 from
 its first byte. Storage failure can allow online inference but
 must never be reported as durable offline readiness.

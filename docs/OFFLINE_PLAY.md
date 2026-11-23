@@ -126,7 +126,7 @@ upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)). A page has no such
 deadline: a transfer that keeps receiving bytes may take up to three hours.
 A packed network's transfer that stalls for a minute, or whose connection
 drops, keeps what it received and asks for the rest two seconds later, up to
-five times, the whole file's digest still deciding; one that fails after
+five times in a row that bring no new bytes, the whole file's digest still deciding; one that fails after
 that, and any stall of a network published whole, which its host stores
 gzipped and cannot serve in part, fails and can be retried, from the start.
 Every percentage and size said of the network is of what is downloaded, the
