@@ -65,10 +65,11 @@ test("a row's button is called by what the row shows: the verb, the move, its we
   const bare = await html('AgentWeights.svelte', { onchoose() {}, analysis: analysis({ choice: chosen,
     choices: [chosen, { ...reachA, weight: .2, conditionalWeight: null }, kan] }) });
   assert.deepEqual(names(bare), ['Play: Discard 3m, 80.0%, agent choice', 'Play: Riichi 1m, not evaluated', 'Play: Extra kan, unscored']);
-  // A built-in agent has no weights: its rows are the move, and its choice.
+  // A built-in agent has no weights: its rows are the move, and its choice,
+  // which its row writes as "Selected" and its name says in that word too.
   const club = await html('AgentWeights.svelte', { onchoose() {}, analysis: { agent: 'club', kind: 'selection', choice: reachA,
     choices: [{ ...reachA, weight: 1 }, { ...discard, weight: 0 }] } });
-  assert.deepEqual(names(club), ['Play: Riichi 1m, agent choice', 'Play: Discard 3m']);
+  assert.deepEqual(names(club), ['Play: Riichi 1m, Selected, agent choice', 'Play: Discard 3m']);
   // Rows that are not buttons are read as they are drawn, the words under the chosen one too.
   const read = await html('AgentWeights.svelte', { analysis: analysis() });
   assert.deepEqual(names(read), []);

@@ -17,10 +17,12 @@
   // What a row's button is called. A button's own name stands in place of all
   // that is drawn in it, so the name says what the row shows: the move, its
   // weight as the row writes it, and that it is the agent's choice. Named by
-  // the move alone, every row read alike and no weight was ever heard.
+  // the move alone, every row read alike and no weight was ever heard. A
+  // built-in agent's row writes "Selected" where a weight would be, and the
+  // name says that word too, so that a voice naming what is seen finds it.
   const rowName = (choice, weight, conditional, selected) => [
     `${verb}: ${choice.label}`,
-    analysis.kind !== 'policy' ? '' : weight == null ? (conditional ? 'not evaluated' : 'unscored')
+    analysis.kind !== 'policy' ? (weight ? 'Selected' : '') : weight == null ? (conditional ? 'not evaluated' : 'unscored')
       : `${percent(weight)}${conditional ? ' given riichi' : ''}`,
     selected ? 'agent choice' : '',
   ].filter(Boolean).join(', ');

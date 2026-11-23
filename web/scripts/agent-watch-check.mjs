@@ -173,10 +173,11 @@ try {
       const alternative = watch.analysis.choices.find(c => c.kind === 'discard' && c.tile !== watch.analysis.choice.tile);
       const selector = `.weight-row[data-choice=${JSON.stringify(alternative.label)}] .choice-action`;
       // A row's button is called by what the row shows. A built-in agent has
-      // no weights, so that is the move, and for its own that it chose it.
+      // no weights, so that is the move, and for its own the word its row
+      // writes, Selected, and that it chose it.
       assert.equal(await page.$eval(selector, button => button.getAttribute('aria-label')), `Play: ${alternative.label}`);
       assert.equal(await page.$eval('.weight-row.best .choice-action', button => button.getAttribute('aria-label')),
-        `Play: ${watch.analysis.choice.label}, agent choice`);
+        `Play: ${watch.analysis.choice.label}, Selected, agent choice`);
       const before = await page.$eval('.followed', el => el.textContent);
       let question;
       page.once('dialog', async dialog => { question = dialog.message(); await dialog.dismiss(); });

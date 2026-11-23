@@ -125,7 +125,9 @@ Where the rows are buttons, in Watch and a guided game, a screen reader hears
 each by what its row shows, since a button's name stands in place of what is
 drawn in it: what pressing it does, the move, its weight, and that it is the
 agent's choice ("Play: discards the 3 circles, 62.5%, agent choice"; "Record:
-…" in a guided game, "not evaluated" or "unscored" where the row says so).
+…" in a guided game, "not evaluated" or "unscored" where the row says so). A
+built-in agent's chosen row says the word it shows, "Selected", before "agent
+choice", so that a voice naming what is on screen finds it.
 
 **Reading the other hands**, under Trained's weights, names the three other
 seats as the page around it does: Right, Opposite and Left of the followed
