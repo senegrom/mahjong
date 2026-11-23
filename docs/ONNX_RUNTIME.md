@@ -300,7 +300,9 @@ Only the active worker prunes: at activation and after its page has saved its
 network. At activation no page has spoken, and only what the build no longer
 lists is removed, as before: the page about to load may play any listed
 network, perhaps offline, and a pick made before picks were remembered left
-no trace in the record. After a page's save, the current and previous model
+no trace in the record; a page that plays such a pick and finds it saved
+says so once (`MAHJONG_NETWORK_SAVED`), as a save would. After a page's save,
+the current and previous model
 URLs, the build's default and the
 models the player picked are retained; older scoped entries are removed. A
 pick is a listed version a page names with its message, other than the

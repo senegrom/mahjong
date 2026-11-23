@@ -91,7 +91,9 @@ if it is ever picked. Listed networks go only after a page has saved one,
 never when a new version first starts, so an update takes nothing away on a
 plane. A network the site stops listing goes the way an older
 version's does: it is kept only while it is the one saved before the current
-one.
+one. A page that plays a picked network and finds it saved already tells the
+worker once, so that a pick made before picks were remembered, and never
+downloaded since, is kept like any other.
 
 Loading the network into the opponent's worker is its own phase. The worker is
 asked only once the page has the network in hand, so the two never fetch it
@@ -125,18 +127,35 @@ the moment a Trained player is chosen and waits for no service worker; the
 worker saves the runtime once it is active, on a first visit after its
 install, or, where that install outlasts the page's wait for it, when it takes
 control of the page. The panel's percentage, and the table's, is the share of
-the network received; it is held at 99 until the runtime is saved too, and
-the panel says **Offline: game + AI ready** only once both are saved. A network that cannot be fetched fails the Trained opponent at once; a
-runtime that cannot be saved is said in the panel once the network has been,
-and the opponent plays on with the runtime the site serves.
+the network received; the panel's is held at 99 until the runtime is saved
+too, and the panel says **Offline: game + AI ready** only once both are
+saved. The table speaks only of the network itself: it shows the percentage
+while the network downloads, says so while another window's download of it
+goes first, and says nothing once the network is in hand, when the opponent
+plays though the runtime may still be saving. The offline state says where
+the network stands apart from the whole save (`network`: none, waiting,
+downloading or ready; see `OfflineState` in `web/src/lib/app/types.ts`), and
+a returning player's saved network is ready from the start. A network that
+cannot be fetched fails the Trained opponent at once; a runtime that cannot
+be saved is said in the panel once the network has been, and the opponent
+plays on with the runtime the site serves. Where the network failed during a
+first visit's install, the panel's retry does not wait for the install.
 
 One window or worker at a time fetches a network. A second tab, or the
 installed app beside a tab, that asks for the same network meanwhile waits its
 turn under a Web Lock and then finds it saved, where each used to fetch all of
-it beside the other; an opponent's worker that waits says so on the table.
-After three minutes it goes ahead regardless, since the window it waits for
-may have been suspended by the browser. Without Web Locks each fetches for
-itself, as before.
+it beside the other; a page or an opponent's worker that waits says so, in
+the panel and on the table, as soon as its wait begins. A page that only
+saves the network finds it by the record the other window's write left, and
+does not read it again. The window that holds the lock says it is alive as
+its bytes arrive, at most once a second, on a BroadcastChannel, and is waited
+for however slow its link: one that waits goes ahead regardless only after
+75 seconds without a word, the download's own minute without bytes and a
+little more, since the window it waits for may have been suspended by the
+browser. Without BroadcastChannel it goes ahead after three minutes, as
+before; without Web Locks each fetches for itself. The graphics card's
+review worker reads only a network already saved and never fetches one, so
+it takes no turn.
 
 Cached availability does not need a successful online HEAD request. Reopening,
 reloading, retrying an AI worker or starting another match reads the downloaded
