@@ -456,11 +456,18 @@
     };
   });
 
+  // Whether the tile face's failure has been said in the settings' dialog,
+  // under its select (AppSettings). The page's line then shows it, once the
+  // dialog is closed, without saying it again: inserted as an alert as the
+  // dialog closed, it was heard a second time.
+  let faceWarningSaid = $state(false);
+  $effect(() => { if (faceWarning && settingsOpen) faceWarningSaid = true; });
   async function changeTileFace(value) {
     if (!ready) return;
     const next = normalizeTileFace(value);
     faceLoad?.abort();
     faceWarning = '';
+    faceWarningSaid = false;
     const owner = new AbortController();
     faceLoad = owner;
     pendingTileFace = next === tileFace ? null : next;
@@ -926,8 +933,9 @@
   <!-- On a phone the Tile face select is in the settings' dialog, and while
        that is open this alert would lie behind it, unheard and dimmed: the
        dialog says it under the select instead (AppSettings), and the page
-       says it once the dialog is closed. -->
-  {#if faceWarning && !settingsOpen}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
+       shows it once the dialog is closed, as an alert only if the dialog has
+       not said it already (faceWarningSaid). -->
+  {#if faceWarning && !settingsOpen}<p class="notice" data-face-error role={faceWarningSaid ? null : 'alert'}>{faceWarning}</p>{/if}
   <!-- A screen reader hears a status line only once it knows it, so this one
        waits in the page, empty and out of sight, before its words arrive. -->
   <p class={notice ? 'notice' : 'visually-hidden'} data-notice role="status">{notice}</p>

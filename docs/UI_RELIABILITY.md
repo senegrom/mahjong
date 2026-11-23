@@ -199,8 +199,9 @@ between hands.
   - the settings' line under the **Tile face** select, which says why the face
     picked could not load, for the same reason: the page says it in an alert
     under the settings, which lies behind the dialog while that is open, so
-    the dialog says it under the select instead, and the page once the dialog
-    is closed;
+    the dialog says it under the select instead, and the page shows it once
+    the dialog is closed, without its alert's role when the dialog has said
+    it already, so that it is not heard twice;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more;

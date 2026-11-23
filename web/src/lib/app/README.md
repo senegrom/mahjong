@@ -35,7 +35,7 @@ package is ready. `OfflineStatus` remains the authority for that separate claim.
 Face changes decode the replacement before updating or persisting `tileFace`.
 Failure keeps the current face and match; selecting it again retries. App says
 it in an alert under the settings, and while the settings are an open dialog,
-which would cover that alert, `AppSettings` says it under the select. A newer
+which would cover that alert, `AppSettings` says it under the select; App's line, shown again as the dialog closes, is then no alert, so it is heard once. A newer
 selection or unmount aborts stale work. `image-preloader.js` limits concurrency,
 drains aborted workers, reuses verified decode successes and bounds retained Image
 objects to the displayed set plus the current partial attempt. Its timeout covers

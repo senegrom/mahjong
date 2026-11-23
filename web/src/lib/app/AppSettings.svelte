@@ -44,8 +44,9 @@
   // page, in an alert under the settings. While the settings are a dialog
   // and open, that alert lies behind it, unheard and dimmed, with the select
   // that snapped back in front of it: so the dialog says it instead, in a
-  // line under the select, and App says it on the page once the dialog is
-  // closed (both go by settingsOpen, so never both).
+  // line under the select, and App shows it on the page once the dialog is
+  // closed (both go by settingsOpen, so never both), saying it there only if
+  // the dialog has not.
   let faceNote = $derived(settingsOpen ? faceWarning : '');
 
   // Export game says why the game could not be saved in a line after its

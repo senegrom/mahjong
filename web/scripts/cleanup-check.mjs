@@ -208,6 +208,7 @@ try {
       await page.click('.options > summary');
       await page.select('select[aria-label="Tile face"]', 'matisse');
       await page.waitForSelector('[data-face-error]');
+      assert.equal(await page.$eval('[data-face-error]', el => el.getAttribute('role')), 'alert', 'said on the page, where it was chosen');
       assert.equal(await page.$eval('select[aria-label="Tile face"]', el => el.value), 'classic');
       assert.equal(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).tileFace, SETTINGS_KEY), 'classic');
       assert.equal(await page.$('.hand .tile.matisse'), null);
@@ -231,6 +232,10 @@ try {
       assert.equal(await page.$('[data-face-error]'), null);
       await page.click('[data-close-settings]');
       await page.waitForSelector('[data-face-error]');
+      // Said in the dialog, it is shown on the page as the dialog closes,
+      // and not said there a second time.
+      assert.equal(await page.$eval('[data-face-error]', el => el.getAttribute('role')), null, 'shown, not said again, once the dialog said it');
+      assert.match(await page.$eval('[data-face-error]', el => el.textContent.trim()), /could not load/);
       await page.setViewport({ width: 1100, height: 1000 });
       await page.waitForSelector('.settings-trigger', { hidden: true });
       denyUnusedArt = false;
