@@ -103,6 +103,14 @@
   // brought into view; on a phone it stays at the foot of the sheet with the
   // buttons. Says whether the press was done.
   let failureLine = $state(null);
+  // A button that has focus as another window takes the match on is
+  // disabled under it, and focus would fall to the page: it goes on to the
+  // line that says to reload, which a screen reader then reads. Where focus
+  // is, is read before the buttons are disabled.
+  let buttonRow = $state(null);
+  $effect.pre(() => {
+    if (blocked && untrack(() => buttonRow)?.contains(document.activeElement)) void tick().then(() => failureLine?.focus());
+  });
   function done(answer) {
     if (answer !== false) return true;
     void tick().then(() => { if (!matchMedia(RESULT_SHEET).matches) failureLine?.scrollIntoView({ block: 'nearest' }); });
@@ -253,7 +261,7 @@
     </tbody>
   </table>
 
-  <div class="buttons">
+  <div class="buttons" bind:this={buttonRow}>
     {#if finalHand}<span class="final-caption">Final hand</span>
     {:else}<button disabled={busy || blocked} class="primary" onclick={onnext}>Next hand</button>{/if}
     {#if onreview && !reviewed}<button class="quiet" disabled={blocked} onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
@@ -271,7 +279,7 @@
          knows it, so the line waits here, empty and out of sight, for its
          words. -->
     {#if failure !== null}<p class="result-failure" class:visually-hidden={!failure} data-result-failure role="status"
-      bind:this={failureLine}>{failure}</p>{/if}
+      tabindex="-1" bind:this={failureLine}>{failure}</p>{/if}
   </div>
 </section>
 

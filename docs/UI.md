@@ -1200,7 +1200,8 @@ match is loaded and as Play comes back to one from Agent watch, with the
 places and Play again in view and focus on their heading, a first visit's wait
 for the network's download naming its size and offering Club meanwhile, which
 keeps Trained as the stored choice, a result or standings left behind by
-another window's move disabled and saying to reload,
+another window's move disabled and saying to reload, with focus on that line
+if one of their buttons had it,
 a review that could not be built and a file that could not be saved said
 beside the result's buttons, which keep focus, a whole game that could not be
 saved or replayed for review said beside the standings' buttons, the result

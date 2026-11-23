@@ -539,10 +539,28 @@ try {
   await check('a result left behind by another window\'s move cannot be pressed, and says to reload beside its buttons',async()=>{
     const a=await open(endSave);const b=await open(endSave,{sharedContext:a.browserContext()});
     assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[false,false,false,false,false]);
+    // A button of the result has focus as the other window moves.
+    await b.$eval('.screen .buttons .quiet',n=>n.focus());
     await a.bringToFront();await a.click('.screen .primary');
     await b.bringToFront();await b.waitForSelector('.save-conflict');
     assert.equal(await b.$eval('[data-result-failure]',n=>n.textContent.trim()),'Reload the latest match to continue here.');
     assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[true,true,true,true,true]);
+    // Disabled under it, the button hands focus on to the line that says to
+    // reload, rather than letting it fall to the page.
+    await b.waitForFunction(()=>document.activeElement?.matches('[data-result-failure]'),{timeout:5000}).catch(()=>{});
+    assert.equal(await b.evaluate(()=>document.activeElement?.matches('[data-result-failure]')?'the line':document.activeElement===document.body?'the page':document.activeElement?.outerHTML.slice(0,80)),'the line');
+    noErrors(a);noErrors(b);
+  });
+  await check('final standings left behind by another window\'s new game hand focus from their pressed button to the line that says to reload',async()=>{
+    const a=await open(finalSave);const b=await open(finalSave,{sharedContext:a.browserContext()});
+    await b.waitForSelector('.standings [data-save-game]');
+    await b.$eval('.standings [data-save-game]',n=>n.focus());
+    await a.bringToFront();await a.click('.standings .primary');
+    await b.bringToFront();await b.waitForSelector('.save-conflict');
+    assert.equal(await b.$eval('[data-standings-failure]',n=>n.textContent.trim()),'Reload the latest match to continue here.');
+    assert.ok(await b.$$eval('.standings .buttons button',ns=>ns.every(n=>n.disabled)),'the standings\' buttons cannot be pressed');
+    await b.waitForFunction(()=>document.activeElement?.matches('[data-standings-failure]'),{timeout:5000}).catch(()=>{});
+    assert.equal(await b.evaluate(()=>document.activeElement?.matches('[data-standings-failure]')?'the line':document.activeElement===document.body?'the page':document.activeElement?.outerHTML.slice(0,80)),'the line');
     noErrors(a);noErrors(b);
   });
   await check('two real tabs cannot roll back progress on pagehide; reload resumes latest',async()=>{

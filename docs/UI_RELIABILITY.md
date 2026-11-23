@@ -253,7 +253,9 @@ player is says it too, since that alert lies above the screen from a result at
 desktop width and under the result's sheet on a phone: the turn's prompt while a
 hand is played, and at a hand's result or the final standings the line after
 their buttons, which cannot be pressed there any more ("Reload the latest match
-to continue here."). Nothing is saved by `pagehide`; successful
+to continue here."). A button there that had focus hands it on to that line,
+which a screen reader then reads, rather than letting it fall to the page as
+the button is disabled. Nothing is saved by `pagehide`; successful
 commands were already saved in their transaction. Returning from the back/forward
 cache reloads the current match. Browsers without usable storage/Web Locks may
 play without shared persistence and show a warning rather than use a racy fallback.

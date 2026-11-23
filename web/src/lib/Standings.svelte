@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { placeLabel, signed } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
   /**
@@ -35,6 +35,13 @@
   function done(answer) {
     if (answer === false) void tick().then(() => buttons?.scrollIntoView({ block: 'nearest' }));
   }
+  // A button that has focus as another window takes the match on is
+  // disabled under it, and focus would fall to the page: it goes on to the
+  // line that says to reload, as the result's does (ScoreScreen).
+  let failureLine = $state(null);
+  $effect.pre(() => {
+    if (blocked && untrack(() => buttons)?.contains(document.activeElement)) void tick().then(() => failureLine?.focus());
+  });
 </script>
 
 <section class="standings" aria-label="final standings">
@@ -87,7 +94,7 @@
          player pressed one. A screen reader hears a status line only once it
          knows it, so the line waits here, empty and out of sight, from the
          moment the standings appear. -->
-    {#if failure !== null}<p class="standings-failure" class:visually-hidden={!failure} data-standings-failure role="status">{failure}</p>{/if}
+    {#if failure !== null}<p class="standings-failure" class:visually-hidden={!failure} data-standings-failure role="status" tabindex="-1" bind:this={failureLine}>{failure}</p>{/if}
   </div>
 </section>
 
