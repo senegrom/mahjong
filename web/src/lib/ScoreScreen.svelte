@@ -260,12 +260,12 @@
   }
   .result-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 20px; }
   .result-title { min-width: min(100%, 260px); }
-  .eyebrow { display: block; margin-bottom: 3px; color: var(--gold); font-size: .64rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  .eyebrow { display: block; margin-bottom: 3px; color: var(--gold-text); font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
   h2 { margin: 0; font-size: 1.12rem; font-weight: 650; }
   h3 { margin: 0; font-size: .9rem; }
   .hero-score { display: grid; justify-items: end; line-height: 1.08; }
   .hero-score span { font-size: .72rem; opacity: .7; }
-  .hero-score strong { margin-top: 3px; color: var(--gold); font-size: 1.02rem; letter-spacing: .08em; }
+  .hero-score strong { margin-top: 3px; color: var(--gold-text); font-size: 1.02rem; letter-spacing: .08em; }
   .hero-score b { margin-top: 3px; font-size: 1.75rem; font-variant-numeric: tabular-nums; }
   .waiting { flex-basis: 100%; margin: 0; font-size: .83rem; opacity: .78; }
   .win { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.12); }
@@ -277,9 +277,9 @@
   .bonus-indicators { display: flex; flex-wrap: wrap; gap: 10px 22px; min-width: 0; }
   .indicator-row { display: grid; gap: 6px; min-width: 0; font-size: .78rem; }
   .indicator-tiles { display: flex; flex-wrap: wrap; gap: 5px; }
-  .indicator-help { flex-basis: 100%; font-size: .76rem; opacity: .82; }
-  .indicator-help summary { min-height: 28px; padding: 2px 0; color: var(--gold); }
-  .indicator-help p { margin: 2px 0 0; max-width: 62ch; }
+  .indicator-help { flex-basis: 100%; font-size: .76rem; }
+  .indicator-help summary { min-height: 36px; padding: 7px 0; color: var(--gold-text); cursor: pointer; }
+  .indicator-help p { margin: 2px 0 0; max-width: 62ch; opacity: .85; }
   .final-caption { align-self: center; font-size: .85rem; }
   .working { display: grid; gap: 4px; }
   .yaku { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,210px),1fr)); gap: 1px 18px; font-size: .88rem; }
@@ -292,13 +292,13 @@
      numbers, so it keeps the row's own shape. */
   .yaku-name { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 1px 0;
     border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: help; }
-  .yaku-name:hover, .yaku-name.asking { color: var(--gold, #d8a12a); }
+  .yaku-name:hover, .yaku-name.asking { color: var(--gold-text, #f0c869); }
   .yaku-name:focus-visible { outline: 2px solid var(--gold, #d8a12a); outline-offset: 2px; border-radius: 4px; }
   .yaku-note { margin: 2px 0 6px; font-size: .82rem; line-height: 1.35; opacity: .9; }
   .yaku-note .lit { display: block; opacity: .7; font-size: .78rem; }
   .total { margin: 4px 0 0; font-size: 1rem; }
   .fu { opacity: .85; }
-  .limit { margin-left: 8px; color: var(--gold); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
+  .limit { margin-left: 8px; color: var(--gold-text); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
   .payment { margin: 0; font-size: .9rem; opacity: .9; }
   .changes { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }
   .changes th { padding: 2px 16px 2px 0; text-align: left; font-weight: 500; opacity: .84; }
@@ -346,8 +346,13 @@
       bottom: max(10px, env(safe-area-inset-bottom));
       z-index: 42;
       max-width: calc(100vw - 20px);
-      min-height: 42px;
-      padding: 7px 13px;
+      min-height: 44px;
+      /* One line whatever the result's words, which its name still gives
+         whole: the page's foot keeps one line's room clear of it (App). */
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      padding: 8px 13px;
       border: 1px solid rgba(216,161,42,.65);
       border-radius: 999px;
       background: rgba(8,42,28,.94);
@@ -384,6 +389,14 @@
   @media (max-width: 480px) {
     .buttons button { padding-inline: 12px; }
     .qualifier, .so-far, .whole { display: none; }
+  }
+
+  /* Under a finger a yaku's name, which is pressed for what it means, and the
+     note under the indicators have more of a line each: the names were 23
+     pixels high, one under the other. */
+  @media (pointer: coarse) {
+    .yaku-name { min-height: 32px; align-items: center; }
+    .indicator-help summary { min-height: 44px; padding: 11px 0; }
   }
 
   @media (prefers-reduced-motion: reduce) { .screen { animation: none; } }

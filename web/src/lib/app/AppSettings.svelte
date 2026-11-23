@@ -24,7 +24,10 @@
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
   }: SettingsProps = $props();
-  const MODES: [GameMode, string][] = [['play', 'Play'], ['watch', 'Agent watch'], ['physical', 'Physical agent play'], ['guided', 'Guided physical game']];
+  // Each mode's name in three parts: on a phone its buttons show the middle
+  // one alone, "Watch", "Physical", "Guided", so that the four fit one row;
+  // their names, said to a screen reader, and their text stay whole.
+  const MODES: [GameMode, string, string, string][] = [['play', '', 'Play', ''], ['watch', 'Agent ', 'watch', ''], ['physical', '', 'Physical', ' agent play'], ['guided', '', 'Guided', ' physical game']];
   const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
   let compact = $state(false);
   let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false), exportOpen = $state(false), networkOpen = $state(false);
@@ -102,8 +105,8 @@
 </header>
 
 <nav class="game-modes" aria-label="Game mode">
-  {#each MODES as [key, label] (key)}
-    <button class="app-control" aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => changeMode(key)}>{label}</button>
+  {#each MODES as [key, before, word, after] (key)}
+    <button class="app-control" aria-label={`${before}${word}${after}`} aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => changeMode(key)}>{#if before}<span class="rest">{before}</span>{/if}{word}{#if after}<span class="rest">{after}</span>{/if}</button>
   {/each}
 </nav>
 
@@ -200,7 +203,7 @@
         they threw it themselves or it has already passed them. It can still deal into an undeclared hand. The safe count includes copies in your concealed hand only.
       </dd>
 
-      <dt><span class="swatch one-away"></span> a silver ring</dt>
+      <dt><span class="swatch one-away"></span> a broken silver ring</dt>
       <dd>Discarding this tile leaves your hand one tile from ready (one shanten).</dd>
 
       <dt><span class="swatch ready"></span> a gold ring</dt>
@@ -275,9 +278,16 @@
 
 <style>
   .game-modes { display: flex; gap: 4px; grid-column: 1 / -1; padding: 3px; border-radius: 12px; background: #0002; }
-  .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; border-color: transparent; border-radius: 9px; background: transparent; color: color-mix(in srgb, var(--ivory) 72%, transparent); font-size: .8rem; }
+  .game-modes button { flex: 1; min-width: 0; padding: 8px 6px; border-color: transparent; border-radius: 9px; background: transparent; color: color-mix(in srgb, var(--ivory) 88%, transparent); font-size: .8rem; }
   .game-modes button[aria-pressed=true] { color: var(--ivory); background: #ffffff16; box-shadow: 0 1px 3px #0002; }
   .compact-mode-selector { display: none; }
+  /* Under 620 pixels wide the four names took two and three lines each, 82
+     pixels of a phone's height. There each button shows one word, and the
+     row is 50 pixels high. */
+  @media (max-width: 619.98px) {
+    .game-modes .rest { display: none; }
+    .game-modes button { text-transform: capitalize; }
+  }
   @media (max-width: 360px) and (max-height: 640px) {
     .game-modes { display: none; }
     .compact-mode-selector { display: flex; flex-basis: 100%; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; font-size: .8rem; }
@@ -294,6 +304,8 @@
   .preferences :global(details[open]) { flex-basis: 100%; order: 1; }
   .options, .network-choice, .guide, .game-export { font-size: .85rem; min-width: 0; }
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
+  /* A finger needs more of a line to press than a pointer. */
+  @media (pointer: coarse) { summary { min-height: 44px; padding: 10px 0; } }
   .option-fields { display: flex; gap: 4px 20px; flex-wrap: wrap; background: #0003; padding: 10px; border-radius: 8px; }
   .option-fields label { min-height: 44px; display: flex; gap: 8px; align-items: center; }
   .option-fields p { flex-basis: 100%; margin: 4px 0; max-width: 70ch; }
@@ -305,7 +317,7 @@
   .swatch { display: inline-block; width: 12px; height: 16px; margin-right: 4px; border-radius: 3px; background: var(--ivory); flex: none; }
   .swatch.dora { box-shadow: 0 0 0 2px #e2453d; }
   .swatch.safe { box-shadow: 0 0 0 2px #7fd1a0; }
-  .swatch.one-away { box-shadow: 0 0 0 2px #c5cbd3; }
+  .swatch.one-away { outline: 2px dashed #c5cbd3; }
   .swatch.ready { box-shadow: 0 0 0 2px var(--gold); }
   .swatch.marker { box-shadow: 0 0 0 2px #4ea3ff; }
   .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
@@ -365,6 +377,10 @@
     .restart { display: none; }
 
     .preferences.mobile-open :global(details), .preferences.mobile-open .edit-table { flex-basis: 100%; }
+    /* On a wide screen an opened section goes below the row of the others'
+       names (above). In the dialog they stand one under the other, where
+       that sent the section just pressed to the foot of the list. */
+    .preferences.mobile-open :global(details[open]) { order: 0; }
     .mobile-preferences-head {
       display: flex;
       flex-basis: 100%;

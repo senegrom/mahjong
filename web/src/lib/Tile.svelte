@@ -25,8 +25,9 @@
    * face: gold for a discard leaving tenpai, silver for one shanten, red
    * for dora, green for safety against declared riichi, blue for selection.
    * A newly drawn tile is identified by spacing, never by its own ring. One
-   * mark is a solid ring; more than one is drawn as stripes of each colour
-   * in turn, so no mark hides another.
+   * mark is a solid ring, but for one shanten's, which is broken into
+   * dashes (BROKEN); more than one is drawn as stripes of each colour in
+   * turn, so no mark hides another.
    *
    * A discard row marks two things about a tile, each in its own way so a
    * tile can carry both. One thrown straight from the draw (tsumogiri) has
@@ -87,6 +88,14 @@
     safe: '#7fd1a0',
     selected: '#4ea3ff',
   };
+  // The ring of one shanten alone is broken into dashes. Its silver and the
+  // green of safety are as light as each other, and gold not far off, so to
+  // an eye that does not tell red from green two of the hand's rings were
+  // one. Dora has its shine and selection its lift; this gives the commonest
+  // of the three a shape of its own. The dashes are spokes from the tile's
+  // centre, two of silver to one of none: along a hand tile's sides some
+  // five pixels and two and a half, and longer towards its corners.
+  const BROKEN = { 'one-away': `repeating-conic-gradient(${COLOURS['one-away']} 0 10deg, transparent 10deg 15deg)` };
   let marks = $derived(
     [readiness, dora && 'dora', safe && 'safe', selected && 'selected'].filter(Boolean),
   );
@@ -94,7 +103,7 @@
     marks.length === 0
       ? 'none'
       : marks.length === 1
-        ? COLOURS[marks[0]]
+        ? BROKEN[marks[0]] ?? COLOURS[marks[0]]
         : `repeating-linear-gradient(45deg, ${marks
             .map((mark, index) => `${COLOURS[mark]} ${index * 6}px ${(index + 1) * 6}px`)
             .join(', ')})`,
@@ -607,7 +616,8 @@
 
   /* The ring: one colour, or stripes of several, behind the face. On the
      small tiles of a discard row or a called set it is thinner, in
-     proportion. */
+     proportion, and a pixel on a phone's rows in play, which leave a pixel
+     between their tiles (MatchTable). */
   .ringed::before {
     content: '';
     position: absolute;

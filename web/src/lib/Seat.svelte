@@ -185,8 +185,8 @@
     padding: 1px 6px;
     border: 1px solid rgba(216,161,42,.48);
     border-radius: 999px;
-    color: var(--gold);
-    font-size: .56rem;
+    color: var(--gold-text);
+    font-size: .66rem;
     font-weight: 750;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -217,7 +217,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--gold);
+    color: var(--gold-text);
     animation: settle 0.5s ease-out forwards;
   }
 
@@ -299,8 +299,13 @@
   .note {
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(216,161,42,.16);
-    color: var(--gold);
+    /* A backing of its own, the deep felt with a little gold, on which the
+       word is 5.3 to 1: over the table's lighter middle a tint alone left
+       it near 4. The first line is the light theme's mix, for a browser
+       that cannot mix colours. */
+    background: #3d532f;
+    background: color-mix(in srgb, var(--felt-deep) 82%, var(--gold) 18%);
+    color: var(--gold-text);
     font-size: .66rem;
     font-weight: 650;
     line-height: 1.2;
@@ -326,7 +331,7 @@
     .note { padding-inline: 4px; font-size: .56rem; }
     .score-full { display: none; }
     .score-short { display: inline; }
-    .dealer-badge { padding-inline: 4px; font-size: .5rem; }
+    .dealer-badge { padding-inline: 4px; font-size: .62rem; }
     .opponent-version { display: none; }
   }
   @media (min-width: 761px) {

@@ -10,6 +10,67 @@ The 7-by-2 phone hand layout is intentional: it preserves large, reliable touch 
 
 On a phone held sideways, 500 pixels high or less, the game's bar stays at the top of the screen and leaves 264 to 374 pixels under it, so a call is laid out to show the whole hand and every call button there at once. While the hand is played, the player's choices are drawn in their seat, right under the hand, with the discards and called sets after them, so nothing lies between the hand and the buttons, and the hand keeps its place as the discards grow. The choices are drawn there rather than moved by CSS, so a screen reader and the keyboard go through them in the order they are seen, and a choice that has focus as the phone turns keeps it. The tiles stay 44 pixels wide on a phone under 640 pixels wide too. The discard on offer is staged in a card no taller than the buttons, its tile small, with Discard or Kan over who let it go, and the buttons follow it in the same rows, each the call's word, such as Chii, beside the call's tiles; the rest of the buttons' names ("Chii — 3–4–5 characters"), the card's other words ("discarded the 5 characters") and the prompt are still read out. The play area scrolls with the page there instead of sticking to the top of the screen, where it hid its own foot and the bar hid the hand, and an offered call brings the buttons into view with the hand above them, below the bar; from the foot of the page it scrolls back up to the hand, as far as keeps the buttons in view. Measured in Chromium at 568x320, 667x375, 740x360, 844x390 and 932x430, the whole hand and every button fit for a chii and Pass, two or three chii shapes and Pass, a pon, a chii and Pass, and a pon, a kan and Pass, late in a hand and beside a called set too; with more choices than fit, the buttons come first and the top of the hand goes under the bar. On the player's own turn, from 640 pixels wide, the whole hand is on the screen at the top of the page, as before. A finished hand and its result are laid out as before.
 
+## The table at each size
+
+How the table is laid out follows the window, its height as well as its width.
+
+- **From 968 pixels wide and 900 high** the three opponents sit around the
+  centre, Opposite above it and Left and Right beside it, their discards 27
+  pixels wide.
+- **Under 900 pixels high, or under 968 wide, as a tablet is,** from 761 pixels
+  wide and over 500 high, the table is the dense one: the centre a bar across
+  the top and the opponents in one row under it, Left, Opposite and Right,
+  their discards 22 pixels wide. Where a seat is 300 pixels wide or more, its
+  discards stand beside its name, score and called sets rather than under them,
+  so the seat is only as tall as three rows of discards. Around its centre the
+  table is 426 to 477 pixels high, and in a 1366 by 768 laptop's browser, 650
+  pixels high, the hand lay wholly under the screen as the turn began; the
+  dense table is 228. Measured in Chromium at 1366x650 and 1280x600, the whole
+  hand is on the first screen, early in a hand (452 to 552 pixels down) and
+  late in one against a riichi (484 to 584). Under 700 pixels high the page's
+  rows also stand 8 pixels apart, not 14.
+- **From 761 pixels wide the player's hand is one row.** Fourteen tiles of 52
+  pixels need a window 889 wide, or 906 with a scrollbar. Under that the tile
+  just drawn used to wrap onto a row of its own, so that the seat grew and
+  shrank at every turn, on an upright tablet as in a narrow window. The seat
+  is measured as a container, which counts a scrollbar and a zoomed page as
+  they are, and the tiles are as wide as fourteen fit with three pixels to
+  spare: 52 pixels from a seat 822 wide inside (a window of 892, or 909 with a
+  scrollbar), 48 from 766, 44 from 710 and 40 under that. A browser without
+  container queries steps by the window's width instead.
+- **On a phone** each opponent has a third of the table's width, and in play
+  their discards are as large as six to a row fit there, a riichi's tile, which
+  lies a third wider, among them: 12.5 pixels wide at 320, 15 at 360, 16.5 at
+  390, 17.5 at 412 and 18.5 at 430, where they were 14 on every phone and 11.5
+  under 360. The seat is measured as a container and its width names the size,
+  in steps; a browser without container queries keeps the old sizes, and a
+  review's table its own. The rows have one pixel between their tiles there,
+  and the ring around a dora is one pixel wide, so that it covers no neighbour.
+  Larger ones would need the table laid out anew, since a third of a phone's
+  width is all a seat has. The four modes' buttons show one word each under 620
+  pixels wide, Play, Watch, Physical and Guided, in one row of 50 pixels where
+  their whole names took 82; a screen reader still hears the whole names. The
+  play area scrolls with the page: it used to stay six pixels from the top of
+  the screen as the page moved, under the game's bar, which stays there too,
+  and a play area taller than the screen held a call's buttons under its foot.
+  While the result's chip shows, the page ends 56 pixels lower, so that its
+  last line can be scrolled clear of the chip. In the settings' dialog an
+  opened section stays where it was pressed, rather than going to the foot of
+  the list.
+
+Words in gold are written in a lighter gold than the borders and rings
+(`--gold-text` in `app.css`): the borders' gold is 3.5 to 4.4 to 1 against the
+table's panels, and small text needs 4.5. The honba and the riichi bets in the
+table's centre are ivory, since the middle of the centre is the lightest felt
+on the page, and a review's word for what a seat was doing has a backing of
+its own. What went wrong with a Trained
+opponent is said in a red that reads on its panel in either theme
+(`--accent-text`), and its buttons are filled; as plain controls they were 2.3
+to 1 in the light theme, and 1.3 under the pointer. Under a finger
+(`pointer: coarse`) the settings' and the history's headings are 44 pixels
+high, and a yaku's name on a result 32. `ui-polish-check.mjs` holds the
+layouts above and the panel's contrast.
+
 ## Tile faces
 
 Classic, Matisse and Van Gogh have a picture for every tile. Unavailable saved
@@ -46,7 +107,10 @@ leaving no waits clears the previous selection's waits rather than showing
 waits for a different hand. Touch/mouse previews use **Select before discarding**;
 the keyboard marker also previews the focused discard.
 
-- **Silver:** discarding that tile leaves one shanten, one step from a ready hand.
+- **Silver, broken into dashes:** discarding that tile leaves one shanten, one
+  step from a ready hand. The dashes give it a shape of its own: silver and
+  the green of the safety ring are equally light, and were one ring to a
+  player who does not tell red from green.
 - **Gold:** discarding that tile leaves tenpai, a ready hand (zero shanten).
 
 These describe the resulting shape, not a promise of a yaku or permission to

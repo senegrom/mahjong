@@ -69,8 +69,9 @@ try {
     const p = await open(closed); await assertRings(p, closed.expected);
     assert.equal(await p.$$eval('[data-readiness=ready]', els => els.length), 2);
     assert.equal(await p.$$eval('[data-readiness=one-away]', els => els.length), 12);
-    const colour = await p.$eval('.hand [data-tile="9p"]', el => getComputedStyle(el, '::before').backgroundColor);
-    assert.equal(colour, 'rgb(197, 203, 211)');
+    // One shanten's ring alone is its silver broken into dashes (Tile).
+    const ring = await p.$eval('.hand [data-tile="9p"]', el => getComputedStyle(el, '::before').backgroundImage);
+    assert.match(ring, /^repeating-conic-gradient\(rgb\(197, 203, 211\) 0deg, rgb\(197, 203, 211\) 10deg, rgba\(0, 0, 0, 0\) 10deg/);
     await shot(p, 'readiness-desktop');
   });
   await check('changing selection recomputes exact waits and clears stale waits without a move', async () => {

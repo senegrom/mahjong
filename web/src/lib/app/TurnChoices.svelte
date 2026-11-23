@@ -111,8 +111,8 @@
   .call-kicker {
     grid-column: 1 / -1;
     margin-bottom: -5px;
-    color: var(--gold);
-    font-size: .64rem;
+    color: var(--gold-text);
+    font-size: .68rem;
     font-weight: 750;
     letter-spacing: .14em;
     text-transform: uppercase;
@@ -142,7 +142,7 @@
   @media (max-height: 500px) and (orientation: landscape) {
     .calls { display: flex; flex-wrap: wrap; gap: 6px; }
     .call-options { display: contents; }
-    .call-options button { gap: 6px; padding: 6px 8px; animation: choices-in .22s .06s ease-out both; }
+    .call-options button { gap: 6px; min-width: 44px; justify-content: center; padding: 6px 8px; animation: choices-in .22s .06s ease-out both; }
     .call-label { display: none; }
     .call-word { display: inline; }
     .call-preview { --tile-width: 38px; gap: 3px; }

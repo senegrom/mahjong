@@ -157,7 +157,7 @@
   }
 
   .you {
-    color: var(--gold);
+    color: var(--gold-text);
   }
 
   .up {

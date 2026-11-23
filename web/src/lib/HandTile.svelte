@@ -72,7 +72,7 @@
     white-space: nowrap;
     color: var(--ivory);
   }
-  .tag .ai { color: var(--gold); }
+  .tag .ai { color: var(--gold-text); }
   /* A review marks a tile by its ring and its words, and nothing in its hand
      moves: a tile lifted as play lifts a selected one would rise into its
      words. Said as specifically as Tile's own lifts, so that it outranks
@@ -85,8 +85,8 @@
     margin-top: 4px;
     padding-top: 2px;
     border-top: 1px solid rgba(247, 242, 228, .25);
-    color: rgba(247, 242, 228, .72);
-    font-size: .64rem;
+    color: rgba(247, 242, 228, .84);
+    font-size: .72rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1;

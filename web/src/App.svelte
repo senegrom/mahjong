@@ -906,7 +906,6 @@
 </main>
 
 <style>
-  .recovery-note { opacity: .85; }
   .match-view { display: contents; }
   .match-view.away { display: none; }
   .save-conflict { padding: 12px; border: 1px solid var(--gold); border-radius: 8px; background: var(--felt-deep); }
@@ -917,16 +916,37 @@
   summary { cursor: pointer; min-height: 36px; padding: 6px 0; }
   .play-area { display: grid; gap: 10px; min-width: 0; }
   .controls { display: grid; gap: 8px; min-width: 0; }
-  .failure { background: var(--accent-soft); color: var(--accent); padding: 12px; border-radius: 8px; }
+  /* What went wrong, and the ways on, on a pale panel in the light theme and
+     a dark one in the dark: its words in a red that reads on either (5.2 and
+     4.8 to 1), and its buttons filled, as the page's other buttons that act
+     are. As plain controls they were the panel's red on a grey wash of it,
+     2.3 to 1, and 1.3 under the pointer. */
+  .failure { background: var(--accent-soft); color: var(--accent-text); padding: 12px; border-radius: 8px; }
   .failure p { margin: 0; }
+  .failure :global(button.app-control) { background: var(--button-accent); color: var(--button-text); border-color: var(--button-accent); }
+  .failure :global(button.app-control:hover:not(:disabled)) { background: var(--button-accent-hover); }
   .recovery-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .notice { margin: 0; font-size: .8rem; }
   .log { font-size: .82rem; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; padding: 8px 12px; background: #0003; border-radius: 8px; }
   .log p { margin: 0; }
+  /* A finger needs more of a line to press than a pointer. */
+  @media (pointer: coarse) {
+    summary { min-height: 44px; padding: 10px 0; }
+  }
+  /* On a phone the play area scrolls with the page. It used to stay at the
+     top of the screen as the page moved, six pixels down, where the game's
+     bar, which stays there too (AppSettings), covered the head of the
+     player's seat; and a play area taller than the screen, as with a call
+     late in a hand, held its own foot, the call's buttons, under the
+     screen's. */
   @media (max-width: 760px) {
     main { gap: 6px; }
-    .play-area:not(.ended) { position: sticky; top: 6px; bottom: auto; z-index: 2; background: var(--felt-deep); padding: 6px 0 max(6px, env(safe-area-inset-bottom)); border-radius: 10px; box-shadow: 0 -6px 16px #0003; }
+    .play-area:not(.ended) { background: var(--felt-deep); padding: 6px 0 max(6px, env(safe-area-inset-bottom)); border-radius: 10px; box-shadow: 0 -6px 16px #0003; }
     .controls { padding: 0 8px; }
+    /* The result's chip lies over the foot of the screen (ScoreScreen), so
+       while it shows the page ends that much lower, and its last line, the
+       hand's history, can be scrolled clear of it. */
+    main:has(:global(.result-chip)) { padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px); }
   }
   @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
@@ -949,6 +969,12 @@
 
   @media (min-width: 761px) and (min-height: 501px) {
     main { max-width: 1280px; padding-inline: 18px; gap: 14px; }
+  }
+  /* A window under 700 pixels high, as a 1280 by 720 laptop's browser is,
+     keeps the table and the player's hand on one screen only with less
+     between the page's rows (MatchTable has the table's own part). */
+  @media (min-width: 761px) and (min-height: 501px) and (max-height: 699.98px) {
+    main { gap: 8px; }
   }
 
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
