@@ -159,12 +159,19 @@ test('overlong streams are cancelled before accepting or retaining excess bytes'
 });
 
 test('a progressing download can outlast its idle deadline', async t => {
+  // Twelve bytes, one every 40 ms: half a second in all against a 200 ms idle
+  // deadline, a gap five times shorter than the deadline, so that a loaded
+  // machine's late timer does not end it.
+  const long = Uint8Array.from({ length: 12 }, (_, i) => i + 1);
+  const identity = { bytes: long.length, sha256: createHash('sha256').update(long).digest('hex') };
   let timer, index = 0;
   fixture(t, { network: () => new Response(new ReadableStream({
-    start(c) { timer = setInterval(() => { c.enqueue(good.slice(index, ++index)); if (index === 4) { clearInterval(timer); c.close(); } }, 10); },
+    start(c) {
+      timer = setInterval(() => { c.enqueue(long.slice(index, ++index)); if (index === long.length) { clearInterval(timer); c.close(); } }, 40);
+    },
     cancel() { clearInterval(timer); },
   })) });
-  assert.deepEqual(await verifiedNetworkBytes({ url, expect, timeouts: { idleMs: 30, totalMs: 500 } }), good);
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect: identity, timeouts: { idleMs: 200, totalMs: 5000 } }), long);
 });
 
 test('storage that refuses a verified download hands its bytes to the caller, so nothing is fetched twice', async t => {
@@ -232,7 +239,9 @@ test('a download holds no chunk once it is copied, however many arrive', async t
     { idleMs: 5000, describe: kind => kind });
   assert.equal(chunks.length, count);
   assert.equal(bytes.length, whole.length);
-  // The loop's last turn may still hold the chunk it read.
+  // The loop's last turn may still hold the chunk it read. Counted at all
+  // first: a digest that never ran here would measure nothing.
+  assert.equal(typeof alive, 'number', 'the digest was never asked, so nothing was counted');
   assert.ok(alive <= 2, `${alive} of ${count} chunks were still held while the digest ran`);
 });
 
