@@ -219,6 +219,34 @@ try {
     assert.equal(await page.$('.guide-prompt .failure'), null);
     assert.deepEqual(page.problems, []);
   });
+  await check('a refused correction is said under its palette and leaves the prompt\'s own refusal on screen', async context => {
+    const page = await open(context);
+    // North holds all four 1 characters; East has thrown the 9 characters and
+    // South is to discard.
+    let game = emptyGuided('club');
+    game.state.position.seat = 3;
+    game = guidedEvent(game, { type: 'setup' });
+    game.state.position.players[3].hand = parseTiles('1111m456p789s123z');
+    for (const event of [{ type: 'hand' }, { type: 'indicator', tile: '7z' }, { type: 'discard', tile: '9m' }]) game = guidedEvent(game, event);
+    game = guidedEvent(game, { type: 'choice', choice: { kind: 'pass' }, choices: [{ kind: 'pass' }] });
+    game = guidedEvent(game, { type: 'continue' });
+    await page.evaluate(({ key, text }) => localStorage.setItem(key, text), { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(game) });
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('.guided-controls:not(:disabled)'); await stage(page, 'turn');
+    // South's 1 characters would be a fifth copy: the prompt says so.
+    await tile(page, '1m');
+    const refusal = 'All four copies of 1 characters are already accounted for. Correct the one entered by mistake, or undo back to it.';
+    await page.waitForFunction(text => document.querySelector('.guide-prompt .failure')?.textContent === text, {}, refusal);
+    // A correction refused below is said under its palette, and the prompt's line stays.
+    await page.click('.remembered .correct > summary');
+    await page.select('[aria-label="Where the tile to correct is"]', 'hand');
+    await page.select('[aria-label="The tile to correct"]', '1m');
+    await page.click('.correct .tile-entry summary');
+    await page.click('.correct .palette button[data-tile="1m"]');
+    await page.waitForFunction(() => document.querySelector('.correct [role="alert"]')?.textContent === 'It is already that tile');
+    assert.equal(await page.$eval('.guide-prompt .failure', el => el.textContent), refusal);
+    assert.deepEqual(page.problems, []);
+  });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
     const page = await open(context, 360), modelRequests = [];
     // The network is not a file of this site any more: it comes from the

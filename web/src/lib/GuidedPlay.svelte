@@ -156,13 +156,16 @@
   // pressed, which says it there (TileEntry): the prompt's own line is a
   // screen above the remembered table. Focus stays on the palette, which the
   // correction leaves in place.
+  // It goes to the table without act(), whose line is the prompt's: a
+  // prompt's refusal already on screen stays there, and this one is not put
+  // in its place.
   function correct(tile) {
     if (blocked) return;
     if (fixWhich === '') throw new Error('Choose the tile to correct first');
     const event = fixPlace === 'hand'
       ? fixWhich === 'drawn' ? { type: 'correct', from: position.drawn, tile, drawn: true } : { type: 'correct', from: fixWhich, tile }
       : { type: 'correct', seat: fixPlace, index: Number(fixWhich), from: position.players[fixPlace]?.discards[Number(fixWhich)]?.tile, tile };
-    if (!act(event)) { const refusal = failure; failure = ''; throw new Error(refusal); }
+    game = guidedEvent(snapshot(), event, validate, settle_physical, choicesOf);
     fixWhich = '';
   }
   async function restart() {
