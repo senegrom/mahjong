@@ -283,10 +283,6 @@ async function withNetwork(info) {
   if (!info || !info.aiReady) return info;
   return { ...info, aiReady: await networkIsStored(undefined, undefined, info.network) };
 }
-/** Once per page, for a player who asked for Trained offline: a new
- * version's network (and runtime) is saved by its page after activation. So
- * is the runtime of one who asked on this page while its worker was not
- * there yet: a first install that outlasted the save's wait for it. */
 /** A pick is remembered by the service worker when a page says it saved
  * that network (MAHJONG_NETWORK_SAVED), so that saving another later does
  * not delete it. A pick made before picks were remembered, of a network
@@ -299,6 +295,10 @@ function recordPick(info) {
   pickRecorded = true;
   void request('MAHJONG_NETWORK_SAVED').catch(() => { pickRecorded = false; });
 }
+/** Once per page, for a player who asked for Trained offline: a new
+ * version's network (and runtime) is saved by its page after activation. So
+ * is the runtime of one who asked on this page while its worker was not
+ * there yet: a first install that outlasted the save's wait for it. */
 function fillRequested(info) {
   if (filled || !info || !(info.aiRequested || wanted) || info.aiReady || !info.hasModel || !info.coreReady || !navigator.onLine) return;
   filled = true;
