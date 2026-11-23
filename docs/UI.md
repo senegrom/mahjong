@@ -500,8 +500,8 @@ ring.
 
 Measured in Chromium, a press by keyboard moves the page 30 pixels at 390x844,
 203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. A tap moves
-it further, to where the standings are whole on the screen: 291 pixels at
-390x844, 514 at 320x568 and 733 at 568x320, their heading as near the top as
+it further, to where the standings are whole on the screen: 284 pixels at
+390x844, 517 at 320x568 and 728 at 568x320, their heading as near the top as
 the page scrolls, which on a tall phone is not to the top, the standings being
 the last of the page. At desktop
 width and at 844x390 the heading is already in view where the result left the
@@ -555,8 +555,8 @@ the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
 1366x768 and 844x390; on a phone, where the standings are the last of the page
-and the line comes in under the chip, it moves 41 pixels at 390x844 and 42 to
-61 at 320x568 for any press, a finger's, a mouse's or a keyboard's beneath the
+and the line comes in under the chip, it moves 34 to 42 pixels at 390x844
+and 33 to 61 at 320x568 for any press, a finger's, a mouse's or a keyboard's beneath the
 sheet, to bring the line out from under the chip. Once the game is saved, or its review opens, from any
 button, every line that said it could not be takes its words back.
 
