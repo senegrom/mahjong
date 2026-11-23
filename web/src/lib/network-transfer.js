@@ -3,7 +3,7 @@
  * offline startup never imports a network dependency. Only pages and their
  * workers download the network: a service-worker event is abandoned after a
  * few minutes, which a slow link needs for 100 MB. */
-import { digestOf, networkCache, networkCacheName, storageError, validateNetwork, verifiedDownload } from './network-cache.js';
+import { digestOf, hasStoredNetwork, networkCache, networkCacheName, storageError, validateNetwork, verifiedDownload } from './network-cache.js';
 
 export { NETWORK_CACHE, hasStoredNetwork, networkCacheName, pruneNetworkCache, validateNetwork } from './network-cache.js';
 // A page has no event deadline, so a slow but progressing transfer may take
@@ -139,12 +139,17 @@ export async function storedNetworkBytes({ url, expect, scope } = {}) {
  * explicitly require a successful cache write; they must never claim readiness
  * from a transient in-memory download. Errors never publish unverified bytes.
  * One window or worker at a time is at a network (alone): another that asks
- * meanwhile waits, telling `onWaiting`, and then reads what the first stored. */
+ * meanwhile waits, telling `onWaiting`, and then reads what the first stored.
+ * `storeOnly` is for a caller that wants the network stored and not its
+ * bytes, the page's save: one whose record is there already, written by the
+ * window it waited for, say, is answered with null, neither read nor hashed
+ * again only to be dropped. */
 export async function verifiedNetworkBytes({ url, expect, onProgress, onWaiting,
-  requireStored = false, timeouts, scope } = {}) {
+  requireStored = false, storeOnly = false, timeouts, scope } = {}) {
   validateNetwork(expect);
   const cache = await networkCache(scope);
   return alone(`${networkCacheName(scope)}:${url}`, async alive => {
+    if (storeOnly && await hasStoredNetwork(url, expect, { scope })) return null;
     const held = await verifiedCached(cache, url, expect);
     if (held) return held;
     const bytes = await downloadNetwork(url, expect, progress => { alive(); onProgress?.(progress); }, timeouts);

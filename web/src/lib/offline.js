@@ -120,7 +120,9 @@ async function storeNetwork(url, expect, onProgress) {
     error.name = 'NetworkStorageError';
     throw error;
   }
-  await networkBytes({ url, expect, requireStored: true, onProgress });
+  // Stored by another window while this one waited its turn, it is found by
+  // its record and not read again (storeOnly).
+  await networkBytes({ url, expect, requireStored: true, storeOnly: true, onProgress });
 }
 function activated(registration) {
   if (registration.active) return Promise.resolve();

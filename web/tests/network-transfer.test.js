@@ -449,3 +449,14 @@ test('the holder says it is alive as it takes the lock and as bytes arrive, at m
   assert.equal(heard, 3);
   assert.deepEqual([...c.open], [listener], 'the holder\'s channel is closed');
 });
+
+test('a save that needs no bytes finds the network the other window stored by its record, and reads none of it', async t => {
+  const locks = webLocks(t), f = fixture(t, { network: slowly });
+  channels(t);
+  const [first, second] = await Promise.all([verifiedNetworkBytes({ url, expect }),
+    verifiedNetworkBytes({ url, expect, requireStored: true, storeOnly: true })]);
+  assert.deepEqual(first, good);
+  assert.equal(second, null);
+  assert.equal(locks.asked.length, 3, 'the second waited its turn');
+  assert.deepEqual([f.fetches(), f.reads()], [1, 0]);
+});
