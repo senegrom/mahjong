@@ -72,15 +72,12 @@ export function doraTiles(position) {
   });
 }
 
+/** The table's numbers, each asked for by name and range (missingNumber),
+ * and the player's seat, which that does not ask. */
 function numbers(p) {
   const missing = missingNumber(p);
   if (missing) throw new Error(missing);
-  if (![p.seat, p.round].every(n => Number.isInteger(n) && n >= 0 && n < 4)
-    || p.kyoku < 1 || p.kyoku > 4 || p.counters < 0 || p.counters > 100
-    || p.riichi_sticks < 0 || p.riichi_sticks > 100
-    || p.players.some(player => player.score < -100000 || player.score > 200000)) {
-    throw new Error('Check the seat, round, points, honba and riichi sticks');
-  }
+  if (!(Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4)) throw new Error('Choose your seat');
 }
 
 function requireStage(state, ...stages) {

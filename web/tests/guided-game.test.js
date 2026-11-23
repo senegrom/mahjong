@@ -317,6 +317,9 @@ test('rejects fifth copies, incomplete setup, stale events and rolls back invali
   g = emptyGuided(); g.state.position.players[0].score = null;
   assert.throws(() => act(g, { type: 'setup' }), /points/);
   g.state.position.players[0].score = 30000;
+  g.state.position.seat = 4;
+  assert.throws(() => act(g, { type: 'setup' }), /^Error: Choose your seat$/);
+  g.state.position.seat = 0;
   g = act(g, { type: 'setup' });
   assert.throws(() => act(g, { type: 'hand' }), /exactly 13/);
   assert.throws(() => act(start(), { type: 'discard', tile: '9z' }), /Choose a tile/);
