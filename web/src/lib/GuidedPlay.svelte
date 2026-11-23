@@ -89,9 +89,15 @@
     catch (error) { failure = error.message ?? String(error); return false; }
   }
   function validate(p) { analysisOf(PhysicalAnalysis, p).free(); }
+  // The engine's choices at a position: a corrected tile's furiten is judged
+  // again by them (guided-game.js, `correct`).
+  function choicesOf(p) {
+    const engine = analysisOf(PhysicalAnalysis, p);
+    try { return engine.agent_choices(); } finally { engine.free(); }
+  }
   function act(event) {
     if (blocked) return false;
-    try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
+    try { game = guidedEvent(snapshot(), event, validate, settle_physical, choicesOf); failure = ''; return true; }
     catch (error) { failure = error.message ?? String(error); return false; }
   }
   // The prompt's heading, which says what the guide asks now. Each step draws

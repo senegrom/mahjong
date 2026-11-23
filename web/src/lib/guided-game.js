@@ -170,9 +170,89 @@ function forbiddenAfterCall(p, player) {
   return forbidden;
 }
 
+/** The wins the player has let pass that its furiten flag stands on: each
+ * other seat's discard, and each of their added or concealed kans, since the
+ * player's own last discard, or in riichi since the declaration, less the one
+ * on offer and not yet answered. A pass sets the flag where the passed tile
+ * completes the hand (a choice that is ron or `causes_furiten`), the player's
+ * own draw or call clears it, and in riichi it lasts the hand. Out of riichi,
+ * once the player has drawn or called, there is none (null): the flag is
+ * false whatever went before. */
+function passesSince(state) {
+  const p = state.position, mine = p.players[p.seat];
+  let since;
+  if (mine.riichi !== 'none') since = mine.discards.find(d => d.riichi)?.order ?? -1;
+  else {
+    if (p.turn === p.seat && !(state.stage === 'turn' && state.needsDraw && !p.after_quad)) return null;
+    since = Math.max(-1, ...mine.discards.map(d => d.order));
+  }
+  const unanswered = state.stage === 'decision' && p.phase === 'call' && p.turn !== p.seat;
+  const passes = [];
+  p.players.forEach((player, seat) => {
+    if (seat === p.seat) return;
+    player.discards.forEach((d, index) => {
+      if (d.order <= since) return;
+      if (unanswered && p.pending_kind === 'discard' && seat === p.turn && index === player.discards.length - 1) return;
+      passes.push({ seat, index, tile: d.tile, kind: 'discard' });
+    });
+    player.melds.forEach(m => {
+      if (!SELF_KANS.includes(m.kind) || !(m.declared_turn > since)) return;
+      if (unanswered && p.pending_kind === m.kind && seat === p.turn && m.tile === p.pending) return;
+      passes.push({ seat, tile: m.tile, kind: m.kind });
+    });
+  });
+  return passes;
+}
+const SELF_KANS = ['extended-kan', 'concealed-kan'];
+
+/** Whether any of `passes` completes the player's hand, as the engine judged
+ * it at each pass: the hand, its sets and the passed tile alone are put to the
+ * engine (`choicesOf`, a position to its choices), and the pass is a win where
+ * the engine offers ron on it or says passing it causes furiten. The waits
+ * hang on the concealed tiles and the sets alone, which have not changed
+ * since the passes: out of riichi there was no draw or call since, and in
+ * riichi only the draw, held apart, and a concealed kan, which may not
+ * change the wait. A concealed kan is robbed only by thirteen orphans, so it
+ * is asked as one. */
+function passedAWin(state, passes, choicesOf) {
+  if (!passes.length) return false;
+  if (typeof choicesOf !== 'function') throw new Error('The rules engine is not ready');
+  const p = state.position, mine = p.players[p.seat], concealed = [...mine.hand];
+  if (concealed.length === 14 - 3 * mine.melds.length && p.drawn && concealed.includes(p.drawn)) concealed.splice(concealed.indexOf(p.drawn), 1);
+  if (concealed.length !== 13 - 3 * mine.melds.length) throw new Error('Your hand cannot be judged for furiten now: undo back to the mistaken entry');
+  const asked = new Map();
+  return passes.some(({ tile, kind }) => {
+    const key = `${kind === 'concealed-kan' ? 'k' : 'd'}${tile}`;
+    if (!asked.has(key)) {
+      const probe = emptyPosition(), from = (p.seat + 1) % 4;
+      Object.assign(probe, { seat: p.seat, round: p.round, kyoku: p.kyoku, wall: 50, first_turns: false,
+        turn: from, phase: 'call', pending: tile, pending_kind: kind === 'concealed-kan' ? kind : 'discard' });
+      probe.players[p.seat].hand = concealed;
+      probe.players[p.seat].melds = mine.melds.map(({ kind, tile, from, claimed_tile }) => ({ kind, tile, from, claimed_tile }));
+      if (kind === 'concealed-kan') probe.players[from].melds = [{ kind, tile, from: 0 }];
+      else probe.players[from].discards = [{ tile, order: 0, drawn: false, riichi: false, claimed: false }];
+      // An indicator, and one for each of the player's kans: the table's own
+      // where it has them, so no tile shows more copies than the table does.
+      const needed = 1 + mine.melds.filter(m => m.kind.includes('kan')).length;
+      probe.indicators = p.indicators.slice(0, needed);
+      while (probe.indicators.length < needed) {
+        const shown = new Map(TILE_TYPES.map(t => [t, 0]));
+        const seen = t => shown.set(t, shown.get(t) + 1);
+        probe.indicators.forEach(seen); concealed.forEach(seen); probe.players[p.seat].melds.forEach(m => setTiles(m).forEach(seen));
+        if (kind === 'concealed-kan') setTiles(probe.players[from].melds[0]).forEach(seen); else seen(tile);
+        probe.indicators.push(TILE_TYPES.find(t => shown.get(t) < 4));
+      }
+      asked.set(key, choicesOf(probe).some(c => c.kind === 'ron' || c.causes_furiten));
+    }
+    return asked.get(key);
+  });
+}
+
 /** One table event at a time. validateDecision is the real rules engine in the UI.
- * Unknown opponents' hands remain empty throughout; no wall is simulated. */
-export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement) {
+ * Unknown opponents' hands remain empty throughout; no wall is simulated.
+ * choicesOf, the engine's legal choices for a position, judges a corrected
+ * tile's furiten again (`correct`). */
+export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement, choicesOf) {
   const state = structuredClone(game.state);
   let p = state.position, label, remedy = MISTAKEN;
   const actor = () => WINDS[state.nextSeat];
@@ -313,7 +393,9 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       // and a discard takes three, so a mistake more than ten discards back
       // was out of its reach. It is a step like any other: the copies are
       // counted again, the engine reads the table again at a decision, and
-      // Undo takes it back. It changes that tile and nothing else, so what
+      // Undo takes it back. It changes that tile, and the player's furiten
+      // from a passed win where the tile bears on it, judged again by the
+      // engine (passesSince, passedAWin) as it would have been recorded. What
       // depends on more than the tile is left to Undo: the discard on offer,
       // whose answer would change; a called discard, which is in its set;
       // and a riichi hand, which the engine holds to its wait.
@@ -327,6 +409,11 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
         mine.hand[at] = event.tile;
         // The tile just drawn, corrected, is still the draw.
         if (p.drawn === event.from && !mine.hand.includes(event.from)) p.drawn = event.tile;
+        visibleCounts(p);
+        // Another hand waits on other tiles: the wins let pass since the last
+        // discard are judged again against it.
+        const passes = passesSince(state);
+        if (passes) mine.furiten = passedAWin(state, passes, choicesOf);
         label = `Corrected your hand: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
       } else {
         const discards = p.players[event.seat]?.discards ?? [], entry = discards[event.index];
@@ -336,6 +423,13 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
           throw new Error('Undo to enter the discard on offer again');
         }
         entry.tile = event.tile;
+        visibleCounts(p);
+        // A discard the player let pass, corrected, may now be a win passed
+        // or no longer one: the flag is judged again as it would have been.
+        const passes = passesSince(state);
+        if (passes?.some(pass => pass.seat === event.seat && pass.index === event.index)) {
+          p.players[p.seat].furiten = passedAWin(state, passes, choicesOf);
+        }
         label = `Corrected ${WINDS[event.seat]}’s discard: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
       }
       // Nothing was entered, so a fifth copy here leaves nothing to undo.
