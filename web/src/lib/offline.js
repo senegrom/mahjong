@@ -367,6 +367,10 @@ export function startOffline() {
       try { await activated(registration); }
       finally { if (installing) update({ installing: false }); }
       worker = registration.active;
+      // An install that has activated starts the waits before a retry over:
+      // a failure after it, a registration the browser lost, say, waits five
+      // seconds again, not the longest wait an earlier install came to.
+      retryDelay = RETRY_INSTALL_MS.first;
       // clients.claim() takes control on the first visit, before tile/ORT loads.
       if (navigator.serviceWorker.controller?.scriptURL !== script) {
         await new Promise((resolve, reject) => {
