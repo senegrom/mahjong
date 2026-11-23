@@ -582,6 +582,36 @@ try{
   }
   assert.deepEqual(scrolled,[],'the page asks for no scroll after a press by mouse or touch where the result is not a sheet');
  });
+ // A match finished on a phone, and Play left for Agent watch and come back
+ // to: Play is drawn anew over the finished match, with no restore, and its
+ // result starts as a sheet stepped aside for the standings, out of sight.
+ // Focus must go to the standings' heading, in view with Play again, and not
+ // drop to the page from the hidden sheet.
+ await check('on a phone, a finished match that Play comes back to from Agent watch hands focus to its standings, in view',async()=>{
+  for(const [width,height] of [[390,844],[568,320]]){
+   const p=await open(final.before,{width,height,touch:true,reduced:true}),where=`at ${width}x${height}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   await pointerPress(p,await inReach(await resultButton(p,'Next hand')),true);
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'));
+   // The mode's button, tapped where the top of the page shows it, under
+   // the game's bar.
+   const mode=async name=>{
+    await p.evaluate(()=>scrollTo(0,0));await settle(p);
+    await pointerPress(p,await p.$(`.game-modes button[aria-label="${name}"]`),true);
+   };
+   await mode('Agent watch');await p.waitForSelector('.agent-watch');
+   assert.equal(await p.$('.standings'),null,`Play's standings go with Play ${where}`);
+   await mode('Play');await p.waitForSelector('.standings h2');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the standings',`focus goes to the standings, not the page, ${where}`);
+   assert.equal(await sheetShown(p),false,`the sheet is stepped aside ${where}`);
+   await settle(p);
+   assert.ok(await uncovered(await p.$('.standings h2')),`the standings' heading is in view and uncovered ${where}`);
+   await inReach(await p.$('.standings .buttons .primary'));
+   assert.match(await p.$eval('.result-chip',el=>el.textContent),/^Show result/,`the chip is left to bring the result back ${where}`);
+   await shot(p,`standings-back-from-watch-${width}x${height}`);noErrors(p);
+  }
+ });
  // A hand's review that the engine could not build opens nothing: the
  // result stays as it was, on a phone too, and the pressed button stays,
  // with focus. The result says why beside its buttons, where the player

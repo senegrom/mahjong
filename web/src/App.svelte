@@ -383,10 +383,9 @@
           if (session.opponents.includes('neural') || returnTable) downloadAi();
           void session.run();
           // A finished match opens on its standings where the result is a
-          // sheet over them, on a phone: the sheet starts stepped aside there
-          // (ScoreScreen), and the standings take focus and the top of the
-          // screen, as when the game ended under a finger (nextHand).
-          if (session.over && matchMedia(RESULT_SHEET).matches) void tick().then(() => land(standingsHeading, true, 'start'));
+          // sheet over them, on a phone: the sheet starts stepped aside there,
+          // and the standings take focus and the top of the screen, as when
+          // the game ended under a finger (ScoreScreen's onstandings).
         } catch (error) {
           // Preserve the only saved copy until the user chooses New game.
           failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
@@ -1009,6 +1008,7 @@
               bets={view.riichi_sticks ?? 0} onnext={nextHand} blocked={Boolean(saveConflict)}
               onreview={showReview} reviewed={notes !== null} failure={saveConflict ? RELOAD_TO_CONTINUE : failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)}
+              onstandings={() => land(standingsHeading, true, 'start')}
               onchip={shown => { resultChip = shown; }} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}

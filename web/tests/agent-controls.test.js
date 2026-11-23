@@ -305,7 +305,7 @@ test('direct agent-mode entry leaves regular saves untouched until Play is opene
   }
 });
 
-test('a restored match is a stand-in only against a table the record itself holds, and a finished one lands on its standings on a phone', async () => {
+test('a restored match is a stand-in only against a table the record itself holds, and leaves where focus lands to its result', async () => {
   const trained = ['neural', 'neural', 'neural'], club = ['club', 'club', 'club'];
   // Club where the player's stored table says Trained: the table stays their
   // choice, and the network they wait for goes on being fetched.
@@ -325,15 +325,17 @@ test('a restored match is a stand-in only against a table the record itself hold
   run();
   assert.equal(state.returnTable, null);
   // A finished match where the result is a sheet over the standings opens
-  // on them: focus and the top of the screen go to their heading, once the
-  // page has drawn them. Elsewhere the result takes focus itself.
-  for (const [sheet, over, landed] of [[true, true, true], [true, false, false], [false, true, false]]) {
+  // on them, but the restore does not move focus: the result, drawn with its
+  // sheet stepped aside, hands it to the standings itself (ScoreScreen's
+  // onstandings), as it does whenever Play is drawn again over a finished
+  // match, which full-review-check drives in the browser.
+  for (const [sheet, over] of [[true, true], [true, false], [false, true]]) {
     calls = [];
     ({ state, run } = await restoring(calls, 'saved-match', { mode: 'play', restored: { opponents: club, over },
       matchMedia: query => ({ matches: sheet && query === '(max-width: 760px)' }) }));
     run();
     await Promise.resolve();
-    assert.deepEqual(calls.filter(Array.isArray), landed ? [['land', 'the heading', true, 'start']] : [], `sheet ${sheet}, over ${over}`);
+    assert.deepEqual(calls.filter(Array.isArray), [], `sheet ${sheet}, over ${over}`);
     assert.equal(state.failure, '');
   }
 });

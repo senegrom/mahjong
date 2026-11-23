@@ -470,7 +470,10 @@ standings however the button was pressed, leaving its chip, as it does for the
 reviews; the chip, after the standings' own buttons, brings the result back
 with focus. A finished match that the page is loaded on opens the same way on a
 phone: the sheet stepped aside, its chip showing, and the standings at the top
-of the screen, with focus on their heading.
+of the screen, with focus on their heading. So does one that Play is drawn
+again over, coming back from another mode: the sheet, out of sight, hands
+focus to the standings rather than taking it, which would leave it on the
+page.
 
 Where the result is not a sheet, only a press by keyboard moves the page to the
 standings' heading, to bring it into view with its ring, clear of the game's
@@ -1188,8 +1191,9 @@ back to the result, at desktop and phone sizes, the page moving to the review
 for any press where the result is not a sheet and otherwise only for the
 keyboard, and to the standings only for the keyboard where the result is not a
 sheet (in Agent watch at every size), the sheet stepping aside for the
-standings on a phone however the last Next hand was pressed and as a finished
-match is loaded, with the places and Play again in view, a first visit's wait
+standings on a phone however the last Next hand was pressed, as a finished
+match is loaded and as Play comes back to one from Agent watch, with the
+places and Play again in view and focus on their heading, a first visit's wait
 for the network's download naming its size and offering Club meanwhile, which
 keeps Trained as the stored choice, a result or standings left behind by
 another window's move disabled and saying to reload,

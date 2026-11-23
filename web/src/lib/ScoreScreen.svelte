@@ -48,6 +48,9 @@
     // What the first seat, the one the view belongs to, is called: the
     // person playing, or in Watch the agent being followed.
     playerLabel = 'You',
+    // Hands focus to the standings, and brings them into view, where this
+    // result is drawn with its sheet already stepped aside for them (App).
+    onstandings = null,
     // Told whether the chip shows, for the page to keep its foot clear of
     // it (App).
     onchip = null,
@@ -76,9 +79,15 @@
   let primaryWin = $derived(outcome?.wins?.[0] ?? null);
   let primaryValue = $derived(primaryWin ? winValue(primaryWin) : '');
 
+  // The result takes focus as it is drawn. Where it is drawn as a sheet that
+  // has already stepped aside for the standings, a finished match shown
+  // again (loaded, or Play come back to from another mode, or the controls
+  // moved as a phone turns), the sheet is out of sight and focus would fall
+  // to the page from it: it goes to the standings instead (onstandings).
   function reveal(node) {
     const id = requestAnimationFrame(() => {
       const phone = matchMedia(RESULT_SHEET).matches;
+      if (phone && minimized && onstandings) { onstandings(); return; }
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (!phone) node.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
       node.focus({ preventScroll: true });
