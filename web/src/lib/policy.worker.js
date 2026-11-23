@@ -44,6 +44,25 @@ let failed = false;
 // instead of downloading the same network again.
 let handed = null;
 
+/** The ONNX file of the network at url. The bytes rather than the address:
+ * the network comes from a bucket on another origin and is kept in Cache
+ * Storage, which the runtime knows nothing about. What it is handed has
+ * already been hashed, against the listed network at that address. Another
+ * window that is at the same network goes first (network-transfer.js): the
+ * wait is said, which is also the sign of life the page times this worker's
+ * silence by. A packed network is widened here, off the page's thread, into
+ * the whole file the runtime reads (network-pack.js); its packed bytes are
+ * let go as this returns, before the session is made, so that the two are
+ * held together only while it is widened, 59 and 117 MB for network 3000. */
+async function networkFile(url, scope, note) {
+  const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
+    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
+    onWaiting: () => note('waiting for another window to download the network') });
+  handed = null;
+  const listed = networkAt(url);
+  return listed?.packing ? unpackNetwork(bytes, listed.bytes) : bytes;
+}
+
 /** scope is the page's own folder, whose Cache Storage holds the network. */
 async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   if (!runtimeMemory) {
@@ -61,23 +80,7 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
     held = null;
     await session.release();
   }
-  // The bytes rather than the address: the network comes from a bucket on
-  // another origin and is kept in Cache Storage, which the runtime knows
-  // nothing about. What it is handed has already been hashed, against the
-  // listed network at that address. Another window that is at the same
-  // network goes first (network-transfer.js): the wait is said, which is
-  // also the sign of life the page times this worker's silence by.
-  let bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
-    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
-    onWaiting: () => note('waiting for another window to download the network') });
-  handed = null;
-  // A packed network is widened here, off the page's thread, into the whole
-  // file the runtime reads (network-pack.js); the packed bytes are let go
-  // before the session is made, so that the two are held together only
-  // while it is widened, 59 and 117 MB for network 3000.
-  const listed = networkAt(url);
-  const file = listed?.packing ? unpackNetwork(bytes, listed.bytes) : bytes;
-  bytes = null;
+  const file = await networkFile(url, scope, note);
   note('starting the network');
   const session = await ort.InferenceSession.create(file, {
     executionProviders: ['wasm'],
