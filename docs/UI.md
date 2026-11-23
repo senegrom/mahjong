@@ -233,7 +233,11 @@ focus on. Enter held down on a tile, a call or the confirmation's buttons
 presses once, and so does a double click: its second press is let go where the
 first has already acted, since the next decision is drawn where the last one
 was (on a tile only while Select before discarding is off; with it on, a
-second press on the selected tile is how it is thrown).
+second press on the selected tile is how it is thrown). The browser tells a
+double click by its second press alone, so two deliberate presses at the same
+spot inside the system's double-click time are one press too: throwing the
+drawn tile turn after turn against Club, the second turn's press is let go and
+must be made again. That is accepted as the price of one move a press.
 
 The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
 discard."), with no line about the keys: the hand takes focus as the turn
