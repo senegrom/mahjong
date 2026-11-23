@@ -843,3 +843,19 @@ test('the service worker\'s reply never stands in for where the network stands',
   await c.api.refreshOffline();
   assert.equal(typeof c.state().network, 'string');
 });
+
+test('a pick found saved already is recorded once, so that saving another later keeps it', async () => {
+  // Picked before picks were remembered: saved then, and never downloaded again.
+  const OLDER = { url: 'https://model.invalid/g410', version: '0.1.410', sha256: '4'.repeat(64), bytes: 118 };
+  const c = coordinator({ coreReady: true, aiReady: true, aiRequested: true, network: OLDER, pick: '0.1.410' });
+  await c.api.startOffline();
+  await c.api.refreshOffline();
+  await c.api.prepareOfflineAi();
+  await settle();
+  assert.deepEqual(c.asked.filter(([call]) => call === 'MAHJONG_NETWORK_SAVED'), [['MAHJONG_NETWORK_SAVED', '0.1.410']]);
+  assert.deepEqual(c.saves, [], 'nothing downloaded');
+  // The default has nothing to record, and a pick not saved is recorded by its save.
+  const d = coordinator({ coreReady: true, aiReady: true, aiRequested: true });
+  await d.api.startOffline(); await d.api.refreshOffline(); await settle();
+  assert.equal(d.calls.includes('MAHJONG_NETWORK_SAVED'), false);
+});

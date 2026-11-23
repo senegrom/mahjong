@@ -287,6 +287,18 @@ async function withNetwork(info) {
  * version's network (and runtime) is saved by its page after activation. So
  * is the runtime of one who asked on this page while its worker was not
  * there yet: a first install that outlasted the save's wait for it. */
+/** A pick is remembered by the service worker when a page says it saved
+ * that network (MAHJONG_NETWORK_SAVED), so that saving another later does
+ * not delete it. A pick made before picks were remembered, of a network
+ * saved then, was never said: nothing downloads it again. So a page that
+ * plays a pick and finds it saved, with its runtime, says so once. A page
+ * playing the default has nothing to record: the default is always kept. */
+let pickRecorded = false;
+function recordPick(info) {
+  if (pickRecorded || pickedVersion() === undefined || !info?.aiReady || !worker) return;
+  pickRecorded = true;
+  void request('MAHJONG_NETWORK_SAVED').catch(() => { pickRecorded = false; });
+}
 function fillRequested(info) {
   if (filled || !info || !(info.aiRequested || wanted) || info.aiReady || !info.hasModel || !info.coreReady || !navigator.onLine) return;
   filled = true;
@@ -387,6 +399,7 @@ export function startOffline() {
       const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
       // This version's own network first; a waiting update's queues behind it.
       fillRequested(info);
+      recordPick(info);
       observeUpdates(registration);
       void persistentStorage();
       // Background updates never block this version or replace it mid-match.
@@ -424,6 +437,7 @@ export async function refreshOffline() {
   const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
   // A connection that returns may still owe a requested network its save.
   fillRequested(info);
+  recordPick(info);
   return info;
 }
 /** Saves the trained network this page plays, with its runtime. It is
@@ -568,9 +582,10 @@ async function saveTrained(handOver, live, end) {
     }
     // No worker here to keep a runtime: the start says why, and play goes on
     // online. Nor is there anything to tell a worker that found both saved.
-    if (!info || (stored && info.aiReady)) { trainedSays(null); return info; }
+    if (!info || (stored && info.aiReady)) { trainedSays(null); recordPick(info); return info; }
     // The worker now keeps this network, the one saved before it, its
     // default and those the player picked, and no other.
+    pickRecorded = true;
     const verified = await withNetwork(await request('MAHJONG_NETWORK_SAVED'));
     trainedSays(null, '', { ...verified, progress: 100 });
     void persistentStorage(true);
