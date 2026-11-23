@@ -2,7 +2,7 @@ import { emptyPosition, parsePhysical, missingNumber, quadTurn, recordDraw, reco
 import { sameChoice } from './action-weights.js';
 import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
-import { rememberEnding, applySettlement, validDraft, validEndingState, verifySettlement } from './guided-settlement.js';
+import { rememberEnding, applySettlement, draftBelongs, dropStrayDraft, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
@@ -386,8 +386,7 @@ export function editGuided(game, edit) {
   if (game.state.ending && game.state.ending.kind !== 'manual' && table(next.state) !== table(game.state)) {
     throw new Error('Undo the hand result before changing the scored table');
   }
-  if (next.state.draft != null && !(next.state.ending && next.state.ending.kind !== 'manual' && !next.state.settlement
-    && validDraft(next.state.draft))) throw new Error('This hand has no result form open to keep');
+  if (next.state.draft != null && !draftBelongs(next.state)) throw new Error('This hand has no result form open to keep');
   visibleCounts(next.state.position);
   return next;
 }
@@ -401,6 +400,9 @@ export function parseGuided(text, scoreSettlement) {
   try {
     if (typeof text !== 'string' || text.length > 2_000_000) return null;
     const value = JSON.parse(text), game = value?.game;
+    // A draft that does not fit is dropped, in the state and in each past one.
+    dropStrayDraft(game?.state);
+    if (Array.isArray(game?.past)) game.past.forEach(entry => dropStrayDraft(entry?.state));
     const validState = state => state && STAGES.includes(state.stage) && AGENT_IDS.includes(state.agent)
       && Number.isInteger(state.nextSeat) && state.nextSeat >= 0 && state.nextSeat < 4
       && typeof state.needsDraw === 'boolean' && typeof state.result === 'string' && state.result.length <= 120

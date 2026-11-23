@@ -87,11 +87,11 @@ test("what a result's form holds is kept with the game until the hand is settled
   // The adviser may still change beside it; the scored table may not.
   assert.deepEqual(editGuided(typed, s => { s.agent = 'club'; }).state.draft, draft);
   assert.throws(() => editGuided(typed, s => { s.position.players[0].score = 1; }), /Undo the hand result/);
-  // A draft of another shape is neither kept nor read back.
+  // A draft of another shape is not kept; read back, the game loads without it.
   for (const bad of [{ ...draft, hands: [[], ['9z'], [], []] }, { ...draft, selected: [true] }, { ...draft, confirmed: 'yes' },
     { ...draft, ura: Array(6).fill('1m') }, { ...draft, winning: ['1m', '2m'] }]) {
     assert.throws(() => editGuided(ended, s => { s.draft = bad; }), /no result form/);
-    assert.equal(parseGuided(GUIDED_FORMAT.encode({ ...typed, state: { ...typed.state, draft: bad } })), null);
+    assert.deepEqual(parseGuided(GUIDED_FORMAT.encode({ ...typed, state: { ...typed.state, draft: bad } })), ended);
   }
   // Settled, the hand keeps the input it was settled from and lets the draft
   // go; Undo brings the form back as it was typed.
@@ -102,12 +102,47 @@ test("what a result's form holds is kept with the game until the hand is settled
   // Only a scored result not yet settled has a form to keep.
   assert.throws(() => editGuided(paid, s => { s.draft = draft; }), /no result form/);
   assert.throws(() => editGuided(beforeRon(), s => { s.draft = draft; }), /no result form/);
-  assert.equal(parseGuided(GUIDED_FORMAT.encode({ ...paid, state: { ...paid.state, draft } }), result), null);
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode({ ...paid, state: { ...paid.state, draft } }), result), paid);
   const manual = guidedEvent(beforeRon(), { type: 'finish', result: 'Other hand end', kind: 'manual' });
   assert.throws(() => editGuided(manual, s => { s.draft = draft; }), /no result form/);
   // A new result starts a new form.
   const again = ron(undoGuided(typed));
   assert.equal(again.state.draft, undefined);
+});
+
+test('a draft an older build leaves behind costs the draft, never the game, in the state and in each past one', () => {
+  const draft = { selected: [false, false, false, true], tenpai: [false, false, false, false], hands: [[], [], [], []],
+    winning: [], ura: [], confirmed: false };
+  const ended = ron(beforeRon()), typed = editGuided(ended, s => { s.draft = draft; });
+  // An older build settles and moves on without deleting the draft.
+  const paid = settle(typed), next = guidedEvent(paid, { type: 'next-hand', repeat: false });
+  const stray = {
+    'beside a settlement': { ...paid, state: { ...paid.state, draft } },
+    'after the next hand': { ...next, state: { ...next.state, draft } },
+    'malformed': { ...typed, state: { ...typed.state, draft: { ...draft, hands: 'none' } } },
+    'beside a manual result': (g => ({ ...g, state: { ...g.state, draft } }))(guidedEvent(beforeRon(), { type: 'finish', result: 'Other hand end', kind: 'manual' })),
+  };
+  const clean = { 'beside a settlement': paid, 'after the next hand': next, 'malformed': ended };
+  for (const [name, game] of Object.entries(stray)) {
+    const read = parseGuided(GUIDED_FORMAT.encode(game), result);
+    assert.ok(read, `${name}: the game loads`);
+    assert.equal(Object.hasOwn(read.state, 'draft'), false, `${name}: without the draft`);
+    if (clean[name]) assert.deepEqual(read.state, clean[name].state, name);
+  }
+  // The same drafts in a past state, the thirty kept for Undo.
+  for (const name of ['beside a settlement', 'after the next hand', 'malformed']) {
+    const game = structuredClone(next);
+    game.past = [...game.past, { state: structuredClone(stray[name].state), logLength: 0 }];
+    const read = parseGuided(GUIDED_FORMAT.encode(game), result);
+    assert.ok(read, `past ${name}: the game loads`);
+    assert.equal(Object.hasOwn(read.past.at(-1).state, 'draft'), false, `past ${name}: without the draft`);
+    // The typed form's own snapshot, earlier in the same list, keeps its draft.
+    assert.deepEqual(read.past.find(e => e.state.draft)?.state.draft, draft);
+    assert.deepEqual(read.state, next.state);
+  }
+  // A draft that fits is still read back, in the state and in a past one.
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(typed), result).state.draft, draft);
+  assert.deepEqual(undoGuided(parseGuided(GUIDED_FORMAT.encode(paid), result)).state.draft, draft);
 });
 
 test('settled results survive reload without paying again, including undo snapshots', () => {

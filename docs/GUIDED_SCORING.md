@@ -61,6 +61,10 @@ emptied it. The draft is only what was typed: the engine checks it when the
 settlement is calculated. Applying the settlement keeps the input it was made
 from and drops the draft, Undo brings the form back, and beside the adviser
 the draft is the only thing of a scored hand that may change without Undo.
+A draft that does not fit, malformed or with no scored and unsettled result
+to belong to (what an older build leaves when it settles the hand or moves on
+without deleting it), is dropped as the save is read, in the current state
+and in each Undo snapshot: it costs the form, never the game.
 
 Older finished saves remain explicitly manual and are never retrospectively
 paid. **Other hand end** remains an explicitly labelled manual path for referee

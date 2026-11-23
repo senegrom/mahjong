@@ -35,6 +35,22 @@ export function validDraft(draft) {
     && typeof draft.confirmed === 'boolean';
 }
 
+/** Whether a state's draft is one a result's form could hold: well formed,
+ * beside a scored result not yet settled. */
+export function draftBelongs(state) {
+  return ['ron', 'tsumo', 'draw'].includes(state.ending?.kind) && state.settlement == null && validDraft(state.draft);
+}
+
+/** A saved state's draft is only what was typed, so one that does not fit
+ * costs the draft, never the game. An older build leaves it in place when it
+ * settles the hand or moves on to the next, and reads this build's saves, so
+ * a draft beside a settlement or after the hand is what a round trip through
+ * it leaves. Read from a save, the draft goes. */
+export function dropStrayDraft(state) {
+  if (state && typeof state === 'object' && Object.hasOwn(state, 'draft') && !draftBelongs(state)) delete state.draft;
+  return state;
+}
+
 function validSettlement(result, ending) {
   return result && result.kind === ending.kind
     && vector(result.before) && vector(result.after) && vector(result.deltas)
@@ -71,13 +87,13 @@ function validSettlement(result, ending) {
 export function validEndingState(state) {
   if (state.opening != null && !vector(state.opening)) return false;
   const ending = state.ending;
-  if (ending == null) return state.settlement == null && state.draft == null;
+  if (ending == null) return state.settlement == null;
   if (state.stage !== 'over' || !['ron', 'tsumo', 'draw', 'manual'].includes(ending.kind)
     || !seats(ending.winners) || !seat(ending.nextSeat) || typeof ending.needsDraw !== 'boolean'
     || !parsePhysical(JSON.stringify({ version: 1, position: ending.position }))) return false;
-  if (ending.kind === 'manual') return state.settlement == null && state.draft == null;
-  // A form's draft belongs to a scored result not yet settled.
-  if (state.draft != null && (state.settlement != null || !validDraft(state.draft))) return false;
+  // The draft is no part of the table: a stray one is dropped as it is read
+  // (dropStrayDraft) and refused as it is typed (editGuided).
+  if (ending.kind === 'manual') return state.settlement == null;
   if (state.settlement == null) return same(state.position.players.map(p => p.score), ending.position.players.map(p => p.score))
     && state.position.riichi_sticks === ending.position.riichi_sticks;
   return validSettlement(state.settlement, ending)
