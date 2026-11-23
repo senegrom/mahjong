@@ -109,7 +109,12 @@ async function clickButton(page, scope, text) {
 async function downloading(page, scope) {
   await page.waitForFunction(scope => /downloading the trained network \d+%/.test(document.querySelector(scope)?.textContent ?? ''),
     { timeout: 60000 }, scope);
-  assert.ok(await page.evaluate(() => window.heldDownloads.length) > 0, 'the trained network never started downloading');
+  // The note is said as the save begins, a moment before the page asks for
+  // the network: its turn at the network and what is stored are looked at
+  // first. On a slow machine that moment is long enough to be seen, so the
+  // request is waited for, not expected at once.
+  await page.waitForFunction(() => window.heldDownloads.length > 0, { timeout: 30000 })
+    .catch(() => assert.fail('the trained network never started downloading'));
 }
 /** Ends the download the page holds open: the network cannot be had. */
 const failNetwork = page => page.evaluate(() => { for (const fail of window.heldDownloads.splice(0)) fail(); });
