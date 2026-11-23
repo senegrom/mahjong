@@ -307,7 +307,10 @@ back to it."
 
 **Correct a tile**, under the remembered table, puts one tile right in place:
 a discard of any seat, or a tile of your own hand. Choose where it is and
-which it is, then the tile it really is. Undo keeps thirty steps and a
+which it is, then the tile it really is. The tile you have just drawn is a
+choice of its own ("· drawn"): corrected, it stays the draw, which the engine
+takes as a self-draw's winning tile and as a tile thrown from the draw, while
+another copy of it in the hand, corrected, leaves the draw as it was. Undo keeps thirty steps and a
 discard takes three, so a mistake more than ten discards back was out of its
 reach, and the only ways on were to enter a tile that was not played or to
 end the hand by hand. A correction is a step of its own: the history says

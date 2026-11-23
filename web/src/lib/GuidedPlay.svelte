@@ -44,10 +44,13 @@
   let others = $derived([1, 2, 3].map(step => WINDS[(position.seat + step) % 4]));
   // The one tile Correct a tile puts right (guided-game.js, `correct`): where
   // it is, your hand or a seat's discards, and which, a tile of the hand by
-  // its name or a discard by its place in that seat's row.
+  // its name or a discard by its place in that seat's row. The tile just
+  // drawn is an entry of its own, since the draw moves with its correction.
   let fixPlace = $state('hand'), fixWhich = $state('');
+  let drawnHeld = $derived(position.drawn != null && hand.includes(position.drawn) ? position.drawn : null);
   let fixTiles = $derived(fixPlace === 'hand'
-    ? [...new Set(hand)].map(tile => ({ key: tile, words: tileWords(tile) }))
+    ? [...(drawnHeld ? [{ key: 'drawn', words: `${tileWords(drawnHeld)} · drawn` }] : []),
+      ...[...new Set(drawnHeld ? hand.filter((_, i) => i !== hand.lastIndexOf(drawnHeld)) : hand)].map(tile => ({ key: tile, words: tileWords(tile) }))]
     : (position.players[fixPlace]?.discards ?? []).map((discard, index) => ({ key: String(index),
       words: `${index + 1} · ${tileWords(discard.tile)}${discard.claimed ? ' · called' : ''}` })));
   // Trained advice may be waiting for the network's first download.
@@ -156,7 +159,8 @@
   function correct(tile) {
     if (blocked) return;
     if (fixWhich === '') throw new Error('Choose the tile to correct first');
-    const event = fixPlace === 'hand' ? { type: 'correct', from: fixWhich, tile }
+    const event = fixPlace === 'hand'
+      ? fixWhich === 'drawn' ? { type: 'correct', from: position.drawn, tile, drawn: true } : { type: 'correct', from: fixWhich, tile }
       : { type: 'correct', seat: fixPlace, index: Number(fixWhich), from: position.players[fixPlace]?.discards[Number(fixWhich)]?.tile, tile };
     if (!act(event)) { const refusal = failure; failure = ''; throw new Error(refusal); }
     fixWhich = '';

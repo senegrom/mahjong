@@ -345,11 +345,21 @@ test('one remembered tile is corrected in place: a discard, or a tile of the han
   assert.deepEqual(held.state.position.players[3].hand.filter(tile => tile[1] === 'z').sort(), ['1z', '2z', '3z', '4z']);
   assert.equal(held.log.at(-1), 'Corrected your hand: east wind → north wind');
   assert.ok(inspect(held).some(c => c.kind === 'discard' && c.tile === '4z'));
-  // The tile just drawn is corrected as the draw it was.
-  const redrawn = act(drawn, { type: 'correct', from: '3m', tile: '9p' });
-  assert.equal(redrawn.state.position.drawn, '3m', 'another copy of it is still the draw');
-  const lone = act(act(fixed, { type: 'draw', tile: '5z' }), { type: 'correct', from: '5z', tile: '6z' });
-  assert.equal(lone.state.position.drawn, '6z');
+  // The tile just drawn is a choice of its own: corrected, the draw moves
+  // with it, though the hand holds another copy of what it was entered as;
+  // the other copy, corrected, leaves the draw alone.
+  const redrawn = act(drawn, { type: 'correct', from: '3m', tile: '9p', drawn: true });
+  assert.equal(redrawn.state.position.drawn, '9p');
+  assert.deepEqual(redrawn.state.position.players[3].hand.filter(tile => tile === '3m' || tile === '9p').sort(), ['3m', '9p']);
+  assert.equal(redrawn.log.at(-1), 'Corrected your draw: 3 characters → 9 circles');
+  assert.ok(inspect(redrawn).some(c => c.kind === 'discard' && c.tile === '9p'));
+  const kept = act(drawn, { type: 'correct', from: '3m', tile: '9p' });
+  assert.equal(kept.state.position.drawn, '3m', 'the other copy is not the draw');
+  assert.deepEqual(kept.state.position.players[3].hand.filter(tile => tile === '3m' || tile === '9p').sort(), ['3m', '9p']);
+  const lone = act(fixed, { type: 'draw', tile: '5z' });
+  assert.equal(act(lone, { type: 'correct', from: '5z', tile: '6z', drawn: true }).state.position.drawn, '6z');
+  assert.throws(() => act(lone, { type: 'correct', from: '5z', tile: '6z' }), /your draw: choose the drawn tile/);
+  assert.throws(() => act(lone, { type: 'correct', from: '1z', tile: '6z', drawn: true }), /not your draw/);
   // What cannot be put right in place says what to do instead, and changes nothing.
   assert.throws(() => act(g, { type: 'correct', seat: 0, index: 0, from: '9m', tile: '3p' }), /no longer/);
   assert.throws(() => act(g, { type: 'correct', seat: 0, index: 5, from: '3m', tile: '3p' }), /no longer/);

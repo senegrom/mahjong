@@ -403,18 +403,25 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       requireTile(event.tile);
       if (event.from === event.tile) throw new Error('It is already that tile');
       if (event.seat == null) {
-        const mine = p.players[p.seat], at = mine.hand.indexOf(event.from);
+        // The tile just drawn is its own choice (`drawn`): the engine takes it
+        // as a self-draw's winning tile and as the tile thrown from the draw,
+        // so it moves with its correction, and a correction of another copy
+        // of it in the hand leaves the draw alone.
+        const mine = p.players[p.seat], at = mine.hand.indexOf(event.from), drawn = event.drawn === true;
         if (at < 0) throw new Error('That tile is not in your hand');
         if (mine.riichi !== 'none') throw new Error('A hand in riichi is not corrected: undo back to the mistaken entry');
+        if (drawn && p.drawn !== event.from) throw new Error('That tile is not your draw');
+        if (!drawn && p.drawn === event.from && mine.hand.filter(tile => tile === event.from).length < 2) {
+          throw new Error('That tile is your draw: choose the drawn tile');
+        }
         mine.hand[at] = event.tile;
-        // The tile just drawn, corrected, is still the draw.
-        if (p.drawn === event.from && !mine.hand.includes(event.from)) p.drawn = event.tile;
+        if (drawn) p.drawn = event.tile;
         visibleCounts(p);
         // Another hand waits on other tiles: the wins let pass since the last
         // discard are judged again against it.
         const passes = passesSince(state);
         if (passes) mine.furiten = passedAWin(state, passes, choicesOf);
-        label = `Corrected your hand: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
+        label = `Corrected your ${drawn ? 'draw' : 'hand'}: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
       } else {
         const discards = p.players[event.seat]?.discards ?? [], entry = discards[event.index];
         if (!entry || entry.tile !== event.from) throw new Error('That discard is no longer there');
