@@ -1,7 +1,7 @@
 /** Worker ownership, bounded requests and explicit retry. A broken worker is
  * discarded; retry never reuses a rejected loading promise or a hung process. */
 /* global __RUNTIME_DIRECTORY__ */
-import { prepareNetwork, refreshOffline } from './offline.js';
+import { networkReleased, prepareNetwork, refreshOffline } from './offline.js';
 import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
@@ -58,6 +58,9 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   generation++;
   preparation = null;
   unstored = null;
+  // Bytes storage refused went with this worker, or with `unstored`: the
+  // next worker fetches the network, which the page then no longer has.
+  networkReleased();
   const old = worker;
   worker = null;
   loaded = false;
@@ -141,6 +144,9 @@ function ensureWorker() {
         // the old reservation before asking the browser for bounded headroom.
         worker = null;
         current.terminate();
+        // The replacement loads the network again, and fetches it where
+        // the one ended held bytes storage refused.
+        networkReleased();
         memoryLimitMiB = larger;
         onProgress?.('retrying the agent with more memory');
         onLoading?.('retrying the agent with more memory');

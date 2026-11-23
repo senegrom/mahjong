@@ -3,18 +3,18 @@ import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
  * page is saving the network for offline play (on a first visit, the whole
- * 116 MB), and that download's progress is the wait: `offline.phase` is 'ai'
- * from the moment a Trained player is chosen until the network and its
- * runtime are both saved, and `offline.progress` is the percent of the
- * network received, held at 99 until the runtime is saved too (offline.js).
- * The download does not wait for a first visit's service worker, which saves
- * the game and tile pictures, about 7 MB, beside it: `offline.installing`
- * says only that this install still runs, and is the note where no trained
- * save is under way. */
+ * 116 MB), and that download is the wait. It is read from where the network
+ * itself stands, `offline.network` (offline.js), never from the whole save's
+ * phase: the opponent plays as soon as the network is in hand, while the
+ * phase stays 'ai' until the runtime is saved too, and a first visit's
+ * install, which saves the game beside the network, delays it no more.
+ * While the network downloads, `offline.progress` is the percent of it
+ * received. */
 export function waitingNote(note, offline) {
   if (note) return note;
-  if (offline?.phase === 'ai') return `downloading the trained network ${offline.progress ?? 0}%`;
-  return offline?.installing ? 'saving the game and tile graphics, then downloading the trained network' : '';
+  if (offline?.network === 'downloading') return `downloading the trained network ${offline.progress ?? 0}%`;
+  if (offline?.network === 'waiting') return 'waiting for another window to download the trained network';
+  return '';
 }
 
 export function heldSafeCount(view) {

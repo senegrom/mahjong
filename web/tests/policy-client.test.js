@@ -13,7 +13,7 @@ const NETWORK_URL = networkUrl(MANIFEST);
 const policy = globals => loadModule('policy.js', {
   document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout,
   MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => MANIFEST, __RUNTIME_DIRECTORY__: 'ort/0123abcd/', navigator: { onLine: true },
-  networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
+  networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null, networkReleased: () => {},
   // Batches stay on WebAssembly here; the graphics card's routing has tests of its own (webgpu.test.js).
   batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {}, ...globals,
 }, ['analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);

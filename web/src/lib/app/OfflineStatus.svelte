@@ -6,7 +6,7 @@
 </script>
 
 <details class="offline-settings" bind:open>
-  <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? `Saving AI… ${offline.progress}%` : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
+  <summary data-offline-status>{offline.aiReady && offline.coreReady ? 'Offline: game + AI ready' : offline.phase === 'ai' ? (offline.network === 'waiting' ? 'Saving AI… waiting' : `Saving AI… ${offline.progress}%`) : offline.coreReady ? 'Offline: game ready' : 'Offline: not ready'}</summary>
   <div class="option-fields">
     <p data-core-status data-core-ready={offline.coreReady} role="status"><strong>Game and all tile graphics — automatic.</strong>
       {offline.coreWarning || (offline.coreReady
@@ -16,7 +16,8 @@
     <p data-ai-status data-runtime={runtime} role="status"><strong>Trained AI{network ? ` ${network}` : ''}{runtime === 'webgpu' ? ' · GPU' : ''} — optional.</strong>
       {(offline.phase === 'incomplete' && offline.warning) || (offline.aiReady
         ? 'The network and its runtime are saved too.'
-        : offline.phase === 'ai' ? `Saving the trained network and runtime… ${offline.progress}%`
+        : offline.phase === 'ai' ? (offline.network === 'waiting' ? 'Waiting for another window to download the trained network…'
+          : `Saving the trained network and runtime… ${offline.progress}%`)
         : 'Only the trained network and its runtime need this extra download. Trained opponents and advisers, the default, start it automatically; Beginner and Club never need it.')}</p>
     {#if offline.hasModel && !offline.aiReady}
       <button class="app-control" data-download-ai onclick={downloadAi} disabled={!offline.coreReady || offline.phase === 'ai'}>{offline.phase === 'incomplete' ? 'Retry trained AI download' : 'Download trained AI for offline play'}</button>

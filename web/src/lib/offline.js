@@ -22,6 +22,10 @@ let aiJob = null;
 // The network's part of that job, which is all the opponent's worker waits
 // for (prepareNetwork).
 let networkJob = null;
+// Whether the network is 'ready' only as bytes storage refused, held for the
+// opponent's worker, and whether that worker asked for this job's network
+// (prepareNetwork) and so took them.
+let heldOnly = false, networkTaken = false;
 let coreJob = null;
 // A player who asked for Trained offline keeps it across upgrades: each
 // version's page saves its own network, automatically once per page. So does
@@ -33,7 +37,8 @@ const updatesSaved = new WeakSet();
 /** The state before anything is known, which App also renders until its
  * first report. Each update replaces the state; none is changed in place. */
 export const INITIAL_OFFLINE = Object.freeze({ supported: null, coreReady: false, aiReady: false, hasModel: false,
-  phase: 'checking', progress: 0, warning: '', coreWarning: '', installing: false, persistent: false, updateReady: false });
+  phase: 'checking', progress: 0, warning: '', coreWarning: '', installing: false, persistent: false, updateReady: false,
+  network: 'none' });
 let state = INITIAL_OFFLINE;
 // The phase and its warning have two sources, which run side by side: the
 // start says checking, ready or unavailable, and a trained save says ai while
@@ -42,7 +47,12 @@ let state = INITIAL_OFFLINE;
 let started = { phase: state.phase, warning: state.warning };
 let trained = null;
 const listeners = new Set();
-function update(values) {
+// Where the network stands is the page's own word, set where it learns it
+// (OfflineState.network). The service worker's replies, merged in here as
+// they are, name the network they are about under the same key, as an
+// identity: that is dropped.
+function update({ network, ...values } = {}) {
+  if (typeof network === 'string') values.network = network;
   state = { ...state, ...values, ...(trained ?? started) };
   for (const listener of listeners) listener(state);
 }
@@ -107,13 +117,15 @@ async function hasRoom(bytes) {
  * stored: the runtime reads, and hashes, its own copy when it starts. A
  * network storage has no room for is not downloaded only to be refused.
  * Saves run one at a time, page-wide: each transfer holds a whole network
- * until it is stored, and two at once would also split the link. */
+ * until it is stored, and two at once would also split the link.
+ * `onWaiting` hears that another window or worker is at this network, and
+ * the save waits its turn (network-transfer.js). */
 let networkSave = Promise.resolve();
-function saveNetwork(url, expect, onProgress) {
-  networkSave = networkSave.catch(() => {}).then(() => storeNetwork(url, expect, onProgress));
+function saveNetwork(url, expect, onProgress, onWaiting) {
+  networkSave = networkSave.catch(() => {}).then(() => storeNetwork(url, expect, onProgress, onWaiting));
   return networkSave;
 }
-async function storeNetwork(url, expect, onProgress) {
+async function storeNetwork(url, expect, onProgress, onWaiting) {
   if (await networkIsStored(url, expect)) return;
   if (!await hasRoom(expect.bytes)) {
     const error = new Error('The network is not saved offline: this device has too little free storage for it.');
@@ -122,7 +134,7 @@ async function storeNetwork(url, expect, onProgress) {
   }
   // Stored by another window while this one waited its turn, it is found by
   // its record and not read again (storeOnly).
-  await networkBytes({ url, expect, requireStored: true, storeOnly: true, onProgress });
+  await networkBytes({ url, expect, requireStored: true, storeOnly: true, onProgress, onWaiting });
 }
 function activated(registration) {
   if (registration.active) return Promise.resolve();
@@ -318,6 +330,18 @@ function refreshWhenControlled() {
     void refreshOffline().catch(() => {});
   }, { once: true });
 }
+/** Where the network stands while no trained save runs: 'ready' where its
+ * verified write's record is stored, 'none' otherwise (OfflineState.network).
+ * A returning player's stored network is said at the start, without
+ * waiting for the worker, and a later look notices one the browser evicted.
+ * A save under way, or bytes storage refused that the opponent's worker
+ * holds, say for themselves. */
+async function knowNetwork() {
+  if (aiJob || heldOnly) return;
+  let stored = false;
+  try { stored = await networkIsStored(); } catch { /* Unknown is not stored. */ }
+  if (!aiJob && !heldOnly) update({ network: stored ? 'ready' : 'none' });
+}
 export function startOffline() {
   if (boot) return boot;
   const attempt = (async () => {
@@ -325,6 +349,7 @@ export function startOffline() {
       startSays('unavailable', 'Offline saving is unavailable here. Keep a connection for this session.', { supported: false });
       return null;
     }
+    void knowNetwork();
     let registration = null;
     try {
       // Existing registration is local. Never make a successful online check
@@ -391,6 +416,7 @@ export function startOffline() {
 export async function refreshOffline() {
   await startOffline();
   if (!worker) return null;
+  void knowNetwork();
   const info = await prepareCore(await withNetwork(await request('MAHJONG_STATUS')));
   // A connection that returns may still owe a requested network its save.
   fillRequested(info);
@@ -413,13 +439,23 @@ export async function refreshOffline() {
  * network received: what the table's note calls it, and nearly all of the
  * save, the runtime being four megabytes of its hundred and more. It is held
  * at 99 until the runtime is saved too and the worker told, so that it never
- * says a save is whole that is not. */
+ * says a save is whole that is not. Where the network itself stands is said
+ * apart from the whole save, in `network` (OfflineState.network): the
+ * opponent plays as soon as the network is in hand, while the phase may stay
+ * 'ai' for the runtime. */
 export function prepareOfflineAi() {
   if (aiJob) return aiJob;
   wanted = true;
+  heldOnly = false;
+  networkTaken = false;
   let handOver, over = false;
   const inHand = new Promise(resolve => { handOver = resolve; });
-  const job = saveTrained(handOver, () => !over).finally(() => { over = true; aiJob = null; });
+  const job = saveTrained(handOver, () => !over).finally(() => {
+    over = true; aiJob = null;
+    // Bytes storage refused that no opponent's worker asked for are gone
+    // with the job: a Trained opponent would download the network again.
+    if (heldOnly && !networkTaken) { heldOnly = false; update({ network: 'none' }); }
+  });
   // Settled as soon as the network is in hand, or with the job where it ends
   // without one: after the job has been let go, so that whoever hears that
   // the network failed can ask again at once and start another.
@@ -438,14 +474,24 @@ export function prepareOfflineAi() {
  * not its business: the worker loads it from the site either way. */
 export function prepareNetwork() {
   void prepareOfflineAi().catch(() => {});
+  networkTaken = true;
   return networkJob;
+}
+/** Told by the opponent's side (policy.js) when the worker that took bytes
+ * storage refused, or was to take them, is gone: the next one would fetch
+ * the network itself, so it is no longer 'ready'. A stored network stays. */
+export function networkReleased() {
+  if (!heldOnly || aiJob) return;
+  heldOnly = false;
+  update({ network: 'none' });
 }
 /** One trained save (prepareOfflineAi). `handOver(handed)` is told the moment
  * the network is in hand, and `live()` says whether the job still runs: its
  * runtime part can outlast it, and then says nothing more. */
 async function saveTrained(handOver, live) {
   // Nothing can be saved here. The start says so, and the opponent's worker
-  // fetches the network for itself: online-only browsers still work.
+  // fetches the network for itself: online-only browsers still work. The
+  // network is left at 'none', since that worker has it all to fetch.
   if (unsupported()) { await startOffline(); return null; }
   const network = playedNetwork(), url = networkUrl(network);
   // How much of the network is in hand, from 0 to 1.
@@ -453,6 +499,10 @@ async function saveTrained(handOver, live) {
   const saving = () => {
     if (live()) trainedSays('ai', '', { progress: Math.min(99, Math.floor(100 * received)) });
   };
+  // Where the network stands, said only while the job runs, and whether it
+  // has been had: stored, or refused by storage.
+  const networkIs = network => { if (live()) update({ network }); };
+  let had = false;
   // The runtime, by the worker that serves it, once that worker is there:
   // on a first visit after its install, which the network does not wait for.
   // This adds only the runtime. Core preparation has its own automatic
@@ -473,24 +523,34 @@ async function saveTrained(handOver, live) {
     // as it was: said as a warning at the end, never as a failed download.
     let handed = null, refused = null;
     const stored = await networkIsStored(url, network);
-    if (stored) received = 1;
+    if (stored) { received = 1; networkIs('ready'); }
     else {
+      networkIs('downloading');
       saving();
       try {
         await saveNetwork(url, network, ({ bytes, total }) => {
           received = total ? bytes / total : 0;
+          networkIs('downloading');
           saving();
-        });
+        }, () => networkIs('waiting'));
         received = 1;
+        networkIs('ready');
         saving();
       } catch (error) {
         if (error.name !== 'NetworkStorageError') throw error;
         refused = error;
         // Bytes verified but refused by storage go to the opponent's worker,
-        // which would otherwise download the same network again.
-        if (error.bytes) handed = { unstoredNetwork: error.bytes };
+        // which would otherwise download the same network again. Without
+        // them, as where storage had no room for the download, that worker
+        // fetches the network itself.
+        if (error.bytes) {
+          handed = { unstoredNetwork: error.bytes };
+          heldOnly = true;
+          networkIs('ready');
+        } else networkIs('none');
       }
     }
+    had = true;
     handOver(handed);
     let info = null;
     try { info = await runtime; } catch (error) {
@@ -511,7 +571,9 @@ async function saveTrained(handOver, live) {
     void persistentStorage(true);
     return verified;
   } catch (error) {
-    trainedSays('incomplete', `AI download incomplete: ${error.message}`, { aiReady: false });
+    // A network that could not be had is none; one in hand stays as it was
+    // said when the runtime, or the word to the worker, failed after it.
+    trainedSays('incomplete', `AI download incomplete: ${error.message}`, { aiReady: false, ...(had ? {} : { network: 'none' }) });
     throw error;
   }
 }

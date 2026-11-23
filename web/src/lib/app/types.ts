@@ -47,6 +47,24 @@ export interface OfflineState {
   /** A first visit's service worker is still saving the game to activate.
    * A trained save runs beside it and does not wait for it. */
   installing?: boolean;
+  /** Where the trained network itself stands, apart from the whole save
+   * (`phase`), which also waits for the runtime:
+   * - 'none': no network asked for, or the ask failed; or the page leaves it
+   *   to the opponent's worker to fetch (nothing can be saved here, storage
+   *   had no room for it, or bytes storage refused have gone with the
+   *   worker that took them).
+   * - 'waiting': asked for, and waiting its turn behind another window's or
+   *   worker's download of it.
+   * - 'downloading': its bytes are arriving, and `progress` is the percent
+   *   of the network received.
+   * - 'ready': the page has it verified, stored or, where storage refused
+   *   it, held for the opponent's worker: a Trained opponent loads it
+   *   without a long download. Never said while that worker would still
+   *   have to fetch it.
+   * Set by offline.js at every turn: the start's look at what is stored, each
+   * save, its failure and retry. A pick of another network reloads the page,
+   * which starts again from 'none'. */
+  network?: 'none' | 'waiting' | 'downloading' | 'ready';
 }
 export interface OfflineStatusProps {
   offline: OfflineState; downloadAi: () => void; open?: boolean;
