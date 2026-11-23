@@ -41,7 +41,12 @@ export interface OfflineState {
    * found: 'checking', 'ready' or 'unavailable'. */
   phase: 'checking' | 'ready' | 'ai' | 'incomplete' | 'unavailable';
   /** While the phase is 'ai', the percent of the network received, held at
-   * 99 until the runtime is saved too; 100 once the save is whole. */
+   * 99 until the runtime is saved too: read only then, and by the table's
+   * note while `network` is 'downloading'. A save that ends whole with its
+   * worker told sets 100. Any other end (one with no worker yet to save the
+   * runtime, one that found everything saved already, one that failed or
+   * that storage refused) leaves the last value, which means nothing once
+   * the phase has moved on. */
   progress: number; warning?: string; coreWarning?: string;
   persistent?: boolean; updateReady?: boolean;
   /** A first visit's service worker is still saving the game to activate.
