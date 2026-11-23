@@ -11,7 +11,8 @@
  * It is asked, in turn:
  *  - `{ id, open: { url, expect, scope, webgpu } }`: open the network stored
  *    at `url` in the Cache Storage of the page's folder `scope`, checked
- *    against `expect` (its size and SHA-256), with the runtime in the folder
+ *    against `expect` (its size and SHA-256, and for a packed network its
+ *    packing and the packed size), with the runtime in the folder
  *    `webgpu`. It never downloads the network: one not stored is refused.
  *  - `{ id, planes, mask, count }`: a batch of positions laid end to end, as
  *    the WebAssembly worker is asked one.
@@ -26,6 +27,7 @@
  */
 import { policyWeights } from './policy-weights.js';
 import { storedNetworkBytes } from './network-transfer.js';
+import { unpackNetwork } from './network-pack.js';
 import { webgpuAdapter } from './webgpu.js';
 
 // Positions in a plane: the 34 tile kinds.
@@ -54,6 +56,12 @@ async function open({ url, expect, scope, webgpu }, fetched) {
   try { bytes = await storedNetworkBytes({ url, expect, scope }); }
   catch (error) { throw new Refusal(`the network could not be read: ${said(error)}`, false); }
   if (!bytes) throw new Refusal('the network is not saved on this device', false);
+  // A packed network is stored packed and widened here, as the opponent's
+  // worker widens it (network-pack.js), the packed bytes let go at once.
+  if (expect.packing) {
+    try { bytes = unpackNetwork(bytes, expect.bytes); }
+    catch (error) { throw new Refusal(`the network could not be read: ${said(error)}`, false); }
+  }
   // The runtime's own files, fetched here first so that one the browser
   // cannot fetch, offline before it was ever saved, is told apart from a
   // runtime that fails on this device. Its WebAssembly is kept and handed to

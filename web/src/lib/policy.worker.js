@@ -15,6 +15,8 @@
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
 import { networkBytes } from './network-store.js';
+import { networkAt } from './trained-network.js';
+import { unpackNetwork } from './network-pack.js';
 import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
 
 ort.env.wasm.numThreads = 1;
@@ -65,12 +67,19 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   // listed network at that address. Another window that is at the same
   // network goes first (network-transfer.js): the wait is said, which is
   // also the sign of life the page times this worker's silence by.
-  const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
+  let bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
     onWaiting: () => note('waiting for another window to download the network') });
   handed = null;
+  // A packed network is widened here, off the page's thread, into the whole
+  // file the runtime reads (network-pack.js); the packed bytes are let go
+  // before the session is made, so that the two are held together only
+  // while it is widened, 59 and 117 MB for network 3000.
+  const listed = networkAt(url);
+  const file = listed?.packing ? unpackNetwork(bytes, listed.bytes) : bytes;
+  bytes = null;
   note('starting the network');
-  const session = await ort.InferenceSession.create(bytes, {
+  const session = await ort.InferenceSession.create(file, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });

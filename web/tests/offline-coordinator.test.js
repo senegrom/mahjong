@@ -5,6 +5,7 @@ import { MessageChannel } from 'node:worker_threads';
 import { render } from 'svelte/server';
 import { componentLoader } from './fixtures/load-component.js';
 import { loadModule } from './fixtures/load-module.js';
+import { heldBytes } from '../src/lib/network-cache.js';
 
 // The offline panel itself, to read what a state says to the player.
 const Status = await componentLoader()('app/OfflineStatus.svelte');
@@ -120,7 +121,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   // in trained-network.js, are stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
     URL, MessageChannel, setTimeout: wait, clearTimeout: clear, caches: {}, isSecureContext: true, WeakSet,
-    networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick,
+    networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick, heldBytes,
     // The page's own record of a saved network: a header check, never a read.
     networkIsStored: async (url = network.url) => stored.has(url),
     // The page's download: verified, then stored durably, or it throws.

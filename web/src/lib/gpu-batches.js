@@ -187,7 +187,8 @@ export function cardBatches({ createWorker, storage = null, search = '', navigat
       tried = played;
       startWorker();
       mine = worker;
-      await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256 }, scope, webgpu: new URL(folder, scope).href } },
+      await call({ open: { url: networkUrl(played), expect: { bytes: played.bytes, sha256: played.sha256,
+        ...(played.packing ? { packing: played.packing, storedBytes: played.storedBytes } : {}) }, scope, webgpu: new URL(folder, scope).href } },
         () => within(BRING_UP_MS, `bringing the card up took longer than ${BRING_UP_MS / 1000} s`, true));
       const order = timedOrder(sample.positions.length);
       const batch = laid(order.map(index => sample.positions[index])), expected = order.map(index => sample.answers[index]);

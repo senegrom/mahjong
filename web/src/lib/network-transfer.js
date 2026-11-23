@@ -3,12 +3,15 @@
  * offline startup never imports a network dependency. Only pages and their
  * workers download the network: a service-worker event is abandoned after a
  * few minutes, which a slow link needs for 100 MB. */
-import { digestOf, hasStoredNetwork, networkCache, networkCacheName, storageError, validateNetwork, verifiedDownload } from './network-cache.js';
+import { RESUME, digestOf, hasStoredNetwork, heldBytes, networkCache, networkCacheName, storageError, validateNetwork,
+  verifiedDownload } from './network-cache.js';
 
-export { NETWORK_CACHE, hasStoredNetwork, networkCacheName, pruneNetworkCache, validateNetwork } from './network-cache.js';
+export { NETWORK_CACHE, hasStoredNetwork, heldBytes, networkCacheName, pruneNetworkCache, validateNetwork } from './network-cache.js';
 // A page has no event deadline, so a slow but progressing transfer may take
-// hours; a stalled one still ends after a minute without bytes.
-const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000 });
+// hours; a stalled one still ends after a minute without bytes, or, for a
+// packed network, once it has been asked for the rest RESUME.attempts times
+// and stalled or broken each time.
+const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000, pauseMs: RESUME.pauseMs });
 /** How long one waits its turn at a network before going ahead regardless
  * (alone): SILENT_MS after its holder last said it is alive, or TURN_MS in
  * all where the browser has no BroadcastChannel to hear it by. How often the
@@ -100,7 +103,7 @@ async function verifiedCached(cache, url, expect, { keepUnread = false } = {}) {
     const held = await cache.match(url);
     if (!held) return null;
     const bytes = new Uint8Array(await held.arrayBuffer());
-    if (bytes.length === expect.bytes && await digestOf(bytes) === expect.sha256) return bytes;
+    if (bytes.length === heldBytes(expect) && await digestOf(bytes) === expect.sha256) return bytes;
   } catch (error) {
     if (keepUnread) throw error;
     /* An unreadable cache is not a prerequisite for online play. */
@@ -110,19 +113,22 @@ async function verifiedCached(cache, url, expect, { keepUnread = false } = {}) {
   return null;
 }
 
+/** A packed network is asked for the rest of itself after a break; any other
+ * is stored gzipped by its host, where a range means nothing. */
 async function downloadNetwork(url, expect, onProgress, timeouts) {
-  const { totalMs, idleMs } = { ...NETWORK_TIMEOUTS, ...timeouts };
-  if (![totalMs, idleMs].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2 ** 31 - 1)) {
+  const { totalMs, idleMs, pauseMs } = { ...NETWORK_TIMEOUTS, ...timeouts };
+  if (![totalMs, idleMs, pauseMs].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2 ** 31 - 1)) {
     throw new Error('Invalid network download deadline');
   }
   const describe = (kind, detail) => ({
     status: `The network could not be fetched: ${detail}`,
     overrun: 'The network exceeded its expected byte size',
-    size: `The network arrived as ${detail} bytes, not ${expect.bytes}`,
+    size: `The network arrived as ${detail} bytes, not ${heldBytes(expect)}`,
     digest: 'The network that arrived is not the one this page was built for',
     timeout: 'Network download timed out. Reconnect and retry.',
   })[kind];
-  const { bytes } = await verifiedDownload(url, expect, { init: { mode: 'cors' }, idleMs, totalMs, onProgress, describe });
+  const { bytes } = await verifiedDownload(url, expect, { init: { mode: 'cors' }, idleMs, totalMs, onProgress, describe,
+    resume: expect.packing ? RESUME.attempts : 0, pauseMs });
   return bytes;
 }
 
@@ -143,7 +149,9 @@ export async function storedNetworkBytes({ url, expect, scope } = {}) {
  * `storeOnly` is for a caller that wants the network stored and not its
  * bytes, the page's save: one whose record is there already, written by the
  * window it waited for, say, is answered with null, neither read nor hashed
- * again only to be dropped. */
+ * again only to be dropped. The bytes are those the identity names, which
+ * for a packed network are the packed file: only the workers that open a
+ * network widen it (network-pack.js), never the page. */
 export async function verifiedNetworkBytes({ url, expect, onProgress, onWaiting,
   requireStored = false, storeOnly = false, timeouts, scope } = {}) {
   validateNetwork(expect);

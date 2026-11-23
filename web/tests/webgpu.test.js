@@ -11,6 +11,7 @@ import { BRING_UP_MS, CARD_BATCH_MS, DECLINE_LASTS_MS, RUNTIME_MS, TIMED_POSITIO
 import { CARD_AT_WORK, cardBatches } from '../src/lib/gpu-batches.js';
 import { resolveObjectURL } from 'node:buffer';
 import { loadModule } from './fixtures/load-module.js';
+import { packNetwork, unpackNetwork } from '../src/lib/network-pack.js';
 
 const READY = { ...MANIFEST, webgpu: true };
 // The default network as an entry published before the field held it.
@@ -821,7 +822,7 @@ function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3),
   } } };
   const self = { postMessage: message => messages.push(message), navigator: { gpu: gpu(adapterGiven) } };
   loadModule('gpu-batch.worker.js', { self, URL: Addressed, Blob, Error, policyWeights, performance, Promise, Float32Array, Array, Object, String,
-    webgpuAdapter, storedNetworkBytes: async read => { reads.push(read); return stored; },
+    webgpuAdapter, unpackNetwork, storedNetworkBytes: async read => { reads.push(read); return stored; },
     fetch: async url => { fetches.push(String(url)); return new Response('runtime', { status: fetchStatus }); },
     loadRuntime: async url => { imports.push(url); if (importError) throw importError; return runtime; },
   }, [], { "import(/* @vite-ignore */ new URL('ort.min.mjs', webgpu).href)": "loadRuntime(new URL('ort.min.mjs', webgpu).href)" });
@@ -830,6 +831,23 @@ function cardWorker({ adapterGiven = adapter(), stored = Uint8Array.of(1, 2, 3),
     webgpu: 'https://test.invalid/mahjong/ort-webgpu/aaaa/' };
   return { send, open, messages, imports, created, reads, fetches, fed, runtime, addresses };
 }
+
+test('the card\'s worker widens a packed network before the runtime sees it, and refuses one it cannot widen', async () => {
+  // Twelve bytes of file around a range of 1,024 float32 ones, packed at half precision.
+  const whole = new Uint8Array(12 + 4096);
+  new Float32Array(whole.buffer, 8, 1024).fill(0.5);
+  const packed = packNetwork(whole, [{ offset: 8, length: 4096 }]);
+  const identity = { bytes: whole.length, sha256: 'a'.repeat(64), packing: 'half', storedBytes: packed.length };
+  const w = cardWorker({ stored: packed });
+  await w.send({ id: 1, open: { ...w.open, expect: identity } });
+  assert.ok(w.messages.some(message => message.opened), JSON.stringify(w.messages));
+  assert.deepEqual(w.reads[0].expect, identity, 'the stored bytes are checked as the packed file they are');
+  assert.deepEqual(w.created[0].bytes, whole, 'the runtime is given the whole file');
+  const broken = cardWorker({ stored: packed.subarray(0, packed.length - 1) });
+  await broken.send({ id: 1, open: { ...broken.open, expect: identity } });
+  assert.deepEqual({ ...broken.messages.at(-1) }, { id: 1, error: 'the network could not be read: The packed network is malformed', remember: false });
+  assert.equal(broken.created.length, 0);
+});
 
 test('the card\'s worker opens the stored network on WebGPU alone and answers batches with their analyses and time', async () => {
   const w = cardWorker();
