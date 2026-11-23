@@ -513,6 +513,14 @@ export class MatchReview {
     return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions), suits: true };
   }
 
+  /** Lets go of the session the match's hands are scanned on: once the
+   * match is over, where a scan on it could not go on, and as the review is
+   * closed. */
+  endScan() {
+    this.scan?.dispose();
+    this.scan = null;
+  }
+
   /** Tells whoever shows the review that it has changed. The page tells it
    * so too as the review's batches move to the graphics card or back (App,
    * reportRuntime), where the time a position is none until a batch is
@@ -523,14 +531,6 @@ export class MatchReview {
    * otherwise offer the next hand by a time a decision it no longer has,
    * for a wait the card may make a hundred times shorter. Should the device
    * turn out slow there too, the review holds again after the next hand. */
-  /** Lets go of the session the match's hands are scanned on: once the
-   * match is over, where a scan on it could not go on, and as the review is
-   * closed. */
-  endScan() {
-    this.scan?.dispose();
-    this.scan = null;
-  }
-
   notify() {
     if (this.closed) return;
     if (this.held && !this.slow) {

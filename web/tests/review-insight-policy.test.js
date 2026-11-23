@@ -416,7 +416,7 @@ test('a table where a last-hand rule would overrule the answer\'s best move is a
 
 test("a match's reasoning reads a hand's tables from its review, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
   const network = recordedNetwork(), { insight: reasoning } = insightOf(network), held = reviewOf(), heard = [];
-  const insight = new MatchInsight(Game, held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
+  const insight = new MatchInsight(held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
   // The decision before it in its hand, agreed with, and the one after it,
   // not reviewed: nothing to say.
   const hand = held.review.hands[entry.record.hand], step = entry.record.decision;
@@ -443,7 +443,7 @@ test("a match's reasoning reads a hand's tables from its review, says nothing of
 
 test('a search shows how far it has got, a step away or Cancel stops it and forgets it, the review waiting only for the pass the worker has, and one had is kept', async () => {
   const worker = workerOfPasses(), { insight: reasoning, notes, asking } = insightOf(worker), review = anyGate(notes, asking);
-  const insight = new MatchInsight(Game, reviewOf().review, reasoning), key = keyOf(entry);
+  const insight = new MatchInsight(reviewOf().review, reasoning), key = keyOf(entry);
   const searching = () => insight.at(key).search;
   // Pressed, it is under way at once, the unedited table, its 35 changes and
   // room for 28 pairs planned, and its first pass with the worker.
@@ -488,7 +488,7 @@ test('a search shows how far it has got, a step away or Cancel stops it and forg
 test('stopping the reasoning stops every Why line and search under way, and one that failed is said so and asked again', async () => {
   const later = questions.find(question => question.id === 's3-4');
   const worker = workerOfPasses({ asked: [entry, later] }), { insight: reasoning, notes, asking } = insightOf(worker);
-  const insight = new MatchInsight(Game, reviewOf([entry, later]).review, reasoning), review = anyGate(notes, asking);
+  const insight = new MatchInsight(reviewOf([entry, later]).review, reasoning), review = anyGate(notes, asking);
   insight.explain(keyOf(entry));
   insight.search(keyOf(later));
   await until(() => worker.sent === 1, "the Why line's pass is with the worker");
@@ -501,7 +501,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   // A worker that fails every request, as one reset fails them. The Why
   // line had its fact before its check asked, and says it, not checked.
   const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
-  const broken = new MatchInsight(Game, reviewOf().review, failing.insight), key = keyOf(entry);
+  const broken = new MatchInsight(reviewOf().review, failing.insight), key = keyOf(entry);
   broken.explain(key);
   broken.search(key);
   await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search?.state === 'failed', 'both fail');
@@ -515,7 +515,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   assert.equal(broken.at(key).why.state, 'asking', 'a failed Why line is asked again as it is shown again');
   await until(() => broken.at(key).why.state === 'failed', 'and fails again');
   // A Why line that fails before it has its fact says only that it failed.
-  const thrown = new MatchInsight(Game, reviewOf().review, { why: async () => { throw new Error('The engine refused this table'); } });
+  const thrown = new MatchInsight(reviewOf().review, { why: async () => { throw new Error('The engine refused this table'); } });
   thrown.explain(key);
   await until(() => thrown.at(key).why.state === 'failed', 'it fails');
   assert.deepEqual(thrown.at(key).why, { state: 'failed', result: null, failure: 'The engine refused this table' });
@@ -523,7 +523,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
 
 test('a search pressed is under way at once, planned as the most it can ask, and asks nothing until the page has drawn it; stopped meanwhile, it never asks', async () => {
   const worker = workerOfPasses(), { insight: reasoning } = insightOf(worker), key = keyOf(entry);
-  const insight = new MatchInsight(Game, reviewOf().review, reasoning);
+  const insight = new MatchInsight(reviewOf().review, reasoning);
   insight.search(key);
   const { search, most } = insight.at(key);
   assert.deepEqual([search.state, search.planned, most, worker.sent], ['searching', 64, 64, 0]);
@@ -547,7 +547,7 @@ test("a search that finds Trained AI answering the decision's table otherwise th
   const decision = held.review.hands[plain.record.hand].decisions[plain.record.decision];
   decision.weighted = decision.weighted.map(choice => (choice.kind === 'discard' && choice.tile === plain.played.tile
     ? { ...choice, weight: choice.weight + 0.01 } : choice));
-  const insight = new MatchInsight(Game, held.review, reasoning), key = keyOf(plain);
+  const insight = new MatchInsight(held.review, reasoning), key = keyOf(plain);
   insight.explain(key);
   await until(() => insight.at(key).why.state === 'done', 'the Why line is had');
   assert.deepEqual([insight.at(key).why.result.label, network.sizes], ['Why', []], 'explained, asking nothing');
@@ -601,7 +601,7 @@ test("the search is not offered below the margin floor, nor where the Why line f
   // East 2 · 2 honba #14 is chosen by a margin of -9.2.
   const sure = questions.find(question => question.id === 'e2b-14');
   const network = recordedNetwork({ asked: [entry, sure] }), { insight: reasoning } = insightOf(network), held = reviewOf([entry, sure]);
-  const insight = new MatchInsight(Game, held.review, reasoning);
+  const insight = new MatchInsight(held.review, reasoning);
   assert.deepEqual([insight.at(keyOf(sure)).tables, insight.at(keyOf(sure)).offered], [0, false]);
   insight.explain(keyOf(sure));
   await until(() => insight.at(keyOf(sure)).why.state === 'done', 'its Why line is had all the same');
@@ -623,7 +623,7 @@ test('a hand whose tables the review could not write says nothing of its decisio
   const held = reviewOf(), sizes = [];
   // The hand reviewed, its decisions answered, and no table to ask about.
   held.review.hands[entry.record.hand].tables = null;
-  const insight = new MatchInsight(Game, held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
+  const insight = new MatchInsight(held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
   assert.equal(insight.at(keyOf(entry)), null);
   insight.explain(keyOf(entry));
   insight.search(keyOf(entry));

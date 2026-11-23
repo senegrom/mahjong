@@ -297,7 +297,7 @@ const failureOf = error => error?.message ?? String(error);
  * has one, and asked again on the next explain or search. `onChange` hears
  * every change. */
 export class MatchInsight {
-  constructor(_Game, review, reasoning, { onChange = () => {} } = {}) {
+  constructor(review, reasoning, { onChange = () => {} } = {}) {
     this.review = review;
     this.reasoning = reasoning;
     this.onChange = onChange;
