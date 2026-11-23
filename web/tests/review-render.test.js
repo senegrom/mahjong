@@ -58,7 +58,7 @@ test("Club's numbers stand under their headings, in a table no wider than the re
   // pixels wide, under a heading at its left, read as the next column's.
   const rule = (source, selector) => {
     const style = source.slice(source.indexOf('<style>'));
-    const found = new RegExp(`(?:^|[}\\n])\\s*${selector.replace(/[.]/g, '\\.')}\\s*\\{([^}]*)\\}`).exec(style);
+    const found = new RegExp(`(?:^|[}\\n])\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(style);
     assert.ok(found, `a rule for ${selector}`);
     return Object.fromEntries(found[1].split(';').map(part => part.split(':').map(text => text.trim())).filter(([name, value]) => name && value));
   };
