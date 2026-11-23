@@ -1,5 +1,5 @@
 import { emptyPosition, parsePhysical, missingNumber, quadTurn, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
-import { sameChoice } from './action-weights.js';
+import { sameMove } from './action-weights.js';
 import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
 import { rememberEnding, applySettlement, draftBelongs, dropStrayDraft, validEndingState, verifySettlement } from './guided-settlement.js';
@@ -305,7 +305,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
     case 'choice': {
       requireStage(state, 'decision');
       const { choice, choices } = event;
-      if (!choice || !Array.isArray(choices) || !choices.some(c => sameChoice(c, choice))) throw new Error('Analyse this decision again');
+      if (!choice || !Array.isArray(choices) || !choices.some(c => sameMove(c, choice))) throw new Error('Analyse this decision again');
       if (['pon', 'chii', 'kan'].includes(choice.kind)) {
         queueClaim(state, { seat: p.seat, kind: choice.kind, tile: choice.tile ?? null });
         if (choices.some(c => c.kind === 'ron' || c.causes_furiten)) p.players[p.seat].furiten = true;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AGENT_IDS, TRAINED_AGENT } from '../src/lib/agent-ids.js';
-import { sameChoice } from '../src/lib/action-weights.js';
+import { sameMove } from '../src/lib/action-weights.js';
 import { emptyGuided } from '../src/lib/guided-game.js';
 
 // The agents module reaches the policy client, which reads the page's base
@@ -18,10 +18,10 @@ test('the agents the page names are the ones a saved guided game and a watched t
 });
 
 test('two choices are the same move by kind and tile, a pass with no tile or a null one alike', () => {
-  assert.equal(sameChoice({ kind: 'pass' }, { kind: 'pass', tile: null }), true);
-  assert.equal(sameChoice({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '1m', label: 'discards the 1 characters' }), true);
-  assert.equal(sameChoice({ kind: 'discard', tile: '1m' }, { kind: 'riichi', tile: '1m' }), false);
-  assert.equal(sameChoice({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '2m' }), false);
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pass', tile: null }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '1m', label: 'discards the 1 characters' }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'riichi', tile: '1m' }), false);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '2m' }), false);
 });
 
 test('a built-in agent lists the unscored kans after the ranked choices, in a stable order', async () => {

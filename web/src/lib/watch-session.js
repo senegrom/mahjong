@@ -1,5 +1,5 @@
 import { MatchSession } from './session.js';
-import { sameChoice } from './action-weights.js';
+import { sameMove } from './action-weights.js';
 import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 
 /** One followed player and three independent agents. A retained analysis is
@@ -78,7 +78,7 @@ export class WatchSession {
 
   choose(choice, expectedAnalysis) {
     if (!choice || this.closed || this.busy || !this.analysis || this.analysis !== expectedAnalysis) return Promise.resolve(false);
-    const allowed = this.analysis.choices.find(entry => sameChoice(entry, choice));
+    const allowed = this.analysis.choices.find(entry => sameMove(entry, choice));
     if (!allowed) return Promise.resolve(false);
     const { kind, tile } = allowed;
     return this.prepare({ type: 'choose', kind, tile: tile ?? null });

@@ -3,7 +3,7 @@
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { analysisOf, emptyPosition, missingNumber, nextOrder, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
-  import { sameChoice } from './action-weights.js';
+  import { sameMove } from './action-weights.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import { waitingNote } from './ui.js';
@@ -201,7 +201,7 @@
   {#if analysis}
     <!-- The other seats' hands are read by their winds, as the table names them. -->
     <AgentWeights {analysis} seats={[1, 2, 3].map(step => WINDS[(position.seat + step) % 4])} />
-    <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={sameChoice(choice, analysis.choice)} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
+    <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={sameMove(choice, analysis.choice)} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
   {/if}
   <details class="table-fields" open>
     <summary>Round and current decision</summary>

@@ -1,5 +1,5 @@
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
-import { sameChoice } from './action-weights.js';
+import { sameMove } from './action-weights.js';
 
 export const PHYSICAL_KEY = 'riichi.physical.v1';
 
@@ -248,7 +248,7 @@ export function recordDiscard(position, seat, tile, riichi = false) {
 /** Record only the analysed seat's real choice. Never fill in unseen tiles,
  * other players' responses, a replacement draw, or another dora indicator. */
 export function recordChoice(position, choice, choices) {
-  if (!choices.some(entry => sameChoice(entry, choice))) {
+  if (!choices.some(entry => sameMove(entry, choice))) {
     throw new Error('Analyse this position again before recording a choice');
   }
   if (choice.kind === 'discard' || choice.kind === 'riichi') return recordDiscard(position, position.seat, choice.tile, choice.kind === 'riichi');

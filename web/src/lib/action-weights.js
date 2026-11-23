@@ -14,7 +14,6 @@ export const MORTAL_REACH = 37;
  * the engine offers, a weight or a measure of one, or the move a player
  * made. */
 export const sameMove = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
-export const sameChoice = sameMove;
 
 function massByChoice(weights, fromMortal) {
   if (!weights || weights.length !== 46
