@@ -327,6 +327,9 @@ says whether each tile completes it, as it said at the pass. Three things are no
 undo instead: the discard still on offer, since the answer to it would
 change; a discard that was called, which is part of its set; and a hand in
 riichi. A finished hand's table is corrected after its result is undone.
+Where and Which follow the table: a step or Undo that takes away the chosen
+seat's last discard, or the chosen tile, sets them back to your hand and to
+nothing chosen.
 
 Each step draws the next prompt in place of the one that was pressed, and the
 control that had focus goes with it. Focus is handed on to the new prompt's

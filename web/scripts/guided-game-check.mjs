@@ -245,6 +245,15 @@ try {
     await page.click('.correct .palette button[data-tile="1m"]');
     await page.waitForFunction(() => document.querySelector('.correct [role="alert"]')?.textContent === 'It is already that tile');
     assert.equal(await page.$eval('.guide-prompt .failure', el => el.textContent), refusal);
+    // Undone back past East's only discard, Where is the hand again, not a
+    // blank seat that has no discards left, and Which is chosen afresh.
+    const where = '[aria-label="Where the tile to correct is"]', which = '[aria-label="The tile to correct"]';
+    await page.select(where, '0'); await page.select(which, '0');
+    for (let i = 0; i < 3; i++) await button(page, 'Undo last step');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards.length === 0, {}, GUIDED_KEY);
+    await page.waitForFunction(where => document.querySelector(where).value === 'hand', {}, where);
+    assert.deepEqual(await page.$eval(where, el => [el.selectedIndex, el.selectedOptions[0]?.textContent]), [0, 'Your hand']);
+    assert.equal(await page.$eval(which, el => el.value), '');
     assert.deepEqual(page.problems, []);
   });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {

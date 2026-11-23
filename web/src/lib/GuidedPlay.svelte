@@ -168,6 +168,13 @@
     game = guidedEvent(snapshot(), event, validate, settle_physical, choicesOf);
     fixWhich = '';
   }
+  // A step or Undo can take away what Where and Which have chosen: a seat's
+  // last discard, or the draw. Where goes back to the hand and Which to
+  // nothing, rather than showing a blank choice that still stands.
+  $effect(() => {
+    if (fixPlace !== 'hand' && !position.players[fixPlace]?.discards.length) { fixPlace = 'hand'; fixWhich = ''; }
+    else if (fixWhich !== '' && !fixTiles.some(entry => entry.key === fixWhich)) fixWhich = '';
+  });
   async function restart() {
     if (!loaded || conflict || !window.confirm('Start a new guided game? This replaces its saved progress.')) return;
     if (unreadable) {
