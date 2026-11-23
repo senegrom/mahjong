@@ -24,6 +24,7 @@ import { dirname, join, resolve, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual, promisify } from 'node:util';
+import { PACK_THRESHOLD, halfBits, halfTable, packNetwork, packedLayout, unpackNetwork } from '../src/lib/network-pack.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MANIFEST = join(ROOT, 'web/src/lib/model-manifest.js');
@@ -127,6 +128,70 @@ export function weightPrecision(bytes) {
   if (largest && largest[1] === 0) throw new Error('The network holds no weights.');
   if (!largest || !PRECISIONS.has(largest[0])) throw new Error("Could not tell the precision of the network's weights.");
   return PRECISIONS.get(largest[0]);
+}
+
+/** Where the network's float32 weights lie in the file, the ranges a packed
+ * file holds at half precision (src/lib/network-pack.js): the raw_data
+ * (TensorProto field 9) of each initializer of ModelProto.graph whose
+ * data_type is FLOAT (1) and which holds at least `threshold` bytes. Values
+ * in float_data, a Constant node's tensor or a subgraph stay as they are. */
+export function floatRanges(bytes, threshold = PACK_THRESHOLD) {
+  const ranges = [];
+  for (const graph of fields(bytes, 0, bytes.length)) {
+    if (graph.field !== 7 || graph.start === undefined) continue;
+    for (const tensor of fields(bytes, graph.start, graph.end)) {
+      if (tensor.field !== 5 || tensor.start === undefined) continue;
+      let type, raw = null;
+      for (const part of fields(bytes, tensor.start, tensor.end)) {
+        if (part.field === 2 && part.value !== undefined) type = part.value;
+        else if (part.field === 9 && part.start !== undefined) raw = part;
+      }
+      const length = raw ? raw.end - raw.start : 0;
+      if (type === 1 && length >= threshold && length % 4 === 0) ranges.push({ offset: raw.start, length });
+    }
+  }
+  return ranges;
+}
+
+/** The packed file of an ONNX file, checked by unpacking it again: equal to
+ * the source outside its float ranges, and inside them equal to each value's
+ * rounding to float16, widened. Throws where there is nothing to pack, where
+ * a finite weight would become infinite, and where the check fails. */
+export function packedNetwork(bytes) {
+  const ranges = floatRanges(bytes);
+  if (!ranges.length) throw new Error('The network holds no float32 weights to pack.');
+  const packed = packNetwork(bytes, ranges);
+  const { ranges: listed } = checkPacked(bytes, packed);
+  if (!isDeepStrictEqual(listed, ranges)) throw new Error('The packed file lists other ranges than its source holds.');
+  return { packed, ranges };
+}
+
+/** Unpacks `packed` and compares it with its source `bytes`: every byte
+ * outside the float ranges its header lists equal, and every float32 inside
+ * them equal to its float16 rounding widened again. Returns the ranges, the
+ * unpacked file, and the largest difference a weight moved by. Throws on the
+ * first byte that differs. */
+export function checkPacked(bytes, packed) {
+  const { ranges } = packedLayout(packed);
+  const whole = unpackNetwork(packed, bytes.length);
+  const source = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const widened = new DataView(whole.buffer, whole.byteOffset, whole.byteLength);
+  const widen = halfTable(), word = new DataView(new ArrayBuffer(4));
+  let from = 0, largest = 0;
+  for (const { offset, length } of [...ranges, { offset: bytes.length, length: 0 }]) {
+    if (Buffer.compare(bytes.subarray(from, offset), whole.subarray(from, offset)) !== 0) {
+      throw new Error(`The packed file differs from its source between bytes ${from} and ${offset}.`);
+    }
+    for (let at = offset; at < offset + length; at += 4) {
+      const bits = source.getUint32(at, true), got = widened.getUint32(at, true);
+      if (got !== widen[halfBits(bits)]) throw new Error(`The packed file's weight at byte ${at} is not its float16 rounding.`);
+      word.setUint32(0, bits, true); const was = word.getFloat32(0, true);
+      word.setUint32(0, got, true); const now = word.getFloat32(0, true);
+      if (Number.isFinite(was)) largest = Math.max(largest, Math.abs(now - was));
+    }
+    from = offset + length;
+  }
+  return { ranges, whole, largest };
 }
 
 /** The operators the network's graph runs, read from the model: the op_type
