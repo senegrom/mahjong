@@ -11,16 +11,22 @@
    * (filterSaid); it goes quiet once focus leaves the buttons, or once the
    * counts it gave have changed as the review goes on, so it never stays
    * behind to say a count the list has outgrown. `label` names the buttons.
+   * `complete` is whether every hand is reviewed, and `over` whether the
+   * match is: a filter that holds no decision says so of the review as it
+   * stands, "None flagged yet." while a hand is still to review (noneSaid).
    */
-  let { value = $bindable('flagged'), counts, label } = $props();
+  let { value = $bindable('flagged'), counts, label, complete = true, over = true } = $props();
   let note = $state('');
-  // The counts the line gave, while it gives them.
-  let spoken = null;
+  // What the line spoke of, while it speaks: the counts it gave, and whether
+  // every hand was reviewed. It is state, so that the effect below runs once
+  // there is something to compare with: a plain variable, null as the effect
+  // first ran, left it reading nothing, and so never run again.
+  let spoken = $state.raw(null);
 
   function pick(filter) {
     value = filter;
-    spoken = { ...counts };
-    note = filterSaid(filter, counts);
+    spoken = { counts: { ...counts }, complete };
+    note = filterSaid(filter, counts, { complete, over });
   }
 
   function leave(event) {
@@ -30,7 +36,7 @@
   }
 
   $effect(() => {
-    if (spoken && FILTERS.some(filter => counts[filter] !== spoken[filter])) {
+    if (spoken && (complete !== spoken.complete || FILTERS.some(filter => counts[filter] !== spoken.counts[filter]))) {
       note = '';
       spoken = null;
     }

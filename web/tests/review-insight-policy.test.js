@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { Game, PhysicalAnalysis, review_facts } from '../src/wasm/riichi.js';
-import { MORTAL_REACH, weightsByChoice } from '../src/lib/action-weights.js';
+import { MORTAL_REACH, sameMove, weightsByChoice } from '../src/lib/action-weights.js';
 import { Asking, GPU_BATCH, batchFor, scanMatch } from '../src/lib/game-review.js';
-import { PASS, movesOf, sameMove, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
-import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, handTables, keptTime, questionOf, reasonedAbout, reviewInsight,
+import { PASS, movesOf, tablesAtMost, tablesFirstAsked } from '../src/lib/review-insight.js';
+import { FORWARDS_A_TABLE, MatchInsight, RULE_DECIDES, anyGate, countedBatches, keptTime, questionOf, reasonedAbout, reviewInsight,
   searchTime, trainedAsk } from '../src/lib/review-insight-policy.js';
 import { policyWeights } from '../src/lib/policy-weights.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
@@ -15,7 +15,7 @@ import { DAMA_RULE, MORTAL_AGARI } from '../src/lib/trained-move.js';
 import { saidLines } from './fixtures/insight-panel.js';
 import { probe, tsumo } from './fixtures/last-hand-tables.js';
 import { recordedAsk, recordedQuestions } from './fixtures/recorded-insight.js';
-import { eachDecision, reviewCheckGame } from './fixtures/review-check-game.js';
+import { eachDecision, handTables, reviewCheckGame } from './fixtures/review-check-game.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
 
@@ -110,7 +110,7 @@ const askOnce = (ask, tables) => ask(tables);
 const insightOf = (network, asking = new Asking(), notes = new Asking(), batches = new Asking()) => ({ asking, notes, batches,
   insight: reviewInsight({ PhysicalAnalysis, review_facts, analyzeBatch: network.analyzeBatch, asking, notes, batches, askBoth: askOnce }) });
 
-test('a hand\'s tables are the positions the engine writes at the hand\'s end, read from a replay of their own', () => {
+test('a hand\'s tables, as these tests write them, are the positions the engine writes at the hand\'s end', () => {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot), written = [];
   eachDecision(Game, snapshot, ({ hand, position }) => { written[hand.index] = [...(written[hand.index] ?? []), position]; });
   for (const hand of hands) assert.deepEqual(handTables(Game, snapshot, hand), written[hand.index], hand.name);
@@ -365,11 +365,17 @@ test('a table where the seat may both add to its pon and declare a quad is read 
 
 /** The review check's game as its review holds it once Trained AI has
  * answered the recorded decisions named (reviewedDecision), every other
- * decision of the game not reviewed yet. `read` counts how often its saved
- * commands are read, which a hand's tables are replayed from. */
+ * decision of the game not reviewed yet, each hand with a decision answered
+ * holding its tables, as a review writes them with its decisions. `read`
+ * counts how often its saved commands are read: the reasoning replays
+ * nothing, so never. */
 function reviewOf(asked = [entry]) {
   const snapshot = reviewCheckGame(Game), hands = scanMatch(Game, snapshot).map(hand => ({ ...hand, decisions: hand.frames.map(() => null) }));
-  for (const question of asked) hands[question.record.hand].decisions[question.record.decision] = reviewedDecision(question);
+  for (const question of asked) {
+    const hand = hands[question.record.hand];
+    hand.decisions[question.record.decision] = reviewedDecision(question);
+    hand.tables ??= handTables(Game, snapshot, hand);
+  }
   let read = 0;
   return { review: { hands, snapshot: { ...snapshot, get commands() { read++; return snapshot.commands; } } }, get read() { return read; } };
 }
@@ -408,11 +414,11 @@ test('a table where a last-hand rule would overrule the answer\'s best move is a
   assert.ok((await answer(probe(0), 17)).moves.length);
 });
 
-test("a match's reasoning writes a hand's tables once, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
+test("a match's reasoning reads a hand's tables from its review, says nothing of a decision it does not reason about, and keeps a Why line once had", async () => {
   const network = recordedNetwork(), { insight: reasoning } = insightOf(network), held = reviewOf(), heard = [];
-  const insight = new MatchInsight(Game, held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
+  const insight = new MatchInsight(held.review, reasoning, { onChange: () => heard.push(insight.at(keyOf(entry))?.why?.state ?? null) });
   // The decision before it in its hand, agreed with, and the one after it,
-  // not reviewed: nothing to say, and no hand replayed to say it.
+  // not reviewed: nothing to say.
   const hand = held.review.hands[entry.record.hand], step = entry.record.decision;
   hand.decisions[step - 1] = { ...hand.decisions[step], advised_tile: hand.decisions[step].played_tile };
   assert.deepEqual([insight.at(`${hand.index}:${step - 1}`), insight.at(`${hand.index}:${step + 1}`), held.read], [null, null, 0]);
@@ -431,13 +437,13 @@ test("a match's reasoning writes a hand's tables once, says nothing of a decisio
   insight.leave(keyOf(entry));
   assert.deepEqual(saidLines(insight.at(keyOf(entry)).why.result), [WHY_SAID]);
   assert.deepEqual(network.sizes, [2], 'the unedited table and the furiten taken away, asked once');
-  assert.equal(held.read, 1, "the hand's tables are written once");
+  assert.equal(held.read, 0, "the hand's tables are the review's: no match is replayed to write them");
   assert.deepEqual(heard, ['asking', 'done'], 'every change is heard');
 });
 
 test('a search shows how far it has got, a step away or Cancel stops it and forgets it, the review waiting only for the pass the worker has, and one had is kept', async () => {
   const worker = workerOfPasses(), { insight: reasoning, notes, asking } = insightOf(worker), review = anyGate(notes, asking);
-  const insight = new MatchInsight(Game, reviewOf().review, reasoning), key = keyOf(entry);
+  const insight = new MatchInsight(reviewOf().review, reasoning), key = keyOf(entry);
   const searching = () => insight.at(key).search;
   // Pressed, it is under way at once, the unedited table, its 35 changes and
   // room for 28 pairs planned, and its first pass with the worker.
@@ -482,7 +488,7 @@ test('a search shows how far it has got, a step away or Cancel stops it and forg
 test('stopping the reasoning stops every Why line and search under way, and one that failed is said so and asked again', async () => {
   const later = questions.find(question => question.id === 's3-4');
   const worker = workerOfPasses({ asked: [entry, later] }), { insight: reasoning, notes, asking } = insightOf(worker);
-  const insight = new MatchInsight(Game, reviewOf([entry, later]).review, reasoning), review = anyGate(notes, asking);
+  const insight = new MatchInsight(reviewOf([entry, later]).review, reasoning), review = anyGate(notes, asking);
   insight.explain(keyOf(entry));
   insight.search(keyOf(later));
   await until(() => worker.sent === 1, "the Why line's pass is with the worker");
@@ -495,7 +501,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   // A worker that fails every request, as one reset fails them. The Why
   // line had its fact before its check asked, and says it, not checked.
   const failing = insightOf({ analyzeBatch: async () => { throw new Error('The trained opponent did not answer in time'); } });
-  const broken = new MatchInsight(Game, reviewOf().review, failing.insight), key = keyOf(entry);
+  const broken = new MatchInsight(reviewOf().review, failing.insight), key = keyOf(entry);
   broken.explain(key);
   broken.search(key);
   await until(() => broken.at(key).why.state === 'failed' && broken.at(key).search?.state === 'failed', 'both fail');
@@ -509,7 +515,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
   assert.equal(broken.at(key).why.state, 'asking', 'a failed Why line is asked again as it is shown again');
   await until(() => broken.at(key).why.state === 'failed', 'and fails again');
   // A Why line that fails before it has its fact says only that it failed.
-  const thrown = new MatchInsight(Game, reviewOf().review, { why: async () => { throw new Error('The engine refused this table'); } });
+  const thrown = new MatchInsight(reviewOf().review, { why: async () => { throw new Error('The engine refused this table'); } });
   thrown.explain(key);
   await until(() => thrown.at(key).why.state === 'failed', 'it fails');
   assert.deepEqual(thrown.at(key).why, { state: 'failed', result: null, failure: 'The engine refused this table' });
@@ -517,7 +523,7 @@ test('stopping the reasoning stops every Why line and search under way, and one 
 
 test('a search pressed is under way at once, planned as the most it can ask, and asks nothing until the page has drawn it; stopped meanwhile, it never asks', async () => {
   const worker = workerOfPasses(), { insight: reasoning } = insightOf(worker), key = keyOf(entry);
-  const insight = new MatchInsight(Game, reviewOf().review, reasoning);
+  const insight = new MatchInsight(reviewOf().review, reasoning);
   insight.search(key);
   const { search, most } = insight.at(key);
   assert.deepEqual([search.state, search.planned, most, worker.sent], ['searching', 64, 64, 0]);
@@ -541,7 +547,7 @@ test("a search that finds Trained AI answering the decision's table otherwise th
   const decision = held.review.hands[plain.record.hand].decisions[plain.record.decision];
   decision.weighted = decision.weighted.map(choice => (choice.kind === 'discard' && choice.tile === plain.played.tile
     ? { ...choice, weight: choice.weight + 0.01 } : choice));
-  const insight = new MatchInsight(Game, held.review, reasoning), key = keyOf(plain);
+  const insight = new MatchInsight(held.review, reasoning), key = keyOf(plain);
   insight.explain(key);
   await until(() => insight.at(key).why.state === 'done', 'the Why line is had');
   assert.deepEqual([insight.at(key).why.result.label, network.sizes], ['Why', []], 'explained, asking nothing');
@@ -595,7 +601,7 @@ test("the search is not offered below the margin floor, nor where the Why line f
   // East 2 · 2 honba #14 is chosen by a margin of -9.2.
   const sure = questions.find(question => question.id === 'e2b-14');
   const network = recordedNetwork({ asked: [entry, sure] }), { insight: reasoning } = insightOf(network), held = reviewOf([entry, sure]);
-  const insight = new MatchInsight(Game, held.review, reasoning);
+  const insight = new MatchInsight(held.review, reasoning);
   assert.deepEqual([insight.at(keyOf(sure)).tables, insight.at(keyOf(sure)).offered], [0, false]);
   insight.explain(keyOf(sure));
   await until(() => insight.at(keyOf(sure)).why.state === 'done', 'its Why line is had all the same');
@@ -613,12 +619,11 @@ test("the search is not offered below the margin floor, nor where the Why line f
   assert.equal(insight.at(keyOf(entry)).offered, false);
 });
 
-test('a hand that cannot be replayed to write its tables says nothing of its decisions, and asks nothing', () => {
+test('a hand whose tables the review could not write says nothing of its decisions, and asks nothing', () => {
   const held = reviewOf(), sizes = [];
-  // A saved first move that no table could hold.
-  const { commands } = held.review.snapshot;
-  held.review.snapshot = { ...held.review.snapshot, commands: [{ type: 'choose', kind: 'discard', tile: '9z' }, ...commands.slice(1)] };
-  const insight = new MatchInsight(Game, held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
+  // The hand reviewed, its decisions answered, and no table to ask about.
+  held.review.hands[entry.record.hand].tables = null;
+  const insight = new MatchInsight(held.review, insightOf({ analyzeBatch: async positions => { sizes.push(positions.length); return []; } }).insight);
   assert.equal(insight.at(keyOf(entry)), null);
   insight.explain(keyOf(entry));
   insight.search(keyOf(entry));

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { eachDecision, reviewCheckGame } from './review-check-game.js';
-import { applyEdits, sameMove, scoreEdit, singleEdits } from '../../src/lib/review-insight.js';
+import { sameMove } from '../../src/lib/action-weights.js';
+import { applyEdits, scoreEdit, singleEdits } from '../../src/lib/review-insight.js';
 
 /** The "What would change its mind?" prototype's eight questions, as it ran
  * them on Trained AI 0.1.1110 (insight/prototype/out/results-run1.json):

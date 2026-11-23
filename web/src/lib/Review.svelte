@@ -4,8 +4,9 @@
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
+  import { agreement } from './game-review.js';
   import { reviewWithStrong } from './review-policy.js';
-  import { reviewFallbackNote, waitingNote } from './ui.js';
+  import { fromWaiting, land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
   import { trainedName } from './trained-network.js';
 
   /**
@@ -16,7 +17,12 @@
    */
   // Trained AI is the default adviser, as readSettings has it. The heading
   // is bound so that the result's button, which goes as it opens the review,
-  // can hand focus to it (App). `onask` is told as the review begins to ask
+  // can hand focus to it (App). It is a second-level heading, as the
+  // result's own, the standings' and the review of the game's are: the
+  // review is a part of the page beside the result, not a part of it, and on
+  // a phone the result's sheet steps aside as it opens, its heading out of
+  // the page's outline with it, where a third-level one then followed the
+  // page's first or the standings'. `onask` is told as the review begins to ask
   // Trained AI, and answers what to call once it stops asking: the review of
   // the game so far, which asks the same worker, waits for it meanwhile
   // (App). Without a listener there is nothing to tell. `hideAnswers` is the
@@ -38,7 +44,18 @@
   // and says so; the chosen adviser is kept, and takes over once it can.
   let trainedPossible = $derived(trainedAvailable && Boolean(engine));
   let reviewer = $derived(adviser === 'strong' && trainedPossible ? 'strong' : 'club');
-  let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : notes);
+  // A decision with one legal move, such as the discard after a riichi, was
+  // no choice. Trained AI's notes say which those were (reviewWithStrong);
+  // Club's do not, so the engine is asked how many moves were open at each,
+  // while the hand is still there to ask. Without it every decision counts
+  // as a choice, as before.
+  let clubNotes = $derived.by(() => {
+    if (!engine) return notes;
+    try {
+      return notes.map((note, index) => ({ ...note, forced: engine.review_choices(index).length === 1 }));
+    } catch { return notes; }
+  });
+  let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : clubNotes);
   // A first Trained review can be what downloads the network.
   let download = $derived(waitingNote(workerNote, offline));
 
@@ -53,14 +70,24 @@
     const frame = requestAnimationFrame(() => { timer = setTimeout(() => { linesKnown = true; }, 100); });
     return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
   });
-  // Why Club reviews in Trained AI's place, while it does, and how far
-  // Trained AI has got, while it reviews.
+  // Why Club reviews in Trained AI's place, while it does, and that Trained
+  // AI is reviewing, while it does. How far it has got is drawn beside that
+  // line, not in it: the count changes at every decision, and the download's
+  // note at every percent, too often to be read out, and a status line is
+  // read out whenever its words change.
   let fallback = $derived(linesKnown && adviser === 'strong' && reviewer === 'club' && notes.length ? reviewFallbackNote(engine) : '');
-  let progress = $derived(linesKnown && reviewing
-    ? `Trained AI is reviewing your decisions… ${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
+  let progress = $derived(linesKnown && reviewing ? 'Trained AI is reviewing your decisions…' : '');
+  let count = $derived(progress ? `${completed} of ${notes.length}${download ? ` · ${download}` : ''}` : '');
 
   let disputed = $derived(activeNotes.filter((note) => !note.agreed));
   let shown = $state('disputed');
+  // How many of the decisions with a choice matched the adviser, counted as
+  // the review of the game counts them (agreement), so that the two give a
+  // hand the same figure: an only move is left out, and its line says so
+  // in place of an answer. Where the hand has one, the count says what it
+  // counts, since it then falls short of the decisions listed.
+  let figure = $derived(agreement(activeNotes));
+  let onlyMoves = $derived(activeNotes.some((note) => note.forced));
 
   // A whole hand played the way the adviser would have is worth saying.
   let clean = $derived(activeNotes.length > 0 && disputed.length === 0);
@@ -117,16 +144,22 @@
     };
   });
 
-  function distance(value) {
-    if (value < 0) return 'complete';
-    if (value === 0) return 'waiting';
-    return `${value} from waiting`;
-  }
+  // Retry Trained review and Review with Club go from the page with the
+  // failure they answer, which would drop keyboard focus to the page. So
+  // focus goes on, before the press is acted on and while its button is
+  // still there, to the review's heading, where it came as the review opened;
+  // the page moves to show it only for a keyboard's press, as it does then
+  // (land).
+  const leaveFailure = event => land(heading, pressedByKeyboard(event));
 </script>
 
-<section class="review" class:hiding aria-label="your decisions this hand" aria-busy={reviewing}>
+<!-- Not marked busy while Trained AI reviews: a screen reader may keep what a
+     busy region says until it is busy no longer, and the line that says the
+     review is under way is in it, empty again by then. `data-reviewing` is
+     for the checks, which wait for the review by it. -->
+<section class="review" class:hiding aria-label="your decisions this hand" data-reviewing={reviewing ? '' : undefined}>
   <header>
-    <h3 tabindex="-1" bind:this={heading}>Your hand, looked at again</h3>
+    <h2 tabindex="-1" bind:this={heading}>Your hand, looked at again</h2>
     <label class="adviser">Review adviser
       <select bind:value={adviser} aria-label="Review adviser">
         <option value="club">Club</option>
@@ -136,21 +169,27 @@
     <!-- This status line, and the one after the header, wait empty and out
          of sight for their words (linesKnown). -->
     <p class="policy-help" class:visually-hidden={!fallback} data-review-fallback role="status">{fallback}</p>
-    {#if activeNotes.length && !reviewing && !failure}
+    {#if figure.decisions && !reviewing && !failure}
       <p class="summary">
-        {activeNotes.length - disputed.length} of {activeNotes.length}
-        {activeNotes.length === 1 ? 'decision' : 'decisions'} matched {reviewer === 'strong' ? trainedName('Trained AI') : 'Club'}.
+        {figure.matched} of {figure.decisions}
+        {figure.decisions === 1 ? 'decision' : 'decisions'}{onlyMoves ? ' with a choice' : ''} matched {reviewer === 'strong' ? trainedName('Trained AI') : 'Club'}.
       </p>
     {/if}
   </header>
 
-  <p class:visually-hidden={!progress} data-review-progress role="status">{progress}</p>
+  <!-- The status line says only that Trained AI is reviewing, once; how far
+       it has got is beside it, on the same line, where it is read when it is
+       looked for and never read out as it changes. -->
+  <div class="progress" class:visually-hidden={!progress}>
+    <p data-review-progress role="status">{progress}</p>
+    {#if count}<p data-review-count>{count}</p>{/if}
+  </div>
   {#if !notes.length}
     <p class="empty">You made no decisions this hand.</p>
-  {:else if reviewing}<!-- The status line above says how far it has got. -->
+  {:else if reviewing}<!-- The line above says that it is, and how far it has got. -->
   {:else if failure}
-    <p role="alert">{failure} <button class="retry" onclick={() => retry++}>Retry Trained review</button>
-      <button class="retry" data-review-club onclick={() => adviser = 'club'}>Review with Club</button></p>
+    <p role="alert">{failure} <button class="retry" data-review-retry onclick={event => { leaveFailure(event); retry++; }}>Retry Trained review</button>
+      <button class="retry" data-review-club onclick={event => { leaveFailure(event); adviser = 'club'; }}>Review with Club</button></p>
   {:else}
     {#if clean}<p class="clean">Every move was the one the adviser would have made.</p>{/if}
     {#if !clean}
@@ -171,7 +210,14 @@
            keyboard focus stays on it. -->
       <button class="answers" data-show-answers onclick={() => { answersShown = !answersShown; }}>{answersShown ? 'Hide answers' : 'Show answers'}</button>
     {/if}
-    <ol>
+    <!-- The list scrolls in a box of its own, and nothing in it takes
+         focus, so the box does, for the keys that scroll to scroll it: a
+         browser that gives such a box no focus by itself, as Safari, left
+         a keyboard no way to its lower lines. It says that it is a list in
+         so many words, as the review of the game's lists do (ReviewIndex):
+         Safari does not tell VoiceOver that one drawn without markers is. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <ol role="list" aria-label="decisions" tabindex="0">
       {#each listed as note, index (index)}
         <li class:agreed={note.agreed && !hiding}>
           {#if note.call_tile}<p class="call-context">Response to <Tile tile={note.call_tile} size="tiny" dora={hints && (note.dora_types ?? []).includes(note.call_tile)} /> from {note.call_from}</p>{/if}
@@ -194,7 +240,9 @@
             {/if}
           </div>
 
-          {#if hiding}<!-- The adviser's answer waits for Show answers. -->
+          <!-- An only move has no answer to keep back or to show. -->
+          {#if note.forced}<p class="only">Only move</p>
+          {:else if hiding}<!-- The adviser's answer waits for Show answers. -->
           {:else if reviewer === 'strong'}
             <ReviewPreference {note} />
           {:else if !note.agreed}
@@ -203,7 +251,9 @@
             <table class="numbers">
               <thead>
                 <tr>
-                  <th scope="col"></th>
+                  <!-- The corner heads nothing, so it is no header: an empty
+                       one is announced as a column without a name. -->
+                  <td></td>
                   <th scope="col">{note.played_tile ? tileWords(note.played_tile) : 'played'}</th>
                   <th scope="col">
                     {note.advised_tile ? tileWords(note.advised_tile) : 'advised'}
@@ -213,8 +263,8 @@
               <tbody>
                 <tr>
                   <th scope="row">Hand left</th>
-                  <td>{distance(note.shanten_played)}</td>
-                  <td>{distance(note.shanten_advised)}</td>
+                  <td>{fromWaiting(note.shanten_played)}</td>
+                  <td>{fromWaiting(note.shanten_advised)}</td>
                 </tr>
                 <tr>
                   <th scope="row">Tiles that improve it</th>
@@ -271,7 +321,7 @@
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  h3 {
+  h2 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
@@ -284,14 +334,14 @@
      the edge of the screen, below the game's bar where that stays at the top
      of the screen (AppSettings), and on a phone clear of the result's chip at
      the foot of the screen (ScoreScreen). */
-  h3:focus { outline: none; }
-  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-  h3 { scroll-margin: 8px 0; }
+  h2:focus { outline: none; }
+  h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h2 { scroll-margin: 8px 0; }
   @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
-    h3 { scroll-margin-top: 72px; }
+    h2 { scroll-margin-top: 72px; }
   }
   @media (max-width: 760px) {
-    h3 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+    h2 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
   .adviser { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: .85rem; }
@@ -299,6 +349,12 @@
   option { background: #17241f; color: var(--ivory); }
   .retry { cursor: pointer; }
   .policy-help { font-size: .8rem; opacity: .75; margin: 8px 0 0; }
+  /* That Trained AI is reviewing, and how far it has got, read as one line,
+     a word's space apart, with a paragraph's room above and below; the count
+     takes a line of its own where the two do not fit. */
+  .progress { display: flex; flex-wrap: wrap; gap: 0 .3em; }
+  .progress:not(.visually-hidden) { margin: 1em 0; }
+  .progress p { margin: 0; }
   .call-context { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .8rem; }
 
   .summary,
@@ -421,13 +477,24 @@
     opacity: 0.85;
   }
 
-  .why.quiet {
+  .why.quiet,
+  .only {
     opacity: 0.6;
   }
 
+  .only {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  /* No wider than it needs to be read across, as the review of the game
+     draws the same numbers (DecisionReplay), and each column's values under
+     its heading: across the whole review a column was hundreds of pixels
+     wide, and a value set at its right edge read as the next column's. */
   .numbers {
     border-collapse: collapse;
     width: 100%;
+    max-width: 560px;
     table-layout: fixed;
     overflow-wrap: anywhere;
     font-size: 0.82rem;
@@ -450,7 +517,6 @@
 
   .numbers td {
     padding: 1px 14px 1px 0;
-    text-align: right;
   }
 
   .worse {

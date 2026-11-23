@@ -4,6 +4,7 @@
   import OpponentDialog from '../../src/lib/app/OpponentDialog.svelte';
   import PlayerHand from '../../src/lib/app/PlayerHand.svelte';
   import Seat from '../../src/lib/Seat.svelte';
+  import DecisionFilter from '../../src/lib/DecisionFilter.svelte';
   import TurnChoices from '../../src/lib/app/TurnChoices.svelte';
   import { TILE_FACE_CONTEXT } from '../../src/lib/tile-faces.js';
   import { MANIFEST } from '../../src/lib/model-manifest.js';
@@ -35,6 +36,11 @@
   let opponentMelds = $state<MeldView[]>([]);
   let opponent = $derived<SeatView>({ seat: 'south', player: 1, score: 25000, turn: false, riichi: false, hand: [], drawn: null,
     discards: [], melds: opponentMelds });
+  // The game review's filter over counts that grow as a review going on
+  // flags another decision.
+  let filter = $state('flagged');
+  let filterCounts = $state({ flagged: 2, differed: 5, every: 9 });
+  let filterComplete = $state(false);
   const choices: LegalChoice[] = ['1m', '2m', '3m'].map(tile => ({ kind: 'discard', tile }));
   const engine: DiscardAnalyser = { discard_hint: () => ({ shanten: 0, waits: ['1m'], waits_left: [2] }) };
   setContext(TILE_FACE_CONTEXT, () => tileFace);
@@ -65,6 +71,11 @@
   <div data-fixture-seat="review"><Seat seat={{ ...opponent, hand_size: 10 }} review /></div>
   <button type="button" data-fixture-call onclick={() => opponentMelds = [chii]}>Call a chii</button>
   <button type="button" data-fixture-uncall onclick={() => opponentMelds = []}>Step back before the chii</button>
+  <div data-fixture-filter><DecisionFilter bind:value={filter} counts={filterCounts} complete={filterComplete} over={true}
+    label="Which decisions to step through" /></div>
+  <button type="button" data-fixture-flag onclick={() => filterCounts = { ...filterCounts, flagged: filterCounts.flagged + 1, differed: filterCounts.differed + 1 }}>Flag another decision</button>
+  <button type="button" data-fixture-unflag onclick={() => filterCounts = { ...filterCounts, flagged: 0 }}>Flag none</button>
+  <button type="button" data-fixture-complete onclick={() => filterComplete = true}>Review every hand</button>
   <output data-parent-state>{JSON.stringify({ mode, settingsOpen, hints, confirmDiscards, shortcuts, tileFace, opponents, selected, callbacks, handBound: Boolean(handElement) })}</output>
 </main>
 

@@ -35,16 +35,19 @@
    * whether a keyboard pressed it (pressedByKeyboard). A move the player
    * picked before the answer was shown (`pick`) is given as Now, between the
    * two. `hiding` is whether the settings keep anything back at all, at any
-   * decision, so that the line keeps the reveal's room at every one.
+   * decision, so that the line keeps the reveal's room at every one. With
+   * `hints` a tile of the line that is dora is marked so, as the same tile is
+   * in the list, in the hand and in Trained AI's view.
    */
   let { hand, step, decision = null, previous = null, next = null, waiting = false, filter = 'every', moveHidden = false, tilesHidden = false,
-    hiding = false, pick = null, onstep, onreveal = () => {}, height = $bindable(0) } = $props();
+    hiding = false, pick = null, hints = true, onstep, onreveal = () => {}, height = $bindable(0) } = $props();
 
   // What Previous and Next step to, after the word each shows, which their
   // names begin with, so that a player who says the word reaches the button.
   const STEPS = { flagged: 'flagged decision', differed: 'decision where Trained AI differed', every: 'decision' };
 
   let frame = $derived(hand.frames[step]);
+  let dora = $derived(hints ? frame.view.dora_types ?? [] : []);
   let brief = $derived(decisionInBrief(frame, decision, { hidden: moveHidden }));
   let said = $derived(stepSaid({ hand, step, decision, hidden: moveHidden, pick }));
   // The weights the line gives where Trained AI was asked and its answer is
@@ -112,7 +115,7 @@
   <!-- "decision" goes on the narrowest screens, as "Trained" does below. -->
   <p class="place" data-step>{hand.name} · <span class="long">{'decision '}</span>{step + 1} of {hand.frames.length}</p>
   <p class="moves" class:hiding data-move-line>
-    {#if brief.offered}<span class="on">On {discarder}'s{robbing ? ' kan' : ''} <Tile tile={brief.offered} size="tiny" />:</span>{/if}
+    {#if brief.offered}<span class="on">On {discarder}'s{robbing ? ' kan' : ''} <Tile tile={brief.offered} size="tiny" dora={dora.includes(brief.offered)} />:</span>{/if}
     <span class="part">You {@render token(brief.you)}{#if yours?.rule}{' '}{@render byRule()}{:else if yours?.weight != null}{' '}{percent(yours.weight)}{#if yours.given && !brief.ai}, given riichi{/if}{/if}</span>
     {#if now}
       <span class="dot" aria-hidden="true">·</span>
@@ -145,7 +148,7 @@
 </div>
 
 {#snippet token(move)}
-  <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" />{/each}</span>
+  <span class="token">{#if move.word}<span>{move.word}</span>{/if}{#each move.tiles as tile, index (index)}<Tile {tile} size="tiny" dora={dora.includes(tile)} />{/each}</span>
 {/snippet}
 
 {#snippet byRule()}

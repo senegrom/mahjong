@@ -228,6 +228,42 @@ try {
     await page.click('[data-fixture-uncall]');
     assert.equal((await words()).review, null);
   });
+  await check("the review's filter says what it keeps as it is pressed, goes quiet once a review going on has changed what it said, and says there is none only once every hand is reviewed", desktop, async page => {
+    const option = name => `[data-fixture-filter] [data-filter-option="${name}"]`;
+    const said = () => page.$eval('[data-fixture-filter] [data-filter-said]', el => el.textContent);
+    const focused = name => page.$eval(option(name), el => el === document.activeElement);
+    assert.equal(await said(), '', 'the line waits in the page, empty');
+    await page.click(option('flagged'));
+    assert.equal(await said(), '2 flagged decisions.');
+    // A hand reviewed meanwhile flags another decision. The press is a
+    // script's, which moves no focus, so the line cannot have gone quiet for
+    // focus leaving the buttons: it goes quiet for the count it has outgrown.
+    await page.$eval('[data-fixture-flag]', el => el.click());
+    await page.waitForFunction(selector => document.querySelector(selector).textContent.trim() === 'Flagged (3)', { timeout: 5000 }, option('flagged'));
+    assert.equal(await focused('flagged'), true, 'focus is still on the button pressed');
+    await page.waitForFunction(() => document.querySelector('[data-fixture-filter] [data-filter-said]').textContent === '', { timeout: 5000 });
+    // Pressed again, it gives the counts as they now stand, the other filter's too.
+    await page.click(option('differed'));
+    assert.equal(await said(), '6 decisions where Trained AI differed, 3 of them flagged.');
+    assert.equal(await page.$eval(option('differed'), el => el.getAttribute('aria-pressed')), 'true');
+    // And focus leaving the buttons quiets it, as before.
+    await page.focus('[data-fixture-flag]');
+    await page.waitForFunction(() => document.querySelector('[data-fixture-filter] [data-filter-said]').textContent === '', { timeout: 5000 });
+    // A filter that holds no decision says so of the review as it stands:
+    // that there is none yet while a hand is still to review, which may hold
+    // one, and that there is none only once every hand is reviewed.
+    await page.$eval('[data-fixture-unflag]', el => el.click());
+    await page.waitForFunction(selector => document.querySelector(selector).textContent.trim() === 'Flagged (0)', { timeout: 5000 }, option('flagged'));
+    await page.click(option('flagged'));
+    assert.equal(await said(), 'None flagged yet.');
+    // The last hand reviewed, the counts as they were: "yet" is true no
+    // longer, so the line goes quiet, and pressed again says there is none.
+    await page.$eval('[data-fixture-complete]', el => el.click());
+    await page.waitForFunction(() => document.querySelector('[data-fixture-filter] [data-filter-said]').textContent === '', { timeout: 5000 });
+    assert.equal(await focused('flagged'), true);
+    await page.click(option('flagged'));
+    assert.equal(await said(), 'None flagged.');
+  });
   await check('scoped wait counts and drawn gaps retain their effective styles without control leakage', desktop, async page => {
     for (const [width, gap] of [[1100, 18], [820, 18], [390, 14]]) {
       await page.setViewport({ width, height: 1000 });

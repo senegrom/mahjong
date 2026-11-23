@@ -230,14 +230,31 @@ try {
     await page.waitForSelector('.screen .quiet'); await page.click('.screen .quiet');
     await page.waitForSelector('select[aria-label="Review adviser"]');
     await downloading(page, '.review');
-    assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions… 0 of \d+ · downloading the trained network/);
+    // The status line says only that Trained AI is reviewing; the count and
+    // the download's note, which change too often to be read out, are beside it.
+    assert.match(await page.$eval('.review', el => el.textContent), /Trained AI is reviewing your decisions…\s*0 of \d+ · downloading the trained network/);
+    assert.equal(await page.$eval('.review [data-review-progress]', el => el.textContent.trim()), 'Trained AI is reviewing your decisions…');
+    assert.match(await page.$eval('.review [data-review-count]', el => el.textContent.trim()), /^0 of \d+ · downloading the trained network/);
     release();
     await page.waitForSelector('.review [role="alert"] [data-review-club]', { timeout: 120000 });
     assert.ok(await page.evaluate(() => window.networkDownloads) > 0, 'the trained review asked for the network');
     assert.deepEqual(await page.$$eval('.review [role="alert"] button', buttons => buttons.map(button => button.textContent.trim())),
       ['Retry Trained review', 'Review with Club']);
+    // Either button goes from the page with the failure it answers, so focus
+    // goes on to the review's heading rather than dropping to the page.
+    // Retry, pressed by keyboard: the retry fails as the first try did, and
+    // says so in an alert of its own.
+    const onHeading = () => page.evaluate(() => document.activeElement?.matches('.review h2') ?? false);
+    await page.$eval('.review [role="alert"]', el => { el.dataset.first = ''; });
+    await page.focus('.review [data-review-retry]');
+    await page.keyboard.press('Enter');
+    assert.equal(await onHeading(), true, 'Retry Trained review hands focus on to the heading');
+    await page.waitForSelector('.review [role="alert"]:not([data-first]) [data-review-club]', { timeout: 120000 });
+    assert.equal(await onHeading(), true, 'focus stays there as the retry fails');
+    // Review with Club, pressed by pointer.
     await page.click('[data-review-club]');
     await page.waitForFunction(() => document.querySelector('.review .summary')?.textContent.includes('matched Club'));
+    assert.equal(await onHeading(), true, 'Review with Club hands focus on to the heading');
     assert.equal(await page.$eval('select[aria-label="Review adviser"]', el => el.value), 'club');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).reviewAdviser === 'club', {}, SETTINGS_KEY);
     assert.deepEqual(page.problems, []);

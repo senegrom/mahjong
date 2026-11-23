@@ -740,7 +740,7 @@
           onComplete: review => {
             reviewTrend = recordTrend(storage, { ...review.summary, network: network.version, at: Date.now() });
           } });
-        matchInsight = new MatchInsight(Game, matchReview, reasoning);
+        matchInsight = new MatchInsight(matchReview, reasoning);
         reviewPlace = null;
         reviewRevealed = {};
       }

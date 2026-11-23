@@ -11,6 +11,7 @@
  * the end of each hand to ask about that hand's decisions, which is what the
  * per-hand review asks (review-policy.js), here in batches.
  */
+import { sameMove } from './action-weights.js';
 import { MatchSession } from './session.js';
 import { reviewWithStrong } from './review-policy.js';
 import { SEAT_NAMES, tileWords } from './tiles.js';
@@ -72,21 +73,39 @@ export const SLOW_MS = 500;
  * game has a name of its own. */
 export const handName = view => `${SEAT_NAMES[view.round] ?? view.round} ${view.kyoku}${view.counters ? ` · ${view.counters} honba` : ''}`;
 
-/** Every hand of a match, replayed from its first deal: the table at each of
- * the player's decisions, every player's tiles there, what the player chose,
- * and what happened between; how the hand ended and what it changed for the
- * player; and which saved command closed it. A finished match is replayed to
- * its end. A match waiting at a hand's result is replayed to that hand, which
- * closes at the command that will deal the next, so that a hand closes at the
- * same command before the match goes on and after. Throws when the replay
- * does not end exactly where the match did, or ends in a hand being played or
- * one just dealt. */
-export function scanMatch(Game, snapshot) {
-  const match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
-  try {
-    const hands = [];
-    let lines = match.engine.advance(), hand = null;
-    const begin = () => ({ index: hands.length, name: handName(match.view), counters: match.view.counters, seat: match.view.seats[0].seat, frames: [] });
+/** A match's hands, scanned as far as the match is saved, and on from there
+ * each time it is saved later (`on`), on one session of the match played from
+ * its first deal: the table at each of the player's decisions, every
+ * player's tiles there, what the player chose, and what happened between;
+ * how each hand ended and what it changed for the player; and which saved
+ * command closed it. A finished match is played to its end. A match waiting
+ * at a hand's result is played to that hand, which closes at the command that
+ * will deal the next, so that a hand closes at the same command before the
+ * match goes on and after, and a scan that goes on from a result has that
+ * hand already. A scan that throws has stopped part of the way, and is good
+ * for nothing more: whoever keeps it lets it go (`dispose`). */
+class Scan {
+  constructor(Game, snapshot) {
+    this.match = new MatchSession(Game, snapshot.seed, snapshot.opponents);
+    // What has happened since the player's last decision, or since the deal.
+    this.lines = this.match.engine.advance();
+    // The hand begun and not yet closed; how many saved commands are played
+    // and how many hands closed; and whether the hand on the table, at its
+    // result, is closed already, where the command that deals the next will
+    // go.
+    this.hand = null;
+    this.at = 0;
+    this.count = 0;
+    this.atResult = false;
+  }
+
+  /** Plays on to where `snapshot` was saved, the same match saved now or
+   * later, and answers the hands closed on the way, in the order played.
+   * Throws when the replay does not end exactly where the match did, or
+   * ends in a hand being played or one just dealt. */
+  on(snapshot) {
+    const { match } = this, hands = [];
+    const begin = () => ({ index: this.count + hands.length, name: handName(match.view), frames: [] });
     // The hand on the table is over; `end` is the saved command that deals
     // the next, or where that command will go.
     const close = end => {
@@ -94,30 +113,39 @@ export function scanMatch(Game, snapshot) {
       // of the table's seats, the tile just drawn held apart. This replay's
       // engine answers only once the hand is over, as it is here, since
       // while a hand is played they are what the table hides.
-      hand.frames.forEach((frame, index) => { frame.hands = match.engine.review_hands(index); });
+      this.hand.frames.forEach((frame, index) => { frame.hands = match.engine.review_hands(index); });
       const { outcome } = match.view;
-      Object.assign(hand, { end, outcome: outcome?.line ?? '', change: outcome?.changes?.[0] ?? 0 });
-      hands.push(hand);
-      hand = null;
-      lines = [];
+      Object.assign(this.hand, { end, outcome: outcome?.line ?? '', change: outcome?.changes?.[0] ?? 0 });
+      hands.push(this.hand);
+      this.hand = null;
+      this.lines = [];
     };
-    for (const [at, command] of snapshot.commands.entries()) {
-      hand ??= begin();
-      if (command.type === 'choose') {
-        hand.frames.push({ view: match.view, choices: match.choices, lines, command: at,
-          played: { kind: command.kind, tile: command.tile ?? null } });
-        lines = [];
-      } else if (command.type === 'next') close(at);
+    for (; this.at < snapshot.commands.length; this.at++) {
+      const command = snapshot.commands[this.at];
+      if (this.atResult) {
+        // The hand at its result was closed as the scan last stopped, at this
+        // very command, which can only be the one that deals the next.
+        if (command.type !== 'next') throw new Error('A hand at its result was not dealt on from');
+        this.atResult = false;
+      } else {
+        this.hand ??= begin();
+        if (command.type === 'choose') {
+          this.hand.frames.push({ view: match.view, choices: match.choices, lines: this.lines, command: this.at,
+            played: { kind: command.kind, tile: command.tile ?? null } });
+          this.lines = [];
+        } else if (command.type === 'next') close(this.at);
+      }
       match.apply(command);
-      if (!match.over) lines = [...lines, ...match.engine.advance()];
+      if (!match.over) this.lines = [...this.lines, ...match.engine.advance()];
     }
     // A match waiting at a hand's result: that hand is over, and closes where
     // the command that deals the next will go. A hand that asked the player
     // nothing, such as one won before the player's first turn, may have had
     // no command of its own to begin it.
-    if (!match.over && match.engine.hand_is_over()) {
-      hand ??= begin();
+    if (!this.atResult && !match.over && match.engine.hand_is_over()) {
+      this.hand ??= begin();
       close(snapshot.commands.length);
+      this.atResult = true;
     }
     // A replay that does not end where the match was saved went another way,
     // and is refused. That is checked first, so that one that went another
@@ -128,9 +156,19 @@ export function scanMatch(Game, snapshot) {
     // page says either reason after "The game could not be replayed for
     // review:".
     if (match.stateKey() !== snapshot.state) throw new Error('The replay did not end where the match did');
-    if (hand || !match.engine.hand_is_over()) throw new Error('A hand is still being played');
+    if (this.hand || !match.engine.hand_is_over()) throw new Error('A hand is still being played');
+    this.count += hands.length;
     return hands;
-  } finally { match.dispose(); }
+  }
+
+  dispose() { this.match.dispose(); }
+}
+
+/** Every hand of a match as it was saved, replayed from its first deal on a
+ * session of its own (Scan). Throws as a scan does. */
+export function scanMatch(Game, snapshot) {
+  const scan = new Scan(Game, snapshot);
+  try { return scan.on(snapshot); } finally { scan.dispose(); }
 }
 
 /** A replay that moves forward through a match's commands, so a hand's
@@ -282,14 +320,29 @@ export function hiddenAt(decision, reveal, { hideMove = false, hideTiles = false
  * the tiles over and leaves the move to be answered once Trained AI has. */
 export const revealing = (decision, pick = null) => ({ pick, answer: Boolean(decision) });
 
+/** What the review says where a filter holds no decision, in its list and as
+ * the filter is chosen (filterSaid), in the same words. That none is flagged,
+ * or that Trained AI agreed at every decision, is true only once every hand
+ * is reviewed (`complete`): before that a hand still to review may hold one,
+ * so it says only that there is none yet. Every decision is known before
+ * Trained AI answers, so that filter holds none only where the player made
+ * none: none at all once the match is `over`, none yet while it is played. */
+export function noneSaid(filter, { complete = true, over = true } = {}) {
+  if (filter === 'every') return over ? 'You made no decisions.' : 'No decisions yet.';
+  if (filter === 'flagged') return complete ? 'None flagged.' : 'None flagged yet.';
+  return complete ? 'Trained AI agreed at every decision.' : 'None differed yet.';
+}
+
 /** What the review says as the player chooses its filter: how many decisions
  * Previous and Next now step through, and of which kind, the flagged ones
- * among those where Trained AI differed counted too. Every list is in the
- * order played, so it says no order. It is said as a button is pressed, so
- * it names the decisions without saying that they are shown. */
-export function filterSaid(filter, counts) {
+ * among those where Trained AI differed counted too; or, where the filter
+ * holds none, what that means of the `review` so far, `{ complete, over }`
+ * (noneSaid). Every list is in the order played, so it says no order. It is
+ * said as a button is pressed, so it names the decisions without saying that
+ * they are shown. */
+export function filterSaid(filter, counts, review = {}) {
   const count = counts[filter], s = count === 1 ? '' : 's';
-  if (!count) return { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.', every: 'No decisions.' }[filter];
+  if (!count) return noneSaid(filter, review);
   return {
     flagged: `${count} flagged decision${s}.`,
     differed: `${count} decision${s} where Trained AI differed${counts.flagged ? `, ${counts.flagged} of them flagged` : ''}.`,
@@ -368,7 +421,17 @@ export class MatchReview {
     this.onChange = onChange;
     this.onComplete = onComplete;
     this.now = now;
-    this.hands = scanMatch(Game, snapshot).map(hand => ({ ...hand, status: 'waiting', decisions: null }));
+    // The match's hands, scanned on a session kept while the match is under
+    // way, so that a later result is scanned on from this one (extend), not
+    // from the first deal again. A finished match has no more to scan.
+    this.scan = new Scan(Game, snapshot);
+    try {
+      this.hands = this.scan.on(snapshot).map(hand => ({ ...hand, status: 'waiting', decisions: null }));
+    } catch (error) {
+      this.scan.dispose();
+      throw error;
+    }
+    if (this.over) this.endScan();
     this.queue = [];
     this.busy = false;
     this.failure = '';
@@ -424,7 +487,6 @@ export class MatchReview {
     return indices.length ? [opened, ...indices.filter(index => index !== opened)] : [];
   }
   get decisions() { return this.hands.flatMap(hand => hand.decisions ?? []); }
-  get reviewedHands() { return this.hands.filter(hand => hand.status === 'done').length; }
   get complete() { return this.hands.every(hand => hand.status === 'done'); }
   /** Decisions still to ask about: those of the hands not yet done. */
   get remaining() { return this.hands.filter(hand => hand.status !== 'done').reduce((sum, hand) => sum + hand.frames.length, 0); }
@@ -451,7 +513,32 @@ export class MatchReview {
     return { id: this.id, matched, decisions, flagged: flaggedCount(this.decisions), suits: true };
   }
 
-  notify() { if (!this.closed) this.onChange(this); }
+  /** Lets go of the session the match's hands are scanned on: once the
+   * match is over, where a scan on it could not go on, and as the review is
+   * closed. */
+  endScan() {
+    this.scan?.dispose();
+    this.scan = null;
+  }
+
+  /** Tells whoever shows the review that it has changed. The page tells it
+   * so too as the review's batches move to the graphics card or back (App,
+   * reportRuntime), where the time a position is none until a batch is
+   * measured there (positionMs). A hold was made for a device measured slow,
+   * and while it holds nothing but that move can leave the device not known
+   * to be slow: the hold is then lifted first, and the review goes on with
+   * the hands queued, as on any device not yet measured. Its screen would
+   * otherwise offer the next hand by a time a decision it no longer has,
+   * for a wait the card may make a hundred times shorter. Should the device
+   * turn out slow there too, the review holds again after the next hand. */
+  notify() {
+    if (this.closed) return;
+    if (this.held && !this.slow) {
+      this.held = false;
+      void this.pump();
+    }
+    this.onChange(this);
+  }
 
   /** Tells onComplete, once, that every hand of the finished match is
    * reviewed. The game so far is not yet a game for the trend, which
@@ -496,21 +583,30 @@ export class MatchReview {
    * result or finished. Every hand already scanned is kept as it is, with
    * whatever was reviewed of it, since a hand closes at the same command
    * however far the match has gone; only the hands played since are added,
-   * waiting. Throws, and changes nothing, for another match, or for one that
-   * cannot be replayed. */
+   * waiting, scanned on from where the last scan stopped. Throws, and changes
+   * nothing, for another match, or for one that cannot be replayed. */
   extend(snapshot) {
     if (this.closed) return;
     const known = this.snapshot.commands, same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     if (snapshot.seed !== this.snapshot.seed || !same(snapshot.opponents, this.snapshot.opponents) || snapshot.commands.length < known.length
       || known.some((command, at) => !same(command, snapshot.commands[at]))) throw new Error('This is not the match under review');
     if (snapshot.commands.length === known.length) return;
-    const scanned = scanMatch(this.Game, snapshot), wasOver = this.over;
+    // The hands played since are scanned on from the last result. A scan
+    // that cannot go on, or was let go for that before, gives way to one
+    // from the first deal, which says why if the match cannot be replayed.
+    let added = null;
+    try { added = this.scan?.on(snapshot) ?? null; } catch { /* Scanned from the first deal instead. */ }
+    if (!added) {
+      this.endScan();
+      added = scanMatch(this.Game, snapshot).slice(this.hands.length);
+    }
+    const wasOver = this.over;
     this.snapshot = snapshot;
     // The old commands begin the new, so a replay, even one a hand is being
     // reviewed on, plays on from where it is.
     if (this.replay) this.replay.commands = snapshot.commands;
-    const added = scanned.slice(this.hands.length).map(hand => ({ ...hand, status: 'waiting', decisions: null }));
-    this.hands.push(...added);
+    this.hands.push(...added.map(hand => ({ ...hand, status: 'waiting', decisions: null })));
+    if (this.over) this.endScan();
     // New hands, or the match's end, are not yet asked for: opening the
     // review asks for them, the hand just played first, and a slow device
     // holds again after it.
@@ -589,17 +685,26 @@ export class MatchReview {
       },
     });
     if (signal.aborted) throw new DOMException('Review changed', 'AbortError');
+    // The table at each decision as a typed-in position, which the review's
+    // reasoning edits and asks Trained AI about again (MatchInsight). It is
+    // written here, where the replay stands at the hand's end and the engine
+    // still keeps the hand's decisions: written as the reasoning first
+    // wanted one, every hand took a replay of its own from the first deal,
+    // as the page drew. A hand whose tables cannot be written is reviewed
+    // all the same, and the reasoning says nothing of its decisions.
+    hand.tables = null;
+    try { hand.tables = hand.frames.map((_, index) => engine.review_position(index)); } catch { /* Reviewed without them. */ }
     hand.decisions = rows.map((row, index) => {
-      const decision = { ...row, hand: hand.index, index, frame: hand.frames[index] };
+      const decision = { ...row };
       decision.judgement = judgement(decision);
       // The review's numbers for the moves a player compares: what they
       // played, what the network chose and, where it is flagged, every turn
       // move they could have made instead. A response to a discard has none.
       if (!decision.agreed && !decision.forced && !decision.call_tile) {
         const measure = choice => engine.review_measure(index, choice.kind, choice.tile ?? undefined);
+        const played = { kind: decision.played_kind, tile: decision.played_tile }, advised = { kind: decision.advised_kind, tile: decision.advised_tile };
         const moves = decision.judgement?.flagged ? decision.weighted
-          : decision.weighted.filter(choice => sameMove(choice, decision.played_kind, decision.played_tile)
-            || sameMove(choice, decision.advised_kind, decision.advised_tile));
+          : decision.weighted.filter(choice => sameMove(choice, played) || sameMove(choice, advised));
         decision.measures = moves.map(choice => ({ kind: choice.kind, tile: choice.tile ?? null, ...measure(choice) }));
       }
       return decision;
@@ -671,12 +776,8 @@ export class MatchReview {
     this.abort.abort();
     this.replay?.dispose();
     this.replay = null;
+    this.endScan();
   }
-}
-
-/** Whether a choice is the move of this kind and tile. */
-export function sameMove(choice, kind, tile) {
-  return choice.kind === kind && (choice.tile ?? null) === (tile ?? null);
 }
 
 /** What each seat was doing at one of the player's decisions, in the order
@@ -720,7 +821,7 @@ const MOVE_NAMES = Object.freeze({ discard: 'Discard', riichi: 'Riichi', tsumo: 
 
 /** A move at a decision in the engine's words, "discards the red dragon", as
  * the decision's own choices name it. */
-const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move.kind, move.tile))?.label
+const moveWords = (frame, move) => frame.choices.find(choice => sameMove(choice, move))?.label
   ?? MOVE_NAMES[move.kind] ?? move.kind;
 
 /** A decision as a line of the review gives it: the player's move, `you`,
@@ -773,9 +874,9 @@ export function moveToken(kind, tile) {
  * the move Trained AI chose, which is then `rule`: its weight did not choose
  * it. */
 export function moveWeight(decision, move) {
-  if (decision.ruled && sameMove(move, decision.advised_kind, decision.advised_tile)) return { weight: null, given: false, rule: true };
+  if (decision.ruled && sameMove(move, { kind: decision.advised_kind, tile: decision.advised_tile })) return { weight: null, given: false, rule: true };
   const given = move.kind === 'riichi' && decision.played_kind === 'riichi' && decision.advised_kind === 'riichi';
-  const choice = decision.weighted?.find(entry => sameMove(entry, move.kind, move.tile));
+  const choice = decision.weighted?.find(entry => sameMove(entry, move));
   const weight = given ? choice?.conditionalWeight : choice?.weight;
   return { weight: Number.isFinite(weight) ? weight : null, given };
 }

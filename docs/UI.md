@@ -215,7 +215,14 @@ however the button was pressed: the review is what the press brought, and on a
 phone the table and the hand that the sheet uncovered are just above it. A
 screen reader reads the heading out, in the region "your decisions this hand",
 so the player hears where they are, also while Trained AI is still reviewing
-the hand and the region is busy.
+the hand. The region is not marked busy meanwhile: a screen reader may keep
+what a busy region says until it is busy no longer, and the line that says
+the review is under way is in it. The heading is a second-level one, as the
+result's own, the standings' and the review of the game's are. The review is a
+part of the page beside the result, not a part of it, and on a phone the
+result's sheet steps aside as the review opens, its heading out of the page's
+outline with it: a third-level heading then followed the page's first, or the
+standings', with no second between them.
 
 Where the result is not a sheet, at desktop width and held sideways on a phone
 wider than 760 pixels, it covered nothing, and the review opens below it, often
@@ -312,12 +319,22 @@ standings and the settings' **Export game** say their own failures the same
 way, beside their own buttons (below); the notice line now says only what the
 trained network picker could not do.
 
-The review's own status lines, that Trained AI is reviewing the hand and how
-far it has got, and that Club reviews in its place while the network cannot be
-reached, come into the page with the review. They wait in it, empty and out of
-sight, until the review has been drawn and a tenth of a second more, before
-their words arrive, so that a screen reader can hear them after the heading it
-reads out as focus arrives.
+The review's own status lines, that Trained AI is reviewing the hand, and that
+Club reviews in its place while the network cannot be reached, come into the
+page with the review. They wait in it, empty and out of sight, until the review
+has been drawn and a tenth of a second more, before their words arrive, so that
+a screen reader can hear them after the heading it reads out as focus arrives.
+The first says only "Trained AI is reviewing your decisions…", once. How far
+the review has got, and the download it may be waiting for ("3 of 14", "0 of 14
+· downloading the trained network 37%"), is drawn beside it, on the same line,
+and is no part of the status line: it changes at every decision and at every
+percent, and a status line is read out whenever its words change.
+
+Where Trained AI's review of the hand fails, the review says why in an alert,
+with **Retry Trained review** and **Review with Club**. Either button goes from
+the page with the failure it answers, so as it is pressed focus goes on to the
+review's heading, where it came as the review opened, rather than dropping to
+the page; the page moves to show the heading only for a keyboard's press.
 
 With Trained AI as the adviser, each decision gives Trained AI's weight for its
 own choice and, where the player chose otherwise, for the player's move; a
@@ -337,6 +354,24 @@ which a screen reader hears in full; the player's move keeps its weight. The
 tile guide says what the rules do, under "by rule": "In South 4, the last
 hand, Trained AI skips riichi where every win keeps it first, and declines a
 win that would leave it last."
+
+A decision with one legal move, as every discard after a riichi is, was no
+choice. Its line says **Only move** in place of an adviser's answer, whichever
+adviser reviews and whether or not the answers are kept back, and it is left
+out of the decisions matched, as the review of the game leaves it out of its
+own figure, so that the two give a hand the same one. The count then says what
+it counts ("1 of 4 decisions with a choice matched Club.", under **Every
+decision (13)**); a hand without such a move reads as before ("13 of 14
+decisions matched Trained AI 0.1.3000."). Trained AI's notes say which moves
+were the only ones; Club's do not, so the page asks the engine how many moves
+were open at each, while the hand is still there to ask.
+
+The decisions are a list, which says so in so many words, since Safari does
+not tell VoiceOver that a list drawn without markers is one. It scrolls in a
+box of its own, at most 42% of the screen tall, and nothing in it takes focus,
+so the box itself does, named "decisions", for a keyboard to scroll it: Safari
+gives a scrolling box no focus by itself, which left a keyboard no way to the
+list's lower lines.
 
 The notes honour the setting that has reviews keep Trained AI's move back
 (**Hide Trained AI's move in reviews** in Options, `reviewHideMove`, below), so
@@ -570,7 +605,11 @@ the match did, or the review refuses to start and says why ("The game could
 not be replayed for review: The replay did not end where the match did. Your
 saved match is unchanged."). A replay that ends where the match did, but in a
 hand still being played, is refused too ("A hand is still being played"),
-though a review opens only at a result. At the end of each hand the review
+though a review opens only at a result. While the match is under way the
+review keeps the engine it scanned the match's hands on, and at each later
+result scans on from the last one, not from the first deal again; a scan that
+cannot go on gives way to one from the first deal, and a finished match keeps
+none. At the end of each hand the review
 asks the questions the hand review asks (`review-policy.js`), eight positions
 a forward pass, fewer on a slow device: Mortal's planes for each decision as it
 was made, then, where the move is a riichi, the network's or one decline-last
@@ -579,7 +618,13 @@ asked again of the game with characters and circles renamed, in a forward pass
 of their own, and judged by the mean of the two answers' logits, and the last
 hand's rules are played over that ([Agent modes](AGENT_MODES.md)). A move
 with one legal choice, such as the discard after riichi, is not asked and is
-left out of every figure.
+left out of every figure. There too, where its replay stands at the hand's
+end, the review writes the table at each of the hand's decisions as a typed-in
+position (the engine's `review_position`), which its reasoning about a
+decision changes and asks about again (below): written when the reasoning
+first wanted one, each hand took a replay of its own from the first deal,
+while the page drew. A hand whose tables cannot be written is reviewed all the
+same, and the reasoning says nothing of its decisions.
 
 **What is flagged.** A decision is flagged when the player's move had under 5%
 of Trained AI's weight while its own choice had 60% or more, so a network that
@@ -592,7 +637,11 @@ among them: that rule changed 126 deals, 38 of them for the worse. The
 **Flagged** filter's title states the rule ("Your move under 5%, Trained AI's
 choice 60% or more, or a last-hand win that leaves you last"), shown as a
 tooltip and read as the button's description, so it is at hand without taking
-a paragraph of the screen. Riichi is judged in two stages, as the weights are
+a paragraph of the screen. A tooltip shows only under a mouse, so the tile
+guide in the settings says it too, for a finger or a keyboard, under
+"Flagged": "In a review, a decision where your move had under 5% and Trained
+AI's choice 60% or more, or where you took a last-hand win that leaves you
+last." Riichi is judged in two stages, as the weights are
 shown everywhere: when the player and the network both declared, the tiles are
 compared by the discard weights given riichi; otherwise the move itself is
 compared, the declaration carrying its declaration weight. Flagged decisions
@@ -744,7 +793,9 @@ riichi". Where one of the last hand's rules made Trained AI's move, whose
 weight did not choose it, "by rule" stands in that move's weight's place, the
 rule's line its title: "You Riichi [9p] 97.0% · Trained AI [9p] by rule", and
 "You [9p] by rule · Trained AI agreed" where the player made the rule's move
-too. Up to 480 pixels wide "AI" stands for "Trained AI". A status line, in
+too. Up to 480 pixels wide "AI" stands for "Trained AI". With hints on, a
+tile of the line that is dora is marked so, as the same tile is in the list,
+in the hand and in the view. A status line, in
 the page from the start, says the step in one line as it changes ("East 4,
 decision 12 of 15. Your turn, 36 tiles left. You: discards the red dragon,
 2.0%. Trained AI: discards the 8 bamboo, 95.5%. Flagged."), the table in the
@@ -844,7 +895,13 @@ riichi or not, not while Trained AI cannot be reached, and not where the Why
 line found that Trained AI does not answer the decision's table as the review
 recorded. A search finding that first says so ("Asked again, Trained AI
 answered this table differently, so no change was tried."), and the Why line
-is then Not checked too. A search asks 23 to 61 tables, those Trained AI
+is then Not checked too. A table is answered as the review recorded where each
+move's weight is within a thousandth of the review's, the bound the graphics
+card's answers are held to against WebAssembly's before the card is given a
+review's batches ([WebGPU on desktops](ONNX_RUNTIME.md#webgpu-on-desktops)): the first hand of a visit is
+reviewed on WebAssembly and asked again on the card once that serves, so a
+tighter bound here told a card the page had let through that it answered
+differently. A search asks 23 to 61 tables, those Trained AI
 hesitates over twice (102 of the recorded searches' 237): 5 to 14 seconds at
 desktop Chromium's 157 ms a position, 16 to 44 seconds at half a second. A
 step to another decision, **Cancel**, closing the review, the next deal and
@@ -1009,7 +1066,13 @@ takes over half a second a position holds after each hand
 ("Reviewed 1 of 3 hands; about 0.8 seconds a decision on this device.") and
 offers **Review next hand** or **Review the rest**; any hand can also be
 reviewed alone by **Review** in its header in the list, which opens by itself
-once, when the review turns out that slow. After that the list, like the trend,
+once, when the review turns out that slow. A hold is made for a device measured
+slow, so it is lifted where the review's batches move to the graphics card
+meanwhile, or back from it, as on the passes of a search pressed during the
+hold: the time measured says nothing of where they run now, the review has no
+time a decision to offer the next hand by, and it goes on by itself with the
+hands queued, holding again after the next only if it measures the device slow
+there too. After that the list, like the trend,
 stays as the player leaves it, open or folded, as the review goes on. These
 buttons replace one another as the review goes, so focus is handed on rather
 than dropped: from **Stop** to **Continue** and back, from a hand's **Review**

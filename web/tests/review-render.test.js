@@ -46,6 +46,30 @@ test('turn action reviews retain their readiness and improvement comparisons', (
   assert.match(html, /Hand left/);
   assert.match(html, /1 from waiting/);
   assert.match(html, /Tiles that improve it/);
+  // The table's corner heads nothing, so it is a cell: a header without a
+  // name is announced as a column that has none.
+  assert.match(html, /<thead[^>]*><tr[^>]*><td[^>]*><\/td>/);
+  assert.doesNotMatch(html, /<th\b[^>]*><\/th>/);
+});
+
+test("Club's numbers stand under their headings, in a table no wider than the review of the game draws the same numbers", () => {
+  // The styles a browser would lay the table out by, from the two
+  // components' own rules: a value set at the right of a column hundreds of
+  // pixels wide, under a heading at its left, read as the next column's.
+  const rule = (source, selector) => {
+    const style = source.slice(source.indexOf('<style>'));
+    const found = new RegExp(`(?:^|[}\\n])\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(style);
+    assert.ok(found, `a rule for ${selector}`);
+    return Object.fromEntries(found[1].split(';').map(part => part.split(':').map(text => text.trim())).filter(([name, value]) => name && value));
+  };
+  const handSource = readFileSync(new URL('../src/lib/Review.svelte', import.meta.url), 'utf8');
+  const replaySource = readFileSync(new URL('../src/lib/DecisionReplay.svelte', import.meta.url), 'utf8');
+  const [table, heading, value] = ['.numbers', '.numbers th', '.numbers td'].map(selector => rule(handSource, selector));
+  assert.equal(heading['text-align'], 'left');
+  assert.equal(value['text-align'] ?? 'left', heading['text-align'], 'a value is aligned as its heading is');
+  assert.equal(rule(replaySource, '.numbers td')['text-align'] ?? 'left', rule(replaySource, '.numbers th')['text-align']);
+  assert.equal(table['max-width'], rule(replaySource, '.numbers table')['max-width']);
+  assert.equal(table['max-width'], '560px');
 });
 
 const differing = [{
@@ -357,4 +381,86 @@ test("with Trained AI's move hidden, the hand's notes edge every decision alike,
   assert.equal(agreedEdge({ agreed: true }, true), false, 'not while the answers are kept back');
   assert.equal(agreedEdge({ agreed: true }, false), true, 'once they are shown');
   assert.equal(agreedEdge({ agreed: false }, false), false);
+});
+
+/** What the review derives under `name`, as it is written in its source. */
+function derivedSource(name) {
+  const init = find(parse(reviewSource, { modern: true }).instance.content, node => node.type === 'VariableDeclarator' && node.id.name === name)?.init;
+  assert.equal(init?.callee?.name, '$derived', `the review derives ${name}`);
+  return reviewSource.slice(init.arguments[0].start, init.arguments[0].end);
+}
+
+test("the line that says Trained AI is reviewing never changes as the review goes on: how far it has got is beside it, and its region is not marked busy", () => {
+  // A status line is read out whenever its words change, so the count, which
+  // changes at every decision, and the download's note, at every percent,
+  // are no part of it. The two are derived apart, read here from the
+  // component's own source, as Svelte runs them.
+  const said = state => {
+    const context = vm.createContext({ notes: Array.from({ length: 14 }, () => ({})), completed: 0, download: '', ...state });
+    context.progress = vm.runInContext(`(${derivedSource('progress')})`, context);
+    return [context.progress, vm.runInContext(`(${derivedSource('count')})`, context)];
+  };
+  const words = 'Trained AI is reviewing your decisions…';
+  assert.deepEqual(said({ linesKnown: true, reviewing: true }), [words, '0 of 14']);
+  assert.deepEqual(said({ linesKnown: true, reviewing: true, completed: 9 }), [words, '9 of 14'], 'the same words at every count');
+  assert.deepEqual(said({ linesKnown: true, reviewing: true, download: 'downloading the trained network 37%' }),
+    [words, '0 of 14 · downloading the trained network 37%'], 'and at every percent of a download');
+  // Neither before the line is known to a screen reader, nor once the review is over.
+  assert.deepEqual(said({ linesKnown: false, reviewing: true, completed: 3 }), ['', '']);
+  assert.deepEqual(said({ linesKnown: true, reviewing: false, completed: 14 }), ['', '']);
+  // As first drawn: the status line waits empty and out of sight, alone in
+  // its line; the count is no part of it; and nothing marks the region busy,
+  // which could keep a screen reader from saying the line at all.
+  const html = render(Review, { props: { notes: differing, trainedAvailable: true, engine: {} } }).body;
+  assert.match(html, /<div class="[^"]*\bvisually-hidden\b[^"]*"><p data-review-progress="" role="status"[^>]*><\/p>/);
+  assert.doesNotMatch(html, /data-review-count|aria-busy/);
+  const line = find(parse(reviewSource, { modern: true }).fragment, node => node.type === 'RegularElement'
+    && node.attributes.some(attribute => attribute.name === 'data-review-progress'));
+  assert.equal(reviewSource.slice(line.fragment.nodes[0].start, line.fragment.nodes.at(-1).end), '{progress}', 'the status line holds the words alone');
+});
+
+test("an only move is left out of the count of decisions matched, as the review of the game leaves it out, and its line says so in place of an answer", () => {
+  const same = (turn, tile, words) => ({ turn, played: `discards the ${words}`, played_kind: 'discard', played_tile: tile,
+    advised: `discards the ${words}`, advised_tile: tile, agreed: true, reason: 'the move the adviser would have made' });
+  const notes = [...differing, same(5, '2s', '2 bamboo'), same(6, '7p', '7 circles'), same(7, '1z', 'east wind')];
+  // Club's notes do not say which moves were the only ones, so the engine is
+  // asked how many moves were open at each: here one at each of the last two,
+  // the discards after a riichi. They are no choice, so they are counted
+  // neither as matched nor among the decisions, and the count says so.
+  const engine = { review_choices: index => Array.from({ length: index >= 2 ? 1 : 3 }, () => ({ kind: 'discard' })) };
+  const counted = text(render(Review, { props: { notes, engine, adviser: 'club' } }).body);
+  assert.match(counted, /1 of 2 decisions with a choice matched Club\./);
+  assert.match(counted, /Every decision \(4\)/, 'every decision is still listed');
+  // A hand without an only move is counted as before, in the words as before;
+  // so is one whose engine is gone, which cannot be asked.
+  const open = { review_choices: () => [{ kind: 'discard' }, { kind: 'discard' }] };
+  assert.match(text(render(Review, { props: { notes, engine: open, adviser: 'club' } }).body), /3 of 4 decisions matched Club\./);
+  assert.match(text(render(Review, { props: { notes, adviser: 'club' } }).body), /3 of 4 decisions matched Club\./);
+  assert.match(text(render(Review, { props: { notes: notes.slice(0, 3), engine, adviser: 'club' } }).body), /1 of 2 decisions with a choice matched Club\./);
+  const second = { review_choices: index => Array.from({ length: index === 1 ? 1 : 3 }, () => ({ kind: 'discard' })) };
+  assert.match(text(render(Review, { props: { notes: notes.slice(1, 3), engine: second, adviser: 'club' } }).body), /1 of 1 decision with a choice matched Club\./);
+  // The line of an only move says that it was one before anything else is
+  // asked of it, so whether the answers are kept back or shown, and whichever
+  // adviser reviews. A server render lists only the decisions where the
+  // adviser differs, so that is read from the component's own markup; the
+  // browser check sees the lines themselves.
+  const source = node => reviewSource.slice(node.start, node.end);
+  const line = find(parse(reviewSource, { modern: true }).fragment, node => node.type === 'IfBlock' && source(node.test) === 'note.forced');
+  assert.ok(line, "a line gives what it gives by whether its move was the only one");
+  assert.match(source(line.consequent.nodes[0]), /^<p class="only">Only move<\/p>/);
+  const then = find(line.alternate, node => node.type === 'IfBlock');
+  assert.equal(source(then.test), 'hiding', 'asked before whether the answers are kept back');
+});
+
+test("the hand's review is headed at the page's second level, and its list of decisions takes focus and says that it is a list", () => {
+  // The result's heading, the standings' and the review of the game's are
+  // second-level too: on a phone the result steps aside as this review opens,
+  // and a third-level heading then followed the page's first.
+  const html = render(Review, { props: { notes: differing, adviser: 'club' } }).body;
+  assert.match(html, /<h2 tabindex="-1"[^>]*>Your hand, looked at again<\/h2>/);
+  assert.doesNotMatch(html, /<h[1-6]\b(?<!<h2)/, 'no other heading');
+  // The list scrolls in a box of its own with nothing in it to tab to, so the
+  // box takes focus, for the keys that scroll; and it is a list in so many
+  // words, which Safari does not say of one drawn without markers.
+  assert.match(html, /<ol role="list" aria-label="decisions" tabindex="0"[^>]*>/);
 });

@@ -25,8 +25,10 @@
  * e^7 to one is not searched, since no small change moves it; and pairs of
  * changes are tried only when no single change flips the choice.
  */
+import { sameMove } from './action-weights.js';
 import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
-import { percent } from './ui.js';
+import { fromWaiting, percent } from './ui.js';
+import { WEIGHT_BOUND } from './webgpu.js';
 
 /** Below this margin, the log of the player's weight over the best other
  * move's, the search is not offered: in the prototype nothing small ever
@@ -39,10 +41,19 @@ export const MARGIN_FLOOR = -7;
  * review. Passes of 32 cost only about 3% less a position in the page's
  * runtime, too little for a wait four times as long. */
 export const PASS = 8;
-/** How far the unedited table's weights may stand from the review's own: a
- * forward pass of other positions beside it may round its last digits
- * otherwise, while a table that replayed differently moves them far more. */
-const SAME_WEIGHT = 1e-4;
+/** How far the unedited table's weights may stand from the review's own: as
+ * far as the graphics card's answers may stand from WebAssembly's before the
+ * card is given a review's batches (WEIGHT_BOUND in webgpu.js). The two are
+ * one bound because they are one comparison: a hand reviewed on WebAssembly,
+ * as the first of a visit is, before the card has shown itself, is asked
+ * again on the card once that serves, and one reviewed on the card is asked
+ * on WebAssembly once the card is declined. Held to a tenth of what the card
+ * was let through at, a card that differed by more than that was told at
+ * every such decision that Trained AI answered its table differently. A
+ * forward pass of other positions beside the table rounds its last digits
+ * far within the bound, and a table that replayed differently moves its
+ * weights far beyond it. */
+const SAME_WEIGHT = WEIGHT_BOUND;
 /** The single changes nearest to flipping it that are paired, two at a time. */
 const PAIRED = 8;
 /** The most tables a search asks after its single changes: every pair of the
@@ -66,9 +77,6 @@ const lower = text => `${text[0].toLowerCase()}${text.slice(1)}`;
 const sentence = text => text.replace(/\.$/, '');
 const list = (items, and = 'and') => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} ${and} ${items.at(-1)}`);
 const stopped = () => new DOMException('Search stopped', 'AbortError');
-
-/** Whether two moves are the same move: the same kind, and the same tile. */
-export const sameMove = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
 /** A decision's weights as the review keeps them (`weighted`, one entry a
  * listed choice) as moves: a riichi is one move whichever tile it names, as
@@ -773,8 +781,6 @@ function searchSaid({ changes, pairs, thresholds, A, P, F0, unseen }) {
   return said;
 }
 
-const far = n => (n === 0 ? 'waiting' : n < 0 ? 'complete' : `${n} from waiting`);
-
 /** Every engine fact on which Trained AI's tile `A` and the player's `P`
  * differ, with the side it favours (after the facts study's differences). */
 function differences(A, P, F) {
@@ -783,13 +789,13 @@ function differences(A, P, F) {
   const a = `Trained AI's ${tileWords(A.tile)}`, p = your(P.tile);
   if (A.shanten !== P.shanten) {
     add('distance', A.shanten < P.shanten ? 'ai' : 'you', Math.abs(A.shanten - P.shanten),
-      `${capital(p)} leaves the hand ${far(P.shanten)}; ${a} leaves it ${far(A.shanten)}.`);
+      `${capital(p)} leaves the hand ${fromWaiting(P.shanten)}; ${a} leaves it ${fromWaiting(A.shanten)}.`);
   } else {
     const d = A.acceptance - P.acceptance, most = Math.max(A.acceptance, P.acceptance);
     if (Math.abs(d) >= Math.max(4, 0.2 * most)) {
       add('speed', d > 0 ? 'ai' : 'you', Math.abs(d) / Math.max(most, 1), A.shanten === 0
         ? `Both leave the hand waiting: ${A.waitsLeft} tiles left to win on after ${a}, ${P.waitsLeft} after ${p}.`
-        : `Both leave the hand ${far(A.shanten)}; ${A.acceptance} unseen tiles would improve it after ${a}, ${P.acceptance} after ${p}.`);
+        : `Both leave the hand ${fromWaiting(A.shanten)}; ${A.acceptance} unseen tiles would improve it after ${a}, ${P.acceptance} after ${p}.`);
     }
   }
   const exposed = tile => (tile.tier === 'safe' ? 'cannot deal in' : `is ${TIER_WORDS[tile.tier]}`);
@@ -813,7 +819,7 @@ function differences(A, P, F) {
   for (const form of ['thirteen orphans', 'seven pairs']) {
     const fa = A.forms[form], fp = P.forms[form], least = Math.min(A.shanten, P.shanten);
     if (fa == null || fp == null || fa === fp || Math.min(fa, fp) > Math.max(3, least) || Math.min(fa, fp) > least + 1) continue;
-    add('plan', fa < fp ? 'ai' : 'you', Math.abs(fa - fp), `${capital(fa < fp ? a : p)} keeps ${form} ${far(Math.min(fa, fp))}; ${fa < fp ? p : a} leaves it ${far(Math.max(fa, fp))}.`, { form });
+    add('plan', fa < fp ? 'ai' : 'you', Math.abs(fa - fp), `${capital(fa < fp ? a : p)} keeps ${form} ${fromWaiting(Math.min(fa, fp))}; ${fa < fp ? p : a} leaves it ${fromWaiting(Math.max(fa, fp))}.`, { form });
   }
   if (A.ownRiver !== P.ownRiver) add('furiten', A.ownRiver ? 'ai' : 'you', 1, `You had already thrown ${an(A.ownRiver ? A.tile : P.tile)}, so a wait on it would be furiten.`);
   if (A.dora !== P.dora) add('value', A.dora < P.dora ? 'ai' : 'you', Math.abs(A.dora - P.dora), `${capital(A.dora > P.dora ? a : p)} is dora.`, { dora: true });
@@ -839,16 +845,16 @@ function leading(diffs, F) {
 function massOf(fact, F, weight, A, P) {
   const sum = shared => Object.values(F.tiles).filter(shared).reduce((total, tile) => total + (weight[tile.tile] ?? 0), 0);
   switch (fact?.family) {
-    case 'distance': return { what: `tiles that keep the hand ${far(A.shanten)}`, mass: sum(t => t.shanten <= A.shanten) };
+    case 'distance': return { what: `tiles that keep the hand ${fromWaiting(A.shanten)}`, mass: sum(t => t.shanten <= A.shanten) };
     // The fact is that Trained AI's tile is the safer by the order of TIERS,
     // so the tiles that share it are those at least as safe: the tiles that
     // cannot deal in only where its own cannot.
     case 'safety': return fact.dead ? { what: 'honours with every copy in sight', mass: sum(t => honour(t.tile) && t.unseen === 0) }
       : A.tier === 'safe' ? { what: 'tiles that cannot deal in', mass: sum(t => t.tier === 'safe') }
         : { what: `tiles as safe as ${the(A.tile)} or safer`, mass: sum(t => TIERS.indexOf(t.tier) <= TIERS.indexOf(A.tier)) };
-    case 'speed': return { what: `tiles that leave the hand ${far(A.shanten)} with more improving tiles than yours`,
+    case 'speed': return { what: `tiles that leave the hand ${fromWaiting(A.shanten)} with more improving tiles than yours`,
       mass: sum(t => t.shanten <= A.shanten && t.acceptance > P.acceptance) };
-    case 'plan': return { what: `tiles that keep ${fact.form} ${far(A.forms[fact.form])}`, mass: sum(t => t.forms[fact.form] != null && t.forms[fact.form] <= A.forms[fact.form]) };
+    case 'plan': return { what: `tiles that keep ${fact.form} ${fromWaiting(A.forms[fact.form])}`, mass: sum(t => t.forms[fact.form] != null && t.forms[fact.form] <= A.forms[fact.form]) };
     case 'furiten': return { what: 'tiles you had already thrown', mass: sum(t => t.ownRiver) };
     default: return null;
   }

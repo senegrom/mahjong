@@ -14,7 +14,8 @@
    * `hand` the decision on show.
    *
    * The Why line is worked out as the decision is shown, in the page's
-   * engine and at most one forward pass, and drawn once it is had, with the
+   * engine and at most two forward passes, the second for its tables Trained
+   * AI hesitates over, renamed (suits.js), and drawn once it is had, with the
    * button under it, so that the button never moves under a pointer about to
    * press it. It names the engine's fact that leads, with its verdict: Why,
    * Partly, Not explained, or Not checked where its check could not be run.

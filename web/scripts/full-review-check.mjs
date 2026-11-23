@@ -45,6 +45,13 @@ function won(seed){const m=make(seed);try{finishHand(m);return m.snapshot();}fin
 const initial=fixture(11),riichi=fixture(31,[['riichi','8m']]);
 const beforeRiichi=fixture(81,[['discard','9s'],['discard','5z']]);
 const waiting=fixture(81,[['discard','9s'],['discard','5z'],['riichi','2z']]);
+// The same hand played on to its result: every discard after the riichi was
+// the only move, nine of the hand's thirteen decisions.
+const riichiWon=(()=>{
+ const m=make(81);
+ try{for(const [kind,tile] of [['discard','9s'],['discard','5z'],['riichi','2z']])step(m,kind,tile);finishHand(m);return m.snapshot();}
+ finally{m.dispose();}
+})();
 const wins=[3,16,248].map(won);
 const final=(()=>{
  const m=make(14,'beginner');let before,events,log,review;
@@ -324,7 +331,7 @@ try{
  // the sheet steps aside to show what the press asked for.
  const SIZES=[[1100,900],[390,844],[320,568],[844,390],[568,320]];
  const resultButton=(p,text)=>p.evaluateHandle(text=>[...document.querySelectorAll('.screen .buttons button')].find(el=>el.textContent.trim()===text),text);
- const focusOn=p=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h3')?'the review':a?.matches('.standings h2')?'the standings'
+ const focusOn=p=>p.evaluate(()=>{const a=document.activeElement;return a?.matches('.review h2')?'the review':a?.matches('.standings h2')?'the standings'
   :a?.matches('.screen')?'the result':a?.matches('.result-chip')?'the chip':!a||a===document.body?'the page':a.outerHTML.slice(0,80);});
  const ringed=p=>p.evaluate(()=>document.activeElement?.matches(':focus-visible')??false);
  const sheetShown=p=>p.$eval('.screen',el=>getComputedStyle(el).display!=='none');
@@ -373,11 +380,11 @@ try{
    assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
    await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
    if(sheet)assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
-   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
    assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
    // What a screen reader says of it: the hand's review, by its heading.
-   const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
-   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',3]);
+   const heading=await p.$('.review h2'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+   assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',2]);
    assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'your decisions this hand');
    await settle(p);
    assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
@@ -422,21 +429,23 @@ try{
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
    const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
    await pointerPress(p,button,touch);await p.waitForSelector('.review');
-   await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
+   await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
    assert.equal(await focusOn(p),'the review',`focus goes on to the review ${where}`);
    assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
    await settle(p);
    if(sheet){
     assert.equal(await p.evaluate(()=>scrollY),before,`the page stays where it was ${where}`);
     assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
-   }else assert.ok(await uncovered(await p.$('.review h3')),`the review's heading is brought into view, uncovered, ${where}`);
+   }else assert.ok(await uncovered(await p.$('.review h2')),`the review's heading is brought into view, uncovered, ${where}`);
    noErrors(p);
   }
  });
  // Most players review with the default adviser, Trained AI, whose review is
- // still under way as the review opens, its region busy: the heading must
- // take focus and be named all the same.
- await check('View table / my hand, pressed by keyboard while Trained AI reviews, hands focus to the busy review',async()=>{
+ // still under way as the review opens: the heading must take focus and be
+ // named all the same, and the line that says Trained AI is reviewing says
+ // only that, in a region not marked busy, which a screen reader may keep
+ // quiet until it is done; how far the review has got is beside the line.
+ await check('View table / my hand, pressed by keyboard while Trained AI reviews, hands focus to the review under way',async()=>{
   for(const [width,height] of [[1100,900],[390,844],[320,568]]){
    const p=await open(wins[0],{width,height,reduced:true,adviser:null,trained:true}),where=`at ${width}x${height}`;
    try{
@@ -445,18 +454,22 @@ try{
     await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
     holding=true;
     const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
-    await p.waitForSelector('.review[aria-busy="true"]');
+    await p.waitForSelector('.review[data-reviewing]');
     assert.equal(await p.$eval('.review select',el=>el.value),'strong',`Trained AI reviews ${where}`);
-    await p.waitForFunction(()=>document.activeElement?.matches('.review h3'),{timeout:5000}).catch(()=>{});
-    assert.equal(await focusOn(p),'the review',`focus goes on to the busy review ${where}`);
-    const heading=await p.$('.review h3'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
-    assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',3,true]);
+    await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
+    assert.equal(await focusOn(p),'the review',`focus goes on to the review under way ${where}`);
+    const heading=await p.$('.review h2'),node=await p.accessibility.snapshot({root:heading,interestingOnly:false});
+    assert.deepEqual([node?.role,node?.name,node?.level,node?.focused],['heading','Your hand, looked at again',2,true]);
     await p.waitForFunction(()=>[...document.querySelectorAll('.review [role="status"]')].some(el=>/^Trained AI is reviewing your decisions/.test(el.textContent.trim())),
      {timeout:5000});
     await settle(p);
     assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
     assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
-    assert.equal(await p.$eval('.review',el=>el.getAttribute('aria-busy')),'true',`the review is still under way ${where}`);
+    assert.deepEqual(await p.$eval('.review',el=>[el.hasAttribute('data-reviewing'),el.getAttribute('aria-busy')]),[true,null],
+     `the review is still under way, and not marked busy ${where}`);
+    assert.deepEqual(await p.$eval('.review',el=>[el.querySelector('[data-review-progress]').textContent.trim(),
+     /^0 of \d+/.test(el.querySelector('[data-review-count]')?.textContent.trim()??''),Boolean(el.querySelector('[role="status"] [data-review-count]'))]),
+     ['Trained AI is reviewing your decisions…',true,false],`the status line says only that Trained AI is reviewing, the count beside it ${where}`);
     noErrors(p);
    }finally{release();}
   }
@@ -894,7 +907,10 @@ try{
   const answered=await rows(p);
   assert.ok(answered.some(text=>text.includes('instead of')),`the hand has a decision where Club differs: ${answered.join(' | ')}`);
   assert.equal(await p.$('.review [data-show-answers]'),null,'without the setting the notes offer no Show answers');
-  const decisions=Number((await p.$eval('.review .summary',el=>el.textContent)).match(/of (\d+)/)[1]);
+  // How many decisions the hand has, from the filter that lists them all:
+  // the count of decisions matched leaves out any that was the only move.
+  const decisions=Number((await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).textContent))
+   .match(/\((\d+)\)/)[1]);
   const edges=await every(p,decisions);
   assert.ok(edges.some(row=>row.agreed)&&edges.some(row=>!row.agreed),`the hand has decisions where Club agrees and differs: ${JSON.stringify(edges)}`);
   assert.equal(new Set(edges.map(row=>row.edge)).size,2,'an agreed decision is edged apart from one that differs');
@@ -931,6 +947,42 @@ try{
   await p.waitForFunction(()=>document.querySelector('.review [data-show-answers]')?.textContent.trim()==='Hide answers');
   assert.deepEqual(await edgesOf(p),edges,'shown, each decision is edged as without the setting');
   noErrors(p);
+ });
+ // A decision with one legal move, as every discard after a riichi is, was
+ // no choice. The hand's notes leave it out of the decisions matched, as the
+ // review of the game does, so that the two give a hand one figure, and its
+ // line says so in place of an adviser's answer, kept back or not. Club's
+ // notes do not say which moves those were: the page asks the engine.
+ await check('the hand\'s notes leave an only move out of the decisions matched and say so on its line, and a keyboard scrolls their list',async()=>{
+  const m=MatchSession.restore(Game,JSON.stringify(riichiWon));let expected;
+  try{expected=m.engine.review().map((note,index)=>({only:m.engine.review_choices(index).length===1,agreed:note.agreed}));}finally{m.dispose();}
+  const only=expected.filter(row=>row.only).length,counted=expected.length-only,matched=expected.filter(row=>!row.only&&row.agreed).length;
+  assert.ok(only>0&&counted>1&&matched>0&&matched<counted,`a hand with only moves, and decisions Club agrees and differs with: ${JSON.stringify(expected)}`);
+  for(const hideMove of [false,true]){
+   const p=await open(riichiWon,{reduced:true,hideMove}),where=hideMove?'with the answers kept back':'with the answers shown';
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   const button=await resultButton(p,'View table / my hand');await button.focus();await p.keyboard.press('Enter');
+   await p.waitForSelector('.review .summary');
+   assert.equal((await p.$eval('.review .summary',el=>el.textContent)).replace(/\s+/g,' ').trim(),`${matched} of ${counted} decisions with a choice matched Club.`,where);
+   await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).click());
+   await p.waitForFunction(count=>document.querySelectorAll('.review li').length===count,{},expected.length);
+   assert.equal(await p.$$eval('.review .tabs button',buttons=>buttons.find(button=>button.textContent.includes('Every decision')).textContent.trim()),
+    `Every decision (${expected.length})`,`every decision is still listed ${where}`);
+   assert.deepEqual(await p.$$eval('.review li',els=>els.map(el=>el.querySelector('.only')?.textContent.trim()??null)),
+    expected.map(row=>row.only?'Only move':null),`each only move says so, and no other decision does, ${where}`);
+   assert.equal(await p.$$eval('.review li:has(.only) :is(.advised, .why, .numbers, .policy-preference)',els=>els.length),0,
+    `an only move's line gives no adviser's answer ${where}`);
+   // The list scrolls in a box of its own, and nothing in it takes focus: the
+   // box does, named and said to be a list, so that a keyboard scrolls it.
+   const list=await p.$('.review ol');
+   await list.focus();
+   const listed=await p.accessibility.snapshot({root:list,interestingOnly:false});
+   assert.deepEqual([listed?.role,listed?.name,await list.evaluate(el=>el===document.activeElement)],['list','decisions',true],`the list takes focus ${where}`);
+   assert.ok(await list.evaluate(el=>el.scrollHeight>el.clientHeight&&el.scrollTop===0),`the hand's decisions overflow their box ${where}`);
+   await p.keyboard.press('End');
+   await p.waitForFunction(()=>document.querySelector('.review ol').scrollTop>0,{timeout:5000});
+   noErrors(p);
+  }
  });
  // The warning that this browser cannot safely keep the match arrives as the
  // match is first read, and is spoken from a status line already in the page.

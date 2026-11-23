@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession } from '../src/lib/session.js';
 import { reviewWithStrong } from '../src/lib/review-policy.js';
+import { sameMove } from '../src/lib/action-weights.js';
+import { fromWaiting } from '../src/lib/ui.js';
 import { Asking, BATCH, GPU_BATCH, FILTERS, FILTER_LABELS, FILTER_TITLES, FLAG_PLAYED_BELOW, FLAG_PREFERRED_FROM, MatchReview, SLOW_MS, agreement, batchFor,
   decisionInBrief, decisionKey, differed, filterCounts, filterSaid, flaggedCount, handEntry, handName, hiddenAt, judgement, landing, listedIn,
-  moveToken, moveWeight, neighbour, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
+  moveToken, moveWeight, neighbour, noneSaid, playlist, revealing, scanMatch, seatNotes, stepSaid, tableSaid } from '../src/lib/game-review.js';
 import { DAMA_RULE, DECLINE_RULE } from '../src/lib/trained-move.js';
 
 await init({ module_or_path: readFileSync(new URL('../src/wasm/riichi_bg.wasm', import.meta.url)) });
@@ -56,6 +58,8 @@ const settled = review => new Promise(resolve => {
   setImmediate(check);
 });
 const turn = () => new Promise(resolve => setImmediate(resolve));
+/** How many hands of a review are reviewed. */
+const reviewedHands = review => review.hands.filter(hand => hand.status === 'done').length;
 /** Waits a turn of the event loop at a time until `ready()` holds. */
 async function until(ready, what) {
   for (let count = 0; count < 1000 && !ready(); count++) await turn();
@@ -211,6 +215,16 @@ test("the filters' buttons say in a word what each keeps, and the Flagged and Di
     differed: 'Trained AI chose another move' });
 });
 
+test("the tile guide says what Flagged means, by the thresholds the review flags by", () => {
+  // The Flagged button's title says it too, but a title shows only under a
+  // mouse: the guide in the settings is where a finger or a keyboard finds it.
+  const settings = readFileSync(new URL('../src/lib/app/AppSettings.svelte', import.meta.url), 'utf8');
+  const entry = /<dt>Flagged<\/dt>\s*<dd>([^<]*)<\/dd>/.exec(settings)?.[1].replace(/\s+/g, ' ').trim();
+  assert.equal(entry, `In a review, a decision where your move had under ${Math.round(FLAG_PLAYED_BELOW * 100)}% and Trained AI's choice `
+    + `${Math.round(FLAG_PREFERRED_FROM * 100)}% or more, or where you took a last-hand win that leaves you last.`);
+  assert.match(FILTER_TITLES.flagged, new RegExp(`under ${Math.round(FLAG_PLAYED_BELOW * 100)}%.*${Math.round(FLAG_PREFERRED_FROM * 100)}% or more.*last-hand win`));
+});
+
 test('the flagged decisions are counted, however wide the gap of one that is not, and agreement leaves forced moves out', () => {
   const decision = (name, gap, flagged = true) => ({ name, judgement: { gap, flagged } });
   assert.equal(flaggedCount([decision('a', 0.7), decision('b', 0.9), decision('c', 0.99, false), decision('d', 0.7), { name: 'e', judgement: null }]), 3);
@@ -248,10 +262,38 @@ test('the review says what its filter keeps as it is chosen, in no order but the
   assert.equal(filterSaid('flagged', { flagged: 1, differed: 3, every: 9 }), '1 flagged decision.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 1, every: 9 }), '1 decision where Trained AI differed.');
   assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 1 }), 'The one decision.');
-  // Where the filter keeps nothing.
+  // Where the filter keeps nothing, of a review whose every hand is reviewed.
   assert.equal(filterSaid('flagged', { flagged: 0, differed: 3, every: 4 }), 'None flagged.');
   assert.equal(filterSaid('differed', { flagged: 0, differed: 0, every: 4 }), 'Trained AI agreed at every decision.');
-  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'No decisions.');
+  assert.equal(filterSaid('every', { flagged: 0, differed: 0, every: 0 }), 'You made no decisions.');
+});
+
+test('a filter that holds no decision is said to hold none only once every hand is reviewed, in the same words in the list and as it is chosen', () => {
+  const none = { flagged: 0, differed: 0, every: 4 };
+  // A hand still to review may hold a flagged decision, or one where Trained
+  // AI differed: until every hand is reviewed there is only none yet.
+  for (const over of [false, true]) {
+    assert.equal(filterSaid('flagged', none, { complete: false, over }), 'None flagged yet.');
+    assert.equal(filterSaid('differed', none, { complete: false, over }), 'None differed yet.');
+    assert.equal(filterSaid('flagged', none, { complete: true, over }), 'None flagged.');
+    assert.equal(filterSaid('differed', none, { complete: true, over }), 'Trained AI agreed at every decision.');
+  }
+  // Every decision is known before Trained AI answers, so that filter holds
+  // none only where the player made none: yet, while the match is played.
+  for (const complete of [false, true]) {
+    assert.equal(filterSaid('every', { ...none, every: 0 }, { complete, over: false }), 'No decisions yet.');
+    assert.equal(filterSaid('every', { ...none, every: 0 }, { complete, over: true }), 'You made no decisions.');
+  }
+  // A filter that holds a decision says how many, whatever is still to review.
+  assert.equal(filterSaid('flagged', { flagged: 2, differed: 2, every: 4 }, { complete: false, over: false }), '2 flagged decisions.');
+  // The list's own line is the same helper's, so the two cannot differ.
+  for (const filter of FILTERS) {
+    for (const review of [{ complete: true, over: true }, { complete: true, over: false }, { complete: false, over: false }]) {
+      assert.equal(noneSaid(filter, review), filterSaid(filter, { flagged: 0, differed: 0, every: 0 }, review), `${filter} ${JSON.stringify(review)}`);
+    }
+  }
+  const screen = readFileSync(new URL('../src/lib/GameReview.svelte', import.meta.url), 'utf8');
+  assert.match(screen, /let empty = \$derived\(counts\[filter\] \|\| !status\.complete \? '' : noneSaid\(filter, status\)\);/, 'the list says it by noneSaid');
 });
 
 test("the table at a step is said in a sentence, each seat says what it was doing, and a hand's line gives both moves", () => {
@@ -571,7 +613,7 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
     await settled(review);
     assert.equal(review.failure, '');
     assert.ok(review.complete);
-    assert.equal(review.reviewedHands, review.hands.length);
+    assert.equal(reviewedHands(review), review.hands.length);
     assert.ok(sizes.some(size => size === BATCH), 'full batches are asked');
     const decisions = review.decisions;
     assert.equal(decisions.length, review.hands.reduce((sum, hand) => sum + hand.frames.length, 0));
@@ -586,9 +628,11 @@ test('the whole game is reviewed in batches, and judged as the hand review judge
         const single = await reviewWithStrong(match.engine, match.engine.review(), async (planes, mask) => decisive(mask));
         assert.equal(hand.decisions.length, single.length);
         hand.decisions.forEach((decision, index) => {
-          const { hand: _hand, index: _index, frame, judgement: judged, measures: _measures, ...row } = decision;
+          // A decision is the hand review's row, with how it is judged and
+          // the numbers of the moves it compares, and nothing else: its
+          // place and its frame are its hand's to give.
+          const { judgement: judged, measures: _measures, ...row } = decision;
           assert.deepEqual(row, single[index]);
-          assert.equal(frame, hand.frames[index]);
           assert.deepEqual(judged, judgement(row));
         });
       } finally { match.dispose(); }
@@ -747,16 +791,84 @@ test('a slow device holds after each hand until the player asks for the next one
     await settled(review);
     assert.ok(review.slow);
     assert.equal(review.held, true);
-    assert.equal(review.reviewedHands, 1);
+    assert.equal(reviewedHands(review), 1);
     assert.ok(review.estimate > 0, 'the rest is estimated from the speed seen');
     review.resume();
     await settled(review);
-    assert.equal(review.reviewedHands, 2);
+    assert.equal(reviewedHands(review), 2);
     assert.equal(review.held, true);
     review.resume({ patient: true });
     await settled(review);
     assert.ok(review.complete);
     assert.equal(review.held, false);
+  } finally { review.dispose(); }
+});
+
+test("a hold lifts once the review's batches run elsewhere than where the device was measured slow, and the review goes on with the hands queued", async () => {
+  // A desktop whose WebAssembly takes over half a second a position holds
+  // after its first hand. Its graphics card comes ready meanwhile, as on the
+  // passes of a search pressed during the hold, and the page has the review
+  // tell its screen (App, reportRuntime). The time measured on WebAssembly
+  // says nothing of the card, so the hold made for it is lifted: the review
+  // goes on by itself, in the card's larger passes, and holds no more.
+  let clock = 0, most = BATCH, told = 0;
+  const sizes = [];
+  const review = new MatchReview(Game, game, { now: () => clock, batchMost: () => most, onChange: () => { told++; }, analyzeBatch: async (positions, signal) => {
+    clock += positions.length * (most === BATCH ? SLOW_MS + 100 : 5);
+    sizes.push(positions.length);
+    await turn();
+    if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+    return positions.map(position => decisive(position.mask));
+  } });
+  const reviewed = () => review.hands.filter(hand => hand.status === 'done').length;
+  try {
+    review.review();
+    await settled(review);
+    assert.deepEqual([review.held, review.slow, reviewed()], [true, true, 1]);
+    // Told of anything else, as of a later hand of the match, the hold stands.
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [true, false], 'a slow device still holds for the player\'s word');
+    // The card ready: no time a position, so no time a decision to offer the
+    // next hand by, and the device no longer known to be slow.
+    most = GPU_BATCH;
+    assert.deepEqual([review.positionMs, review.decisionMs, review.slow, review.held], [null, null, false, true]);
+    const before = told, asked = sizes.length;
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [false, true], 'the hold is lifted, and the review goes on');
+    assert.ok(told > before, 'its screen is told');
+    await settled(review);
+    assert.equal(review.failure, '');
+    assert.ok(review.complete, 'every hand queued is reviewed');
+    assert.equal(review.held, false);
+    assert.ok(Math.max(...sizes.slice(asked)) > BATCH, `in the card's passes: ${sizes.slice(asked).join(' ')}`);
+    assert.deepEqual([review.positionMs, review.slow], [5, false], 'timed afresh there');
+  } finally { review.dispose(); }
+});
+
+test("a hold lifted for the graphics card comes back after the next hand where that is slow too", async () => {
+  // Whatever the batches moved to, the device is measured afresh there, and
+  // a slow one holds again for the player's word.
+  let clock = 0, most = BATCH;
+  const review = new MatchReview(Game, game, { now: () => clock, batchMost: () => most, analyzeBatch: async (positions, signal) => {
+    clock += positions.length * (SLOW_MS + 100);
+    await turn();
+    if (signal?.aborted) throw new DOMException('Review changed', 'AbortError');
+    return positions.map(position => decisive(position.mask));
+  } });
+  const reviewed = () => review.hands.filter(hand => hand.status === 'done').length;
+  try {
+    review.review();
+    await settled(review);
+    assert.deepEqual([review.held, reviewed()], [true, 1]);
+    most = GPU_BATCH;
+    review.notify();
+    await settled(review);
+    assert.deepEqual([review.held, review.slow, review.complete], [true, true, false], 'held again, measured slow there');
+    assert.ok(reviewed() > 1, 'after at least the next hand');
+    // Stopped, it holds nothing and goes on only by the player's word.
+    review.stop();
+    review.notify();
+    assert.deepEqual([review.held, review.busy], [false, false]);
   } finally { review.dispose(); }
 });
 
@@ -803,7 +915,7 @@ test('the decisions Trained AI hesitates over are asked again in batches of thei
     review.review();
     await settled(review);
     assert.equal(review.failure, '');
-    assert.deepEqual([review.held, review.reviewedHands, review.slow, review.positionMs], [true, 1, true, 600]);
+    assert.deepEqual([review.held, reviewedHands(review), review.slow, review.positionMs], [true, 1, true, 600]);
     assert.ok(sizes.every(size => size <= BATCH), `batches of eight at most: ${sizes.join(' ')}`);
     const hand = review.hands.find(entry => entry.status === 'done');
     assert.equal(review.judged, hand.frames.length);
@@ -1039,7 +1151,7 @@ test("a slow device waits at the gate as any other, and still holds after the ha
     // would have without the notes, the rest queued for the player's word.
     assert.equal(review.slow, true);
     assert.deepEqual({ held: review.held, queue: review.queue, requested: review.requested, patient: review.patient,
-      reviewed: review.reviewedHands, failure: review.failure },
+      reviewed: reviewedHands(review), failure: review.failure },
     { held: true, queue: [0, 1], requested: true, patient: false, reviewed: 1, failure: '' });
     // The player asks for the rest while the notes ask again: the review
     // comes to its gate before its first batch, the word kept meanwhile.
@@ -1352,12 +1464,18 @@ test('a game joins the trend once, as the match ends, also when every hand was r
   } finally { earlier.dispose(); }
 });
 
-test('a closed review asks nothing more and frees its replay', async () => {
+test('a closed review asks nothing more and frees its replay, and the session its hands are scanned on', async () => {
   const review = new MatchReview(Game, game, { analyzeBatch: network() });
   review.review();
   review.dispose();
   await settled(review);
   assert.equal(review.replay, null);
+  assert.equal(review.scan, null);
+  // A match under way keeps the session to scan on from, until it is closed.
+  const playing = new MatchReview(Game, savedAfter(game, scanMatch(Game, game)[1].end), { analyzeBatch: network() });
+  assert.ok(playing.scan, 'kept while the match is under way');
+  playing.dispose();
+  assert.equal(playing.scan, null);
   const before = review.decisions.length;
   review.review();
   await settled(review);
@@ -1375,8 +1493,8 @@ test('a review whose network plays on the graphics card asks passes of up to GPU
     try {
       review.review();
       await settled(review);
-      return review.decisions.map(decision => [decision.hand, decision.index, decision.advised_kind, decision.advised_tile ?? null,
-        Boolean(decision.judgement?.flagged)]);
+      return review.hands.flatMap(hand => (hand.decisions ?? []).map((decision, index) => [hand.index, index, decision.advised_kind,
+        decision.advised_tile ?? null, Boolean(decision.judgement?.flagged)]));
     } finally { review.dispose(); }
   };
   const wide = [], narrow = [];
@@ -1432,4 +1550,122 @@ test('the review\'s time a position is measured afresh where its batches run cha
   await timed(1, 120);
   assert.equal(review.positionMs, 120);
   assert.equal(review.pending, 8 * 4 + 16 + 2 + 2 + 16 + 1 + 1);
+});
+
+test('two moves are the same move by their kind and tile, a move that names no tile as one whose tile is null', () => {
+  // One test for every layer: the engine's choices, the weights and measures
+  // of them, and the moves a player made are compared by this alone.
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'discard', tile: '7z', weight: 0.2, label: 'discards the red dragon' }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'riichi', tile: '7z' }), false, 'a riichi on a tile is not its discard');
+  assert.equal(sameMove({ kind: 'discard', tile: '7z' }, { kind: 'discard', tile: '8s' }), false);
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pass', tile: null }), true);
+  assert.equal(sameMove({ kind: 'pon', tile: undefined }, { kind: 'pon' }), true);
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pon' }), false);
+});
+
+test('how far a hand is from waiting is said in the same words wherever a review says it', () => {
+  assert.deepEqual([-1, 0, 1, 4].map(fromWaiting), ['complete', 'waiting', '1 from waiting', '4 from waiting']);
+});
+
+/** A review's hands as a scan gives them, without what the review adds. */
+const scannedOf = review => review.hands.map(({ status: _status, decisions: _decisions, ...hand }) => hand);
+
+test("a match scanned on from each hand's result gives the hands a scan from the first deal gives, on one session let go as the match ends", () => {
+  // The tile-throwing game, and one whose player calls every set and quad.
+  // The review is taken on at every hand's result, as a player who opens it
+  // after every hand takes it, and then to the finished match.
+  for (const finished of [game, finishedGame(16, 'beginner', { calls: true })]) {
+    const whole = scanMatch(Game, finished);
+    const review = new MatchReview(Game, savedAfter(finished, whole[0].end), { analyzeBatch: network() });
+    try {
+      const session = review.scan;
+      assert.ok(session, 'a match under way keeps the session it was scanned on');
+      for (const hand of whole.slice(1)) {
+        review.extend(savedAfter(finished, hand.end));
+        assert.equal(review.scan, session, `the same session at the result of ${hand.name}`);
+        assert.deepEqual(scannedOf(review), whole.slice(0, hand.index + 1), `seed ${finished.seed}, at the result of ${hand.name}`);
+        assert.equal(review.over, false);
+      }
+      review.extend(finished);
+      assert.deepEqual(scannedOf(review), whole, `seed ${finished.seed}, finished`);
+      assert.equal(review.over, true);
+      assert.equal(review.scan, null, 'a finished match has no more to scan');
+    } finally { review.dispose(); }
+    // A finished match keeps no session at all.
+    const over = new MatchReview(Game, finished, { analyzeBatch: network() });
+    try {
+      assert.equal(over.scan, null);
+      assert.deepEqual(scannedOf(over), whole);
+    } finally { over.dispose(); }
+  }
+});
+
+test('a scan that cannot go on gives way to one from the first deal, and a match that cannot be replayed is refused as before, changing nothing', () => {
+  const whole = scanMatch(Game, game), later = savedAfter(game, whole[3].end);
+  const review = new MatchReview(Game, savedAfter(game, whole[1].end), { analyzeBatch: network() });
+  try {
+    // The session lost: the hands played since are scanned from the first
+    // deal instead, the same hands, and so is every later result.
+    const lost = review.scan;
+    lost.on = () => { throw new Error('The session is gone'); };
+    review.extend(later);
+    assert.equal(review.scan, null, 'the session is let go');
+    assert.deepEqual(scannedOf(review), whole.slice(0, 4));
+    review.extend(savedAfter(game, whole[5].end));
+    assert.deepEqual(scannedOf(review), whole.slice(0, 6));
+    assert.equal(review.scan, null);
+  } finally { review.dispose(); }
+  // A later save that did not end where its commands lead is refused, by the
+  // scan that went on and by the one from the first deal alike, and the
+  // review is as it was; the true save is taken on after it all the same.
+  const kept = new MatchReview(Game, savedAfter(game, whole[1].end), { analyzeBatch: network() });
+  try {
+    const astray = { ...later, state: later.state.replace(/"score":(\d+)/, (_, score) => `"score":${Number(score) + 100}`) };
+    assert.notEqual(astray.state, later.state);
+    const before = kept.snapshot;
+    assert.throws(() => kept.extend(astray), /^Error: The replay did not end where the match did$/);
+    assert.deepEqual([kept.hands.length, kept.snapshot === before], [2, true]);
+    // A save in the middle of a hand, too.
+    const playing = savedAfter(game, whole[2].end - 1);
+    assert.throws(() => kept.extend(playing), /^Error: (A hand is still being played|The replay did not end where the match did)$/);
+    assert.equal(kept.hands.length, 2);
+    kept.extend(later);
+    assert.deepEqual(scannedOf(kept), whole.slice(0, 4));
+  } finally { kept.dispose(); }
+});
+
+test("a reviewed hand keeps the table at each of its decisions, written where the review's replay stands at the hand's end", async () => {
+  const review = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    assert.ok(review.hands.every(hand => hand.tables === undefined), 'none before a hand is reviewed');
+    const asked = [review.hands.length - 1, 1];
+    review.review(asked);
+    await settled(review);
+    assert.equal(review.failure, '');
+    for (const index of asked) {
+      const hand = review.hands[index], match = atHandEnd(game, hand.end);
+      try {
+        assert.equal(hand.status, 'done');
+        assert.ok(hand.frames.length > 0 && hand.tables.length === hand.frames.length, hand.name);
+        // The positions the engine writes at the hand's end, as plain data.
+        const written = hand.frames.map((_, step) => JSON.parse(JSON.stringify(match.engine.review_position(step))));
+        assert.deepEqual(JSON.parse(JSON.stringify(hand.tables)), written, hand.name);
+      } finally { match.dispose(); }
+    }
+    assert.ok(review.hands.filter(hand => !asked.includes(hand.index)).every(hand => hand.tables === undefined), 'and none for a hand not reviewed');
+  } finally { review.dispose(); }
+  // A hand whose tables the engine cannot write is reviewed all the same,
+  // without them, and its decisions are judged as any other's.
+  const write = Game.prototype.review_position;
+  Game.prototype.review_position = () => { throw new Error('No table for this decision'); };
+  const without = new MatchReview(Game, game, { analyzeBatch: network() });
+  try {
+    without.review([1]);
+    await settled(without);
+    assert.deepEqual([without.failure, without.hands[1].status, without.hands[1].tables], ['', 'done', null]);
+    assert.equal(without.hands[1].decisions.length, without.hands[1].frames.length);
+  } finally {
+    Game.prototype.review_position = write;
+    without.dispose();
+  }
 });

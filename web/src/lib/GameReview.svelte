@@ -4,7 +4,7 @@
   import ReviewIndex from './ReviewIndex.svelte';
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
-  import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, playlist, revealing } from './game-review.js';
+  import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, noneSaid, playlist, revealing } from './game-review.js';
   import { REVIEW_WIDE, heldEnter, moveHandFocus, reviewKey, waitingNote } from './ui.js';
 
   /**
@@ -328,7 +328,10 @@
       return status.requested ? 'Trained AI cannot be reached right now.' : 'Waiting until Trained AI can be reached.';
     }
     if (status.busy) return reviewing ? `Reviewing ${reviewing.name}…` : 'Reviewing your game…';
-    if (status.held) {
+    // A hold says how long a decision takes here, while the review has that
+    // time: it has none once its batches run elsewhere than where it was
+    // measured, and the review then lifts the hold itself (MatchReview.notify).
+    if (status.held && status.decisionMs != null) {
       return `Reviewed ${reviewed} of ${status.hands.length} hands; about ${(status.decisionMs / 1000).toFixed(1)} seconds a decision on this device.`;
     }
     return `Reviewed ${reviewed} of ${status.hands.length} hands.`;
@@ -337,9 +340,9 @@
     : `${done} of ${total} decisions${status.estimate ? ` · about ${duration(status.estimate)} left` : ''}${status.busy && download ? ` · ${download}` : ''}`);
   // What the list says where its filter keeps no decision, once every hand
   // is reviewed; before that, the hands' own states say how far the review
-  // has got.
-  let empty = $derived(counts[filter] || !status.complete ? ''
-    : { flagged: 'None flagged.', differed: 'Trained AI agreed at every decision.', every: status.over ? 'You made no decisions.' : 'No decisions yet.' }[filter]);
+  // has got. The filter's own line says the same as it is pressed, and
+  // before every hand is reviewed that there is none yet (noneSaid).
+  let empty = $derived(counts[filter] || !status.complete ? '' : noneSaid(filter, status));
 </script>
 
 <svelte:window onkeydown={press} />
@@ -396,7 +399,7 @@
          top of the screen while the rest of the stage is scrolled under it. -->
     <div class="stage" data-stage style:--steps-height={barHeight ? `${barHeight}px` : undefined}>
       {#if at}
-        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} moveHidden={hidden.move}
+        <ReviewStepBar hand={shown} step={at.step} decision={current} {previous} {next} {waiting} {filter} {hints} moveHidden={hidden.move}
           tilesHidden={hidden.tiles} hiding={hideMove || hideTiles} {pick} onstep={go} onreveal={byKeyboard => revealHere(null, byKeyboard)}
           bind:height={barHeight} />
       {/if}
@@ -430,7 +433,8 @@
      for it to keep its line in view, and `bar` the step bar's height, which
      the line keeps clear of as a step makes the bar taller. -->
 {#snippet index(open)}
-  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} {open} bar={barHeight} {hideMove} {revealed}
+  <ReviewIndex hands={status.hands} place={at} bind:filter {counts} {hints} {trainedAvailable} {empty} complete={status.complete} over={status.over}
+    {open} bar={barHeight} {hideMove} {revealed}
     onplace={go} onreview={hand => review.review([hand])}>
     {#if figure.decisions}
       <ReviewTrend {figure} complete={status.complete && status.over} over={status.over} games={trend} current={review.id}

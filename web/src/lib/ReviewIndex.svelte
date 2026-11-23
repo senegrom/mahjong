@@ -18,15 +18,17 @@
    * the player moves on. `onplace(place)` goes to a place, and
    * `onreview(hand)` reviews a hand next. `counts` is how many decisions each
    * filter keeps, and `empty` what the list says where its filter keeps none,
-   * if anything. `open` is whether the list is on the screen, as a folded one
+   * if anything; `complete` is whether every hand is reviewed and `over`
+   * whether the match is, by which the filter says what holding none means
+   * (DecisionFilter). `open` is whether the list is on the screen, as a folded one
    * is not. `bar` is the height of the step bar, which stays over the top of
    * the screen where the list is folded under it, and which a step can make
    * taller. Where the player keeps Trained AI's move back (`hideMove`), each
    * line keeps it back too, "?" in its place, until the player reveals that
    * decision (`revealed`, by "hand:step", hiddenAt).
    */
-  let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '', open = true,
-    bar = 0, hideMove = false, revealed = {}, onplace, onreview, children } = $props();
+  let { hands, place = null, filter = $bindable('flagged'), counts, hints = true, trainedAvailable = false, empty = '', complete = true, over = true,
+    open = true, bar = 0, hideMove = false, revealed = {}, onplace, onreview, children } = $props();
   let root = $state(null);
 
   const on = (handIndex, step) => place?.hand === handIndex && place.step === step;
@@ -183,7 +185,7 @@
 
 <div class="index" bind:this={root}>
   {@render children?.()}
-  <DecisionFilter bind:value={filter} {counts} label="Which decisions to step through" />
+  <DecisionFilter bind:value={filter} {counts} {complete} {over} label="Which decisions to step through" />
   {#if empty}<p class="empty">{empty}</p>{/if}
   <!-- The hands and each hand's decisions are drawn without markers, so each
        list says it is one in so many words: Safari does not tell VoiceOver
@@ -284,8 +286,9 @@
   .verdict { opacity: .85; }
   .arrow { opacity: .7; }
   .flag-mark { margin-left: auto; font-weight: 650; color: var(--gold); }
-  /* Tapped, a line or a name keeps a touch's room. */
+  /* Tapped, a line, a name or a hand's Review keeps a touch's room: Review
+     is what a slow phone's hold sends the player to. */
   @media (pointer: coarse) {
-    .line, .name { min-height: 44px; }
+    .line, .name, .review { min-height: 44px; }
   }
 </style>

@@ -32,8 +32,12 @@ export const TIMED_POSITIONS = 16;
  * WebAssembly, at any position of the sample. The card's float arithmetic
  * differs in the last bits: on a GeForce RTX 5070 Ti weights differed by
  * 6.5e-6 at most over 368 positions (10 November 2026). A thousandth is
- * generous against that, and far below anything a review shows (weights
- * are shown in whole percent) or a wrong answer would give. */
+ * generous against that, at most the last digit a review shows of a weight
+ * (a tenth of a percent), and far below what a wrong answer would give. The
+ * review's reasoning holds a table asked again to the same bound
+ * (review-insight.js): what it asks again may have been judged on the other
+ * of the two, so a card let through here must not be told there that it
+ * answers differently. */
 export const WEIGHT_BOUND = 0.001;
 /** How many times faster than WebAssembly the card must run the timed
  * batch. */
