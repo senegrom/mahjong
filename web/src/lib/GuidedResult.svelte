@@ -19,14 +19,32 @@
    */
 
   // Keep the public `state` prop without shadowing Svelte's $state rune.
-  let { state: gameState, onsettle, onnext } = $props();
+  // `onsettle(input, press)` and `onnext(repeat, press)` take the click too.
+  // `ondraft(draft)` is told what the form holds as it changes (below).
+  let { state: gameState, onsettle, onnext, ondraft = null } = $props();
   let ending = $derived(gameState.ending);
   let p = $derived(ending.position);
-  let selected = $state(untrack(() => WINDS.map((_, i) => ending.winners.includes(i))));
-  let tenpai = $state(untrack(() => p.players.map(player => player.riichi !== 'none')));
-  let hands = $state([[], [], [], []]);
-  let winning = $state([]), ura = $state([]);
-  let confirmedNoFuriten = $state(false);
+  // What the form held when the game was last saved (`state.draft`,
+  // guided-settlement.js): the form starts from it, so a reload at the
+  // result, a look at another mode or a tab the phone let go brings back the
+  // revealed hands instead of an empty form. The recorded winners and the
+  // riichi players stay ticked whatever it says.
+  const kept = untrack(() => JSON.parse(JSON.stringify(gameState.draft ?? null)));
+  let selected = $state(untrack(() => WINDS.map((_, i) => ending.winners.includes(i) || Boolean(kept?.selected[i]))));
+  let tenpai = $state(untrack(() => p.players.map((player, i) => player.riichi !== 'none' || Boolean(kept?.tenpai[i]))));
+  let hands = $state(kept?.hands ?? [[], [], [], []]);
+  let winning = $state(kept?.winning ?? []), ura = $state(kept?.ura ?? []);
+  let confirmedNoFuriten = $state(kept?.confirmed ?? false);
+  // The form as it stands, handed up to be saved with the game whenever it
+  // changes. Nothing is handed up until something is typed, nor once the
+  // hand is settled, when the settlement keeps the input it was made from.
+  let draft = $derived(JSON.stringify({ selected, tenpai, hands, winning, ura, confirmed: confirmedNoFuriten }));
+  let handed = untrack(() => draft);
+  $effect(() => {
+    if (draft === handed) return;
+    handed = draft;
+    untrack(() => { if (!gameState.settlement) ondraft?.(JSON.parse(draft)); });
+  });
   let unknownRon = $derived(ending.kind === 'ron' && p.players.some((player, i) => selected[i] && !player.hand.length));
   let preview = $state(null), failure = $state('');
   let draw = $derived(ending.kind === 'draw');
@@ -61,7 +79,7 @@
 <section class="guided-result" aria-label="Guided hand settlement">
   {#if !gameState.settlement}
     <h4>{draw ? 'Confirm revealed tenpai hands' : 'Confirm the winning hand'} </h4>
-    <p>The Rust rules engine calculates yaku, han, fu and payments. Enter only tiles revealed at the table; called sets are already recorded.</p>
+    <p>Enter only tiles revealed at the table; called sets are already recorded.</p>
     {#if ending.kind === 'ron'}
       <p>Winning tile <Tile tile={p.pending} size="tiny" /> · from {WINDS[p.turn]}. Select all simultaneous ron winners.</p>
       <div class="flags">{#each WINDS as wind, i (wind)}{#if i !== p.turn}
@@ -138,8 +156,10 @@
     <p>Settlement includes honba and the riichi pot. Riichi bets were deducted when declared; whole-hand changes include those earlier deductions.</p>
     <p>Riichi sticks: {result.sticks_before} → {result.sticks_after}. Dealer {result.repeat ? 'repeats' : 'moves'}; next hand has {result.next_counters} honba.</p>
     {#if result.refunded_riichi != null}<p>{WINDS[result.refunded_riichi]}’s 1,000-point declaration bet is refunded because the declaration discard was won on.</p>{/if}
-    {#if gameState.settlement}<button class="primary" onclick={() => onnext(result.repeat)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
-    {:else}<button class="primary" onclick={() => onsettle(JSON.parse(inputKey))}>Apply settlement</button>{/if}
+    <!-- Each takes its button from the page, so the click goes with it for
+         focus to be handed on (GuidedPlay). -->
+    {#if gameState.settlement}<button class="primary" onclick={press => onnext(result.repeat, press)}>Next hand · dealer {result.repeat ? 'repeats' : 'moves'}</button>
+    {:else}<button class="primary" onclick={press => onsettle(JSON.parse(inputKey), press)}>Apply settlement</button>{/if}
   {/if}
 </section>
 
@@ -167,5 +187,5 @@
   button { min-height: 48px; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; cursor: pointer; justify-self: start; }
   .primary { background: var(--button-accent); color: var(--button-text); font-weight: 600; }
   [role=alert] { color: var(--warning-text); }
-  summary { cursor: pointer; min-height: 36px; }
+  summary { cursor: pointer; min-height: 44px; padding-block: 11px; }
 </style>

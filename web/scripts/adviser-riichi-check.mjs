@@ -65,7 +65,16 @@ try {
         title: weights.querySelector('.worth').title, help: weights.querySelector('.reward-help').textContent.trim() })),
       { worth: `${words.label} −1.25`, title: words.title, help: words.help });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');
-      const selector = `.reach-discards .choice-action[aria-label=${JSON.stringify(`Play ${alternative.label}`)}]`;
+      const button = choice => `.reach-discards .weight-row[data-choice=${JSON.stringify(choice.label)}] .choice-action`;
+      const selector = button(alternative);
+      // Each button is called by what its row shows: the move, its weight
+      // given riichi, and for the agent's own that it chose it.
+      const [chosen, other] = await Promise.all([preferred, alternative].map(choice =>
+        page.$eval(button(choice), row => row.getAttribute('aria-label'))));
+      assert.match(chosen, /^Play: .+, \d+\.\d% given riichi, agent choice$/);
+      assert.ok(chosen.startsWith(`Play: ${preferred.label}, `), chosen);
+      assert.match(other, /^Play: .+, \d+\.\d% given riichi$/);
+      assert.ok(other.startsWith(`Play: ${alternative.label}, `), other);
       const history = () => page.$$eval('.agent-watch .log-line', lines => lines.map(line => line.textContent));
       const before = await history();
       assert.deepEqual(before, match.events, 'browser reached the same real position');

@@ -25,8 +25,11 @@ const KINDS = Object.freeze([...TILE_TYPES]);
 const POSITIONS = KINDS.length;
 const OPPONENTS = 3;
 
-/** Named for the seat that was asked, not for the table. */
-const RELATIVE = Object.freeze(['Next', 'Across', 'Previous']);
+/** Named from the seat that was asked, as the tables name the seats round
+ * from the player's: the next to play sits to its right, then the one
+ * opposite, then the one to its left (Watch's table, opponents.js). A page
+ * that names its seats by their winds says those instead (AgentWeights). */
+const RELATIVE = Object.freeze(['Right', 'Opposite', 'Left']);
 
 function softmax(row) {
   const best = row.reduce((a, b) => (b > a ? b : a), -Infinity);

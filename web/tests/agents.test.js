@@ -1,10 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { AGENT_IDS, TRAINED_AGENT } from '../src/lib/agent-ids.js';
+import { sameMove } from '../src/lib/action-weights.js';
+import { emptyGuided } from '../src/lib/guided-game.js';
 
 // The agents module reaches the policy client, which reads the page's base
 // address as it loads; node has no page, so it is given one.
 globalThis.document ??= { baseURI: 'https://test.invalid/mahjong/' };
-const { evaluateAgent } = await import('../src/lib/agents.js');
+const { AGENTS, evaluateAgent, isTrained } = await import('../src/lib/agents.js');
+
+test('the agents the page names are the ones a saved guided game and a watched table know', () => {
+  // agents.js cannot be imported where there is no page, so the modules that
+  // run without one read the list from agent-ids.js: the two must agree.
+  assert.deepEqual(Object.keys(AGENTS), [...AGENT_IDS]);
+  assert.deepEqual(AGENT_IDS.filter(isTrained), [TRAINED_AGENT]);
+  for (const agent of AGENT_IDS) assert.equal(emptyGuided(agent).state.agent, agent);
+});
+
+test('two choices are the same move by kind and tile, a pass with no tile or a null one alike', () => {
+  assert.equal(sameMove({ kind: 'pass' }, { kind: 'pass', tile: null }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '1m', label: 'discards the 1 characters' }), true);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'riichi', tile: '1m' }), false);
+  assert.equal(sameMove({ kind: 'discard', tile: '1m' }, { kind: 'discard', tile: '2m' }), false);
+});
 
 test('a built-in agent lists the unscored kans after the ranked choices, in a stable order', async () => {
   const choices = [

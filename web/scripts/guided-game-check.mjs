@@ -65,16 +65,24 @@ async function club(page) {
   await page.select(adviser, 'club');
   await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.game.state.agent === 'club', {}, GUIDED_KEY);
 }
+/** Whether focus is on the prompt's heading, where each step hands it: the
+ * control that was pressed has gone with the prompt it was in. */
+const onHeading = page => page.evaluate(() => document.activeElement === document.querySelector('.guide-prompt h3'));
 async function setup(page, seat = '3') {
   await page.select('[aria-label="Your seat"]', seat);
   await page.click('.guide-prompt > .primary'); await stage(page, 'hand');
+  assert.equal(await onHeading(page), true, 'focus goes on to the starting hand\'s prompt');
   for (const t of parseTiles('123m456p789s1123z')) await tile(page, t);
   assert.equal(await page.$$eval('.guide-prompt .entered .tile', e => e.length), 13);
   await page.click('.guide-prompt > .primary'); await stage(page, 'dora');
   await tile(page, '7z'); await stage(page, 'turn');
+  assert.equal(await onHeading(page), true, 'and on to the first turn\'s');
 }
 async function passAndContinue(page) {
-  await choice(page); await page.click('.record-best'); await stage(page, 'responses');
+  await choice(page);
+  assert.equal(await onHeading(page), true, 'a discard entered, focus is on the advice\'s prompt');
+  await page.click('.record-best'); await stage(page, 'responses');
+  assert.equal(await onHeading(page), true, 'a move recorded, on the responses\' prompt');
   await page.click('.no-calls'); await stage(page, 'turn');
 }
 async function loadScoringFixture(page, riichi = false) {
@@ -108,6 +116,24 @@ try {
       assert.equal((await saved(page)).state.nextSeat, seat);
       await tile(page, t); await passAndContinue(page);
     }
+    // East's first discard, entered as the 9 characters, was the 9 circles:
+    // it is put right in place, a step of its own that Undo takes back.
+    const first = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards[0].tile, GUIDED_KEY);
+    await page.click('.remembered .correct > summary');
+    await page.select('[aria-label="Where the tile to correct is"]', '0');
+    await page.select('[aria-label="The tile to correct"]', '0');
+    await page.click('.correct .tile-entry summary');
+    // A correction that is refused is said under the palette it was pressed in.
+    await page.click('.correct .palette button[data-tile="9m"]');
+    await page.waitForFunction(() => document.querySelector('.correct [role="alert"]')?.textContent === 'It is already that tile');
+    assert.equal(await page.$('.guide-prompt .failure'), null);
+    await page.click('.correct .palette button[data-tile="9p"]');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.log.at(-1) === 'Corrected East’s discard: 9 characters → 9 circles', {}, GUIDED_KEY);
+    assert.equal(await first(), '9p');
+    assert.equal(await page.$('.correct [role="alert"]'), null);
+    assert.equal(await page.$eval('.guided-seats section:first-child .pool .tile', el => el.dataset.tile), '9p', 'the remembered table shows it');
+    await button(page, 'Undo last step');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards[0].tile === '9m', {}, GUIDED_KEY);
     assert.match(await page.$eval('.guide-prompt h3', el => el.textContent), /draw/);
     await tile(page, '4z'); await choice(page);
     let game = await saved(page);
@@ -165,6 +191,69 @@ try {
       return position?.players[position.seat].score === -500;
     }, {}, GUIDED_KEY);
     assert.equal(await page.$eval(field, el => el.value), '-500');
+    assert.deepEqual(page.problems, []);
+  });
+  await check('a fifth copy typed into the starting hand is refused, and what was typed stays to be corrected', async context => {
+    const page = await open(context);
+    // Pressed by keyboard, the step hands focus to the next prompt's heading
+    // and shows its ring there.
+    await page.focus('.guide-prompt > .primary'); await page.keyboard.press('Enter'); await stage(page, 'hand');
+    assert.deepEqual(await page.evaluate(() => {
+      const heading = document.querySelector('.guide-prompt h3');
+      return [document.activeElement === heading, heading.matches(':focus-visible'), heading.textContent];
+    }), [true, true, 'Choose your first 13 tiles']);
+    const field = '[aria-label="Your starting hand in tile notation"]';
+    const entered = () => page.$$eval('.guide-prompt .entered .tile', tiles => tiles.length);
+    await page.type(field, '11111m'); await page.keyboard.press('Enter');
+    // Nothing was entered, so the refusal names no entry to undo.
+    await page.waitForFunction(() => document.querySelector('.guide-prompt .failure')?.textContent
+      === 'All four copies of 1 characters are already accounted for.');
+    assert.equal(await page.$eval(field, el => el.value), '11111m', 'what was typed is kept');
+    assert.equal(await entered(), 0);
+    // One character taken out, it is entered, and the field is emptied.
+    await page.focus(field); await page.keyboard.press('End'); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Backspace');
+    assert.equal(await page.$eval(field, el => el.value), '1111m');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('.guide-prompt .entered .tile').length === 4);
+    assert.equal(await page.$eval(field, el => el.value), '');
+    assert.equal(await page.$('.guide-prompt .failure'), null);
+    assert.deepEqual(page.problems, []);
+  });
+  await check('a refused correction is said under its palette and leaves the prompt\'s own refusal on screen', async context => {
+    const page = await open(context);
+    // North holds all four 1 characters; East has thrown the 9 characters and
+    // South is to discard.
+    let game = emptyGuided('club');
+    game.state.position.seat = 3;
+    game = guidedEvent(game, { type: 'setup' });
+    game.state.position.players[3].hand = parseTiles('1111m456p789s123z');
+    for (const event of [{ type: 'hand' }, { type: 'indicator', tile: '7z' }, { type: 'discard', tile: '9m' }]) game = guidedEvent(game, event);
+    game = guidedEvent(game, { type: 'choice', choice: { kind: 'pass' }, choices: [{ kind: 'pass' }] });
+    game = guidedEvent(game, { type: 'continue' });
+    await page.evaluate(({ key, text }) => localStorage.setItem(key, text), { key: GUIDED_KEY, text: GUIDED_FORMAT.encode(game) });
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('.guided-controls:not(:disabled)'); await stage(page, 'turn');
+    // South's 1 characters would be a fifth copy: the prompt says so.
+    await tile(page, '1m');
+    const refusal = 'All four copies of 1 characters are already accounted for. Correct the one entered by mistake, or undo back to it.';
+    await page.waitForFunction(text => document.querySelector('.guide-prompt .failure')?.textContent === text, {}, refusal);
+    // A correction refused below is said under its palette, and the prompt's line stays.
+    await page.click('.remembered .correct > summary');
+    await page.select('[aria-label="Where the tile to correct is"]', 'hand');
+    await page.select('[aria-label="The tile to correct"]', '1m');
+    await page.click('.correct .tile-entry summary');
+    await page.click('.correct .palette button[data-tile="1m"]');
+    await page.waitForFunction(() => document.querySelector('.correct [role="alert"]')?.textContent === 'It is already that tile');
+    assert.equal(await page.$eval('.guide-prompt .failure', el => el.textContent), refusal);
+    // Undone back past East's only discard, Where is the hand again, not a
+    // blank seat that has no discards left, and Which is chosen afresh.
+    const where = '[aria-label="Where the tile to correct is"]', which = '[aria-label="The tile to correct"]';
+    await page.select(where, '0'); await page.select(which, '0');
+    for (let i = 0; i < 3; i++) await button(page, 'Undo last step');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.position.players[0].discards.length === 0, {}, GUIDED_KEY);
+    await page.waitForFunction(where => document.querySelector(where).value === 'hand', {}, where);
+    assert.deepEqual(await page.$eval(where, el => [el.selectedIndex, el.selectedOptions[0]?.textContent]), [0, 'Your hand']);
+    assert.equal(await page.$eval(which, el => el.value), '');
     assert.deepEqual(page.problems, []);
   });
   await check('mobile guided play offers every adviser and honours a saved trained preference', async context => {
@@ -308,6 +397,12 @@ try {
     await page.waitForFunction(() => document.querySelector('.guided-result [role="alert"]')?.textContent.includes('ura'));
     assert.equal((await saved(page)).state.settlement, undefined);
     await page.click('[aria-label="Revealed ura-dora indicators"] button[data-tile="6z"]');
+    // What the form holds is saved with the game as it is typed, so a reload
+    // brings the ura back: it used to empty the form.
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).game.state.draft?.ura.join() === '6z', {}, GUIDED_KEY);
+    await page.reload({ waitUntil: 'networkidle0' }); await stage(page, 'over');
+    await page.waitForSelector('.guided-controls:not(:disabled)');
+    assert.deepEqual(await page.$$eval('.guided-result .entered .tile', tiles => tiles.map(tile => tile.dataset.tile)), ['6z']);
     await button(page, 'Calculate hand settlement');
     await page.waitForSelector('[aria-label="North ura-dora indicators"]');
     assert.equal(await page.$$eval('[aria-label="North ura-dora indicators"] .tile', nodes => nodes.length), 1);
@@ -316,6 +411,7 @@ try {
     await page.waitForFunction(key => Boolean(JSON.parse(localStorage.getItem(key)).game.state.settlement), {}, GUIDED_KEY);
     const paid = (await saved(page)).state;
     assert.deepEqual(paid.settlement.hand_deltas, [-2600,0,0,2600]);
+    assert.equal(paid.draft, undefined, 'the settlement keeps its own input, and the draft goes');
     assert.equal(paid.position.players[3].score, 32600);
     assert.equal(paid.position.riichi_sticks, 0);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no horizontal overflow');

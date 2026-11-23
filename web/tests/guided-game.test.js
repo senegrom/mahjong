@@ -12,7 +12,8 @@ const inspect = (game, read = e => e.agent_choices()) => {
   try { return read(engine); } finally { engine.free(); }
 };
 const validate = position => { const engine = new PhysicalAnalysis(position); engine.free(); };
-const act = (g, e) => guidedEvent(g, e, validate, settle_physical);
+const choicesOf = position => inspect({ state: { position } });
+const act = (g, e) => guidedEvent(g, e, validate, settle_physical, choicesOf);
 function start(seat = 3, tiles = '123m456p789s1123z', indicator = '7z') {
   let g = emptyGuided();
   g = editGuided(g, s => { s.position.seat = seat; });
@@ -73,6 +74,8 @@ test('my confirmed pon consumes held tiles and allows discards without a draw', 
   const before = g;
   g = choose(g, 'pon');
   assert.equal(g.state.stage, 'claim-response');
+  // The history reads as the other moves do, not "You call calls a triplet".
+  assert.equal(g.log.at(-1), 'You: calls a triplet · awaiting other responses');
   assert.equal(g.state.position.players[3].hand.length, 13);
   g = next(g);
   assert.equal(g.state.stage, 'decision');
@@ -296,15 +299,173 @@ test('EMA 2025: guided riichi and the real engine agree at one remaining live ti
 
 test('rejects fifth copies, incomplete setup, stale events and rolls back invalid decisions', () => {
   let g = start(0, '1111m456p789s123z');
-  assert.throws(() => act(g, { type: 'draw', tile: '1m' }), /four copies/);
+  // The tile drawn is the one at the table, so one entered before it was not.
+  assert.throws(() => act(g, { type: 'draw', tile: '1m' }),
+    /^Error: All four copies of 1 characters are already accounted for\. Correct the one entered by mistake, or undo back to it\.$/);
   assert.equal(g.state.position.wall, 70);
+  // A fifth copy typed into the starting hand was never entered: nothing is
+  // to be undone, and the hand is left as it was.
+  const dealing = act(emptyGuided(), { type: 'setup' });
+  const four = editGuided(dealing, s => { s.position.players[0].hand = parseTiles('1111m'); });
+  assert.throws(() => editGuided(four, s => { s.position.players[0].hand = parseTiles('11111m'); }),
+    /^Error: All four copies of 1 characters are already accounted for\.$/);
+  assert.deepEqual(four.state.position.players[0].hand, parseTiles('1111m'));
+  // An opponent's call that would show a fifth copy is refused the same way.
+  const called = pass(discard(start(3, '555m456p789s1123z'), '5m'));
+  assert.throws(() => act(called, { type: 'call', seat: 2, kind: 'pon' }), /four copies of 5 characters.*Correct the one entered by mistake, or undo back to it\.$/);
   assert.throws(() => act(g, { type: 'continue' }), /no longer/);
   g = emptyGuided(); g.state.position.players[0].score = null;
   assert.throws(() => act(g, { type: 'setup' }), /points/);
   g.state.position.players[0].score = 30000;
+  g.state.position.seat = 4;
+  assert.throws(() => act(g, { type: 'setup' }), /^Error: Choose your seat$/);
+  g.state.position.seat = 0;
   g = act(g, { type: 'setup' });
   assert.throws(() => act(g, { type: 'hand' }), /exactly 13/);
   assert.throws(() => act(start(), { type: 'discard', tile: '9z' }), /Choose a tile/);
+});
+
+test('one remembered tile is corrected in place: a discard, or a tile of the hand, as a step that Undo takes back', () => {
+  // North holds a 3 characters. East's discard is entered as another by
+  // mistake (it was the 3 circles), South and West throw the real ones, and
+  // the fourth real one, North's draw, is then refused as a fifth.
+  let g = start();
+  for (const tile of ['3m', '3m', '3m']) g = next(pass(discard(g, tile)));
+  assert.throws(() => act(g, { type: 'draw', tile: '3m' }),
+    /^Error: All four copies of 3 characters are already accounted for\. Correct the one entered by mistake, or undo back to it\.$/);
+  const fixed = act(g, { type: 'correct', seat: 0, index: 0, from: '3m', tile: '3p' });
+  assert.equal(fixed.state.position.players[0].discards[0].tile, '3p');
+  assert.deepEqual({ ...fixed.state.position.players[0].discards[0], tile: '3m' }, g.state.position.players[0].discards[0], 'nothing else of it changes');
+  assert.equal(fixed.state.stage, 'turn');
+  assert.equal(fixed.log.at(-1), 'Corrected East’s discard: 3 characters → 3 circles');
+  assert.deepEqual(undoGuided(fixed), g, 'a correction is a step');
+  assert.deepEqual(parseGuided(GUIDED_FORMAT.encode(fixed)), fixed);
+  // The draw that was refused is now taken, and advised on by the engine.
+  const drawn = act(fixed, { type: 'draw', tile: '3m' });
+  assert.equal(drawn.state.stage, 'decision');
+  // A tile of the hand, at a decision: the engine reads the corrected table.
+  const held = act(drawn, { type: 'correct', from: '1z', tile: '4z' });
+  assert.deepEqual(held.state.position.players[3].hand.filter(tile => tile[1] === 'z').sort(), ['1z', '2z', '3z', '4z']);
+  assert.equal(held.log.at(-1), 'Corrected your hand: east wind → north wind');
+  assert.ok(inspect(held).some(c => c.kind === 'discard' && c.tile === '4z'));
+  // The tile just drawn is a choice of its own: corrected, the draw moves
+  // with it, though the hand holds another copy of what it was entered as;
+  // the other copy, corrected, leaves the draw alone.
+  const redrawn = act(drawn, { type: 'correct', from: '3m', tile: '9p', drawn: true });
+  assert.equal(redrawn.state.position.drawn, '9p');
+  assert.deepEqual(redrawn.state.position.players[3].hand.filter(tile => tile === '3m' || tile === '9p').sort(), ['3m', '9p']);
+  assert.equal(redrawn.log.at(-1), 'Corrected your draw: 3 characters → 9 circles');
+  assert.ok(inspect(redrawn).some(c => c.kind === 'discard' && c.tile === '9p'));
+  const kept = act(drawn, { type: 'correct', from: '3m', tile: '9p' });
+  assert.equal(kept.state.position.drawn, '3m', 'the other copy is not the draw');
+  assert.deepEqual(kept.state.position.players[3].hand.filter(tile => tile === '3m' || tile === '9p').sort(), ['3m', '9p']);
+  const lone = act(fixed, { type: 'draw', tile: '5z' });
+  assert.equal(act(lone, { type: 'correct', from: '5z', tile: '6z', drawn: true }).state.position.drawn, '6z');
+  assert.throws(() => act(lone, { type: 'correct', from: '5z', tile: '6z' }), /your draw: choose the drawn tile/);
+  assert.throws(() => act(lone, { type: 'correct', from: '1z', tile: '6z', drawn: true }), /not your draw/);
+  // What cannot be put right in place says what to do instead, and changes nothing.
+  assert.throws(() => act(g, { type: 'correct', seat: 0, index: 0, from: '9m', tile: '3p' }), /no longer/);
+  assert.throws(() => act(g, { type: 'correct', seat: 0, index: 5, from: '3m', tile: '3p' }), /no longer/);
+  assert.throws(() => act(g, { type: 'correct', from: '9p', tile: '3p' }), /not in your hand/);
+  assert.throws(() => act(g, { type: 'correct', seat: 1, index: 0, from: '3m', tile: '3m' }), /already/);
+  assert.throws(() => act(g, { type: 'correct', seat: 1, index: 0, from: '3m', tile: '9z' }), /Choose a tile/);
+  // A fifth copy by correction is refused with nothing to undo.
+  assert.throws(() => act(drawn, { type: 'correct', seat: 0, index: 0, from: '3p', tile: '3m' }),
+    /^Error: All four copies of 3 characters are already accounted for\.$/);
+  // The discard on offer is entered again by Undo, since the answer to it would change.
+  const offered = discard(next(choose(drawn, 'discard', '3m')), '8p');
+  assert.throws(() => act(offered, { type: 'correct', seat: 3, index: 0, from: '8p', tile: '8s' }), /no longer/);
+  assert.throws(() => act(offered, { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
+  assert.throws(() => act(pass(offered), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
+  // A place that is not a whole number names no discard, the one on offer least of all.
+  for (const place of [{ seat: 0, index: '1' }, { seat: '0', index: 1 }, { seat: 0, index: 1.5 }]) {
+    assert.throws(() => act(pass(offered), { type: 'correct', ...place, from: '8p', tile: '8s' }), /no longer there/);
+  }
+  assert.equal(act(next(pass(offered)), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }).state.position.players[0].discards[1].tile, '8s');
+  // A called discard is part of its set, and a riichi hand is fixed.
+  const called = next(act(pass(discard(start(), '5z')), { type: 'call', seat: 2, kind: 'pon' }));
+  assert.throws(() => act(called, { type: 'correct', seat: 0, index: 0, from: '5z', tile: '6z' }), /called set/);
+  const riichi = structuredClone(g); riichi.state.position.players[3].riichi = 'riichi';
+  assert.throws(() => act(riichi, { type: 'correct', from: '1z', tile: '4z' }), /riichi/);
+  // Nor is a finished hand's table corrected: its result is undone first.
+  const over = act(g, { type: 'finish', result: 'Other hand end', kind: 'manual' });
+  assert.throws(() => act(over, { type: 'correct', seat: 0, index: 0, from: '3m', tile: '3p' }), /no longer the next step/);
+});
+
+test('a corrected tile leaves the furiten from a passed win as it would have been recorded, in and out of riichi', () => {
+  const furiten = g => g.state.position.players[3].furiten;
+  const ronOffered = g => inspect(g).some(c => c.kind === 'ron');
+  const fix = (g, from, tile, seat, index) => act(g, seat == null ? { type: 'correct', from, tile } : { type: 'correct', seat, index, from, tile });
+  // North waits on the south wind alone (East triplet, round wind).
+  const waiting = '123m456p789s1112z';
+  // (A) East's south wind was entered as the west wind and let pass: put
+  // right, it was a win passed, and South's south wind is offered no ron.
+  let g = next(pass(discard(start(3, waiting), '3z')));
+  assert.equal(furiten(g), false);
+  let fixed = fix(g, '3z', '2z', 0, 0);
+  assert.equal(furiten(fixed), true);
+  assert.equal(ronOffered(discard(fixed, '2z')), false);
+  assert.deepEqual(undoGuided(fixed), g);
+  // (B) The reverse: a south wind passed that was the west wind.
+  const offered = discard(start(3, waiting), '2z');
+  assert.ok(ronOffered(offered));
+  g = next(pass(offered));
+  assert.equal(furiten(g), true);
+  fixed = fix(g, '2z', '3z', 0, 0);
+  assert.equal(furiten(fixed), false);
+  assert.ok(ronOffered(discard(fixed, '2z')));
+  // A discard before the player's own last one bears on no pass since.
+  let later = next(choose(act(next(pass(discard(next(pass(discard(g, '9m'))), '8m'))), { type: 'draw', tile: '5z' }), 'discard', '5z'));
+  later = next(pass(discard(later, '2z')));
+  assert.equal(furiten(later), true);
+  assert.equal(furiten(fix(later, '9m', '9p', 1, 0)), true);
+  // (C) A tile of the hand: the wait moves, and the passes since the last
+  // discard are judged against the new one, either way.
+  g = next(pass(discard(start(3, '123m456p789s1113z'), '2z')));
+  assert.equal(furiten(g), false);
+  assert.equal(furiten(fix(g, '3z', '2z')), true);
+  g = next(pass(discard(start(3, waiting), '2z')));
+  assert.equal(furiten(fix(g, '2z', '3z')), false);
+  // The discard on offer is not yet passed: corrected to its wait, the hand may ron it.
+  const asked = discard(start(3, '123m456p789s1113z'), '2z');
+  const rewaited = fix(asked, '3z', '2z');
+  assert.equal(furiten(rewaited), false);
+  assert.ok(ronOffered(rewaited));
+  // Once the player has drawn, no pass before stands: the flag stays clear.
+  let drew = act(next(pass(discard(next(pass(discard(g, '9m'))), '8m'))), { type: 'draw', tile: '5z' });
+  assert.equal(furiten(drew), false);
+  assert.equal(furiten(fix(drew, '2z', '3z')), false);
+  // In riichi the flag lasts the hand, and every discard since the
+  // declaration is judged again; the hand itself is not corrected.
+  let riichi = start(3, waiting);
+  for (const tile of ['9m', '8m', '7m']) riichi = next(pass(discard(riichi, tile)));
+  riichi = next(choose(act(riichi, { type: 'draw', tile: '5z' }), 'riichi', '5z'));
+  assert.notEqual(riichi.state.position.players[3].riichi, 'none');
+  g = next(pass(discard(riichi, '3z')));
+  fixed = fix(g, '3z', '2z', 0, 1);
+  assert.equal(furiten(fixed), true);
+  assert.equal(ronOffered(discard(fixed, '2z')), false);
+  // (B in riichi) a south wind passed, corrected to what it was, gives the ron back.
+  g = next(pass(discard(riichi, '2z')));
+  assert.equal(furiten(g), true);
+  assert.equal(furiten(fix(g, '9m', '9p', 0, 0)), true, 'a discard before the declaration bears on none');
+  fixed = fix(g, '2z', '3z', 0, 1);
+  assert.equal(furiten(fixed), false);
+  assert.ok(ronOffered(discard(fixed, '2z')));
+  // A draw does not clear a riichi furiten, and a correction after it still judges it.
+  drew = act(next(pass(discard(next(pass(discard(next(pass(discard(riichi, '3z'))), '6m'))), '6m'))), { type: 'draw', tile: '7p' });
+  assert.equal(furiten(drew), false);
+  assert.equal(furiten(fix(drew, '3z', '2z', 0, 1)), true);
+  assert.throws(() => fix(drew, '1z', '4z'), /riichi/);
+  // A concealed kan let pass counts too, robbed only by thirteen orphans.
+  const kan = hand => act(start(3, hand, '5p'), { type: 'kan', kind: 'concealed-kan', tile: '7z' });
+  const robbed = kan('11m9m19p19s123456z');
+  assert.ok(ronOffered(robbed));
+  assert.equal(furiten(pass(robbed)), true);
+  assert.equal(furiten(fix(pass(robbed), '1m', '2m')), false);
+  const unready = pass(kan('12m9m19p19s123456z'));
+  assert.equal(furiten(unready), false);
+  assert.equal(furiten(fix(unready, '2m', '1m')), true);
 });
 
 test('exhaustion waits for last-discard calls, then next hand rotates scores and the followed seat', () => {

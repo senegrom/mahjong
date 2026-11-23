@@ -39,6 +39,11 @@
   // How many hands the game's log holds: the finished ones only.
   let loggedHands = $state(0);
   let fileNote = $state('');
+  // Whether the table's setup is open: until a game starts, then as the
+  // watcher leaves it. Set from the game instead (`open={!view}`), Svelte set
+  // it again at every move, so it shut under a watcher choosing the next
+  // game's agents while this one played on.
+  let setupOpen = $state(true);
   let configured = false;
   const positions = ['Followed agent', 'Right', 'Opposite', 'Left'];
   let recommendedTile = $derived(!busy && ['discard', 'riichi'].includes(analysis?.choice.kind) ? analysis.choice.tile : null);
@@ -87,6 +92,7 @@
   }
   function start() {
     configured = true;
+    setupOpen = false;
     fileNote = '';
     standingsFocused = false;
     watch?.dispose();
@@ -142,7 +148,7 @@
 
 <section class="agent-watch" aria-label="Agent watch">
   <div class="watch-heading"><h2>Agent watch</h2><span>Follow one seat through a full game.</span></div>
-  <details open={!view} class="watch-setup">
+  <details bind:open={setupOpen} class="watch-setup">
     <summary>Agents at the table{#if watch} · following {agentName(watch.lineup[0])}{/if}</summary>
     <div class="agent-fields">
       {#each positions as position, index (index)}
@@ -218,10 +224,12 @@
   h2 { font-size: 1.15rem; margin: 0; }
   .watch-heading > span { font-size: .85rem; opacity: .7; }
   .watch-setup { padding: 12px; background: #0003; border-radius: 12px; }
-  summary { cursor: pointer; min-height: 36px; }
+  /* What a finger presses is 44 px tall: a summary, its words in the middle,
+     and a tick box's label. */
+  summary { cursor: pointer; min-height: 44px; padding-block: 11px; }
   .agent-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 12px; margin: 8px 0 16px; }
   .agent-fields label { display: grid; gap: 6px; font-size: .8rem; }
-  .watch-controls label { display: flex; align-items: center; gap: 6px; font-size: .82rem; }
+  .watch-controls label { display: flex; align-items: center; gap: 6px; font-size: .82rem; min-height: 44px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
   select, button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 12px; font: inherit; }
   select { max-width: 100%; }

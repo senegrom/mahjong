@@ -1,4 +1,5 @@
-import { TILE_TYPES, WINDS, runTiles } from './tiles.js';
+import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
+import { sameMove } from './action-weights.js';
 
 export const PHYSICAL_KEY = 'riichi.physical.v1';
 
@@ -49,32 +50,47 @@ export function parsePhysical(text) {
   return null;
 }
 
-/** The first number a draft still lacks, as a sentence, or null when it has
- * them all. A number field the person has emptied is null in the draft, and
- * the engine's own answer to that is "invalid type: unit value". */
+/** The first number a draft lacks or holds out of its range, as a sentence, or
+ * null when every number is one the engine takes. A number field the person
+ * has emptied is null in the draft, and a number field takes whatever is
+ * typed into it, a negative count or one past its `max` too. The engine's own
+ * answers to those are "invalid type: unit value" and "invalid value: integer
+ * `-1`, expected u32". The ranges are the engine's (`Position::build`); the
+ * live wall's also depends on the kans, which the engine says itself. */
 export function missingNumber(position) {
-  const fields = [['wall', 'the live wall count'], ['kyoku', 'the hand number'], ['counters', 'the honba count'],
-    ['riichi_sticks', 'the riichi sticks'], ['round', 'the round wind']];
-  for (const [key, name] of fields) if (!Number.isInteger(position?.[key])) return `Enter ${name}`;
+  const fields = [['wall', 'live wall count', 0, 70], ['kyoku', 'hand number', 1, 4], ['counters', 'honba count', 0, 100],
+    ['riichi_sticks', 'riichi sticks', 0, 100]];
+  for (const [key, name, least, most] of fields) {
+    const value = position?.[key];
+    if (!Number.isInteger(value)) return `Enter the ${name}`;
+    if (value < least || value > most) return `The ${name} must be ${least} to ${most}`;
+  }
+  const within = (value, least, most) => Number.isInteger(value) && value >= least && value <= most;
+  if (!within(position?.round, 0, 3)) return 'Choose the round wind';
   for (const [index, player] of (position?.players ?? []).entries()) {
     if (!Number.isInteger(player?.score)) return `Enter ${WINDS[index]}'s points`;
-    if ((player.melds ?? []).some(m => !Number.isInteger(m?.from))) return `Choose who supplied each of ${WINDS[index]}'s called sets`;
-    if ((player.discards ?? []).some(d => !Number.isInteger(d?.order))) return `Give each of ${WINDS[index]}'s discards an order number`;
+    if (!within(player.score, -100000, 200000)) return `${WINDS[index]}'s points must be -100,000 to 200,000`;
+    if ((player.melds ?? []).some(m => !within(m?.from, 0, 3))) return `Choose who supplied each of ${WINDS[index]}'s called sets`;
+    if ((player.discards ?? []).some(d => !within(d?.order, 0, MAX_ORDER - 1))) {
+      return `Give each of ${WINDS[index]}'s discards an order number from 0 to ${MAX_ORDER - 1}`;
+    }
   }
   return null;
 }
 
 /** Discard order numbers run below this; the engine refuses any other. */
-const MAX_ORDER = 400;
+export const MAX_ORDER = 400;
 
-/** The order number the next discard at the table will carry. */
-function nextOrder(position) {
+/** The order number the next discard at the table will carry. The one count
+ * for the physical table's recorded moves, its editor's earlier discards and
+ * a guided game's kans, which each used to count it. */
+export function nextOrder(position) {
   return Math.max(-1, ...position.players.flatMap(player => player.discards.map(entry => entry.order))) + 1;
 }
 
 /** A quad's turn as recorded: the next discard's order number, or none where
  * that is past what a draft holds. */
-function quadTurn(position) {
+export function quadTurn(position) {
   const turn = nextOrder(position);
   return turn < MAX_ORDER ? turn : undefined;
 }
@@ -168,7 +184,7 @@ export function withoutStaleDraw(before, after) {
 
 function remove(hand, tile, required = true) {
   const index = hand.indexOf(tile);
-  if (index < 0) { if (required) throw new Error(`The hand does not contain ${tile}`); return; }
+  if (index < 0) { if (required) throw new Error(`This hand does not hold the ${tileWords(tile)}`); return; }
   hand.splice(index, 1);
 }
 
@@ -232,7 +248,7 @@ export function recordDiscard(position, seat, tile, riichi = false) {
 /** Record only the analysed seat's real choice. Never fill in unseen tiles,
  * other players' responses, a replacement draw, or another dora indicator. */
 export function recordChoice(position, choice, choices) {
-  if (!choices.some(entry => entry.kind === choice.kind && (entry.tile ?? null) === (choice.tile ?? null))) {
+  if (!choices.some(entry => sameMove(entry, choice))) {
     throw new Error('Analyse this position again before recording a choice');
   }
   if (choice.kind === 'discard' || choice.kind === 'riichi') return recordDiscard(position, position.seat, choice.tile, choice.kind === 'riichi');

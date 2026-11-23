@@ -171,7 +171,13 @@ try {
       assert.equal(selected[0].readiness, 'ready');
       assert.match(selected[0].ring, /#4ea3ff/);
       const alternative = watch.analysis.choices.find(c => c.kind === 'discard' && c.tile !== watch.analysis.choice.tile);
-      const selector = `.choice-action[aria-label=${JSON.stringify(`Play ${alternative.label}`)}]`;
+      const selector = `.weight-row[data-choice=${JSON.stringify(alternative.label)}] .choice-action`;
+      // A row's button is called by what the row shows. A built-in agent has
+      // no weights, so that is the move, and for its own the word its row
+      // writes, Selected, and that it chose it.
+      assert.equal(await page.$eval(selector, button => button.getAttribute('aria-label')), `Play: ${alternative.label}`);
+      assert.equal(await page.$eval('.weight-row.best .choice-action', button => button.getAttribute('aria-label')),
+        `Play: ${watch.analysis.choice.label}, Selected, agent choice`);
       const before = await page.$eval('.followed', el => el.textContent);
       let question;
       page.once('dialog', async dialog => { question = dialog.message(); await dialog.dismiss(); });
@@ -227,6 +233,11 @@ try {
       const page = await open(11, 360);
       await assertHints(page, watch);
       assert.ok(await page.$('.followed .hand .dora'));
+      // The setup folded as the game started. Opened again, to choose the
+      // next game's agents, it stays open while this game plays on: it used
+      // to shut at every move.
+      assert.equal(await page.$eval('.watch-setup', setup => setup.open), false);
+      await page.click('.watch-setup > summary');
       for (let turn = 0; turn < 5; turn++) {
         const history = await page.$eval('.agent-watch > details:last-child > summary', el => el.textContent);
         await page.click('.watch-controls > button');
@@ -234,6 +245,8 @@ try {
         await page.waitForFunction(previous => document.querySelector('.agent-watch > details:last-child > summary').textContent !== previous
           && document.querySelector('.weight-row.best .choice-action:not(:disabled)'), {}, history);
       }
+      assert.equal(await page.$eval('.watch-setup', setup => setup.open), true, 'the setup stays open through the moves');
+      await page.click('.watch-setup > summary');
       await assertHints(page, watch);
       const marks = (await assertMarks(page, watch)).flat();
       assert.ok(marks.some(([drawn]) => drawn) && marks.some(([, claimed]) => claimed),

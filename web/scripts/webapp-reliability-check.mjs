@@ -7,7 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { browserChecks, launchChrome } from './browser-harness.mjs';
 import { MANIFEST } from '../src/lib/model-manifest.js';
-import { emptyPosition, PHYSICAL_KEY } from '../src/lib/physical-position.js';
+import { emptyPosition, parseTiles, PHYSICAL_KEY, recordDraw } from '../src/lib/physical-position.js';
 import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 
@@ -167,6 +167,82 @@ try {
     await page.waitForSelector('.physical-editor:not(:disabled)');
     await expectPosition(page, initial);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), SAVE_KEY), 'preserved regular match');
+    assert.deepEqual(errors, []);
+  });
+  for (const width of [1100, 390]) await check(`the physical editor's panels and palettes stay as the player leaves them at ${width}px`, async context => {
+    const initial = emptyPosition();
+    const { page, errors } = await open(context, { mode: 'physical', width, fixture: initial });
+    const seat = place => `.physical-seat:nth-child(${place})`;
+    const isOpen = selector => page.$eval(selector, details => details.open);
+    // East is the analysed seat, so its panel is open. Its palette is opened
+    // once and takes two tiles running: it used to shut after the first.
+    const hand = `${seat(1)} .seat-content > .tile-entry`;
+    await page.click(`${hand} summary`);
+    for (const tile of ['1m', '2m']) await page.click(`${hand} .palette button[data-tile="${tile}"]`);
+    const entered = structuredClone(initial); entered.players[0].hand = ['1m', '2m'];
+    await expectPosition(page, entered);
+    assert.equal(await isOpen(`${hand} details`), true, 'the palette stays open');
+    // Every palette tile is a target of 44 px or more: nine to a row where
+    // the entry has room for that, and five on a phone, where nine left 32
+    // by 42, each suit as 1 to 5 over 6 to 9, then the winds and the dragons.
+    // A row is read from the layout (offsetTop): the tile under the pointer,
+    // the one just pressed, is drawn lifted.
+    const cells = await page.$$eval(`${hand} .palette button`, buttons => buttons.map(button => {
+      const box = button.getBoundingClientRect();
+      return { tile: button.dataset.tile, top: button.offsetTop, width: box.width, height: box.height };
+    }));
+    assert.deepEqual(cells.filter(cell => cell.width < 44 || cell.height < 44), [], 'no palette tile under 44 px');
+    const row = tile => cells.filter(cell => cell.top === cells.find(other => other.tile === tile).top).map(cell => cell.tile).join(' ');
+    if (width < 600) {
+      assert.deepEqual([row('1m'), row('6m'), row('1p'), row('1z'), row('5z')], ['1m 2m 3m 4m 5m', '6m 7m 8m 9m', '1p 2p 3p 4p 5p', '1z 2z 3z 4z', '5z 6z 7z']);
+      // The tiles entered, pressed to take one out, are as wide.
+      assert.deepEqual(await page.$$eval(`${hand} .entered button`, buttons => buttons.map(button => button.getBoundingClientRect().width < 44)), [false, false]);
+    } else assert.deepEqual([row('1m'), row('1z')], ['1m 2m 3m 4m 5m 6m 7m 8m 9m', '1z 2z 3z 4z 5z 6z 7z']);
+    // South is not analysed. Its panel is opened by its summary and a whole
+    // score typed into it: it used to shut at the first key, and the rest of
+    // the number was typed at the page.
+    await page.click(`${seat(2)} > summary`);
+    await number(page, `${seat(2)} .fields input[type="number"]`, '25000');
+    const scored = structuredClone(entered); scored.players[1].score = 25000;
+    await expectPosition(page, scored);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2))], [true, true], 'both panels as the player left them');
+    // A panel the player folds stays folded through an edit elsewhere, and
+    // analysing another seat opens that seat's panel and folds none.
+    await page.click(`${seat(1)} > summary`);
+    await number(page, `${seat(2)} .fields input[type="number"]`, '26000');
+    const again = structuredClone(scored); again.players[1].score = 26000;
+    await expectPosition(page, again);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2))], [false, true], 'the analysed seat stays folded');
+    await page.select('[aria-label="Analyse seat"]', '2');
+    const west = structuredClone(again); west.seat = 2; west.turn = 2;
+    await expectPosition(page, west);
+    assert.deepEqual([await isOpen(seat(1)), await isOpen(seat(2)), await isOpen(seat(3))], [false, true, true]);
+    assert.deepEqual(errors, []);
+  });
+  await check('a refused physical move is said under the palette it was pressed in, and a number out of range by name', async context => {
+    const initial = emptyPosition(); initial.players[0].hand = parseTiles('123m456p789s1123z');
+    const { page, errors } = await open(context, { mode: 'physical', width: 390, fixture: initial });
+    const entry = '.record-event .tile-entry', move = '.record-event .fields label:nth-child(2) select';
+    // East holds thirteen tiles, so a discard before its draw is refused.
+    await page.select(move, 'discard');
+    await page.click(`${entry} summary`);
+    await page.click(`${entry} .palette button[data-tile="1m"]`);
+    await page.waitForSelector(`${entry} [role="alert"]`);
+    assert.equal(await page.$eval(`${entry} [role="alert"]`, el => el.textContent), 'Record this player’s draw or call before discarding');
+    assert.equal(await page.$('.physical-play .failure'), null, 'not in the line under the toolbar, a screen above');
+    assert.deepEqual(await saved(page), initial, 'a refused move changes nothing');
+    // The draw is taken from the same palette, and the refusal goes.
+    await page.select(move, 'draw');
+    await page.click(`${entry} .palette button[data-tile="4z"]`);
+    const drawn = recordDraw(initial, 0, '4z');
+    await expectPosition(page, drawn);
+    assert.equal(await page.$(`${entry} [role="alert"]`), null);
+    // A count below nought is asked for by name, not answered by the engine.
+    await number(page, '.table-fields input[max="100"]', '-1');
+    await expectPosition(page, { ...drawn, counters: -1 });
+    await page.click('.physical-toolbar .primary');
+    await page.waitForSelector('.physical-play .failure');
+    assert.equal(await page.$eval('.physical-play .failure', el => el.textContent), 'The honba count must be 0 to 100');
     assert.deepEqual(errors, []);
   });
 } finally {

@@ -121,6 +121,18 @@ multiplied into one weight, and Trained AI's move stays the advice whatever
 the rows show. The declaration row is not a button: a discard must still be
 chosen and confirmed.
 
+Where the rows are buttons, in Watch and a guided game, a screen reader hears
+each by what its row shows, since a button's name stands in place of what is
+drawn in it: what pressing it does, the move, its weight, and that it is the
+agent's choice ("Play: discards the 3 circles, 62.5%, agent choice"; "Record:
+…" in a guided game, "not evaluated" or "unscored" where the row says so). A
+built-in agent's chosen row says the word it shows, "Selected", before "agent
+choice", so that a voice naming what is on screen finds it.
+
+**Reading the other hands**, under Trained's weights, names the three other
+seats as the page around it does: Right, Opposite and Left of the followed
+seat in Watch, and by their winds in a guided game and physical play.
+
 The value is the network's estimate of the reward it learned from, which the
 model manifest records for each network as its trainer was given it, so it is
 named and explained by the network the page plays. 0.1.810 and 0.1.410 show
@@ -205,6 +217,10 @@ Select the seat being analysed and enter its concealed hand, including any
 drawn tile. Keep unknown hands empty. Tile notation is `123m456p789s11z`:
 `m` means characters, `p` circles, `s` bamboo, and `1z` through `7z` mean
 East, South, West, North, White, Green, Red. Tap entered tiles to remove them.
+A palette draws nine tiles to a row where its panel leaves each 44 px wide,
+and five where it does not, as on a phone: each suit as 1 to 5 over 6 to 9,
+then the winds and the dragons. A panel or a palette stays open or folded as
+you leave it.
 
 Set the current round, scores, sticks, wall count, dora indicators, melds, and
 discards. Scores are after paid riichi declarations. Discard order starts at
@@ -215,14 +231,21 @@ Each completed kan needs its additional indicator.
 For a draw decision identify the tile already included in hand. After a set
 call identify the tile just claimed. For a response identify the discarding
 seat and pending tile; kan-robbery windows have separate kinds. **Show agent
-weights** validates the table and analyses it. Editing cancels stale advice.
+weights** validates the table and analyses it. A number left empty or typed
+out of its range is asked for by name first ("The honba count must be 0 to
+100"), since a number field takes whatever is typed. While Trained is asked,
+a line says that the agent is thinking and, during the network's first
+download, how far that has got, as Watch and a guided game say it. Editing
+cancels stale advice.
 Record the move actually played, even when it differs from the suggestion.
 
 **Record the next physical move** adds a known hand's actual draw or records
 a discard. An unknown opponent's otherwise-unrecorded draw is counted with its
 discard, but not after a pon or chii or once that seat has already drawn; a
 discard that would need a draw from an empty wall is refused and changes
-nothing. After exceptional turns correct the wall count to the actual table.
+nothing. A refused move is said under the palette it was pressed in, not in
+the line under the toolbar, which is a screen above it on a phone. After
+exceptional turns correct the wall count to the actual table.
 **Add an earlier discard** edits visible history without advancing play.
 
 Calls consume only held tiles and retain the claimed discard. Newly recorded
@@ -276,6 +299,44 @@ For concealed or added kan, use the kan entry at the opponent-turn prompt.
 Resolve robbery before recording the additional indicator and replacement.
 Replacement draws count once; chained kans repeat this sequence. Invalid
 counts, directions, and stale actions cannot alter the saved game.
+
+A fifth copy of a tile is refused where it is entered. Typed into the
+starting hand it was never entered, so the line says only that all four
+copies are accounted for, and what was typed stays in the field to be
+corrected. At a draw, a discard, an indicator or a call the tile is the one
+on the table, so the line adds: "Correct the one entered by mistake, or undo
+back to it."
+
+**Correct a tile**, under the remembered table, puts one tile right in place:
+a discard of any seat, or a tile of your own hand. Choose where it is and
+which it is, then the tile it really is. The tile you have just drawn is a
+choice of its own ("· drawn"): corrected, it stays the draw, which the engine
+takes as a self-draw's winning tile and as a tile thrown from the draw, while
+another copy of it in the hand, corrected, leaves the draw as it was. Undo keeps thirty steps and a
+discard takes three, so a mistake more than ten discards back was out of its
+reach, and the only ways on were to enter a tile that was not played or to
+end the hand by hand. A correction is a step of its own: the history says
+what was changed, Undo takes it back, and the adviser is asked again of the
+corrected table. It changes that one tile, so a move of your own recorded
+wrongly is two corrections, the discard and the tile left in the hand. Your
+furiten from a passed win is set again as it would have been had the tile
+been entered right: the wins you let pass since your own last discard (in
+riichi, since the declaration), each other seat's discard and each added or
+concealed kan, are put to the rules engine against the corrected hand, which
+says whether each tile completes it, as it said at the pass. Three things are not corrected in place, and the line says to
+undo instead: the discard still on offer, since the answer to it would
+change; a discard that was called, which is part of its set; and a hand in
+riichi. A finished hand's table is corrected after its result is undone.
+Where and Which follow the table: a step or Undo that takes away the chosen
+seat's last discard, or the chosen tile, sets them back to your hand and to
+nothing chosen.
+
+Each step draws the next prompt in place of the one that was pressed, and the
+control that had focus goes with it. Focus is handed on to the new prompt's
+heading, which says what the guide asks now and is what a screen reader reads
+next, rather than falling to the page; a refused step leaves it where it was
+pressed, beside the line that says why. Only a press by keyboard moves the
+page to show the heading, as at the standings ([UI reliability](UI_RELIABILITY.md)).
 
 **Someone won / hand ended** opens the result flow. Known results can use the
 Rust scorer after the missing winning-hand and indicator data are entered;

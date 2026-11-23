@@ -2,16 +2,20 @@
   import { onMount, onDestroy } from 'svelte';
   import { PhysicalAnalysis } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
-  import { analysisOf, emptyPosition, missingNumber, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
+  import { analysisOf, emptyPosition, missingNumber, nextOrder, recordDraw, recordDiscard, recordChoice, withoutStaleDraw } from './physical-position.js';
+  import { sameMove } from './action-weights.js';
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
+  import { waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
 
-  let { trainedAvailable, storage } = $props();
+  let { trainedAvailable, storage, offline = null, workerNote = '' } = $props();
   let position = $state(emptyPosition());
   let agent = $state('club');
+  // A Trained analysis may be waiting for the network's first download.
+  let download = $derived(isTrained(agent) ? waitingNote(workerNote, offline) : '');
   let agentChosen = $state(false);
   let analysis = $state(null);
   let analyzedKey = '';
@@ -26,6 +30,13 @@
   let numericEdit = null;
   let eventSeat = $state(0);
   let eventKind = $state('draw');
+  // Which seats' panels are open, which is the player's to say. A saved table
+  // opens on the analysed seat's alone, and a seat's panel opens as it becomes
+  // the analysed one (below). Set from the table instead (`open={index ===
+  // position.seat}`), Svelte set them again at every edit, so a panel opened
+  // for another seat shut at the first key typed into it.
+  let seatOpen = $state([true, false, false, false]);
+  let openedSeat = 0;
   let request = null;
   let loaded = $state(false);
   let closed = false;
@@ -45,6 +56,8 @@
     const saved = await store.read();
     if (closed) return;
     position = saved; unreadable = store.unreadable; saveConflict = ''; history = []; recorded = null; loaded = true;
+    openedSeat = saved.seat;
+    seatOpen = saved.players.map((_, index) => index === saved.seat);
   }
   onMount(() => {
     store = createStore();
@@ -69,6 +82,12 @@
       analysis = null; failure = '';
     }
     if (loaded && !unreadable && !saveConflict) void store.save(snapshot());
+  });
+  // Another seat analysed, by the selector, a recorded draw or Undo, opens
+  // that seat's panel. No other change opens or folds one.
+  $effect(() => {
+    const seat = position.seat;
+    if (seat !== openedSeat) { openedSeat = seat; seatOpen[seat] = true; }
   });
   const snapshot = () => JSON.parse(JSON.stringify(position));
   function edit(change, group = null) {
@@ -100,13 +119,18 @@
   }
   function appendPastDiscard(index, tile) {
     edit(p => {
-      const order = Math.max(-1, ...p.players.flatMap(player => player.discards.map(d => d.order))) + 1;
+      const order = nextOrder(p);
       p.players[index].discards.push({ tile, order, drawn: false, riichi: false, claimed: false });
       if (order >= 3) p.first_turns = false;
     });
   }
+  // A draw or a discard the table refuses is thrown back to the palette that
+  // was pressed, which says it there (TileEntry): the line under the toolbar
+  // is a screen or more above it on a phone.
   function recordEvent(tile) {
-    edit(p => eventKind === 'draw' ? recordDraw(p, eventSeat, tile) : recordDiscard(p, eventSeat, tile, eventKind === 'riichi'));
+    const table = snapshot();
+    const next = eventKind === 'draw' ? recordDraw(table, eventSeat, tile) : recordDiscard(table, eventSeat, tile, eventKind === 'riichi');
+    edit(() => next);
   }
   async function analyze() {
     if (!loaded || saveConflict || unreadable) return;
@@ -169,11 +193,15 @@
     <label>Agent<select bind:value={agent} onchange={() => agentChosen = true} aria-label="Physical play agent">{#each Object.keys(AGENTS) as key (key)}{#if !isTrained(key) || trainedAvailable || agent === key}<option value={key} disabled={isTrained(key) && !trainedAvailable}>{agentName(key)}</option>{/if}{/each}</select></label>
     <button class="primary" onclick={analyze} disabled={busy}>{busy ? 'Analysing…' : 'Show agent weights'}</button>
   </div>
+  <!-- Trained takes a second or two a table, and minutes while its network
+       is first downloaded, which the line says as Watch and a guided game do. -->
+  {#if busy && isTrained(agent)}<p role="status">The agent is thinking…{download ? ` ${download}` : ''}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   {#if recorded?.key === JSON.stringify(position)}<p role="status">{recorded.message}</p>{/if}
   {#if analysis}
-    <AgentWeights {analysis} />
-    <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={choice.kind === analysis.choice.kind && choice.tile === analysis.choice.tile} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
+    <!-- The other seats' hands are read by their winds, as the table names them. -->
+    <AgentWeights {analysis} seats={[1, 2, 3].map(step => WINDS[(position.seat + step) % 4])} />
+    <div class="record-choices"><span>Record what was played:</span>{#each analysis.choices as choice, index (index)}<button class:primary={sameMove(choice, analysis.choice)} onclick={() => record(choice)}>{choice.label}</button>{/each}</div>
   {/if}
   <details class="table-fields" open>
     <summary>Round and current decision</summary>
@@ -206,7 +234,7 @@
   </details>
   <div class="physical-seats">
     {#each position.players as player, index (index)}
-      <details class="physical-seat" open={index === position.seat}>
+      <details class="physical-seat" bind:open={seatOpen[index]}>
         <summary><strong>{WINDS[index]}</strong> · {player.hand.length ? `${player.hand.length} concealed tiles` : 'Unknown hand'} · {player.score?.toLocaleString()}</summary>
         <div class="seat-content">
           <div class="fields"><label>Points<input type="number" min="-100000" max="200000" step="100" bind:value={() => player.score, value => editNumber(value, `score-${index}`, (p, n) => { p.players[index].score = n; })} onblur={endNumberEdit} /></label>
@@ -263,9 +291,13 @@
   .record-choices { font-size: .82rem; }
   .record-choices > span { width: 100%; }
   .table-fields, .record-event, .physical-seat { padding: 14px; background: #0003; border: 1px solid #ffffff22; border-radius: 12px; }
-  summary { min-height: 36px; cursor: pointer; font-size: .9rem; }
+  /* What a finger presses is 44 px tall: a panel's summary, its words in the
+     middle, a tick box's label, and the button that removes a discard, which
+     is as wide too. */
+  summary { min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .9rem; }
   .table-fields > :not(summary), .record-event > :not(summary) { margin-top: 12px; }
-  .flags label, .discard-fields label { display: flex; align-items: center; gap: 5px; font-size: .78rem; }
+  .flags label, .discard-fields label { display: flex; align-items: center; gap: 5px; font-size: .78rem; min-height: 44px; }
+  .discard-fields button { min-width: 44px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); flex-shrink: 0; }
   .physical-seats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-items: start; }
   .seat-content, .meld-editor, .discard-editor { display: grid; gap: 12px; }

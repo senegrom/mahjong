@@ -80,7 +80,8 @@ in text on the ivory face instead, so it plainly waits for its picture and never
 borrows another set's. In the hand the number stands over its suit, or an
 honour's first word over its second, in the words the tile is announced with.
 On faces of 40px or less, as in discard rows, dora indicators and the physical
-editor's entered tiles, a number stands over its suit's letter as tile notation
+editor's entered tiles where its entry is wide (in a narrow one, on a phone,
+they are 44px wide to be pressed), a number stands over its suit's letter as tile notation
 writes it (m characters, p circles, s bamboo), or beside it on a tile turned on
 its side, so a suit never rests on its colour alone; the colours (red
 characters, blue circles, green bamboo) only repeat it. On the same faces an

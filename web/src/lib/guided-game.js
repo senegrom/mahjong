@@ -1,18 +1,18 @@
-import { emptyPosition, parsePhysical, missingNumber, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { emptyPosition, parsePhysical, missingNumber, quadTurn, recordDraw, recordDiscard, recordChoice } from './physical-position.js';
+import { sameMove } from './action-weights.js';
+import { AGENT_IDS, TRAINED_AGENT } from './agent-ids.js';
 import { TILE_TYPES, WINDS, runTiles, tileWords } from './tiles.js';
-import { rememberEnding, applySettlement, validEndingState, verifySettlement } from './guided-settlement.js';
+import { rememberEnding, applySettlement, draftBelongs, dropStrayDraft, validEndingState, verifySettlement } from './guided-settlement.js';
 
 export const GUIDED_KEY = 'riichi.guided.v1';
 const STAGES = ['setup', 'hand', 'dora', 'turn', 'decision', 'responses', 'claim-response', 'kan-response', 'indicator', 'over'];
-const AGENTS = ['beginner', 'club', 'full'];
-const sameChoice = (a, b) => a.kind === b.kind && (a.tile ?? null) === (b.tile ?? null);
 
 /** A new guided game. Its adviser is the trained network unless one is
  * named: a game started from another keeps the adviser that one had. */
-export function emptyGuided(agent = 'full') {
+export function emptyGuided(agent = TRAINED_AGENT) {
   const position = emptyPosition();
   position.wall = 70; position.phase = 'draw';
-  if (!AGENTS.includes(agent)) agent = 'full';
+  if (!AGENT_IDS.includes(agent)) agent = TRAINED_AGENT;
   return { state: { position, stage: 'setup', nextSeat: 0, needsDraw: true, agent, result: '' }, past: [], log: [] };
 }
 
@@ -39,13 +39,21 @@ export function viewMelds(player) {
   return player.melds.map(meld => ({ kind: meld.kind, tiles: setTiles(meld), from: ['self', 'right', 'across', 'left'][meld.from] }));
 }
 
-/** Count only tiles actually seen, with claimed discards counted in their set. */
-export function visibleCounts(position) {
+/** What a table event's fifth copy says the player can do: the tile entered
+ * now is the one on the table, so one of the four before it was not, and is
+ * put right in place (the `correct` event) or undone back to. */
+const MISTAKEN = 'Correct the one entered by mistake, or undo back to it.';
+
+/** Count only tiles actually seen, with claimed discards counted in their set.
+ * A fifth copy is refused, in a sentence that ends with `remedy` where the
+ * caller has one: a tile typed into the starting hand was never entered, so
+ * there nothing is to be undone. */
+export function visibleCounts(position, remedy = '') {
   const counts = new Map(TILE_TYPES.map(tile => [tile, 0]));
   const add = tile => {
     if (!counts.has(tile)) throw new Error('Choose a valid tile');
     const count = counts.get(tile) + 1;
-    if (count > 4) throw new Error(`All four copies of ${tileWords(tile)} are already accounted for. Undo the mistaken entry.`);
+    if (count > 4) throw new Error(`All four copies of ${tileWords(tile)} are already accounted for.${remedy && ` ${remedy}`}`);
     counts.set(tile, count);
   };
   position.indicators.forEach(add);
@@ -64,15 +72,12 @@ export function doraTiles(position) {
   });
 }
 
+/** The table's numbers, each asked for by name and range (missingNumber),
+ * and the player's seat, which that does not ask. */
 function numbers(p) {
   const missing = missingNumber(p);
   if (missing) throw new Error(missing);
-  if (![p.seat, p.round].every(n => Number.isInteger(n) && n >= 0 && n < 4)
-    || p.kyoku < 1 || p.kyoku > 4 || p.counters < 0 || p.counters > 100
-    || p.riichi_sticks < 0 || p.riichi_sticks > 100
-    || p.players.some(player => player.score < -100000 || player.score > 200000)) {
-    throw new Error('Check the seat, round, points, honba and riichi sticks');
-  }
+  if (!(Number.isInteger(p.seat) && p.seat >= 0 && p.seat < 4)) throw new Error('Choose your seat');
 }
 
 function requireStage(state, ...stages) {
@@ -139,7 +144,7 @@ function queueClaim(state, claim) {
   // Validate the eventual move now, but keep its tiles at their original
   // positions so ron can still cancel the set and be scored correctly.
   const preview = structuredClone(state);
-  applyClaim(preview, claim); visibleCounts(preview.position);
+  applyClaim(preview, claim); visibleCounts(preview.position, MISTAKEN);
   state.claim = claim; state.stage = 'claim-response';
 }
 
@@ -162,11 +167,91 @@ function forbiddenAfterCall(p, player) {
   return forbidden;
 }
 
+/** The wins the player has let pass that its furiten flag stands on: each
+ * other seat's discard, and each of their added or concealed kans, since the
+ * player's own last discard, or in riichi since the declaration, less the one
+ * on offer and not yet answered. A pass sets the flag where the passed tile
+ * completes the hand (a choice that is ron or `causes_furiten`), the player's
+ * own draw or call clears it, and in riichi it lasts the hand. Out of riichi,
+ * once the player has drawn or called, there is none (null): the flag is
+ * false whatever went before. */
+function passesSince(state) {
+  const p = state.position, mine = p.players[p.seat];
+  let since;
+  if (mine.riichi !== 'none') since = mine.discards.find(d => d.riichi)?.order ?? -1;
+  else {
+    if (p.turn === p.seat && !(state.stage === 'turn' && state.needsDraw && !p.after_quad)) return null;
+    since = Math.max(-1, ...mine.discards.map(d => d.order));
+  }
+  const unanswered = state.stage === 'decision' && p.phase === 'call' && p.turn !== p.seat;
+  const passes = [];
+  p.players.forEach((player, seat) => {
+    if (seat === p.seat) return;
+    player.discards.forEach((d, index) => {
+      if (d.order <= since) return;
+      if (unanswered && p.pending_kind === 'discard' && seat === p.turn && index === player.discards.length - 1) return;
+      passes.push({ seat, index, tile: d.tile, kind: 'discard' });
+    });
+    player.melds.forEach(m => {
+      if (!SELF_KANS.includes(m.kind) || !(m.declared_turn > since)) return;
+      if (unanswered && p.pending_kind === m.kind && seat === p.turn && m.tile === p.pending) return;
+      passes.push({ seat, tile: m.tile, kind: m.kind });
+    });
+  });
+  return passes;
+}
+const SELF_KANS = ['extended-kan', 'concealed-kan'];
+
+/** Whether any of `passes` completes the player's hand, as the engine judged
+ * it at each pass: the hand, its sets and the passed tile alone are put to the
+ * engine (`choicesOf`, a position to its choices), and the pass is a win where
+ * the engine offers ron on it or says passing it causes furiten. The waits
+ * hang on the concealed tiles and the sets alone, which have not changed
+ * since the passes: out of riichi there was no draw or call since, and in
+ * riichi only the draw, held apart, and a concealed kan, which may not
+ * change the wait. A concealed kan is robbed only by thirteen orphans, so it
+ * is asked as one. */
+function passedAWin(state, passes, choicesOf) {
+  if (!passes.length) return false;
+  if (typeof choicesOf !== 'function') throw new Error('The rules engine is not ready');
+  const p = state.position, mine = p.players[p.seat], concealed = [...mine.hand];
+  if (concealed.length === 14 - 3 * mine.melds.length && p.drawn && concealed.includes(p.drawn)) concealed.splice(concealed.indexOf(p.drawn), 1);
+  if (concealed.length !== 13 - 3 * mine.melds.length) throw new Error('Your hand cannot be judged for furiten now: undo back to the mistaken entry');
+  const asked = new Map();
+  return passes.some(({ tile, kind }) => {
+    const key = `${kind === 'concealed-kan' ? 'k' : 'd'}${tile}`;
+    if (!asked.has(key)) {
+      const probe = emptyPosition(), from = (p.seat + 1) % 4;
+      Object.assign(probe, { seat: p.seat, round: p.round, kyoku: p.kyoku, wall: 50, first_turns: false,
+        turn: from, phase: 'call', pending: tile, pending_kind: kind === 'concealed-kan' ? kind : 'discard' });
+      probe.players[p.seat].hand = concealed;
+      probe.players[p.seat].melds = mine.melds.map(({ kind, tile, from, claimed_tile }) => ({ kind, tile, from, claimed_tile }));
+      if (kind === 'concealed-kan') probe.players[from].melds = [{ kind, tile, from: 0 }];
+      else probe.players[from].discards = [{ tile, order: 0, drawn: false, riichi: false, claimed: false }];
+      // An indicator, and one for each of the player's kans: the table's own
+      // where it has them, so no tile shows more copies than the table does.
+      const needed = 1 + mine.melds.filter(m => m.kind.includes('kan')).length;
+      probe.indicators = p.indicators.slice(0, needed);
+      while (probe.indicators.length < needed) {
+        const shown = new Map(TILE_TYPES.map(t => [t, 0]));
+        const seen = t => shown.set(t, shown.get(t) + 1);
+        probe.indicators.forEach(seen); concealed.forEach(seen); probe.players[p.seat].melds.forEach(m => setTiles(m).forEach(seen));
+        if (kind === 'concealed-kan') setTiles(probe.players[from].melds[0]).forEach(seen); else seen(tile);
+        probe.indicators.push(TILE_TYPES.find(t => shown.get(t) < 4));
+      }
+      asked.set(key, choicesOf(probe).some(c => c.kind === 'ron' || c.causes_furiten));
+    }
+    return asked.get(key);
+  });
+}
+
 /** One table event at a time. validateDecision is the real rules engine in the UI.
- * Unknown opponents' hands remain empty throughout; no wall is simulated. */
-export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement) {
+ * Unknown opponents' hands remain empty throughout; no wall is simulated.
+ * choicesOf, the engine's legal choices for a position, judges a corrected
+ * tile's furiten again (`correct`). */
+export function guidedEvent(game, event, validateDecision = () => {}, scoreSettlement, choicesOf) {
   const state = structuredClone(game.state);
-  let p = state.position, label;
+  let p = state.position, label, remedy = MISTAKEN;
   const actor = () => WINDS[state.nextSeat];
   switch (event.type) {
     case 'setup':
@@ -220,11 +305,12 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
     case 'choice': {
       requireStage(state, 'decision');
       const { choice, choices } = event;
-      if (!choice || !Array.isArray(choices) || !choices.some(c => sameChoice(c, choice))) throw new Error('Analyse this decision again');
+      if (!choice || !Array.isArray(choices) || !choices.some(c => sameMove(c, choice))) throw new Error('Analyse this decision again');
       if (['pon', 'chii', 'kan'].includes(choice.kind)) {
         queueClaim(state, { seat: p.seat, kind: choice.kind, tile: choice.tile ?? null });
         if (choices.some(c => c.kind === 'ron' || c.causes_furiten)) p.players[p.seat].furiten = true;
-        label = `You call ${choice.label ?? choice.kind} · awaiting other responses`;
+        // The engine's label is a sentence's end ("calls a triplet"), as in "You: discards …" below.
+        label = `You: ${choice.label ?? choice.kind} · awaiting other responses`;
         break;
       }
       if (choice.kind === 'ron' || choice.kind === 'tsumo') rememberEnding(state, choice.kind, [p.seat]);
@@ -263,8 +349,7 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       const player = p.players[state.nextSeat];
       if (!['concealed-kan', 'extended-kan'].includes(event.kind)) throw new Error('Choose the kind of kan');
       // A quad's turn is that of the discard the turn will end with.
-      const turn = Math.max(-1, ...p.players.flatMap(seat => seat.discards.map(entry => entry.order))) + 1;
-      const declared_turn = turn < 400 ? turn : undefined;
+      const declared_turn = quadTurn(p);
       if (event.kind === 'extended-kan') {
         const meld = player.melds.find(m => m.kind === 'pon' && m.tile === event.tile);
         if (!meld) throw new Error('This opponent has no matching pon to extend');
@@ -298,6 +383,66 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       state.stage = 'over'; p.phase = 'over'; state.result = event.result; label = event.result;
       break;
     }
+    case 'correct': {
+      // One tile of the remembered table put right in place: a discard of
+      // any seat (`seat`, `index`) or a tile of the player's own hand, each
+      // named by the tile it was entered as (`from`). Undo keeps thirty steps
+      // and a discard takes three, so a mistake more than ten discards back
+      // was out of its reach. It is a step like any other: the copies are
+      // counted again, the engine reads the table again at a decision, and
+      // Undo takes it back. It changes that tile, and the player's furiten
+      // from a passed win where the tile bears on it, judged again by the
+      // engine (passesSince, passedAWin) as it would have been recorded. What
+      // depends on more than the tile is left to Undo: the discard on offer,
+      // whose answer would change; a called discard, which is in its set;
+      // and a riichi hand, which the engine holds to its wait.
+      requireStage(state, 'turn', 'decision', 'responses', 'kan-response', 'indicator');
+      requireTile(event.tile);
+      if (event.from === event.tile) throw new Error('It is already that tile');
+      if (event.seat == null) {
+        // The tile just drawn is its own choice (`drawn`): the engine takes it
+        // as a self-draw's winning tile and as the tile thrown from the draw,
+        // so it moves with its correction, and a correction of another copy
+        // of it in the hand leaves the draw alone.
+        const mine = p.players[p.seat], at = mine.hand.indexOf(event.from), drawn = event.drawn === true;
+        if (at < 0) throw new Error('That tile is not in your hand');
+        if (mine.riichi !== 'none') throw new Error('A hand in riichi is not corrected: undo back to the mistaken entry');
+        if (drawn && p.drawn !== event.from) throw new Error('That tile is not your draw');
+        if (!drawn && p.drawn === event.from && mine.hand.filter(tile => tile === event.from).length < 2) {
+          throw new Error('That tile is your draw: choose the drawn tile');
+        }
+        mine.hand[at] = event.tile;
+        if (drawn) p.drawn = event.tile;
+        visibleCounts(p);
+        // Another hand waits on other tiles: the wins let pass since the last
+        // discard are judged again against it.
+        const passes = passesSince(state);
+        if (passes) mine.furiten = passedAWin(state, passes, choicesOf);
+        label = `Corrected your ${drawn ? 'draw' : 'hand'}: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
+      } else {
+        // A whole number, or "1" would be found as discards["1"] and pass
+        // the guard on the discard on offer below, which compares numbers.
+        if (!Number.isInteger(event.seat) || !Number.isInteger(event.index)) throw new Error('That discard is no longer there');
+        const discards = p.players[event.seat]?.discards ?? [], entry = discards[event.index];
+        if (!entry || entry.tile !== event.from) throw new Error('That discard is no longer there');
+        if (entry.claimed) throw new Error('That discard is in a called set: undo back to the call');
+        if (p.phase === 'call' && p.pending_kind === 'discard' && event.seat === p.turn && event.index === discards.length - 1) {
+          throw new Error('Undo to enter the discard on offer again');
+        }
+        entry.tile = event.tile;
+        visibleCounts(p);
+        // A discard the player let pass, corrected, may now be a win passed
+        // or no longer one: the flag is judged again as it would have been.
+        const passes = passesSince(state);
+        if (passes?.some(pass => pass.seat === event.seat && pass.index === event.index)) {
+          p.players[p.seat].furiten = passedAWin(state, passes, choicesOf);
+        }
+        label = `Corrected ${WINDS[event.seat]}’s discard: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
+      }
+      // Nothing was entered, so a fifth copy here leaves nothing to undo.
+      remedy = '';
+      break;
+    }
     case 'settle':
       requireStage(state, 'over');
       label = applySettlement(state, event.input ?? {}, scoreSettlement);
@@ -320,25 +465,29 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
       p.riichi_sticks = old.riichi_sticks;
       p.players.forEach((player, i) => { player.score = old.players[(i + shift) % 4].score; });
       state.stage = 'setup'; state.nextSeat = 0; state.needsDraw = true; state.result = '';
-      delete state.ending; delete state.settlement; delete state.opening;
+      delete state.ending; delete state.settlement; delete state.opening; delete state.draft;
       label = event.repeat ? 'Next hand · dealer repeats' : 'Next hand · dealer moves';
       break;
     }
     default: throw new Error('Unknown guided event');
   }
-  visibleCounts(p);
+  visibleCounts(p, remedy);
   if (state.stage === 'decision') validateDecision(p);
   return { state, past: [...game.past.slice(-29), { state: structuredClone(game.state), logLength: game.log.length }], log: [...game.log, label] };
 }
 
-/** Save setup/score inputs without turning every keystroke into a game move. */
+/** Save setup/score inputs without turning every keystroke into a game move.
+ * A scored hand's table is fixed until it is undone: only the adviser may
+ * change beside it and, until it is settled, what its result's form holds
+ * (`draft`, guided-settlement.js). */
 export function editGuided(game, edit) {
   const next = structuredClone(game);
   edit(next.state);
-  if (game.state.ending && game.state.ending.kind !== 'manual'
-    && JSON.stringify({ ...next.state, agent: game.state.agent }) !== JSON.stringify(game.state)) {
+  const table = ({ agent: _agent, draft: _draft, ...rest }) => JSON.stringify(rest);
+  if (game.state.ending && game.state.ending.kind !== 'manual' && table(next.state) !== table(game.state)) {
     throw new Error('Undo the hand result before changing the scored table');
   }
+  if (next.state.draft != null && !draftBelongs(next.state)) throw new Error('This hand has no result form open to keep');
   visibleCounts(next.state.position);
   return next;
 }
@@ -352,7 +501,10 @@ export function parseGuided(text, scoreSettlement) {
   try {
     if (typeof text !== 'string' || text.length > 2_000_000) return null;
     const value = JSON.parse(text), game = value?.game;
-    const validState = state => state && STAGES.includes(state.stage) && AGENTS.includes(state.agent)
+    // A draft that does not fit is dropped, in the state and in each past one.
+    dropStrayDraft(game?.state);
+    if (Array.isArray(game?.past)) game.past.forEach(entry => dropStrayDraft(entry?.state));
+    const validState = state => state && STAGES.includes(state.stage) && AGENT_IDS.includes(state.agent)
       && Number.isInteger(state.nextSeat) && state.nextSeat >= 0 && state.nextSeat < 4
       && typeof state.needsDraw === 'boolean' && typeof state.result === 'string' && state.result.length <= 120
       && parsePhysical(JSON.stringify({ version: 1, position: state.position }))
@@ -368,6 +520,6 @@ export function parseGuided(text, scoreSettlement) {
 }
 
 export const GUIDED_FORMAT = {
-  key: GUIDED_KEY, lock: 'riichi.guided-game.writer', empty: emptyGuided, parse: parseGuided,
+  key: GUIDED_KEY, lock: 'riichi.guided-game.writer', noun: 'guided game', empty: emptyGuided, parse: parseGuided,
   encode: game => JSON.stringify({ version: 1, game }),
 };

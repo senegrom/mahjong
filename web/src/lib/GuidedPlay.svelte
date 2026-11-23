@@ -1,12 +1,12 @@
 <script>
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { PhysicalAnalysis, settle_physical } from '../wasm/riichi.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { analysisOf } from './physical-position.js';
   import { PhysicalStore } from './physical-store.js';
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
-  import { waitingNote } from './ui.js';
+  import { land, pressedByKeyboard, waitingNote } from './ui.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
@@ -38,6 +38,21 @@
     ? position.after_quad ? 'What is your replacement tile?' : 'What did you draw?'
     : `${WINDS[state.nextSeat]} discard?`);
   let candidates = $derived(WINDS.map((name, seat) => ({ name, seat })).filter(s => s.seat !== position.turn && s.seat !== position.seat && s.seat !== state.claim?.seat));
+  // The three other seats by their winds, from the next to play round: what
+  // the adviser's reading of their hands is named by, as the rest of the
+  // guide names seats.
+  let others = $derived([1, 2, 3].map(step => WINDS[(position.seat + step) % 4]));
+  // The one tile Correct a tile puts right (guided-game.js, `correct`): where
+  // it is, your hand or a seat's discards, and which, a tile of the hand by
+  // its name or a discard by its place in that seat's row. The tile just
+  // drawn is an entry of its own, since the draw moves with its correction.
+  let fixPlace = $state('hand'), fixWhich = $state('');
+  let drawnHeld = $derived(position.drawn != null && hand.includes(position.drawn) ? position.drawn : null);
+  let fixTiles = $derived(fixPlace === 'hand'
+    ? [...(drawnHeld ? [{ key: 'drawn', words: `${tileWords(drawnHeld)} · drawn` }] : []),
+      ...[...new Set(drawnHeld ? hand.filter((_, i) => i !== hand.lastIndexOf(drawnHeld)) : hand)].map(tile => ({ key: tile, words: tileWords(tile) }))]
+    : (position.players[fixPlace]?.discards ?? []).map((discard, index) => ({ key: String(index),
+      words: `${index + 1} · ${tileWords(discard.tile)}${discard.claimed ? ' · called' : ''}` })));
   // Trained advice may be waiting for the network's first download.
   let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
 
@@ -50,8 +65,8 @@
   onMount(() => {
     loadedStore = new PhysicalStore(storage, navigator.locks, {
       format: { ...GUIDED_FORMAT, parse: text => parseGuided(text, settle_physical) },
-      onWarning: message => { if (!closed) warning = message.replaceAll('physical table', 'guided game'); },
-      onConflict: message => { if (!closed) { conflict = message.replaceAll('physical table', 'guided game'); request?.abort(); analysis = null; busy = false; } },
+      onWarning: message => { if (!closed) warning = message; },
+      onConflict: message => { if (!closed) { conflict = message; request?.abort(); analysis = null; busy = false; } },
     });
     void load();
     const changed = event => loadedStore.changed(event);
@@ -69,16 +84,44 @@
       if (enabled && state.stage === 'decision') void analyze(key);
     });
   });
+  // Whether the change was taken. A refused one is said in the prompt's own
+  // line, so a tile entry keeps what was typed for it to be corrected.
   function edit(change) {
-    if (blocked) return;
-    try { game = editGuided(snapshot(), change); failure = ''; }
-    catch (error) { failure = error.message ?? String(error); }
+    if (blocked) return false;
+    try { game = editGuided(snapshot(), change); failure = ''; return true; }
+    catch (error) { failure = error.message ?? String(error); return false; }
   }
   function validate(p) { analysisOf(PhysicalAnalysis, p).free(); }
+  // The engine's choices at a position: a corrected tile's furiten is judged
+  // again by them (guided-game.js, `correct`).
+  function choicesOf(p) {
+    const engine = analysisOf(PhysicalAnalysis, p);
+    try { return engine.agent_choices(); } finally { engine.free(); }
+  }
   function act(event) {
     if (blocked) return false;
-    try { game = guidedEvent(snapshot(), event, validate, settle_physical); failure = ''; return true; }
+    try { game = guidedEvent(snapshot(), event, validate, settle_physical, choicesOf); failure = ''; return true; }
     catch (error) { failure = error.message ?? String(error); return false; }
+  }
+  // The prompt's heading, which says what the guide asks now. Each step draws
+  // the next prompt in place of the one that was pressed, and the control that
+  // had focus goes with it: focus fell to the page, and nothing said what was
+  // asked next. So focus goes on to the new prompt's heading, as it goes to
+  // the standings' in Watch and Play (land). Only a keyboard's press moves
+  // the page to show it; a tap is shown no ring and the page stays put.
+  let promptHeading = $state(null);
+  async function arrive(press) {
+    const byKeyboard = pressedByKeyboard(press);
+    await tick();
+    if (!closed) land(promptHeading, byKeyboard);
+  }
+  /** One table event from a press: whether it was taken, and focus then on
+   * the prompt it leads to. A refused one leaves focus where it was pressed,
+   * beside the line that says why. */
+  function step(event, press) {
+    const taken = act(event);
+    if (taken) void arrive(press);
+    return taken;
   }
   async function analyze(key = decisionKey()) {
     if (blocked || state.stage !== 'decision') return;
@@ -99,26 +142,49 @@
       if (request === owner) { busy = false; request = null; }
     }
   }
-  function choose(choice, confirm = true) {
+  function choose(choice, press, confirm = true) {
     const source = analysis, key = analyzedKey;
     if (blocked || !source || key !== decisionKey()) return;
     if (confirm && !window.confirm(`Record this physical move: ${choice.label}?`)) return;
     if (closed || blocked || source !== analysis || key !== decisionKey()) return;
-    act({ type: 'choice', choice, choices: JSON.parse(JSON.stringify(source.choices)) });
+    step({ type: 'choice', choice, choices: JSON.parse(JSON.stringify(source.choices)) }, press);
   }
   function undo() {
     if (!blocked) { game = undoGuided(snapshot()); failure = ''; }
   }
+  // A correction the table refuses is thrown back to the palette that was
+  // pressed, which says it there (TileEntry): the prompt's own line is a
+  // screen above the remembered table. Focus stays on the palette, which the
+  // correction leaves in place.
+  // It goes to the table without act(), whose line is the prompt's: a
+  // prompt's refusal already on screen stays there, and this one is not put
+  // in its place.
+  function correct(tile) {
+    if (blocked) return;
+    if (fixWhich === '') throw new Error('Choose the tile to correct first');
+    const event = fixPlace === 'hand'
+      ? fixWhich === 'drawn' ? { type: 'correct', from: position.drawn, tile, drawn: true } : { type: 'correct', from: fixWhich, tile }
+      : { type: 'correct', seat: fixPlace, index: Number(fixWhich), from: position.players[fixPlace]?.discards[Number(fixWhich)]?.tile, tile };
+    game = guidedEvent(snapshot(), event, validate, settle_physical, choicesOf);
+    fixWhich = '';
+  }
+  // A step or Undo can take away what Where and Which have chosen: a seat's
+  // last discard, or the draw. Where goes back to the hand and Which to
+  // nothing, rather than showing a blank choice that still stands.
+  $effect(() => {
+    if (fixPlace !== 'hand' && !position.players[fixPlace]?.discards.length) { fixPlace = 'hand'; fixWhich = ''; }
+    else if (fixWhich !== '' && !fixTiles.some(entry => entry.key === fixWhich)) fixWhich = '';
+  });
   async function restart() {
     if (!loaded || conflict || !window.confirm('Start a new guided game? This replaces its saved progress.')) return;
     if (unreadable) {
       if (await loadedStore.save(emptyGuided(), { clearUnreadable: true })) await load();
     } else { game = emptyGuided(state.agent); failure = ''; }
   }
-  function finish() {
+  function finish(press) {
     const result = resultKind === 'Exhaustive draw' || resultKind === 'Other hand end' ? resultKind : `${WINDS[resultSeat]}: ${resultKind}`;
-    if (window.confirm(`Finish this hand: ${result}?`)) act({ type: 'finish', result,
-      kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat });
+    if (window.confirm(`Finish this hand: ${result}?`)) step({ type: 'finish', result,
+      kind: resultKind === 'Exhaustive draw' ? 'draw' : resultKind === 'Other hand end' ? 'manual' : resultKind.toLowerCase(), winner: resultSeat }, press);
   }
   onDestroy(() => { closed = true; request?.abort(); loadedStore?.close(); });
 </script>
@@ -143,14 +209,14 @@
           <HandTile {tile} size="small" dora={dora.includes(tile)} remaining={4 - counts.get(tile)} showRemaining={hints}
             drawn={tile === position.drawn && hand.lastIndexOf(tile) === i}
             selected={Boolean(analysis && ['discard', 'riichi'].includes(analysis.choice.kind) && analysis.choice.tile === tile)}
-            onclick={choice ? () => choose(choice) : null} />
+            onclick={choice ? (_, press) => choose(choice, press) : null} />
         {/each}</div>
         <Melds melds={viewMelds(mine)} {dora} />
       </div>
     {/if}
     <div class="guide-prompt" data-stage={state.stage}>
       {#if state.stage === 'setup'}
-        <p class="eyebrow">1 · Table setup</p><h3>Your points and seat?</h3>
+        <p class="eyebrow">1 · Table setup</p><h3 tabindex="-1" bind:this={promptHeading}>Your points and seat?</h3>
         <p>Start with your points and seat wind. Then enter your first 13 tiles and the dora indicator.</p>
         <div class="fields">
           <label>Your seat<select aria-label="Your seat" value={position.seat} onchange={e => edit(s => { const seat = Number(e.currentTarget.value), players = s.position.players; [players[seat].score, players[s.position.seat].score] = [players[s.position.seat].score, players[seat].score]; s.position.seat = seat; })}>{#each WINDS as wind, index (wind)}<option value={index}>{wind}</option>{/each}</select></label>
@@ -161,58 +227,59 @@
           {#each [['kyoku', 'Hand number', 1, 4], ['counters', 'Honba', 0, 100], ['riichi_sticks', 'Riichi sticks', 0, 100]] as [key, label, min, max] (key)}<label>{label}<input type="number" {min} {max} bind:value={() => position[key], value => edit(s => { s.position[key] = value ?? null; })} /></label>{/each}
           {#each position.players as player, i (i)}{#if i !== position.seat}<label>{WINDS[i]} points<input type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/if}{/each}
         </div></details>
-        <button class="primary" onclick={() => act({ type: 'setup' })}>Next · starting tiles</button>
+        <button class="primary" onclick={press => step({ type: 'setup' }, press)}>Next · starting tiles</button>
       {:else if state.stage === 'hand'}
-        <p class="eyebrow">2 · Starting hand</p><h3>Choose your first 13 tiles</h3>
+        <p class="eyebrow">2 · Starting hand</p><h3 tabindex="-1" bind:this={promptHeading}>Choose your first 13 tiles</h3>
         <p>Tap tiles below. Tap an entered tile to remove it. If you are East, enter the extra dealer tile at the draw prompt.</p>
         <TileEntry label="Your starting hand" tiles={mine.hand} limit={13} expanded onchange={tiles => edit(s => { s.position.players[s.position.seat].hand = tiles; })} />
-        <button class="primary" disabled={mine.hand.length !== 13} onclick={() => act({ type: 'hand' })}>Next · dora indicator</button>
+        <button class="primary" disabled={mine.hand.length !== 13} onclick={press => step({ type: 'hand' }, press)}>Next · dora indicator</button>
       {:else if state.stage === 'dora' || state.stage === 'indicator'}
-        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
+        <p class="eyebrow">{state.stage === 'dora' ? '3 · Dora indicator' : 'Kan · new indicator'}</p><h3 tabindex="-1" bind:this={promptHeading}>{state.stage === 'dora' ? 'Which dora indicator is showing?' : 'Which new dora indicator was revealed?'}</h3>
         <p>Enter the face-up indicator tile itself.</p>
-        <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={tile => act({ type: 'indicator', tile })} />
+        <TileEntry label={state.stage === 'dora' ? 'First dora indicator' : 'New kan indicator'} expanded onadd={(tile, press) => step({ type: 'indicator', tile }, press)} />
       {:else if state.stage === 'turn'}
-        <p class="eyebrow">{ownTurn ? 'Your turn' : `${WINDS[state.nextSeat]} · ${position.after_quad ? 'replacement draw' : state.needsDraw ? 'draw and discard' : 'discard after calling'}`}</p><h3>{inputPrompt}</h3>
+        <p class="eyebrow">{ownTurn ? 'Your turn' : `${WINDS[state.nextSeat]} · ${position.after_quad ? 'replacement draw' : state.needsDraw ? 'draw and discard' : 'discard after calling'}`}</p><h3 tabindex="-1" bind:this={promptHeading}>{inputPrompt}</h3>
         {#if ownTurn}<p>Enter the tile you actually drew. Your adviser will show the legal moves.</p>
         {:else}<p>{state.needsDraw ? 'Enter the discarded tile; the hidden draw is counted automatically.' : 'Enter the caller’s discard. No draw is counted.'}</p>
           <div class="flags"><label><input type="checkbox" bind:checked={discardRiichi} disabled={position.players[state.nextSeat].riichi !== 'none' || !state.needsDraw} /> Declares riichi</label><label><input type="checkbox" bind:checked={discardDrawn} disabled={!state.needsDraw} /> Discarded from the draw</label></div>
         {/if}
-        {#key `${state.stage}-${state.nextSeat}-${game.log.length}`}<TileEntry label={inputPrompt} expanded onadd={tile => act(ownTurn ? { type: 'draw', tile } : { type: 'discard', tile, riichi: discardRiichi, drawn: discardDrawn })} />{/key}
+        {#key `${state.stage}-${state.nextSeat}-${game.log.length}`}<TileEntry label={inputPrompt} expanded onadd={(tile, press) => step(ownTurn ? { type: 'draw', tile } : { type: 'discard', tile, riichi: discardRiichi, drawn: discardDrawn }, press)} />{/key}
         {#if !ownTurn && state.needsDraw}<details><summary>{WINDS[state.nextSeat]} declared a kan instead</summary>
           <label>Kan type<select bind:value={kanKind}><option value="concealed-kan">Concealed kan</option><option value="extended-kan">Added kan · extend a pon</option></select></label>
-          <TileEntry label={`${WINDS[state.nextSeat]} kan tile`} onadd={tile => act({ type: 'kan', kind: kanKind, tile })} />
+          <TileEntry label={`${WINDS[state.nextSeat]} kan tile`} onadd={(tile, press) => step({ type: 'kan', kind: kanKind, tile }, press)} />
         </details>{/if}
       {:else if state.stage === 'decision'}
-        <p class="eyebrow">Agent advice</p><h3>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
+        <p class="eyebrow">Agent advice</p><h3 tabindex="-1" bind:this={promptHeading}>{position.phase === 'call' ? `${WINDS[position.turn]} ${position.pending_kind === 'discard' ? 'discarded' : 'declared a kan of'} ${tileWords(position.pending)}` : 'What should you play?'}</h3>
         {#if busy}<p role="status">Your adviser is thinking…{download ? ` ${download}` : ''}</p>{/if}
-        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} disabled={busy || blocked} />
-          <button class="primary record-best" onclick={() => choose(analysis.choice, false)}>Record suggested move</button>
-        {:else if !busy}<button onclick={() => analyze()}>Retry advice</button>
-          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={() => edit(s => { s.agent = 'club'; })}>Use Club as adviser</button>{/if}{/if}
+        {#if analysis}<AgentWeights {analysis} {dora} onchoose={choose} verb="Record" seats={others} disabled={busy || blocked} />
+          <button class="primary record-best" onclick={press => choose(analysis.choice, press, false)}>Record suggested move</button>
+        {:else if !busy}<!-- Asking again takes these two buttons from the page as a step does. --><button onclick={press => { void analyze(); void arrive(press); }}>Retry advice</button>
+          {#if failure && isTrained(state.agent)}<button data-guided-club onclick={press => { if (edit(s => { s.agent = 'club'; })) void arrive(press); }}>Use Club as adviser</button>{/if}{/if}
         <p>Record the move you play at the table. The hand, calls and discards update together.</p>
       {:else if state.stage === 'responses' || state.stage === 'claim-response'}
-        <p class="eyebrow">Other players’ responses</p><h3>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
+        <p class="eyebrow">Other players’ responses</p><h3 tabindex="-1" bind:this={promptHeading}>{state.claim ? `${WINDS[state.claim.seat]} called ${state.claim.kind}. Did anyone call ron?` : `Did anyone call ${tileWords(position.pending)}?`}</h3>
         {#if state.claim}<p>Ron takes precedence. Record a win below, or confirm that the set stands.{state.claim.kind === 'chii' ? ' A simultaneous pon or open kan also takes precedence over chii.' : ''}</p>{/if}
-        <button class="primary no-calls" onclick={() => act({ type: 'continue' })}>{state.claim ? 'No higher-priority calls · confirm set' : 'No other calls · continue'}</button>
+        <button class="primary no-calls" onclick={press => step({ type: 'continue' }, press)}>{state.claim ? 'No higher-priority calls · confirm set' : 'No other calls · continue'}</button>
         {#if !state.claim || state.claim.kind === 'chii'}<details><summary>{state.claim ? 'Record a simultaneous opponent pon or kan' : 'Record an opponent’s chii, pon or kan'}</summary><div class="fields">
           <label>Who called?<select aria-label="Who called?" bind:value={caller}><option value={-1}>Choose opponent</option>{#each candidates as candidate (candidate.seat)}<option value={candidate.seat}>{candidate.name}</option>{/each}</select></label>
           <label>Call<select aria-label="Opponent call" bind:value={callKind}><option value="pon">Pon</option><option value="chii" disabled={Boolean(state.claim)}>Chii</option><option value="kan">Open kan</option></select></label>
           {#if callKind === 'chii'}<label>Lowest tile in sequence<select aria-label="Lowest tile in sequence" bind:value={callTile}><option value="">Choose tile</option>{#each TILE_TYPES.filter(t => /^[1-7][mps]$/.test(t)) as tile (tile)}<option value={tile}>{tileWords(tile)}</option>{/each}</select></label>{/if}
-        </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={() => act({ type: 'call', seat: caller, kind: callKind, tile: callTile })}>Record opponent call</button></details>{/if}
+        </div><button disabled={caller === -1 || (callKind === 'chii' && (!callTile || Boolean(state.claim)))} onclick={press => step({ type: 'call', seat: caller, kind: callKind, tile: callTile }, press)}>Record opponent call</button></details>{/if}
       {:else if state.stage === 'kan-response'}
-        <p class="eyebrow">Kan response</p><h3>Did anyone win by robbing the kan?</h3>
-        <button class="primary" onclick={() => act({ type: 'continue' })}>No ron · enter new indicator</button>
+        <p class="eyebrow">Kan response</p><h3 tabindex="-1" bind:this={promptHeading}>Did anyone win by robbing the kan?</h3>
+        <button class="primary" onclick={press => step({ type: 'continue' }, press)}>No ron · enter new indicator</button>
         <p>If someone won, record the hand result below.</p>
       {:else if state.stage === 'over'}
-        <p class="eyebrow">Hand complete</p><h3>{state.result || 'Hand finished'}</h3>
+        <p class="eyebrow">Hand complete</p><h3 tabindex="-1" bind:this={promptHeading}>{state.result || 'Hand finished'}</h3>
         {#if state.ending && state.ending.kind !== 'manual'}
-          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={input => act({ type: 'settle', input })} onnext={repeat => act({ type: 'next-hand', repeat })} />{/key}
+          {#key JSON.stringify(state.ending)}<GuidedResult {state} onsettle={(input, press) => step({ type: 'settle', input }, press)} onnext={(repeat, press) => step({ type: 'next-hand', repeat }, press)}
+            ondraft={draft => edit(s => { s.draft = draft; })} />{/key}
         {:else}
           <p>This is a legacy or manually adjudicated hand end. Automatic scoring has not been applied.</p>
         <p>Settle points at the physical table, then enter the resulting scores and remaining riichi sticks.</p>
         <div class="fields">{#each position.players as player, i (i)}<label>{WINDS[i]} points<input aria-label={`${WINDS[i]} settled points`} type="number" step="100" bind:value={() => player.score, value => edit(s => { s.position.players[i].score = value ?? null; })} /></label>{/each}
           <label>Riichi sticks remaining<input aria-label="Riichi sticks remaining" type="number" min="0" max="100" bind:value={() => position.riichi_sticks, value => edit(s => { s.position.riichi_sticks = value ?? null; })} /></label>
-        </div><div class="buttons"><button class="primary" onclick={() => act({ type: 'next-hand', repeat: false })}>Next hand · dealer moves</button><button onclick={() => act({ type: 'next-hand', repeat: true })}>Next hand · dealer repeats</button></div>
+        </div><div class="buttons"><button class="primary" onclick={press => step({ type: 'next-hand', repeat: false }, press)}>Next hand · dealer moves</button><button onclick={press => step({ type: 'next-hand', repeat: true }, press)}>Next hand · dealer repeats</button></div>
         {/if}
       {/if}
       {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
@@ -224,6 +291,24 @@
       <details class="remembered" open><summary>Remembered table · {position.counters} honba · {position.riichi_sticks} riichi sticks</summary>
         <div class="indicators"><span>Dora indicators</span>{#each position.indicators as tile, i (i)}<Tile {tile} size="tiny" />{/each}</div>
         <div class="guided-seats">{#each position.players as player, i (i)}<section class:followed={i === position.seat} aria-label={`${WINDS[i]} remembered table`}><h4>{WINDS[i]}{i === position.seat ? ' · You' : ''} <span>{player.score?.toLocaleString()}{player.riichi !== 'none' ? ' · Riichi' : ''}</span></h4><Discards discards={player.discards} {dora} /><Melds melds={viewMelds(player)} {dora} size="tiny" /></section>{/each}</div>
+        <!-- One tile entered by mistake, put right in place: Undo reaches ten
+             discards back and no further. Not while a call waits for its
+             answer or once the hand is over, where Undo comes first. -->
+        {#if !['claim-response', 'over'].includes(state.stage)}
+          <details class="correct"><summary>Correct a tile</summary>
+            <div class="fields">
+              <label>Where<select aria-label="Where the tile to correct is" bind:value={fixPlace} onchange={() => fixWhich = ''}>
+                <option value="hand">Your hand</option>
+                {#each position.players as player, i (i)}{#if player.discards.length}<option value={i}>{WINDS[i]} discards</option>{/if}{/each}
+              </select></label>
+              <label>Which<select aria-label="The tile to correct" bind:value={fixWhich}>
+                <option value="">Choose tile</option>
+                {#each fixTiles as entry (entry.key)}<option value={entry.key}>{entry.words}</option>{/each}
+              </select></label>
+            </div>
+            <TileEntry label="The tile it really is" onadd={correct} />
+          </details>
+        {/if}
       </details>
     {/if}
     {#if game.log.length}<details class="guided-log"><summary>Game history · {game.log.length} steps</summary><ol>{#each game.log as entry, i (i)}<li>{entry}</li>{/each}</ol></details>{/if}
@@ -235,9 +320,22 @@
   .guided-controls { border: 0; margin: 0; padding: 0; }
   .guided-heading, .buttons, .guide-meta, .hand-caption { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
   h2 { margin: 0; font-size: 1.15rem; } h3 { margin: 0; font-size: 1.25rem; line-height: 1.35; }
+  /* The prompt's heading takes focus at each step, and a press by keyboard,
+     the only press that moves the page to it, scrolls by as little as shows
+     it and its ring: below the game's bar where that stays at the top of the
+     screen (AppSettings), as the standings' heading lands. */
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  h3 { scroll-margin: 8px 0; }
+  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+    h3 { scroll-margin-top: 72px; }
+  }
   h4 { margin: 0 0 10px; font-size: .88rem; } h4 span { font-weight: 400; font-size: .78rem; }
   p { margin: 0; font-size: .84rem; line-height: 1.5; }
-  .guide-meta { font-size: .82rem; color: var(--gold); }
+  /* The round, seat and points, and the adviser's label, in the page's ivory:
+     they lie on the felt itself, where the gold they were in read at 2.9 to
+     3.6 to 1, under the 4.5 that text this small needs. */
+  .guide-meta { font-size: .82rem; }
   label { display: grid; gap: 6px; font-size: .8rem; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; }
   .guide-prompt { display: grid; gap: 16px; padding: 20px; border-radius: 14px; border: 1px solid #d8a12a77; background: #0004; }
@@ -247,15 +345,18 @@
   button { cursor: pointer; font-size: .82rem; } button:disabled { opacity: .5; cursor: default; }
   .primary { background: var(--button-accent); color: var(--button-text); font-weight: 600; min-height: 48px; }
   .guide-prompt > .primary { justify-self: start; }
-  summary { min-height: 36px; cursor: pointer; font-size: .85rem; line-height: 1.5; }
+  /* What a finger presses is 44 px tall: a summary, its words in the middle,
+     and a tick box's label (below). */
+  summary { min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .85rem; line-height: 1.5; }
   details > :not(summary) { margin-top: 10px; }
   .your-hand { display: grid; gap: 12px; padding: 14px; border: 1px solid #ffffff25; border-radius: 12px; background: #0002; }
   .hand-caption { font-size: .8rem; } .held-tiles, .indicators { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .held-tiles :global(.hand-tile[data-hand-drawn=true]) { margin-left: 10px; }
-  .flags { display: flex; gap: 12px; flex-wrap: wrap; } .flags label { display: flex; align-items: center; gap: 8px; }
+  .flags { display: flex; gap: 12px; flex-wrap: wrap; } .flags label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
   .end-hand, .remembered, .guided-log { border: 1px solid #ffffff22; border-radius: 12px; padding: 12px; }
   .indicators { font-size: .8rem; }
+  .correct { border-top: 1px solid #ffffff22; }
   .guided-seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .guided-seats section { min-width: 0; padding: 12px; background: #0003; border-radius: 10px; }
   .guided-seats .followed { outline: 1px solid #d8a12a77; }

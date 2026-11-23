@@ -2,11 +2,30 @@
   import Tile from './Tile.svelte';
   import { agentName } from './agents.js';
   import { likeliest } from './beliefs.js';
-  import { groupPolicyChoices } from './action-weights.js';
+  import { groupPolicyChoices, sameMove } from './action-weights.js';
   import { percent } from './ui.js';
   import { valueWords } from './trained-network.js';
   import { RULE_WORDS, ruleLine, ruleSaid } from './trained-move.js';
-  let { analysis = null, onchoose = null, disabled = false, dora = [] } = $props();
+  // With `onchoose(choice, press)` each row is a button, which hands on the
+  // move and its click, and `verb` is what pressing it does with the move:
+  // Play in Agent watch, Record in a guided game.
+  // `seats` names the three other seats where the page names its seats by
+  // their winds, in the order the network reads them: the next to play, the
+  // one across and the one before. Without it they are Right, Opposite and
+  // Left of the seat that was asked, as Watch's table has them.
+  let { analysis = null, onchoose = null, disabled = false, dora = [], verb = 'Play', seats = null } = $props();
+  // What a row's button is called. A button's own name stands in place of all
+  // that is drawn in it, so the name says what the row shows: the move, its
+  // weight as the row writes it, and that it is the agent's choice. Named by
+  // the move alone, every row read alike and no weight was ever heard. A
+  // built-in agent's row writes "Selected" where a weight would be, and the
+  // name says that word too, so that a voice naming what is seen finds it.
+  const rowName = (choice, weight, conditional, selected) => [
+    `${verb}: ${choice.label}`,
+    analysis.kind !== 'policy' ? (weight ? 'Selected' : '') : weight == null ? (conditional ? 'not evaluated' : 'unscored')
+      : `${percent(weight)}${conditional ? ' given riichi' : ''}`,
+    selected ? 'agent choice' : '',
+  ].filter(Boolean).join(', ');
   // A signed estimate of the reward the network learned from, which differs
   // between networks: the words name it and say what it pays.
   const worth = value => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)}`;
@@ -32,8 +51,8 @@
       {#if analysis.value != null}<span class="worth" title={words.title}>{words.label} {worth(analysis.value)}</span>{/if}
     </div>
     {#if analysis.value != null}<p class="reward-help">{words.help}</p>{/if}
-    <p>{analysis.kind === 'policy' ? 'Policy weights are preferences, not win probabilities. The agent selects in its original action space, then chooses a discard if it declares riichi. Grouped display weights do not determine its selected move.' : 'Built-in agents do not have policy percentages. Selected shows the exact move this agent will play, including any sampled tie-break.'}</p>
-    {#if onchoose}<p>The blue border marks the agent’s choice. Select a move below to play it after confirmation.</p>{/if}
+    <p>{analysis.kind === 'policy' ? 'Weights are preferences, not win probabilities.' : 'Built-in agents have no weights. Selected is the move this agent plays.'}</p>
+    {#if onchoose}<p>The blue border marks the agent’s choice. Select a move below to {verb.toLowerCase()} it after confirmation.</p>{/if}
     {#snippet rowContent(choice, weight, conditional = false)}
       <span class="choice-label">{#if choice.tile}<Tile tile={choice.tile} size="tiny" dora={dora.includes(choice.tile)} />{/if}{choice.label}</span>
       {#if analysis.kind === 'policy' && weight == null}<strong title={conditional ? 'The agent did not evaluate the conditional discard stage' : 'The trained agent scores only the first kan of each kind'}>{conditional ? 'Not evaluated' : 'Unscored'}</strong>
@@ -41,13 +60,14 @@
       {:else}<strong>{weight ? 'Selected' : '—'}</strong>{/if}
     {/snippet}
     {#snippet choiceRow(choice, conditional = false)}
-      {@const selected = choice.kind === analysis.choice.kind && (choice.tile ?? null) === (analysis.choice.tile ?? null)}
+      {@const selected = sameMove(choice, analysis.choice)}
       {@const weight = conditional ? choice.conditionalWeight : choice.weight}
       <div class="weight-row" class:best={selected} data-choice={choice.label}>
         {#if onchoose}
-          <button class="choice-action" {disabled} onclick={() => onchoose(choice)} aria-label={`Play ${choice.label}`}>{@render rowContent(choice, weight, conditional)}</button>
+          <button class="choice-action" {disabled} onclick={press => onchoose(choice, press)} aria-label={rowName(choice, weight, conditional, selected)}>{@render rowContent(choice, weight, conditional)}</button>
         {:else}{@render rowContent(choice, weight, conditional)}{/if}
-        {#if selected}<span class="selected-label">Agent choice</span>{/if}
+        <!-- The button's name has said it already. -->
+        {#if selected}<span class="selected-label" aria-hidden={onchoose ? 'true' : undefined}>Agent choice</span>{/if}
       </div>
     {/snippet}
     <div class="weight-list">
@@ -71,7 +91,7 @@
         <p>Trained against the hands themselves, from the discards and calls it can see. A number is how many copies of that tile it expects the seat to be holding.</p>
         {#each reads as belief (belief.seat)}
           <div class="belief">
-            <span class="who">{belief.relative}{#if belief.held != null}<em>{belief.held} tiles</em>{/if}</span>
+            <span class="who">{seats?.[belief.seat] ?? belief.relative}{#if belief.held != null}<em>{belief.held} tiles</em>{/if}</span>
             <span class="guesses">
               {#each belief.top as entry (entry.tile)}
                 <span class="guess"><Tile tile={entry.tile} size="tiny" dora={dora.includes(entry.tile)} /><strong>{copies(entry)}</strong></span>
