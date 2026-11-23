@@ -377,6 +377,10 @@ test('one remembered tile is corrected in place: a discard, or a tile of the han
   assert.throws(() => act(offered, { type: 'correct', seat: 3, index: 0, from: '8p', tile: '8s' }), /no longer/);
   assert.throws(() => act(offered, { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
   assert.throws(() => act(pass(offered), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }), /Undo/);
+  // A place that is not a whole number names no discard, the one on offer least of all.
+  for (const place of [{ seat: 0, index: '1' }, { seat: '0', index: 1 }, { seat: 0, index: 1.5 }]) {
+    assert.throws(() => act(pass(offered), { type: 'correct', ...place, from: '8p', tile: '8s' }), /no longer there/);
+  }
   assert.equal(act(next(pass(offered)), { type: 'correct', seat: 0, index: 1, from: '8p', tile: '8s' }).state.position.players[0].discards[1].tile, '8s');
   // A called discard is part of its set, and a riichi hand is fixed.
   const called = next(act(pass(discard(start(), '5z')), { type: 'call', seat: 2, kind: 'pon' }));

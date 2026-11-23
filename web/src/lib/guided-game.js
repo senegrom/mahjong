@@ -420,6 +420,9 @@ export function guidedEvent(game, event, validateDecision = () => {}, scoreSettl
         if (passes) mine.furiten = passedAWin(state, passes, choicesOf);
         label = `Corrected your ${drawn ? 'draw' : 'hand'}: ${tileWords(event.from)} → ${tileWords(event.tile)}`;
       } else {
+        // A whole number, or "1" would be found as discards["1"] and pass
+        // the guard on the discard on offer below, which compares numbers.
+        if (!Number.isInteger(event.seat) || !Number.isInteger(event.index)) throw new Error('That discard is no longer there');
         const discards = p.players[event.seat]?.discards ?? [], entry = discards[event.index];
         if (!entry || entry.tile !== event.from) throw new Error('That discard is no longer there');
         if (entry.claimed) throw new Error('That discard is in a called set: undo back to the call');
