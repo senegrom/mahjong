@@ -5,11 +5,19 @@
 //
 //   node web/scripts/publish-model-r2.mjs network.onnx --generation <n> \
 //     --source <checkpoint> --origin https://<model host> \
-//     --reward hybrid | --reward placement --alpha <weight> [--version <a.b.c>]
+//     --reward hybrid | --reward placement --alpha <weight> [--version <a.b.c>] \
+//     [--packing half]
 //
 // Any other argument, or an option given twice or without its value, stops
 // it before anything is read. The version is 0.1.<generation> unless --version
-// names another. --reward
+// names another. --packing half uploads the network packed
+// (src/lib/network-pack.js), its float32 weights at half precision, about
+// half the bytes, stored as they are with no content encoding so that a
+// download that breaks can ask for the rest; its entry says so, and names the
+// packed file's digest and size beside the whole file's size. It packs only a
+// float32 network, and checks the packed file by unpacking it before anything
+// is uploaded (scripts/check-half-network.mjs does the same with nothing
+// uploaded). Without it the network is uploaded whole and gzipped. --reward
 // and --alpha name the reward the network learned from, as its trainer was
 // given them (neural/train_combined.py), which the page says beside the
 // network's value. Publishing a version that is listed already replaces that
@@ -24,7 +32,7 @@ import { dirname, join, resolve, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual, promisify } from 'node:util';
-import { PACK_THRESHOLD, halfBits, halfTable, packNetwork, packedLayout, unpackNetwork } from '../src/lib/network-pack.js';
+import { PACKING, PACK_THRESHOLD, halfBits, halfTable, packNetwork, packedLayout, unpackNetwork } from '../src/lib/network-pack.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MANIFEST = join(ROOT, 'web/src/lib/model-manifest.js');
@@ -39,7 +47,7 @@ const PRECISIONS = new Map([[1, 'float32'], [10, 'float16'], [16, 'bfloat16'], [
 // TensorProto fields that hold a tensor's values rather than its description.
 const TENSOR_DATA = new Set([4, 5, 6, 7, 9, 10, 11]);
 
-const OPTIONS = ['generation', 'source', 'origin', 'version', 'reward', 'alpha'];
+const OPTIONS = ['generation', 'source', 'origin', 'version', 'reward', 'alpha', 'packing'];
 
 /** The publication the command line asks for: the model's path, then
  * `--name value` pairs of the known options. Throws on anything else, a
@@ -267,10 +275,14 @@ export function npxCommand(args, platform = process.platform, node = process.exe
   return [node, [script, ...args]];
 }
 
-async function uploadR2(bucket, key, file) {
+/** `encoding` is the object's Content-Encoding, gzip for a network uploaded
+ * whole; a packed one is stored with none, so that a range of it means
+ * something. Its type, application/octet-stream, is one Cloudflare's edge
+ * does not compress (workers/model-cdn/src/index.js). */
+async function uploadR2(bucket, key, file, { encoding = 'gzip' } = {}) {
   const [command, args] = npxCommand(['--yes', WRANGLER, 'r2', 'object', 'put',
     `${bucket}/${key}`, '--file', file, '--content-type', 'application/octet-stream',
-    '--content-encoding', 'gzip', '--remote']);
+    ...(encoding ? ['--content-encoding', encoding] : []), '--remote']);
   const { stdout, stderr } = await run(command, args, { cwd: ROOT, maxBuffer: 1 << 24 });
   process.stdout.write(stdout || stderr);
 }
@@ -317,6 +329,8 @@ function checkNetwork(network) {
   for (const field of ['bytes', 'storedBytes']) {
     if (!Number.isSafeInteger(network[field]) || network[field] <= 0) throw bad(field);
   }
+  // Networks published whole have none, and are stored gzipped.
+  if ('packing' in network && (network.packing !== PACKING || network.storedBytes >= network.bytes)) throw bad('packing');
   if (typeof network.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(network.sha256)) throw bad('sha256');
   if (network.object !== `models/g${network.generation}/${network.sha256}`) throw bad('object');
   let origin;
@@ -395,7 +409,7 @@ export async function atomicManifest(path, body, io = { open, rename, mkdir, mkd
   } finally { await io.rm(dir, { recursive: true, force: true }); }
 }
 
-export async function publish({ modelPath, generation, source, origin, version, reward, alpha,
+export async function publish({ modelPath, generation, source, origin, version, reward, alpha, packing,
   bucket = process.env.R2_BUCKET ?? 'mahjong-models', manifestPath = MANIFEST,
   upload = uploadR2 } = {}) {
   // Validate before reading/staging/uploading anything. Never coerce undefined
@@ -409,6 +423,7 @@ export async function publish({ modelPath, generation, source, origin, version, 
   if (typeof modelPath !== 'string' || !modelPath) throw new Error('Name the exported network to publish.');
   if (typeof source !== 'string' || !source.trim()) throw new Error('Name the source checkpoint.');
   const learned = rewardOf(reward, alpha);
+  if (packing !== undefined && packing !== PACKING) throw new Error(`Invalid --packing: the one packing is ${PACKING}.`);
   let address;
   try { address = new URL(origin); } catch { throw new Error('A valid HTTPS model origin is required.'); }
   if (address.protocol !== 'https:' || address.username || address.password
@@ -418,17 +433,21 @@ export async function publish({ modelPath, generation, source, origin, version, 
   if (!bytes.length || bytes.length > 512 * 1024 * 1024) throw new Error('Unsupported model byte size.');
   const precision = weightPrecision(bytes);
   const webgpu = runsOnWebgpu(graphOperators(bytes));
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  if (packing && precision !== 'float32') throw new Error(`Only a float32 network is packed; this one's weights are ${precision}.`);
+  // What is uploaded, and what the digest and the key name: the packed file,
+  // or the whole file, which is stored gzipped.
+  const held = packing ? packedNetwork(bytes).packed : bytes;
+  const sha256 = createHash('sha256').update(held).digest('hex');
   const key = `models/g${generation}/${sha256}`;
-  const packed = await compress(bytes, { level: 9 });
+  const stored = packing ? held : await compress(bytes, { level: 9 });
   const scratch = await mkdtemp(join(tmpdir(), 'mahjong-model-upload-'));
   try {
-    const staged = join(scratch, 'network.gz');
+    const staged = join(scratch, packing ? 'network.half' : 'network.gz');
     const file = await open(staged, 'wx');
-    try { await file.writeFile(packed); await file.sync(); } finally { await file.close(); }
-    await upload(bucket, key, staged);
+    try { await file.writeFile(stored); await file.sync(); } finally { await file.close(); }
+    await upload(bucket, key, staged, { encoding: packing ? null : 'gzip' });
     const network = { version, source, generation, reward: learned, precision, bytes: bytes.length,
-      storedBytes: packed.length, origin, object: key, sha256, webgpu };
+      storedBytes: stored.length, ...(packing ? { packing } : {}), origin, object: key, sha256, webgpu };
     // Read just before the write that replaces it. The upload is immutable
     // and named by its digest, so one that ends up unlisted costs nothing.
     const listed = await listedNetworks(manifestPath);
