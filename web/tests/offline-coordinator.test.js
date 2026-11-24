@@ -5,6 +5,7 @@ import { MessageChannel } from 'node:worker_threads';
 import { render } from 'svelte/server';
 import { componentLoader } from './fixtures/load-component.js';
 import { loadModule } from './fixtures/load-module.js';
+import { heldBytes } from '../src/lib/network-cache.js';
 
 // The offline panel itself, to read what a state says to the player.
 const Status = await componentLoader()('app/OfflineStatus.svelte');
@@ -20,7 +21,10 @@ const NEXT = { url: 'https://model.invalid/g2', version: '0.1.2', sha256: '2'.re
 function fakeWorker({ calls, asked, network, stored, info, faults, label = '' }) {
   return {
     scriptURL: 'https://test.invalid/mahjong/sw.js',
-    postMessage({ type, version }, [port]) {
+    postMessage({ type, version, packing }, [port]) {
+      // Every page of this build says it can save a packed network, so that
+      // a worker names one to it (service-worker.js status).
+      assert.deepEqual([...packing], ['half']);
       calls.push(label + type);
       asked.push([label + type, version]);
       queueMicrotask(() => {
@@ -120,7 +124,7 @@ function coordinator({ coreReady = false, aiReady = false, aiRequested = false, 
   // in trained-network.js, are stood in for here.
   const api = loadModule('offline.js', { document: { baseURI: 'https://test.invalid/mahjong/' }, navigator,
     URL, MessageChannel, setTimeout: wait, clearTimeout: clear, caches: {}, isSecureContext: true, WeakSet,
-    networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick,
+    networkUrl: entry => entry.url, playedNetwork: () => network, pickedVersion: () => pick, heldBytes,
     // The page's own record of a saved network: a header check, never a read.
     networkIsStored: async (url = network.url) => stored.has(url),
     // The page's download: verified, then stored durably, or it throws.

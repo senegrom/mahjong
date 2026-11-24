@@ -88,6 +88,8 @@ const context = vm.createContext({
   ort: bridge, self, policyWeights, MEMORY_LIMITS_MIB, isMemoryError, URL,
   Float32Array, Float64Array,
   networkBytes: async ({ url }) => new Uint8Array(await readFile(url)),
+  // Exported test graphs are plain ONNX files, listed nowhere.
+  networkAt: () => null, unpackNetwork: () => { throw new Error('nothing here is packed'); },
   loadMemoryControls: url => import(url),
 });
 vm.runInContext(source, context);

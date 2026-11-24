@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import vm from 'node:vm';
 import { buildOffline, serviceWorkerTemplate } from '../scripts/offline-build.mjs';
-import { networkCacheName, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { hasStoredNetwork, networkCacheName, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { networkIsStored } from '../src/lib/network-store.js';
 
 const template = await serviceWorkerTemplate();
 const sha = body => createHash('sha256').update(body).digest('hex');
@@ -123,9 +124,10 @@ function worker({ files = bodies, caches = storage(), config = manifest(files), 
     async install() { let work; events.install({ waitUntil(p) { work = p; } }); await work; },
     async activate() { let work; events.activate({ waitUntil(p) { work = p; } }); await work; },
     // version is the one the asking page's player picked, as offline.js names it.
-    async message(type, version) {
+    // `extra` adds to the message, as a page's `packing` does.
+    async message(type, version, extra = {}) {
       let work, reply;
-      events.message({ origin: new URL(base).origin, data: { type, version }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
+      events.message({ origin: new URL(base).origin, data: { type, version, ...extra }, ports: [{ postMessage(data) { if (!data.progress) reply = data; } }], waitUntil(p) { work = p; } });
       await work;
       if (reply.error) throw new Error(reply.error);
       return reply.value;
@@ -581,6 +583,66 @@ test('a waiting update answers for the network its own list gives the player\'s 
   const instead = await status(drops, '0.1.410');
   assert.equal(instead.network.version, '0.1.900');
   assert.equal(instead.aiReady, false);
+});
+
+// A packed network (network-pack.js): its digest and storedBytes the packed
+// file's, here 'packed weights', and its bytes the whole file's.
+const packedNetwork = (body = 'packed weights', generation = 3) => ({ ...external(body, generation), bytes: 1000,
+  storedBytes: Buffer.byteLength(body), packing: 'half' });
+const understands = { packing: ['half'] };
+
+test('a packed network is named to a page that says it understands its packing, whole, and to no other', async () => {
+  const half = packedNetwork();
+  const w = worker({ remote: 'packed weights', config: manifest(bodies, [half, external('weights', 2)]) });
+  await w.install();
+  // A page of a build from before packed networks names no packing: told no
+  // network, its saveUpdate has nothing to save.
+  assert.equal('network' in await status(w), false);
+  assert.equal('network' in await w.message('MAHJONG_STATUS', undefined, { packing: ['quarter'] }), false);
+  assert.deepEqual({ ...(await w.message('MAHJONG_STATUS', undefined, understands)).network }, { url: externalUrl(half),
+    version: half.version, sha256: half.sha256, bytes: 1000, packing: 'half', storedBytes: half.storedBytes });
+  assert.equal('network' in await w.message('MAHJONG_PREPARE_AI', undefined, understands), true);
+  // A plain network is named as before, whatever the page says.
+  const plain = { ...(await status(w, '0.1.2')).network };
+  assert.deepEqual(plain, { url: externalUrl(external('weights', 2)), version: '0.1.2', sha256: sha('weights'), bytes: 7 });
+  assert.deepEqual({ ...(await w.message('MAHJONG_STATUS', '0.1.2', understands)).network }, plain);
+});
+
+test('a waiting update\'s packed network, saved under the identity its worker names, is stored, and one stored already is kept', async () => {
+  const half = packedNetwork();
+  const w = worker({ remote: 'packed weights', config: manifest(bodies, [half]) });
+  await w.install();
+  const { network } = await w.message('MAHJONG_STATUS', undefined, understands);
+  const previous = { caches: globalThis.caches, fetch: globalThis.fetch };
+  let fetched = 0;
+  globalThis.caches = w.caches;
+  globalThis.fetch = async () => { fetched++; return new Response('packed weights'); };
+  try {
+    // As saveUpdate saves it: networkBytes with the worker's identity.
+    const save = () => verifiedNetworkBytes({ url: network.url, expect: network, requireStored: true, storeOnly: true, scope: base });
+    assert.deepEqual(await save(), new TextEncoder().encode('packed weights'));
+    assert.equal(fetched, 1);
+    assert.equal(await hasStoredNetwork(externalUrl(half), half, { scope: base }), true, 'stored as the packed file it is');
+    // Saved again, it is found by its record: nothing deleted, nothing fetched.
+    assert.equal(await save(), null);
+    assert.deepEqual(await verifiedNetworkBytes({ url: network.url, expect: network, scope: base }), new TextEncoder().encode('packed weights'));
+    assert.equal(fetched, 1);
+    assert.equal(await hasStoredNetwork(externalUrl(half), half, { scope: base }), true);
+  } finally { globalThis.caches = previous.caches; globalThis.fetch = previous.fetch; }
+});
+
+test('the worker\'s word that a network is stored counts only with its packing, and a whole one only without', async () => {
+  const half = packedNetwork(), url = externalUrl(half);
+  const said = { url, version: half.version, sha256: half.sha256, bytes: half.bytes, packing: 'half', storedBytes: half.storedBytes };
+  assert.equal(await networkIsStored(url, half, said), true);
+  // Without its packing, or another packed size, the page reads its own record: none here.
+  for (const other of [{ ...said, packing: undefined, storedBytes: undefined }, { ...said, storedBytes: 5 }]) {
+    assert.equal(await networkIsStored(url, half, other), false);
+  }
+  const whole = { ...external('weights'), storedBytes: 6 }, wholeUrl = externalUrl(whole);
+  const wholeSaid = { url: wholeUrl, version: whole.version, sha256: whole.sha256, bytes: whole.bytes };
+  assert.equal(await networkIsStored(wholeUrl, whole, wholeSaid), true, 'a whole network as before: its storedBytes is the gzip size, never said');
+  assert.equal(await networkIsStored(wholeUrl, whole, { ...wholeSaid, packing: 'half', storedBytes: 6 }), false);
 });
 
 test('the WebGPU runtime is saved the first time a page fetches it, never with the AI package, and ready offline after', async () => {

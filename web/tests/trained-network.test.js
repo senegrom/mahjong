@@ -14,7 +14,10 @@ test('the manifest lists every network whole, the default first, and keeps expor
   for (const network of NETWORKS) {
     // A network published since the field says whether its graph runs whole
     // on WebGPU; one listed before it says nothing, and plays on WebAssembly.
-    assert.deepEqual(Object.keys(network), 'webgpu' in network ? [...IDENTITY, 'webgpu'] : IDENTITY);
+    // One published packed says so after its stored size.
+    const fields = 'packing' in network ? IDENTITY.flatMap(field => (field === 'storedBytes' ? [field, 'packing'] : [field])) : IDENTITY;
+    assert.deepEqual(Object.keys(network), 'webgpu' in network ? [...fields, 'webgpu'] : fields);
+    if ('packing' in network) assert.equal(network.packing, 'half');
     if ('webgpu' in network) assert.equal(typeof network.webgpu, 'boolean');
     assert.ok(Object.isFrozen(network));
     assert.ok(Object.isFrozen(network.reward));

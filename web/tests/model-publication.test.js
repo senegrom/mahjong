@@ -6,8 +6,9 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, graphOperators, listedNetworks, manifestSource,
+import { WEBGPU_KERNELS, WEBGPU_WITHOUT_KERNEL, atomicManifest, checkPacked, graphOperators, listedNetworks, manifestSource,
   parseArguments, publish, runsOnWebgpu } from '../scripts/publish-model-r2.mjs';
+import { isPacked } from '../src/lib/network-pack.js';
 import { NETWORKS } from '../src/lib/model-manifest.js';
 
 async function folder(t) {
@@ -335,4 +336,71 @@ test('the operators are read from the graph, its subgraphs and its functions', (
   const inSubgraph = message(1, Buffer.concat([message(4, 'If'), message(5, message(6, node('Softplus')))]));
   const inFunction = message(25, message(7, message(4, 'Erf')));
   assert.deepEqual([...graphOperators(network(1, 'weights', ['Conv', inSubgraph], inFunction))].sort(), ['Conv', 'Erf', 'If', 'Softplus']);
+});
+
+// A network large enough to pack: one initializer of 512 float32 weights,
+// 2,048 bytes, laid out with lengths of more than one byte.
+const varint = value => { const out = []; while (value > 127) { out.push((value & 127) | 128); value = Math.floor(value / 128); } out.push(value); return out; };
+const long = (field, body) => Buffer.concat([Buffer.from(varint(field * 8 + 2)), Buffer.from(varint(body.length)), Buffer.from(body)]);
+function large(type = 1, count = 512) {
+  const raw = Buffer.from(Float32Array.from({ length: count }, (_, i) => Math.sin(i) * 2).buffer);
+  return long(7, Buffer.concat([node('Conv'), long(5, Buffer.concat([Buffer.from([2 * 8, type]), long(9, raw)]))]));
+}
+
+test('--packing half uploads the packed file as it is, and lists it with its packing, its digest and both sizes', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  const whole = large();
+  await fs.writeFile(modelPath, whole);
+  const sent = [];
+  const request = { modelPath, manifestPath, generation: 3000, source: 'run/gen-3000', reward: 'placement', alpha: 0.05,
+    origin: 'https://model.invalid', upload: async (_bucket, key, file, options) => { sent.push({ key, options, bytes: await fs.readFile(file) }); } };
+  const entry = await publish({ ...request, packing: 'half' });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].options, { encoding: null }, 'stored with no content encoding, so a range of it means something');
+  const packed = sent[0].bytes;
+  assert.ok(isPacked(packed));
+  assert.ok(packed.length < whole.length / 2 + 64);
+  checkPacked(whole, packed);
+  assert.equal(entry.sha256, sha(packed), 'the digest is the packed file\'s, what is downloaded and stored');
+  assert.equal(sent[0].key, `models/g3000/${entry.sha256}`);
+  assert.deepEqual([entry.packing, entry.bytes, entry.storedBytes, entry.precision], ['half', whole.length, packed.length, 'float32']);
+  assert.deepEqual(await listedNetworks(manifestPath), [entry]);
+  // The same network published whole is another object, gzipped, under its own digest.
+  const plain = await publish(request);
+  assert.deepEqual(sent[1].options, { encoding: 'gzip' });
+  assert.equal(plain.sha256, sha(whole));
+  assert.equal('packing' in plain, false);
+  assert.deepEqual(gunzipSync(sent[1].bytes), whole);
+  assert.equal(plain.storedBytes, sent[1].bytes.length);
+});
+
+test('packing refuses a network that is not float32 or has nothing to pack, and a packing it does not know', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  let uploads = 0;
+  const request = { modelPath, manifestPath, generation: 36, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
+    packing: 'half', upload: () => { uploads++; } };
+  await fs.writeFile(manifestPath, 'previous manifest');
+  for (const [bytes, options, reason] of [[large(10), {}, /Only a float32 network is packed; this one's weights are float16/],
+    [network(1, 'a small bias'), {}, /no float32 weights to pack/], [large(), { packing: 'quarter' }, /Invalid --packing/],
+    [large(), { packing: '' }, /Invalid --packing/]]) {
+    await fs.writeFile(modelPath, bytes);
+    await assert.rejects(publish({ ...request, ...options }), reason);
+  }
+  assert.equal(uploads, 0);
+  assert.equal(await fs.readFile(manifestPath, 'utf8'), 'previous manifest');
+  assert.equal(parseArguments(['n.onnx', '--packing', 'half']).packing, 'half');
+});
+
+test('a listed network whose packing is not one the page knows, or that is no smaller packed, is not written over', async t => {
+  const dir = await folder(t), manifestPath = join(dir, 'manifest.js'), modelPath = join(dir, 'model.onnx');
+  await fs.writeFile(modelPath, large());
+  const request = { modelPath, manifestPath, generation: 3000, source: 'actor', reward: 'hybrid', origin: 'https://model.invalid',
+    packing: 'half', upload: () => {} };
+  const [listed] = [await publish(request)];
+  for (const bad of [{ packing: 'quarter' }, { packing: null }, { storedBytes: listed.bytes }]) {
+    const text = manifestSource([{ ...listed, ...bad }]);
+    await fs.writeFile(manifestPath, text);
+    await assert.rejects(publish(request), /network whose packing is not valid/, JSON.stringify(bad));
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), text);
+  }
 });

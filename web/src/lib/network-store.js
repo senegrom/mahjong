@@ -11,10 +11,14 @@ const pageScope = () => globalThis.document?.baseURI ? new URL('./', document.ba
 
 /** verified is accepted only from our service worker's status reply, which
  * names the network it found stored. Match the complete identity so a worker
- * of another version cannot attest to this build's model; anything else is
- * checked against the stored record itself. */
+ * of another version cannot attest to this build's model, its packing
+ * included: a packed network's packing and packed size, and for a whole one
+ * neither; anything else is checked against the stored record itself. */
+const sameIdentity = (verified, expect) => verified.sha256 === expect.sha256 && verified.bytes === expect.bytes
+  && (expect.packing ? verified.packing === expect.packing && verified.storedBytes === expect.storedBytes
+    : verified.packing === undefined);
 export function networkIsStored(url = networkUrl(playedNetwork()), expect = playedNetwork(), verified) {
-  if (verified?.url === url && verified.sha256 === expect.sha256 && verified.bytes === expect.bytes) {
+  if (verified?.url === url && sameIdentity(verified, expect)) {
     return Promise.resolve(true);
   }
   return hasStoredNetwork(url, expect, { scope: pageScope() });

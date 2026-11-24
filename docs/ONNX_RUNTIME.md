@@ -5,7 +5,12 @@
 `web/src/lib/model-manifest.js` lists the published remote networks a player
 can pick, the default first, each by its version with its source, generation,
 the reward it learned from, precision, decoded byte count, stored byte count,
-origin, immutable object key, and SHA-256; `MANIFEST` is the default. It lists
+origin, immutable object key, and SHA-256; `MANIFEST` is the default. An
+entry with `"packing": "half"` is a network published packed (below): its
+SHA-256, object key and stored byte count are the packed file's, what is
+downloaded, checked and stored, and its decoded byte count the whole file's,
+which the memory budget counts. An entry without the field is an ONNX file
+the host stores gzipped, its stored byte count the gzipped size. It lists
 0.1.3000, the default, published on 8 November 2026 and again on 11 November
 in the export free of Softplus (below), the same weights and the one entry
 with `webgpu: true`, then 0.1.2610 (the default from 30 October), 0.1.1410
@@ -30,14 +35,65 @@ side file or that holds none, and refusing to run without the source
 checkpoint's name or the reward the network learned from, given as its trainer
 was given it: `--reward hybrid`, or `--reward placement --alpha <weight>`.
 Every network it keeps listed keeps its reward, and it does not write over a
-manifest that lists a network without one. It uploads with an exact wrangler
-release, gzipped, under `models/g<generation>/<sha256>`, which
+manifest that lists a network without one, or with a packing other than
+half. It uploads with an exact wrangler release, gzipped, or with
+`--packing half` packed and with no content encoding, under
+`models/g<generation>/<sha256>`, which
 `workers/model-cdn` serves to the page, and writes the manifest only after the
 upload, staged and atomically renamed: a failed upload leaves the previous
 manifest in place. The network it publishes becomes the default and every
 network listed before it stays listed; its version is `0.1.<generation>`
 unless `--version` names another. It expects an export `neural.export` has
 already checked; uploading proves nothing about parity or playing strength.
+
+## Half precision on the wire
+
+`--packing half` publishes a float32 network packed (`src/lib/network-pack.js`):
+the ONNX file as exported, but for the `raw_data` of each float32 initializer
+of `ModelProto.graph` holding 1,024 bytes or more (`PACK_THRESHOLD`), which is
+stored as float16, half its bytes. Smaller tensors, `float_data`, Constant
+nodes and subgraphs stay as they are. A header lists those ranges, so that the
+file is widened without reading protobuf: each range widened is as long as it
+was, and every length in the protobuf stays right. Little-endian throughout:
+the magic `MJH` and the format's version byte 1, the whole file's length (u32),
+the count of ranges (u32), each range's offset in the whole file and length as
+float32 (two u32), then the file with each range at half its length. Rounding
+is numpy's `astype(float16)`, to nearest with ties to even, subnormals kept; a
+finite weight that would become infinite is refused; a NaN keeps its sign and
+the top ten bits of its payload. Network 3000 packs to 58,988,183 bytes, its
+432 ranges 115.9 MB of its 116.9, and gzip would take 5 MB more off it, which
+its host does not do: a packed object is stored with no content encoding, so
+that `workers/model-cdn` serves byte ranges of it and a download that broke
+asks for the rest. A gzipped object, every network published whole, is
+answered with the status, body, encoding and caching it had before, its
+range ignored; what is new for it is that an allowed origin's answers carry
+`Access-Control-Expose-Headers: Content-Range`, the preflight
+`Access-Control-Allow-Headers: Range`, and that a GET with a Range header
+costs the bucket a `head` and a `get`, where one without costs a `get`. Rounding every weight of the site's network to float16 and
+back changes no move in 3,000 stored decisions; logits moved 0.007 on average
+and 0.047 at most.
+
+The site's WebAssembly runtime has no float16 kernels, so the graph stays
+float32 and the weights are widened before a session is made: in the
+opponents' worker and in the graphics card's worker, from a 65,536-entry table
+built once, never on the page's thread. The page stores the packed file, under
+its own size and digest, and a worker reads, hashes and widens it each time it
+opens the network. The widened file has no digest of its own: it is derived
+from bytes whose digest was just checked, by a conversion tested on every one
+of the 65,536 halves, and hashing 117 MB more at each start would prove
+nothing more. While a worker widens the network it holds the packed 59 MB and
+the whole 117 MB together, 176 MB where it held 117 before; the packed bytes
+are no longer reachable once the session is begun, and from when the
+collector frees them, which is its own business, the worker holds what it
+held before. Widening took 136 to 470 ms in Node on a desktop that was busy
+otherwise.
+
+`node web/scripts/check-half-network.mjs network.onnx [--packed file] [--out
+file]` checks a packed file before it is uploaded, uploading nothing: it packs
+the file (or reads one packed before), unpacks it, compares it with the source
+(equal outside the ranges, each weight its float16 rounding inside them), and
+prints both sizes and digests, the time to unpack and the memory held. The
+publication packs and checks the same way, and packs to the same bytes.
 
 No ONNX model is served from `web/public`. Both packaging and offline inventory
 creation reject unexpected local ONNX files, including nested files.
@@ -213,8 +269,14 @@ card (`card: true`) and holds the others' Chrome to offering none.
 ## Verification and memory
 
 Downloaded and cached model bytes are checked against the manifest's exact
-size and digest before inference. Transfers have idle and total deadlines,
-and a decoded-byte ceiling. Storage failure can allow online inference but
+size and digest before inference, the packed file's for a packed network.
+Transfers have idle and total deadlines, and a decoded-byte ceiling; a packed
+network's transfer that stalls or breaks once it has bytes is asked for the
+rest by a byte range, after pauses of 2, 4, 8, 16 and 32 s in a row without
+new bytes (`RESUME` in `network-cache.js`), one that never received a byte
+not at all, a 206 used from where its
+Content-Range says it starts, at or before the bytes in hand, and a 200 from
+its first byte. Storage failure can allow online inference but
 must never be reported as durable offline readiness.
 
 `memory-budget.js` defines reservation ceilings of 384, 512, and 768 MiB.
@@ -261,7 +323,13 @@ bytes given to ONNX Runtime are always read and hashed in full. Each page
 names its player's pick in its messages; the service worker's status reply
 names the network that pick resolves to in its build's list and whether it is
 stored, and the page accepts that answer only when the identity exactly
-matches the network it plays, and otherwise reads its own record. This proof
+matches the network it plays, its packing and packed size included, and
+otherwise reads its own record. A packed network is named only to a page that
+says it can save one (`packing: ['half']` in its message): a page of a build
+from before packed networks, asking a waiting update, is told no network,
+which it takes as nothing to save, where it would have downloaded the packed
+file as a whole one and refused it; the update's own page saves it once it
+runs. This proof
 comes from the app's service-worker channel, not a localStorage flag.
 
 ## Cache lifetime and upgrades
@@ -333,8 +401,9 @@ three times over. It needs a local copy named by `MAHJONG_NETWORK`, which
 manifest. CI always supplies it and fails without it; a local run without it
 skips that one test. The same script then asks the host for every other
 listed network by HEAD, as the page would, and fails when one does not answer
-200 with the page's CORS header and gzip encoding; it does not fetch or hash
-their bytes.
+200 with the page's CORS header and gzip encoding, or for a packed network
+with no encoding and `Accept-Ranges: bytes`; it does not fetch or hash their
+bytes. A packed default is widened into the ONNX file the regression loads.
 
 The JavaScript in `onnxruntime-web` calls into the WASM, and those calls change
 between releases, so `web/package.json` pins the package to exactly the ONNX

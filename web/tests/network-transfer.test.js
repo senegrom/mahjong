@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
 import v8 from 'node:v8';
 import vm from 'node:vm';
-import { SILENT_MS, TURN_MS, WAITING_MS, hasStoredNetwork, networkCacheName, storedNetworkBytes, verifiedNetworkBytes } from '../src/lib/network-transfer.js';
-import { verifiedDownload } from '../src/lib/network-cache.js';
+import { SILENT_MS, TURN_MS, WAITING_MS, hasStoredNetwork, heldBytes, networkCacheName, storedNetworkBytes, validateNetwork,
+  verifiedNetworkBytes } from '../src/lib/network-transfer.js';
+import { RESUME, verifiedDownload } from '../src/lib/network-cache.js';
 
 /** Runs the garbage collector now, so that a test can ask what is still
  * held. Node exposes it to a context made after the flag is set, which needs
@@ -459,4 +460,222 @@ test('a save that needs no bytes finds the network the other window stored by it
   assert.equal(second, null);
   assert.equal(locks.asked.length, 3, 'the second waited its turn');
   assert.deepEqual([f.fetches(), f.reads()], [1, 0]);
+});
+
+// A packed network is stored by its host without an encoding, so a transfer
+// that breaks is asked again for the rest. Its identity names the packed
+// file's size and digest (storedBytes, sha256) beside the whole file's bytes.
+const packed = Uint8Array.from({ length: 16 }, (_, i) => 10 + i);
+const half = { bytes: 100, storedBytes: packed.length, packing: 'half', sha256: createHash('sha256').update(packed).digest('hex') };
+const halfUrl = 'https://cdn.invalid/models/g2/' + half.sha256;
+const quick = { pauseMs: 1, idleMs: 5000, totalMs: 20000 };
+/** A body that gives these bytes and then fails as a dropped connection does. */
+const breaking = (chunk, error = new TypeError('network error')) => new ReadableStream({
+  start(controller) { controller.enqueue(chunk); }, pull(controller) { controller.error(error); } });
+const part = (from, to, body = packed.slice(from, to)) => new Response(body,
+  { status: 206, headers: { 'Content-Range': `bytes ${from}-${packed.length - 1}/${packed.length}` } });
+/** The host, one answer a request in turn; `asked` is the Range of each. */
+function host(t, answers, options) {
+  const asked = [];
+  const f = fixture(t, { ...options, network: (_url, init) => {
+    const range = init.headers?.get('Range') ?? null;
+    asked.push(range);
+    return answers[asked.length - 1](range);
+  } });
+  return { ...f, asked };
+}
+const progressOf = () => {
+  const seen = [];
+  return { seen, onProgress: ({ bytes, total }) => { assert.equal(total, packed.length); seen.push(bytes); } };
+};
+const neverBack = seen => seen.every((bytes, at) => !at || bytes >= seen[at - 1]);
+
+test('a packed network that breaks at several points is asked for the rest each time, and its whole digest decides', async t => {
+  const h = host(t, [
+    () => new Response(breaking(packed.slice(0, 5))),
+    () => new Response(breaking(packed.slice(5, 9)), { status: 206, headers: { 'Content-Range': `bytes 5-15/16` } }),
+    () => part(9, 16),
+  ]);
+  const progress = progressOf();
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick, requireStored: true, ...progress }), packed);
+  assert.deepEqual(h.asked, [null, 'bytes=5-', 'bytes=9-']);
+  assert.ok(neverBack(progress.seen), progress.seen.join());
+  assert.equal(progress.seen.at(-1), packed.length);
+  // Stored as the packed file it is, under the packed file's record.
+  assert.deepEqual(h.held(), packed);
+  assert.equal(h.headers()['content-length'], String(packed.length));
+  assert.equal(await hasStoredNetwork(halfUrl, half), true);
+});
+
+test('a host that answers a range with the whole object again is read from its first byte, and progress holds', async t => {
+  const h = host(t, [() => new Response(breaking(packed.slice(0, 8))), () => new Response(packed)]);
+  const progress = progressOf();
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick, ...progress }), packed);
+  assert.deepEqual(h.asked, [null, 'bytes=8-']);
+  assert.ok(neverBack(progress.seen), progress.seen.join());
+});
+
+test('a 206 that starts after the bytes in hand is let go and the whole asked for; one that starts before them is used', async t => {
+  await t.test('later', async t => {
+    const h = host(t, [() => new Response(breaking(packed.slice(0, 5))), () => part(8, 16), () => new Response(packed)]);
+    assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+    assert.deepEqual(h.asked, [null, 'bytes=5-', null]);
+  });
+  await t.test('earlier', async t => {
+    const h = host(t, [() => new Response(breaking(packed.slice(0, 5))), () => part(3, 16)]);
+    const progress = progressOf();
+    assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick, ...progress }), packed);
+    assert.deepEqual(h.asked, [null, 'bytes=5-']);
+    assert.ok(neverBack(progress.seen), progress.seen.join());
+  });
+  await t.test('of another size, or unreadable', async t => {
+    const other = () => new Response(packed.slice(5), { status: 206, headers: { 'Content-Range': 'bytes 5-15/99' } });
+    const unreadable = () => new Response(packed.slice(5), { status: 206 });
+    const h = host(t, [() => new Response(breaking(packed.slice(0, 5))), other, unreadable, () => new Response(packed)]);
+    assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+    assert.deepEqual(h.asked, [null, 'bytes=5-', null, null]);
+  });
+});
+
+test('a resumed transfer whose whole is other bytes fails on its digest, is not asked again, and is never stored', async t => {
+  const wrong = Uint8Array.from(packed, byte => byte ^ 1);
+  const h = host(t, [() => new Response(breaking(packed.slice(0, 6))), () => part(6, 16, wrong.slice(6))]);
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), /not the one/);
+  assert.equal(h.fetches(), 2);
+  assert.equal(h.held(), undefined);
+});
+
+test('a stall is resumed from where it stopped, and one that keeps stalling fails after its attempts in a row', async t => {
+  const stalls = from => new Response(new ReadableStream({ start(controller) { controller.enqueue(packed.slice(from, from + 4)); }, pull() {
+    return new Promise(() => {});
+  } }), from ? { status: 206, headers: { 'Content-Range': `bytes ${from}-15/16` } } : {});
+  const stalled = { ...quick, idleMs: 30 };
+  const h = host(t, [() => stalls(0), () => stalls(4), () => part(8, 16)]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: stalled }), packed);
+  assert.deepEqual(h.asked, [null, 'bytes=4-', 'bytes=8-']);
+  // Some bytes, then stalled every time: RESUME.attempts more requests, then
+  // the failure a stall has always been.
+  const after = host(t, [() => stalls(0), ...Array.from({ length: 10 }, () => () => new Response(new ReadableStream({
+    pull: () => new Promise(() => {}) }), { status: 206, headers: { 'Content-Range': 'bytes 4-15/16' } }))]);
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: stalled }), /timed out/);
+  assert.equal(after.fetches(), RESUME.attempts + 1);
+  assert.deepEqual(new Set(after.asked.slice(1)), new Set(['bytes=4-']));
+  // Stalled before any byte: nothing in hand, nothing to resume, said at once.
+  const never = host(t, Array.from({ length: 10 }, () => () => new Response(new ReadableStream({ pull: () => new Promise(() => {}) }))));
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: stalled }), /timed out/);
+  assert.equal(never.fetches(), 1);
+});
+
+test('a link that breaks more often than the attempts allow goes on while every break brought new bytes', async t => {
+  // Two bytes a request, eight requests: seven breaks, more than RESUME.attempts.
+  const answers = Array.from({ length: 8 }, (_, index) => () => {
+    const from = 2 * index, chunk = packed.slice(from, from + 2);
+    const init = from ? { status: 206, headers: { 'Content-Range': `bytes ${from}-15/16` } } : {};
+    return new Response(index === 7 ? chunk : breaking(chunk), init);
+  });
+  assert.ok(answers.length - 1 > RESUME.attempts);
+  const h = host(t, answers);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.equal(h.fetches(), 8);
+});
+
+test('a transfer that breaks or stalls after its last byte asks nothing more, and its digest decides', async t => {
+  const broken = host(t, [() => new Response(breaking(packed))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.deepEqual(broken.asked, [null], 'no request for bytes past the end, which its host answers 416');
+  const stalled = host(t, [() => new Response(new ReadableStream({ start(controller) { controller.enqueue(packed); },
+    pull: () => new Promise(() => {}) }))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: { ...quick, idleMs: 30 } }), packed);
+  assert.deepEqual(stalled.asked, [null]);
+  // The same for a network that is never resumed, and other bytes still fail.
+  const plain = host(t, [() => new Response(breaking(good))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect, timeouts: quick }), good);
+  assert.deepEqual(plain.asked, [null]);
+  const wrong = host(t, [() => new Response(breaking(Uint8Array.from(packed, byte => byte ^ 1)))]);
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), /not the one/);
+  assert.equal(wrong.fetches(), 1);
+});
+
+test('a body that ends short is a break too, and the total deadline ends every attempt and pause', async t => {
+  const h = host(t, [() => new Response(packed.slice(0, 7)), () => part(7, 16)]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.deepEqual(h.asked, [null, 'bytes=7-']);
+  const slow = host(t, Array.from({ length: 10 }, () => () => new Response(breaking(packed.slice(0, 2)))));
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: { pauseMs: 200, idleMs: 5000, totalMs: 60 } }), /timed out/);
+  assert.equal(slow.fetches(), 1, 'the deadline fell in the pause, and nothing was asked after it');
+});
+
+test('a refusal, an overrun, or a host that cannot be reached before any byte came is said at once, not asked again', async t => {
+  const unreachable = () => { throw new TypeError('Failed to fetch'); };
+  for (const [answer, reason] of [[() => new Response('', { status: 503 }), /503/],
+    [() => new Response(new Uint8Array(17)), /exceeded/], [unreachable, /Failed to fetch/]]) {
+    const h = host(t, [answer, () => new Response(packed)]);
+    await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), reason);
+    assert.equal(h.fetches(), 1, String(reason));
+  }
+  // The same host unreachable once some bytes are in hand is a break, and resumed.
+  const h = host(t, [() => new Response(breaking(packed.slice(0, 6))), unreachable, () => part(6, 16)]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.deepEqual(h.asked, [null, 'bytes=6-', 'bytes=6-']);
+});
+
+test('each pause in a row is twice the last, and a waiting window still waits through a stall and the longest pause', async t => {
+  webLocks(t); channels(t);
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const stallsAfter = (bytes, init) => () => new Response(new ReadableStream({ start(controller) { if (bytes.length) controller.enqueue(bytes); },
+    pull: () => new Promise(() => {}) }), init);
+  const unreachable = () => { throw new TypeError('Failed to fetch'); };
+  const asked = [];
+  const timed = answer => (...given) => { asked.push(Date.now()); return answer(...given); };
+  // Four bytes and a stall; three requests the link refuses; one that stalls
+  // with nothing (its idle minute and then the longest pause, back to back);
+  // then the rest.
+  const h = host(t, [stallsAfter(packed.slice(0, 4)), unreachable, unreachable, unreachable,
+    stallsAfter(new Uint8Array(0), { status: 206, headers: { 'Content-Range': 'bytes 4-15/16' } }), () => part(4, 16)].map(timed));
+  const timeouts = { pauseMs: 2000, idleMs: 60000, totalMs: 3600000 };
+  const holder = verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts });
+  await turns();
+  const waiter = verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts });
+  let done = false;
+  void holder.finally(() => { done = true; });
+  for (let second = 0; second < 400 && !done; second++) { t.mock.timers.tick(1000); await turns(); }
+  assert.deepEqual(await holder, packed);
+  assert.deepEqual(asked.slice(1).map((at, index) => at - asked[index]), [62000, 4000, 8000, 16000, 92000],
+    'a stall\'s minute and 2 s, then 4, 8 and 16 s, then a minute\'s stall and 32 s');
+  assert.deepEqual(await waiter, packed);
+  assert.equal(h.fetches(), 6, 'the waiting window never fetched beside the holder: it read what the holder stored');
+});
+
+test('a network stored gzipped is never asked for a range, and a break fails it as before', async t => {
+  const h = host(t, [() => new Response(breaking(good.slice(0, 2))), () => new Response(good)]);
+  await assert.rejects(verifiedNetworkBytes({ url, expect, timeouts: quick }), /network error/);
+  assert.deepEqual(h.asked, [null]);
+});
+
+test('the holder of the lock goes on saying it is alive through a resumed transfer', async t => {
+  webLocks(t);
+  const c = channels(t);
+  t.mock.timers.enable({ apis: ['Date'] });
+  const listener = c.holder(`${networkCacheName()}:${halfUrl}`);
+  let heard = 0;
+  listener.onmessage = () => { heard++; };
+  // Each request comes two seconds after the last.
+  const later = answer => () => { t.mock.timers.tick(2000); return answer(); };
+  const h = host(t, [later(() => new Response(breaking(packed.slice(0, 4)))), later(() => part(4, 16))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.equal(h.fetches(), 2);
+  assert.ok(heard >= 3, `heard ${heard} times: as it took the lock, and as each request's bytes came`);
+});
+
+test('a packed identity is stored, found and read back as the packed file, and an identity that misstates its packing is refused', async t => {
+  fixture(t, { cached: packed, headers: { 'Content-Length': String(packed.length), 'X-Mahjong-SHA256': half.sha256 } });
+  assert.equal(await hasStoredNetwork(halfUrl, half), true);
+  assert.equal(await hasStoredNetwork(halfUrl, { ...half, packing: undefined, storedBytes: undefined, bytes: half.bytes }), false,
+    'the whole size is not what is stored');
+  assert.deepEqual(await storedNetworkBytes({ url: halfUrl, expect: half }), packed);
+  for (const bad of [{ packing: 'quarter' }, { storedBytes: undefined }, { storedBytes: 100 }, { storedBytes: 0 }]) {
+    assert.throws(() => validateNetwork({ ...half, ...bad }), /packing/, JSON.stringify(bad));
+  }
+  assert.equal(heldBytes(half), packed.length);
+  assert.equal(heldBytes(expect), expect.bytes);
 });

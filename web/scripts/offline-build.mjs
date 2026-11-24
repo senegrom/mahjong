@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { resolve, relative, basename } from 'node:path';
 import { RUNTIME_FILES } from '../src/lib/model-package.js';
 import { NETWORKS } from '../src/lib/model-manifest.js';
-import { validateNetwork } from '../src/lib/network-transfer.js';
+import { heldBytes, validateNetwork } from '../src/lib/network-transfer.js';
 import { copyRuntimeAssets } from './runtime-assets.mjs';
 import { runtimeDirectory, webgpuDirectory } from './copy-runtime.mjs';
 
@@ -58,8 +58,8 @@ export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) 
     runtime: unique.filter(entry => entry.group === 'ai').reduce((sum, entry) => sum + entry.bytes, 0),
     webgpu: unique.filter(entry => entry.group === 'webgpu').reduce((sum, entry) => sum + entry.bytes, 0),
     // A page saves the one network it plays, the default unless its player
-    // picked another.
-    network: networks[0].bytes,
+    // picked another: what it downloads, packed where the network is.
+    network: heldBytes(networks[0]),
   };
   const manifest = { version, hasModel, networkCacheVersion, entries, networks, bytes };
   const template = await serviceWorkerTemplate();
@@ -67,7 +67,9 @@ export async function buildOffline(root, { networks = NETWORKS, runtime } = {}) 
   await writeFile(resolve(root, 'offline-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
-export function offlineBuild() {
+/** `networks`, when given, are listed instead of the manifest's: for a build
+ * a browser check makes of its own (packed-network-check.mjs). */
+export function offlineBuild({ networks } = {}) {
   let web, output, source;
   return {
     name: 'mahjong-offline', apply: 'build',
@@ -80,7 +82,7 @@ export function offlineBuild() {
       // The folder vite.config.js gave the page, from the same sources.
       const runtime = await runtimeDirectory(web), webgpu = await webgpuDirectory(web);
       const assets = await copyRuntimeAssets(source, output, runtime, webgpu);
-      const { bytes } = await buildOffline(output, { runtime });
+      const { bytes } = await buildOffline(output, { runtime, networks });
       console.log(`Offline bytes: core=${bytes.core}, AI runtime=${bytes.runtime}, WebGPU runtime saved when first used=${bytes.webgpu}, remote network=${bytes.network}; excluded art-workspace bytes=${assets.excludedBytes}`);
     },
   };

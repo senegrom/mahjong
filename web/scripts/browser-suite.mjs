@@ -16,7 +16,10 @@ import { fileURLToPath } from 'node:url';
 // In run order, each with the seconds it took in CI on 23 October 2026 (main,
 // run 39946819194), which balance the shards; last-hand-rules-check.mjs's and
 // webgpu-check.mjs's are estimates until a CI run times them (in CI, whose
-// Chrome has no WebGPU adapter, the second only says so), and
+// Chrome has no WebGPU adapter, the second only says so), as is
+// packed-network-check.mjs's, which builds the site once more and downloads
+// the default network (74 s on a desktop from a local network file, 24
+// November 2026, so more in CI, which downloads it), and
 // ui-polish-check.mjs's is of 22 November 2026 (run 44975682086), with its
 // cases for the table at each size. The timestamps of the == lines in a CI
 // log give new ones.
@@ -27,7 +30,7 @@ const scripts = [
   ['agent-watch-check.mjs', 85], ['ui-regression.mjs', 84], ['tile-effects-check.mjs', 8],
   ['full-review-check.mjs', 308], ['game-review-check.mjs', 735], ['discard-readiness-check.mjs', 32],
   ['mixed-opponents-check.mjs', 27], ['ui-polish-check.mjs', 41], ['trained-model-check.mjs', 12],
-  ['toolchain-check.mjs', 26], ['offline-check.mjs', 59], ['webgpu-check.mjs', 3],
+  ['toolchain-check.mjs', 26], ['offline-check.mjs', 59], ['webgpu-check.mjs', 3], ['packed-network-check.mjs', 110],
 ];
 // A number missing or not a number can leave scripts out of every shard.
 const untimed = scripts.filter(([, seconds]) => !Number.isFinite(seconds) || seconds < 0).map(([script]) => script);

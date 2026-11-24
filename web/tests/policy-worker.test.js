@@ -6,6 +6,8 @@ import { MemoryBudget, MEMORY_LIMITS_MIB, isMemoryError } from '../src/lib/memor
 import { loadModule } from './fixtures/load-module.js';
 
 const MODEL = 'model-full.onnx';
+// A listed network that is packed: its worker widens it before the runtime.
+const PACKED = 'packed-network';
 const deferred = () => {
   let resolve;
   const promise = new Promise(done => { resolve = done; });
@@ -13,7 +15,7 @@ const deferred = () => {
 };
 
 function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, runError = false, memoryFailure = null, policy = null, waits = false } = {}) {
-  const loads = [], releases = [], runs = [], tensors = [], messages = [], scopes = [];
+  const loads = [], releases = [], runs = [], tensors = [], messages = [], scopes = [], widened = [];
   let live = 0, active = 0;
   const memoryBudget = new MemoryBudget();
   class Tensor {
@@ -52,6 +54,8 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
     // them here, so what loaded is still recognisable. With `waits`, another
     // window is at the same network first, and the transfer says that it waits.
     networkBytes: async ({ url, scope, onWaiting }) => { scopes.push(scope); if (waits) onWaiting(); return url; },
+    networkAt: url => (url === PACKED ? { packing: 'half', bytes: 117 } : null),
+    unpackNetwork: (bytes, whole) => { widened.push([bytes, whole]); return `${bytes} widened`; },
     loadMemoryControls: async url => {
       assert.equal(url, 'https://test.invalid/ort/0123abcd/memory-budget.mjs');
       return { memoryBudget };
@@ -61,7 +65,7 @@ function harness({ takesMask = false, loadGate, runGate, invalidOutput = false, 
     id, url, runtimeBase: 'https://test.invalid/ort/0123abcd/', scope: 'https://test.invalid/',
     planes: new Float32Array(34), mask: [1, 1], details: true, ...extra,
   } });
-  return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages, scopes };
+  return { send, cancel: id => self.onmessage({ data: { cancel: id } }), loads, releases, runs, tensors, messages, scopes, widened };
 }
 
 test('queued decisions load the network once, run one at a time and answer in order', async () => {
@@ -83,6 +87,19 @@ test('queued decisions load the network once, run one at a time and answer in or
   assert.deepEqual(h.runs, [MODEL, MODEL, MODEL, MODEL]);
   assert.deepEqual(h.messages.filter(message => message.analysis).map(({ id, action }) => [id, action]), [[1, 1], [2, 1], [3, 1], [4, 1]]);
   assert.ok(h.tensors.every(tensor => tensor.disposed), 'all input and output tensors must be disposed');
+});
+
+test('a packed network is widened in the worker, whether fetched or handed by the page, and a plain one is not', async () => {
+  const h = harness();
+  await h.send(1);
+  await h.send(2, PACKED);
+  assert.deepEqual(h.widened, [[PACKED, 117]], 'the packed bytes, widened to the whole file the identity names');
+  assert.deepEqual(h.loads, [MODEL, `${PACKED} widened`], 'the runtime is given the whole file');
+  // Bytes the page verified but could not store are widened the same way.
+  const handed = harness();
+  await handed.send(1, PACKED, { network: 'handed bytes' });
+  assert.deepEqual(handed.widened, [['handed bytes', 117]]);
+  assert.deepEqual(handed.loads, ['handed bytes widened']);
 });
 
 test('an opponent move carries its action alone; advice also carries the value and beliefs', async () => {

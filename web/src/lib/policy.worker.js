@@ -15,6 +15,8 @@
 import * as ort from 'onnxruntime-web/wasm';
 import { policyWeights } from './policy-weights.js';
 import { networkBytes } from './network-store.js';
+import { networkAt } from './trained-network.js';
+import { unpackNetwork } from './network-pack.js';
 import { isMemoryError, MEMORY_LIMITS_MIB } from './memory-budget.js';
 
 ort.env.wasm.numThreads = 1;
@@ -42,6 +44,26 @@ let failed = false;
 // instead of downloading the same network again.
 let handed = null;
 
+/** The ONNX file of the network at url. The bytes rather than the address:
+ * the network comes from a bucket on another origin and is kept in Cache
+ * Storage, which the runtime knows nothing about. What it is handed has
+ * already been hashed, against the listed network at that address. Another
+ * window that is at the same network goes first (network-transfer.js): the
+ * wait is said, which is also the sign of life the page times this worker's
+ * silence by. A packed network is widened here, off the page's thread, into
+ * the whole file the runtime reads (network-pack.js). Its packed bytes are
+ * no longer reachable once this returns, before the session is made: the two
+ * are reachable together only while it is widened, 59 and 117 MB for network
+ * 3000. When the collector frees the packed bytes is its own business. */
+async function networkFile(url, scope, note) {
+  const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
+    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
+    onWaiting: () => note('waiting for another window to download the network') });
+  handed = null;
+  const listed = networkAt(url);
+  return listed?.packing ? unpackNetwork(bytes, listed.bytes) : bytes;
+}
+
 /** scope is the page's own folder, whose Cache Storage holds the network. */
 async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
   if (!runtimeMemory) {
@@ -59,18 +81,9 @@ async function load({ url, runtimeBase, scope, memoryLimitMiB }, note) {
     held = null;
     await session.release();
   }
-  // The bytes rather than the address: the network comes from a bucket on
-  // another origin and is kept in Cache Storage, which the runtime knows
-  // nothing about. What it is handed has already been hashed, against the
-  // listed network at that address. Another window that is at the same
-  // network goes first (network-transfer.js): the wait is said, which is
-  // also the sign of life the page times this worker's silence by.
-  const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
-    onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),
-    onWaiting: () => note('waiting for another window to download the network') });
-  handed = null;
+  const file = await networkFile(url, scope, note);
   note('starting the network');
-  const session = await ort.InferenceSession.create(bytes, {
+  const session = await ort.InferenceSession.create(file, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });

@@ -399,7 +399,7 @@ test('a loaded network reports nothing more, so the table goes on saying who is 
       const page = this;
       this.self = { postMessage: data => { void setImmediate().then(() => page.onmessage?.({ data })); } };
       loadModule('policy.worker.js', { ort, policyWeights, self: this.self, URL, MEMORY_LIMITS_MIB, isMemoryError,
-        networkBytes: async () => new Uint8Array(1),
+        networkBytes: async () => new Uint8Array(1), networkAt: () => null, unpackNetwork: () => { throw new Error('not packed'); },
         loadMemoryControls: async () => ({ memoryBudget: new MemoryBudget() }),
       }, [], { 'import(/* @vite-ignore */ controls)': 'loadMemoryControls(controls)' });
     }

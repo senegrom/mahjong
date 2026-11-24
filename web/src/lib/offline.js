@@ -13,6 +13,7 @@
  * player picked (trained-network.js). Every message names that pick, so the
  * worker reports on, and keeps, the network the page plays. */
 import { networkBytes, networkIsStored } from './network-store.js';
+import { heldBytes } from './network-cache.js';
 import { networkUrl, pickedVersion, playedNetwork } from './trained-network.js';
 const base = new URL('./', document.baseURI);
 const script = new URL('sw.js', base).href;
@@ -101,7 +102,9 @@ function request(type, progress, target = worker) {
     // to: a waiting update reads it against its own list, as its page will,
     // and one that no longer lists it answers with its own default. An update
     // that forgets earlier picks plays its default all the same (saveUpdate).
-    try { target.postMessage({ type, version: pickedVersion() }, [channel.port2]); }
+    // `packing` says which packed networks (network-pack.js) this page can
+    // save: a worker names a packed network only to a page that says so.
+    try { target.postMessage({ type, version: pickedVersion(), packing: ['half'] }, [channel.port2]); }
     catch (error) { finish(error); }
   });
 }
@@ -127,7 +130,8 @@ function saveNetwork(url, expect, onProgress, onWaiting) {
 }
 async function storeNetwork(url, expect, onProgress, onWaiting) {
   if (await networkIsStored(url, expect)) return;
-  if (!await hasRoom(expect.bytes)) {
+  // Room for what is stored: a packed network's packed bytes.
+  if (!await hasRoom(heldBytes(expect))) {
     const error = new Error('The network is not saved offline: this device has too little free storage for it.');
     error.name = 'NetworkStorageError';
     throw error;
