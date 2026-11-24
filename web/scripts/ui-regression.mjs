@@ -234,6 +234,22 @@ try {
       assert.deepEqual(await chosen(page,before),[tile],where); noErrors(page);
     }
   });
+  await check('with the hand\'s keys off, a tile thrown by keyboard hands focus back to the hand as the turn comes back, and a click does not',async()=>{
+    const page=await open(turnAgainSave,{shortcuts:false}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
+    const inHand=()=>page.evaluate(()=>document.querySelector('.hand').contains(document.activeElement));
+    await page.focus(first); await page.keyboard.press('Enter');
+    await more(page,before); await page.waitForSelector(`${first}:not(:disabled)`);
+    await page.waitForFunction(()=>document.querySelector('.hand').contains(document.activeElement),{timeout:5000}).catch(()=>{});
+    assert.equal(await inHand(),true,'focus is in the hand, not on the page');
+    // Tab goes on to a tile from there, as the keyboard player expects.
+    await page.keyboard.press('Tab');
+    assert.ok(await page.evaluate(()=>document.activeElement?.matches('.hand button.tile')),'Tab reaches a tile');
+    // A mouse's click leaves focus as the browser leaves it, as before.
+    const next=(await saved(page)).commands.length;
+    await page.click(first); await more(page,next); await page.waitForSelector(`${first}:not(:disabled)`); await pause(150);
+    assert.equal(await inHand(),false,'a click is not followed into the hand');
+    noErrors(page);
+  });
   await check('a double click on a tile throws that tile, not the next turn\'s too',async()=>{
     const page=await open(turnAgainSave), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
     const at=await middle(page,first), thrown=await page.$eval(first,n=>n.dataset.tile);

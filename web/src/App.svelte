@@ -579,7 +579,12 @@
 
   function canDiscard(tile) { return !busy && !failure && !saveConflict && discardChoices.some((choice) => choice.tile === tile); }
 
-  async function choose(choice) {
+  // A move made from the hand hands focus back to the hand as the turn comes
+  // back: with the hand's keys on, for its arrows and Enter; and with them
+  // off where the tile was pressed by keyboard, whose player would otherwise
+  // tab back from the page every turn (`byKeyboard`). The pressed tile was
+  // disabled while the opponents played, which dropped focus to the page.
+  async function choose(choice, byKeyboard = false) {
     if (!session || busy) return;
     const owner = session;
     const fromHand = handElement?.contains(document.activeElement);
@@ -587,14 +592,15 @@
     selected = null;
     await owner.choose(choice);
     await tick();
-    if (session !== owner || owner.closed || !fromHand || busy || failure || saveConflict || !myTurn || !shortcuts || touch) return;
+    if (session !== owner || owner.closed || !fromHand || busy || failure || saveConflict || !myTurn) return;
+    if ((!shortcuts || touch) && !byKeyboard) return;
     const active = document.activeElement;
     if (active === document.body || handElement?.contains(active)) handElement?.focus({ preventScroll: true });
   }
 
-  function discard(tile) {
+  function discard(tile, byKeyboard = false) {
     const choice = discardChoices.find((entry) => entry.tile === tile);
-    if (choice && canDiscard(tile)) void choose(choice);
+    if (choice && canDiscard(tile)) void choose(choice, byKeyboard);
   }
 
   // Without confirmation a press throws its tile, and against opponents that
@@ -606,7 +612,7 @@
     if (!canDiscard(tile) || (!confirmDiscards && repeatedClick(event))) return;
     picked = null;
     if (confirmDiscards && selected !== index) selected = index;
-    else discard(tile);
+    else discard(tile, pressedByKeyboard(event));
   }
 
   // The confirmation's two buttons go as either is pressed. Where one of
