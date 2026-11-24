@@ -236,9 +236,16 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
   assert.ok(review);
   await review.click();
   await over.waitForSelector('.result-chip');
-  await over.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
-  const foot=await over.evaluate(()=>({chip:document.querySelector('.result-chip').getBoundingClientRect().top,chipHeight:document.querySelector('.result-chip').getBoundingClientRect().height,
-    history:document.querySelector('.history summary').getBoundingClientRect().bottom}));
+  // Scrolled to its end and measured in one step: the page grows a moment
+  // after the chip shows, as the hand's review arrives, and measured a step
+  // after the scroll it was no longer at its end (once, in CI).
+  const foot=await over.evaluate(()=>{
+    const root=document.documentElement;
+    window.scrollTo(0,root.scrollHeight);
+    return{chip:document.querySelector('.result-chip').getBoundingClientRect().top,chipHeight:document.querySelector('.result-chip').getBoundingClientRect().height,
+      history:document.querySelector('.history summary').getBoundingClientRect().bottom,fromEnd:root.scrollHeight-root.scrollTop-innerHeight};
+  });
+  assert.ok(Math.abs(foot.fromEnd)<1,`the page is at its end: ${foot.fromEnd}`);
   assert.ok(foot.history<=foot.chip,`the hand's history ends above the chip: ${foot.history} against ${foot.chip}`);
   assert.ok(foot.chipHeight>=44);
   assert.deepEqual(over.errors,[]);
