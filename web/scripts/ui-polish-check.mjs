@@ -255,6 +255,43 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
   await readable('.rail .flag-mark','a flagged decision\u2019s line');
   assert.deepEqual(p.errors,[]);
  });
+ await check('a window between two whole pixels is laid out as the whole pixel under it',async()=>{
+  // At a browser zoom of 125 per cent a window 951 device pixels wide is 760.8
+  // CSS pixels, and matched neither (max-width: 760px) nor (min-width: 761px):
+  // the table, the seats and the hand fell back to styles meant for no size.
+  // A frame zoomed by 1.25 is as wide as such a window. The built page's media
+  // rules that match in it are those that match at the whole pixel under its
+  // size, across and down.
+  const p=await (await openContext(browser)).newPage();p.errors=[];p.on('pageerror',e=>p.errors.push(e.message));
+  await p.setViewport({width:1400,height:1400});
+  await p.evaluateOnNewDocument((key,settings,s)=>{
+   if(location.protocol!=='http:')return;
+   Object.defineProperty(navigator,'serviceWorker',{value:undefined});
+   localStorage.setItem(key,JSON.stringify(s));
+   localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',opponents:['club','club','club'],hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'}));
+  },SAVE_KEY,SETTINGS_KEY,start.snapshot);
+  // The frame's host is a page of the site's own origin, so that the frame
+  // keeps the storage it would have as a window of its own.
+  const site=`http://127.0.0.1:${server.address().port}/mahjong/`;
+  await p.goto(`${site}frame-host`);
+  const matched=async(width,height)=>{
+   await p.evaluate(html=>{document.body.innerHTML=html;},`<iframe style="border:0;zoom:1.25;width:${width}px;height:${height}px" src="${site}"></iframe>`);
+   const frame=await (await p.waitForSelector('iframe')).contentFrame();
+   await frame.waitForSelector('.hand');
+   return frame.evaluate(()=>{
+    const queries=new Set();
+    const walk=rules=>{for(const rule of rules){if(rule.media)queries.add(rule.media.mediaText);if(rule.cssRules)walk(rule.cssRules);}};
+    for(const sheet of document.styleSheets)walk(sheet.cssRules);
+    return [...queries].filter(query=>matchMedia(query).matches).sort();
+   });
+  };
+  for(const [whole,between] of [[[760,900],[760.8,900]],[[1000,500],[1000,500.8]]]){
+   const there=await matched(...whole),near=await matched(...between);
+   assert.ok(there.length>0);
+   assert.deepEqual(near,there,`${between.join(' by ')} is laid out as ${whole.join(' by ')}`);
+  }
+  assert.deepEqual(p.errors,[]);
+ });
  await check('a phone\u2019s settings keep an opened section where it was pressed, and its play area scrolls with the page',async()=>{
   const p=await open();
   await p.click('.settings-trigger');

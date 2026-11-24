@@ -110,14 +110,14 @@
      sees of you, so it is not folded away on any screen. */
   .own-discards { display: grid; gap: 4px; }
   .own-discards .caption { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; opacity: .8; }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .mine { padding: 8px; gap: 4px; }
     .mine header { font-size: .8rem; }
     .hint { margin-left: 0; font-size: .75rem; }
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; padding: 6px 3px; }
     .hand :global(button.tile) { width: 100%; min-height: 44px; }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .mine { padding: 6px 8px; gap: 4px; }
     .mine header { font-size: .8rem; }
     .hand { display: grid; grid-template-columns: repeat(7,minmax(0,44px)); gap: 5px; padding: 6px 3px; }
@@ -131,7 +131,7 @@
      under 640 pixels wide too, rather than a seventh of the width, which
      made the hand alone taller than the room. A finished hand, shown with
      its result, and a review's, one of four, keep their size. */
-  @media (max-height: 500px) and (orientation: landscape) {
+  @media (max-height: 500.98px) and (orientation: landscape) {
     .mine:not(.listed):not(.over) .hand { grid-template-columns: repeat(7,minmax(0,44px)); }
   }
 
@@ -223,7 +223,7 @@
     }
   }
 
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .mine { border-radius: 15px; background: rgba(3,29,19,.40); }
     .hand { --draw-gap: 14px; }
     .hand :global(.hand-tile) { width: 100%; }

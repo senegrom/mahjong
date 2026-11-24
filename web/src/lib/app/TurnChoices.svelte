@@ -87,12 +87,12 @@
   .call-preview { display: inline-flex; align-items: center; gap: 4px; }
   .confirm-discard { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .confirm-discard > span { font-size: .85rem; }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .prompt { font-size: .82rem; }
     .call-options { gap: 6px; }
     .call-options button { font-size: .8rem; padding: 6px 10px; }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .prompt { font-size: .8rem; }
   }
 
@@ -128,7 +128,7 @@
   @keyframes offer-in { from { opacity: 0; transform: translateY(5px) scale(.985); } to { opacity: 1; transform: none; } }
   @keyframes choices-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .call-stage { grid-template-columns: auto auto minmax(0,1fr); padding: 9px 10px; }
   }
 
@@ -139,7 +139,7 @@
      Each button shows its call's word beside the call's tiles. The rest of
      the buttons' names and of the card's words, which the tiles say again,
      are still read out, as is the prompt, whose line the call takes. */
-  @media (max-height: 500px) and (orientation: landscape) {
+  @media (max-height: 500.98px) and (orientation: landscape) {
     .calls { display: flex; flex-wrap: wrap; gap: 6px; }
     .call-options { display: contents; }
     .call-options button { gap: 6px; min-width: 44px; justify-content: center; padding: 6px 8px; animation: choices-in .22s .06s ease-out both; }

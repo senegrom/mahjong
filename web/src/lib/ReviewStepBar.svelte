@@ -200,11 +200,11 @@
      would scroll the page whenever the bar is stuck: of the game's bar on a
      phone held upright, and where the bar stays in its place, of the game's
      bar as the headings keep clear of it. */
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .steps { top: 56px; }
     .steps button { scroll-margin-top: 56px; }
   }
-  @media (max-height: 500px) {
+  @media (max-height: 500.98px) {
     .steps { position: static; }
     .steps button { scroll-margin-top: 72px; }
   }

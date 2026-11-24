@@ -120,10 +120,10 @@
   h2:focus { outline: none; }
   h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h2 { scroll-margin: 8px 0; }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     h2 { scroll-margin-top: 72px; }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     h2 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
@@ -200,10 +200,10 @@
      stays at the top of the screen, and on a phone clear of the result's chip
      at the foot of the screen. */
   .buttons { scroll-margin: 8px 0; }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .buttons { scroll-margin-top: 72px; }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .buttons { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 

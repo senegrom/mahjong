@@ -205,7 +205,7 @@
   // them in the order they are seen. As the screen turns, a choice that had
   // focus would go with the place it was in, dropping focus to the page, so
   // the same choice where they are now drawn has it instead.
-  const SIDEWAYS = '(max-height: 500px) and (orientation: landscape)';
+  const SIDEWAYS = '(max-height: 500.98px) and (orientation: landscape)';
   let sideways = $state(matchMedia(SIDEWAYS).matches);
   let choicesInSeat = $derived(sideways && view?.phase !== 'over' && !standings);
   onMount(() => {
@@ -939,7 +939,7 @@
      player's seat; and a play area taller than the screen, as with a call
      late in a hand, held its own foot, the call's buttons, under the
      screen's. */
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     main { gap: 6px; }
     .play-area:not(.ended) { background: var(--felt-deep); padding: 6px 0 max(6px, env(safe-area-inset-bottom)); border-radius: 10px; box-shadow: 0 -6px 16px #0003; }
     .controls { padding: 0 8px; }
@@ -948,7 +948,7 @@
        hand's history, can be scrolled clear of it. */
     main:has(:global(.result-chip)) { padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px); }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }
     .notice, .failure, .save-conflict, .loading, .history, main > :global(.game-review) { grid-column: 1 / -1; }
     .play-area { grid-column: 2; grid-row: auto; position: sticky; top: 8px; bottom: auto; }
@@ -962,7 +962,7 @@
      its choices drawn right under the hand, in the seat (choicesInSeat),
      and a call brings the hand and its buttons into view together (above).
      A finished hand's area, with its result, stays as it was. */
-  @media (max-height: 500px) and (orientation: landscape) {
+  @media (max-height: 500.98px) and (orientation: landscape) {
     .play-area:not(.ended) { position: static; }
     .play-area:not(.ended) .controls { padding: 0; }
   }
@@ -977,7 +977,7 @@
     main { gap: 8px; }
   }
 
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     main { padding-top: max(5px, env(safe-area-inset-top)); gap: 5px; }
     .notice {
       padding: 8px 12px;

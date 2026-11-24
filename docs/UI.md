@@ -58,6 +58,16 @@ How the table is laid out follows the window, its height as well as its width.
   opened section stays where it was pressed, rather than going to the foot of
   the list.
 
+A window need not be a whole number of pixels wide: at a browser zoom of 125
+per cent, 951 of the screen's pixels are 760.8. The bounds of a phone's width
+and a phone's height held sideways end at 760.98 and 500.98 pixels, in the
+styles and in what the page asks `matchMedia`, so that such a window is laid
+out as the whole pixel under it; ended at 760 and 500, they left a window of
+760.8 matched neither by them nor by 761 and 501, and the table, the seats and
+the hand fell back to styles meant for no size. `media-bounds.test.js` holds
+every such pair to that, and `ui-polish-check.mjs` a frame zoomed to 760.8 by
+900 and to 1000 by 500.8.
+
 Words in gold are written in a lighter gold than the borders and rings
 (`--gold-text` in `app.css`): the borders' gold is 3.5 to 4.4 to 1 against the
 table's panels, and small text needs 4.5. The honba and the riichi bets in the

@@ -292,7 +292,7 @@ test("on a phone held upright the player's seat comes before the table, the firs
   // Measuring nothing, a server render draws it as a larger screen does.
   assert.equal(order(replay({ step: flaggedAt })), 'table first');
   // A phone held upright, as the decision reads its media query while it draws.
-  globalThis.matchMedia = query => ({ matches: query === '(max-width: 760px) and (orientation: portrait)', addEventListener() {}, removeEventListener() {} });
+  globalThis.matchMedia = query => ({ matches: query === '(max-width: 760.98px) and (orientation: portrait)', addEventListener() {}, removeEventListener() {} });
   try {
     const html = replay({ step: flaggedAt });
     assert.equal(order(html), 'seat first');

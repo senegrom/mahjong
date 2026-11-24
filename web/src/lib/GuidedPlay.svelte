@@ -327,7 +327,7 @@
   h3:focus { outline: none; }
   h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h3 { scroll-margin: 8px 0; }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     h3 { scroll-margin-top: 72px; }
   }
   h4 { margin: 0 0 10px; font-size: .88rem; } h4 span { font-weight: 400; font-size: .78rem; }
