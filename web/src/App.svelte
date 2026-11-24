@@ -697,10 +697,14 @@
   let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline));
   let standInPressed = false;
   function playClubMeanwhile() {
-    if (session?.clubMeanwhile()) standInPressed = true;
+    session?.clubMeanwhile();
+    standInPressed = true;
   }
   // Its button goes as the wait ends. Pressed, it had focus, which the hand
-  // takes rather than the page, with the keys on or off.
+  // takes rather than the page, with the keys on or off: also after a press
+  // that came too late to be taken (the last answer already in, the run
+  // still holding the save lock), whose button goes a moment later all the
+  // same.
   $effect(() => {
     if (downloadWait || !standInPressed) return;
     standInPressed = false;
