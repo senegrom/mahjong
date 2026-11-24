@@ -232,8 +232,11 @@ pressed; the arrow keys' marker, drawn the same way, is not. Browser shortcuts
 and other focused controls remain unaffected: a key held down is cancelled in
 the hand only where the hand's keys act on it (Enter, Space, the digits, r and
 t), so a held arrow down, Page Down or Tab still scrolls the page or moves
-focus on. Enter held down on a tile, a call or the confirmation's buttons
-presses once, and so does a double click: its second press is let go where the
+focus on. Enter held down presses once, on a tile, a call, the confirmation's
+buttons and anything else Enter presses (a button, a summary, a link), in
+every mode: its repeats would press whatever took the pressed control's
+place or wherever focus went, New game and its confirmation among them.
+Space presses as it is let go, once. A double click presses once too: its second press is let go where the
 first has already acted, since the next decision is drawn where the last one
 was (on a tile only while Select before discarding is off; with it on, a
 second press on the selected tile is how it is thrown). The browser tells a

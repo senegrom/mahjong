@@ -23,7 +23,7 @@
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldMove, land, moveHandFocus, pressedByKeyboard, repeatedClick, startupWords,
+  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldPress, land, moveHandFocus, pressedByKeyboard, repeatedClick, startupWords,
     waitIsDownload, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
@@ -645,11 +645,11 @@
   }
 
   async function onKey(event) {
+    // Enter held down presses nothing twice, in any mode: its repeats would
+    // press whatever took the pressed control's place, or wherever focus went
+    // as it did, such as New game and its confirmation (heldPress).
+    if (heldPress(event)) { event.preventDefault(); return; }
     if (mode !== 'play') return;
-    // Enter held down on a tile or on one of the player's choices presses it
-    // once, with the keys on or off: its repeats would answer the decisions
-    // that follow, each drawn where the last one was (heldMove).
-    if (heldMove(event, handElement)) { event.preventDefault(); return; }
     if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {

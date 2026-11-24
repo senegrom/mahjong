@@ -208,13 +208,31 @@ try {
   // go: the browser's own repeat, a trusted keydown with repeat set, which
   // presses a focused button as the first did unless the page cancels it.
   // `ready` is awaited between the two, for the next decision to be there.
+  // It cannot hang: a dialog the presses open (New game's confirmation) is
+  // noted and dismissed, and the keys are let go whatever happens. It answers
+  // every dialog's message, and a failure says where focus was.
+  const focusedAt=page=>page.evaluate(()=>{const a=document.activeElement;return a?`${a.tagName.toLowerCase()}.${[...a.classList].join('.')} "${a.textContent.trim().slice(0,40)}"`:'nothing';});
   const holdEnter=async(page,ready,with_=[])=>{
-    for(const key of with_)await page.keyboard.down(key);
-    await page.keyboard.down('Enter');await ready();
-    const repeated=page.evaluate(()=>new Promise(done=>addEventListener('keydown',event=>done(event.repeat),{once:true,capture:true})));
-    await page.keyboard.down('Enter');
-    assert.equal(await repeated,true,'the second keydown is a repeat');
-    await page.keyboard.up('Enter');for(const key of with_.reverse())await page.keyboard.up(key);
+    const dialogs=[],dismiss=dialog=>{dialogs.push(dialog.message());void dialog.dismiss();};
+    page.on('dialog',dismiss);
+    try{
+      for(const key of with_)await page.keyboard.down(key);
+      await page.keyboard.down('Enter');await ready();
+      // The next keydown is listened for before it is sent, and read back
+      // after: a listener still being set up as the key goes down, on a slow
+      // machine, would wait for ever.
+      await page.evaluate(()=>{window.nextKeyRepeat=new Promise(done=>addEventListener('keydown',event=>done(event.repeat),{once:true,capture:true}));});
+      await page.keyboard.down('Enter');
+      assert.equal(await page.evaluate(()=>Promise.race([window.nextKeyRepeat,new Promise(done=>setTimeout(()=>done('no keydown'),5000))])),true,'the second keydown is a repeat');
+      await pause(300);
+    }catch(error){
+      error.message+=` (focus on ${await focusedAt(page).catch(()=>'?')}; dialogs ${JSON.stringify(dialogs)})`;
+      throw error;
+    }finally{
+      await page.keyboard.up('Enter').catch(()=>{});for(const key of [...with_].reverse())await page.keyboard.up(key).catch(()=>{});
+      page.off('dialog',dismiss);
+    }
+    return dialogs;
   };
   await check('Enter held down on a tile presses it once, whatever is held with it, with the keys on or off',async()=>{
     // With Select before discarding on, the first press selects the tile and
@@ -224,13 +242,12 @@ try {
       const page=await open(turnAgainSave,{confirm:true,shortcuts}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]', where=`with the keys ${shortcuts?'on':'off'}`;
       const tile=await page.$eval(first,n=>n.dataset.tile);
       await page.focus(first);
-      await holdEnter(page,async()=>{await page.waitForSelector('.confirm-discard');await pause(150);},['Shift']);
-      await pause(300);
-      assert.equal((await saved(page)).commands.length,before,`the repeat throws nothing ${where}`);
+      const dialogs=await holdEnter(page,async()=>{await page.waitForSelector('.confirm-discard');await pause(150);},['Shift']);
+      assert.equal((await saved(page)).commands.length,before,`the repeat throws nothing ${where}, focus on ${await focusedAt(page)}`);
+      assert.deepEqual(dialogs,[],`and opens nothing ${where}`);
       assert.ok(await page.$('.confirm-discard'),`the tile stays selected ${where}`);
-      assert.equal(await page.evaluate(()=>document.activeElement?.dataset.handIndex),'0',`and focused ${where}`);
       // Pressed again, a press of its own, it is thrown.
-      await page.keyboard.press('Enter'); await more(page,before);
+      await page.focus(first); await page.keyboard.press('Enter'); await more(page,before);
       assert.deepEqual(await chosen(page,before),[tile],where); noErrors(page);
     }
   });
@@ -313,9 +330,20 @@ try {
   await check('Enter held down on a call answers it once',async()=>{
     const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';
     await page.focus(pass);
-    await holdEnter(page,async()=>{await more(page,before);await pause(150);});
-    await pause(300);
-    assert.deepEqual(await chosen(page,before),['pass'],'the repeat answers nothing more'); noErrors(page);
+    const dialogs=await holdEnter(page,async()=>{await more(page,before);await pause(150);});
+    assert.deepEqual(await chosen(page,before),['pass'],`the repeat answers nothing more, focus on ${await focusedAt(page)}`);
+    assert.deepEqual(dialogs,[],'and opens nothing, wherever focus went'); noErrors(page);
+  });
+  await check('Enter held down on any button presses it once: New game asks once',async()=>{
+    const page=await open(turnAgainSave), seed=(await saved(page)).seed;
+    // A match under way, so that New game asks before it deals.
+    const before=(await saved(page)).commands.length;
+    await page.click('.hand button[data-hand-index="0"]'); await more(page,before);
+    await page.waitForSelector('.hand button[data-hand-index="0"]:not(:disabled)');
+    await page.focus('.restart');
+    const dialogs=await holdEnter(page,()=>pause(150));
+    assert.equal(dialogs.length,1,`one confirmation, not one at every repeat: ${JSON.stringify(dialogs)}`);
+    assert.equal((await saved(page)).seed,seed,'dismissed, it dealt nothing'); noErrors(page);
   });
   await check('a deal whose first Trained move fails lets go of the hand\'s review, and the next result offers its own',async()=>{
     const page=await open(neuralEndSave,{mock:{fail:true}});

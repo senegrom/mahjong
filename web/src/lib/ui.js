@@ -174,7 +174,7 @@ export function pressedByKeyboard(event) {
  * tiles thrown by one double click. So a control whose first press has
  * already acted lets the rest of a multiple click go, as the review's buttons
  * that take each other's place do. A click made for a key counts none, and is
- * never let go here (heldMove). */
+ * never let go here (heldPress). */
 export function repeatedClick(event) {
   return (event?.detail ?? 0) > 1;
 }
@@ -242,18 +242,21 @@ export function handKeyActs(key) {
   return key === 'Enter' || key === ' ' || /^[0-9rt]$/i.test(key ?? '');
 }
 
-/** Whether a keydown is Enter held down on a tile of the player's `hand` or
- * on one of their choices in play (`data-moves`): a call, the confirmation's
- * Discard and Cancel. Enter presses a button as it goes down and again at
- * every repeat, and the next decision's tile or button is drawn where the
- * pressed one was, so a held Enter would answer one decision after another.
- * It presses once, with the keys' setting on or off and whatever else is
- * held with it. Space presses a button as it is let go, once however long it
- * is held. */
-export function heldMove(event, hand) {
-  if (!event.repeat || event.key !== 'Enter') return false;
+/** Whether a keydown is Enter held down on something Enter presses: a
+ * button, a summary, a link or anything with role="button", anywhere in the
+ * app and in every mode. Enter presses as it goes down and again at every
+ * repeat, and what takes a pressed control's place, or wherever focus lands
+ * as it goes, is pressed in turn: a tile or a call of the next decision drawn
+ * where the last one was, or New game, whose confirmation then holds the page.
+ * So a held key presses nothing twice; App cancels these repeats. Text fields
+ * and selects are left alone, which Enter does not press. Space presses a
+ * button as it is let go, once however long it is held, so only Enter needs
+ * this. */
+export function heldPress(event) {
+  if (!event?.repeat || event.key !== 'Enter') return false;
   const target = event.target;
-  return Boolean(target?.closest?.('[data-moves] button') || (hand?.contains(target) && target.closest?.('button')));
+  if (!target?.closest || target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
+  return Boolean(target.closest('button, summary, a[href], [role="button"]'));
 }
 
 /** What a key does in the game's review, by name, or null: 'previous' and
