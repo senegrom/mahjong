@@ -21,7 +21,10 @@ const NEXT = { url: 'https://model.invalid/g2', version: '0.1.2', sha256: '2'.re
 function fakeWorker({ calls, asked, network, stored, info, faults, label = '' }) {
   return {
     scriptURL: 'https://test.invalid/mahjong/sw.js',
-    postMessage({ type, version }, [port]) {
+    postMessage({ type, version, packing }, [port]) {
+      // Every page of this build says it can save a packed network, so that
+      // a worker names one to it (service-worker.js status).
+      assert.deepEqual([...packing], ['half']);
       calls.push(label + type);
       asked.push([label + type, version]);
       queueMicrotask(() => {

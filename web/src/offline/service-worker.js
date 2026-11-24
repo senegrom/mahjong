@@ -75,7 +75,16 @@ const requestedKey = () => new URL('__offline_meta__/ai-requested', scope);
 // cached() reads the worker's own files, without reading or hashing a body.
 const networkReady = network => networkTransfer.hasStoredNetwork(networkUrl(network), network, { scope: networkScope });
 
-async function status(version) {
+/** The network a page is told of, as its identity names it: a packed one
+ * with its packing and the packed size it is stored at. */
+const identity = network => ({ url: networkUrl(network), version: network.version, sha256: network.sha256, bytes: network.bytes,
+  ...(network.packing ? { packing: network.packing, storedBytes: network.storedBytes } : {}) });
+/** `packings` are those the asking page says it understands. A page of a
+ * build from before packed networks says none, and would take a packed
+ * network for a whole one of `bytes`: its saveUpdate would download 59 MB
+ * only to refuse them. Such a page is told no network, which it takes as
+ * nothing to save, and the update's own page saves it once it runs. */
+async function status(version, packings = []) {
   const network = networkFor(version);
   const complete = { core: true, ai: true };
   let aiRequested = false;
@@ -95,10 +104,10 @@ async function status(version) {
   // know which. Every build carries the runtime: the build refuses to go
   // without it.
   return { coreReady: complete.core, aiReady: complete.ai, aiRequested, hasModel: true,
-    network: { url: networkUrl(network), version: network.version, sha256: network.sha256, bytes: network.bytes } };
+    ...(!network.packing || packings.includes(network.packing) ? { network: identity(network) } : {}) };
 }
-async function prepare(group, progress = () => {}, version) {
-  if (groups.has(group)) { await groups.get(group); return status(version); }
+async function prepare(group, progress = () => {}, version, packings) {
+  if (groups.has(group)) { await groups.get(group); return status(version, packings); }
   // Entries with equal content are fetched once. For 'ai' these are the few
   // megabytes of runtime, never the network itself.
   const list = [...new Map(CONFIG.entries.filter(entry => entry.group === group).map(entry => [entry.hash, entry])).values()];
@@ -120,7 +129,7 @@ async function prepare(group, progress = () => {}, version) {
   }).finally(() => groups.delete(group));
   groups.set(group, task);
   await task;
-  return status(version);
+  return status(version, packings);
 }
 /** After a page has saved its network (`saved`), the active worker keeps
  * that network, the one current before it, its build's default and every
@@ -196,9 +205,11 @@ self.addEventListener('message', event => {
   // The version the asking page's player picked; a page of a build from
   // before networks were picked names none, and plays the default.
   const version = typeof event.data.version === 'string' ? event.data.version : undefined;
+  // The packings the page understands (status); none from older pages.
+  const packings = Array.isArray(event.data.packing) ? event.data.packing.filter(packing => typeof packing === 'string') : [];
   const work = (async () => {
-    if (event.data.type === 'MAHJONG_STATUS') return status(version);
-    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version, true); return status(version); }
+    if (event.data.type === 'MAHJONG_STATUS') return status(version, packings);
+    if (event.data.type === 'MAHJONG_NETWORK_SAVED') { await pruneNetworks(version, true); return status(version, packings); }
     if (event.data.type === 'MAHJONG_PREPARE_AI') {
       // Remembered across upgrades: later versions' pages save their own
       // network for a player who once asked for Trained offline.
@@ -207,7 +218,7 @@ self.addEventListener('message', event => {
         await cache.put(requestedKey(), new Response('requested'));
       } catch (error) { throw networkTransfer.storageError(error, undefined, 'Trained AI'); }
     }
-    return prepare(groupOf[event.data.type], progress, version);
+    return prepare(groupOf[event.data.type], progress, version, packings);
   })();
   event.waitUntil(work.then(value => port.postMessage({ value }))
     .catch(error => port.postMessage({ error: error.message, storage: storageRefused(error) })));

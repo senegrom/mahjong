@@ -317,7 +317,13 @@ bytes given to ONNX Runtime are always read and hashed in full. Each page
 names its player's pick in its messages; the service worker's status reply
 names the network that pick resolves to in its build's list and whether it is
 stored, and the page accepts that answer only when the identity exactly
-matches the network it plays, and otherwise reads its own record. This proof
+matches the network it plays, its packing and packed size included, and
+otherwise reads its own record. A packed network is named only to a page that
+says it can save one (`packing: ['half']` in its message): a page of a build
+from before packed networks, asking a waiting update, is told no network,
+which it takes as nothing to save, where it would have downloaded the packed
+file as a whole one and refused it; the update's own page saves it once it
+runs. This proof
 comes from the app's service-worker channel, not a localStorage flag.
 
 ## Cache lifetime and upgrades

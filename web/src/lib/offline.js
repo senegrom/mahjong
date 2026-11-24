@@ -102,7 +102,9 @@ function request(type, progress, target = worker) {
     // to: a waiting update reads it against its own list, as its page will,
     // and one that no longer lists it answers with its own default. An update
     // that forgets earlier picks plays its default all the same (saveUpdate).
-    try { target.postMessage({ type, version: pickedVersion() }, [channel.port2]); }
+    // `packing` says which packed networks (network-pack.js) this page can
+    // save: a worker names a packed network only to a page that says so.
+    try { target.postMessage({ type, version: pickedVersion(), packing: ['half'] }, [channel.port2]); }
     catch (error) { finish(error); }
   });
 }
