@@ -10,8 +10,13 @@
  * opened again with the bucket refusing plays from what is stored.
  *
  * The float32 network is MAHJONG_NETWORK's where that names one (the
- * published file, checked against the manifest), else downloaded from the
- * bucket as the page does and checked the same way. */
+ * published float32 file), else downloaded from the bucket as the page
+ * downloads the default: whole and gzipped while the default is listed so,
+ * its packed object, widened here, once it is listed packed. Either way it is
+ * checked against the manifest before anything else runs: the file's digest
+ * for a default listed whole, the digest of the file packed here for one
+ * listed packed, which packing again reproduces bit for bit. So the check
+ * plays the default the site lists, packed or not. */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
