@@ -255,7 +255,7 @@ your hand** on, on the player's turn, and not on a touch screen.
 While a Trained opponent waits for the network, the prompt says what it waits
 for: the worker's own note while it loads the network, and otherwise where
 the network stands (`offline.network`), "downloading the trained network
-(108 MB) 37%" while its bytes arrive, the size being the played network's as
+(59 MB) 37%" while its bytes arrive, the size being the played network's as
 it is fetched, or "waiting for another window to download the trained
 network". Nothing is said of a first visit's install, which the network does
 not wait for, nor of the save's runtime, held at 99 while the opponents

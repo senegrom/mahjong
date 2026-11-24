@@ -715,10 +715,10 @@ test('the table shows the network download while a Trained opponent waits for it
 });
 
 test("a waiting note is parted from the share of a download it ends with, which the prompt shows outside its live region", () => {
-  assert.deepEqual(partedNote('downloading the trained network (108 MB) 37%'), { words: 'downloading the trained network (108 MB)', figure: '37%' });
+  assert.deepEqual(partedNote('downloading the trained network (59 MB) 37%'), { words: 'downloading the trained network (59 MB)', figure: '37%' });
   assert.deepEqual(partedNote('downloading the network 100%'), { words: 'downloading the network', figure: '100%' });
   // A note without one is all words, the megabytes in it no figure.
-  for (const note of ['saving the game, then downloading the trained network (108 MB)', 'starting the network', 'network ready', '37% done']) {
+  for (const note of ['saving the game, then downloading the trained network (59 MB)', 'starting the network', 'network ready', '37% done']) {
     assert.deepEqual(partedNote(note), { words: note, figure: '' }, note);
   }
   for (const none of ['', null, undefined]) assert.deepEqual(partedNote(none), { words: '', figure: '' });

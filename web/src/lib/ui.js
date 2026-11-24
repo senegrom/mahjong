@@ -27,7 +27,7 @@ const megabytes = network => Math.round((network.storedBytes ?? network.bytes) /
  * While the network downloads, `offline.progress` is the percent of it
  * received. The note says how much the download is, the size of the
  * `network` the page plays, once, so that a player on a slow or metered link
- * knows what the wait is ("downloading the trained network (108 MB) 37%"). */
+ * knows what the wait is ("downloading the trained network (59 MB) 37%"). */
 export function waitingNote(note, offline, network = playedNetwork()) {
   if (note) return note;
   if (offline?.network === 'downloading') return `downloading the trained network (${megabytes(network)} MB) ${offline.progress ?? 0}%`;
@@ -58,7 +58,7 @@ export function waitIsDownload(note, offline) {
 }
 
 /** A waiting note parted from the figure it ends with, how far a download
- * has got: "downloading the trained network (108 MB) 37%" is its words and
+ * has got: "downloading the trained network (59 MB) 37%" is its words and
  * "37%". Play's prompt says the words in a live region, which a screen
  * reader then hears once, and shows the figure beside them, outside it: said
  * with them, every percent of a download would be read out, a hundred lines

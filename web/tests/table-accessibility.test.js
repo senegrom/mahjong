@@ -148,11 +148,11 @@ test("the turn's prompt says its sentence alone, in a live region, and the hand'
   // waits for and shows how far it has got beside that, outside the live
   // region: said with it, every percent would be read out.
   const waiting = { busy: true, thinking: true, myTurn: false, pendingOpponent: { player: 1, position: 'Right' } };
-  const download = await choices({ ...waiting, loadNote: 'downloading the trained network (108 MB) 37%' });
-  assert.deepEqual(prompt(download), ['downloading the trained network (108 MB)', '37%']);
+  const download = await choices({ ...waiting, loadNote: 'downloading the trained network (59 MB) 37%' });
+  assert.deepEqual(prompt(download), ['downloading the trained network (59 MB)', '37%']);
   assert.match(download, /<\/span>(?:<!--[^>]*-->)* <span data-figure[^>]*>37%<\/span>/, 'a space parts the words and the figure');
-  assert.deepEqual(prompt(await choices({ ...waiting, loadNote: 'saving the game, then downloading the trained network (108 MB)' })),
-    ['saving the game, then downloading the trained network (108 MB)', '']);
+  assert.deepEqual(prompt(await choices({ ...waiting, loadNote: 'saving the game, then downloading the trained network (59 MB)' })),
+    ['saving the game, then downloading the trained network (59 MB)', '']);
   // Without a note the opponent just thinks, and nothing else shows a figure.
   assert.deepEqual(prompt(await choices(waiting)), ['Right Trained opponent is thinking…', '']);
   assert.deepEqual(prompt(await choices({ busy: true, myTurn: false, loadNote: 'left over 50%' })), ['Playing the turn…', '']);
@@ -161,7 +161,7 @@ test("the turn's prompt says its sentence alone, in a live region, and the hand'
   // Club meanwhile is offered only where App gives it, which is while the
   // wait is a download; what it does is in its title, not on the table.
   assert.doesNotMatch(download, /data-club-meanwhile/);
-  const offered = await choices({ ...waiting, loadNote: 'downloading the trained network (108 MB) 37%', onclub() {} });
+  const offered = await choices({ ...waiting, loadNote: 'downloading the trained network (59 MB) 37%', onclub() {} });
   assert.match(offered, /<button class="app-control[^"]*" data-club-meanwhile[^>]*title="Club plays the Trained opponents' seats for this match\. [^"]*"[^>]*>Play Club meanwhile<\/button>/);
   assert.ok(offered.indexOf('id="hand-help"') < offered.indexOf('data-club-meanwhile'), 'after the prompt');
 });
