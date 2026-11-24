@@ -285,7 +285,7 @@
   .token { display: inline-flex; align-items: center; gap: 3px; }
   .verdict { opacity: .85; }
   .arrow { opacity: .7; }
-  .flag-mark { margin-left: auto; font-weight: 650; color: var(--gold); }
+  .flag-mark { margin-left: auto; font-weight: 650; color: var(--gold-text); }
   /* Tapped, a line, a name or a hand's Review keeps a touch's room: Review
      is what a slow phone's hold sends the player to. */
   @media (pointer: coarse) {

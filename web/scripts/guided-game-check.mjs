@@ -4,7 +4,7 @@ import { MANIFEST } from '../src/lib/model-manifest.js';
 import { createServer } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, wordsContrast } from './browser-harness.mjs';
 import { observeNetworkRequests } from './network-requests.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import { emptyPosition, parseTiles, PHYSICAL_KEY } from '../src/lib/physical-position.js';
@@ -112,6 +112,17 @@ try {
     const page = await open(context);
     await club(page);
     await setup(page);
+    // The prompt's eyebrow was in the borders' gold, 4.2 to 1 on the light
+    // theme's prompt in a window 2000 pixels high, whose felt is lightest so
+    // far down, under the 4.5 that words this small need.
+    await page.setViewport({ width: 1100, height: 2000, deviceScaleFactor: 1 });
+    for (const theme of ['light', 'dark']) {
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      const seen = await wordsContrast(page, '.guide-prompt .eyebrow');
+      assert.ok(seen.ratio >= 4.5, `the prompt's eyebrow in the ${theme} theme: ${seen.colour} on ${seen.ground}, ${seen.ratio.toFixed(2)}`);
+    }
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await page.setViewport({ width: 1100, height: 900, deviceScaleFactor: 1 });
     for (const [seat, t] of ['9m', '8m', '7m'].entries()) {
       assert.equal((await saved(page)).state.nextSeat, seat);
       await tile(page, t); await passAndContinue(page);

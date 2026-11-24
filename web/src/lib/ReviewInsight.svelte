@@ -210,6 +210,6 @@
   .lead:focus { outline: none; }
   .lead:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   .failed { color: var(--warning-text); }
-  @media (max-width: 760px) { .lead { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); } }
-  @media (max-height: 500px) { .lead { scroll-margin-top: 72px; } }
+  @media (max-width: 760.98px) { .lead { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); } }
+  @media (max-height: 500.98px) { .lead { scroll-margin-top: 72px; } }
 </style>

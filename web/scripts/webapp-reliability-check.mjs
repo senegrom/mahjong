@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { browserChecks, launchChrome } from './browser-harness.mjs';
+import { browserChecks, launchChrome, wordsContrast } from './browser-harness.mjs';
 import { MANIFEST } from '../src/lib/model-manifest.js';
 import { emptyPosition, parseTiles, PHYSICAL_KEY, recordDraw } from '../src/lib/physical-position.js';
 import { SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
@@ -18,10 +18,18 @@ const server = createServer(createFixtureHandler({ root: resolve(root, 'dist'), 
 const cases = browserChecks();
 let browser;
 const check = (name, run) => cases.check(name, async () => run(await cases.openContext(browser)));
-async function open(context, { mode = 'play', width = 1100, fixture, available = () => false, countSettings = false } = {}) {
+// Trained AI's worker, stood in for by one sure of the last legal move, with a
+// value for the adviser to show: nothing is downloaded.
+const STAND_IN = `self.onmessage=({data:d})=>{if(d.cancel!=null)return;self.postMessage({id:d.id,progress:'network ready',ready:true});
+let a=-1;for(let i=0;i<d.mask.length;i++)if(d.mask[i])a=i;const w=Array.from(d.mask,(v,i)=>Number(i===a));
+self.postMessage({id:d.id,action:a,analysis:{action:a,weights:w,value:.12,hands:null}});};`;
+/** `standIn` answers Trained AI's questions with STAND_IN, and leaves the
+ * network to the worker, as a browser that cannot save it does. */
+async function open(context, { mode = 'play', width = 1100, fixture, available = () => false, countSettings = false, standIn = false } = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  if (standIn) await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'serviceWorker', { value: undefined }));
   // Count the page's own writes of the preferences; `otherTab` writes as another tab would.
   if (countSettings) await page.evaluateOnNewDocument(key => {
     const setItem = Storage.prototype.setItem;
@@ -37,7 +45,9 @@ async function open(context, { mode = 'play', width = 1100, fixture, available =
   page.on('request', request => {
     const answer = request.url() === networkUrl && request.method() === 'HEAD'
       ? request.respond({ status: available() ? 200 : 404, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' })
-      : request.continue();
+      : standIn && request.url().includes('/assets/policy.worker-')
+        ? request.respond({ status: 200, contentType: 'text/javascript', body: STAND_IN })
+        : standIn && request.url() === networkUrl ? request.abort() : request.continue();
     void answer.catch(() => {}); // A context can close while a request is pending.
   });
   if (fixture) await page.evaluateOnNewDocument(({ key, value, match }) => {
@@ -243,6 +253,32 @@ try {
     await page.click('.physical-toolbar .primary');
     await page.waitForSelector('.physical-play .failure');
     assert.equal(await page.$eval('.physical-play .failure', el => el.textContent), 'The honba count must be 0 to 100');
+    // Said in a red that reads on its panel in either theme: the accent was
+    // 4.3 to 1 on the light theme's pale panel.
+    for (const theme of ['light', 'dark']) {
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      const seen = await wordsContrast(page, '.physical-play .failure');
+      assert.ok(seen.ratio >= 4.5, `the refusal in the ${theme} theme: ${seen.colour} on ${seen.ground}, ${seen.ratio.toFixed(2)}`);
+    }
+    assert.deepEqual(errors, []);
+  });
+  await check('an analysed table’s words in gold can be read in both themes', async context => {
+    // In the borders' gold the agent's choice and its estimate were 3.6 to
+    // 4.0 to 1 on the light theme's panel, and a palette's summary 4.4.
+    const initial = emptyPosition(); initial.indicators = ['7z']; initial.players[0].hand = parseTiles('123m456p789s1123z');
+    const { page, errors } = await open(context, { mode: 'physical', fixture: recordDraw(initial, 0, '4z'), available: () => true, standIn: true });
+    await page.waitForSelector('[aria-label="Physical play agent"] option[value="full"]:not(:disabled)');
+    await page.select('[aria-label="Physical play agent"]', 'full');
+    await page.click('.physical-toolbar .primary');
+    await page.waitForSelector('.weights .worth');
+    for (const theme of ['light', 'dark']) {
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      for (const [selector, words] of [['.recommendation > span:not(.worth)', 'the next choice'], ['.recommendation > .worth', 'the estimate'],
+        ['.weight-row.best .choice-label', 'the chosen row'], ['.weight-row.best .selected-label', 'its label'], ['.tile-entry summary', 'a palette’s summary']]) {
+        const seen = await wordsContrast(page, selector);
+        assert.ok(seen.ratio >= 4.5, `${words} in the ${theme} theme: "${seen.text}" ${seen.colour} on ${seen.ground}, ${seen.ratio.toFixed(2)}`);
+      }
+    }
     assert.deepEqual(errors, []);
   });
 } finally {

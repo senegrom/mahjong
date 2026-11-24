@@ -505,18 +505,18 @@
      top of the screen reaches over it, and keeps its line on show below that
      (ReviewIndex). */
   .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(var(--steps-height, 56px) + 8px); }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .game-review { padding: 10px; }
     .hiding { display: none; }
     .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: calc(56px + var(--steps-height, 84px) + 8px); }
   }
-  @media (max-height: 500px) {
+  @media (max-height: 500.98px) {
     .stage :global(:is(button, summary):not([data-steps] *)) { scroll-margin-top: 72px; }
   }
   /* Where the game's bar stays at the top of the screen (AppSettings), the
      heading scrolled to must land below it, not under it, and so must the
      header's controls beside it, focused from further down the page. */
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     h2, header :is(input, button) { scroll-margin-top: 72px; }
   }
 </style>

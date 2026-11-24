@@ -112,7 +112,7 @@
   .inspection-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 16px; --tile-width: 60px; }
   .inspection-grid section { min-width: 0; display: grid; gap: 8px; align-content: start; }
   .inspection-grid h3 { font-size: .85rem; }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .board { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; justify-content: space-between; gap: 6px 10px; padding: 8px; }
     .round strong, .wall strong { font-size: 1rem; }
@@ -126,7 +126,7 @@
   @media (max-width: 359px) {
     .place { --tile-width: 23px; }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .board { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
     .centre { grid-area: 1 / 1 / 2 / -1; max-width: none; gap: 4px 8px; padding: 6px; }
     .left { grid-area: 2 / 1; justify-self: stretch; }
@@ -156,11 +156,11 @@
      which fit one of 82. A review's table keeps its own (below), and its
      rows their two pixels, which the outline of a tile on offer needs
      (Discards): play outlines none. */
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     /* Four pixels between the seats, as held sideways, for the discards. */
     .board:not(.review) { column-gap: 4px; }
   }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .place { container: seat / inline-size; }
     .board:not(.review) .place :global(.seat) { padding-inline: 4px; }
     .board:not(.review) .place :global(.pool.compact) { column-gap: 1px; }
@@ -179,7 +179,7 @@
   /* Held sideways, a phone under 640 pixels wide has one column for the
      table and the hand, and every pixel of the table's height is one the
      hand lies lower, so there the discards stay small. */
-  @media (max-width: 639.98px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 639.98px) and (max-height: 500.98px) and (orientation: landscape) {
     .board:not(.review) .place :global(.seat) { --tile-width: 28px; }
   }
 
@@ -213,7 +213,7 @@
     .inspect { border-radius: 999px; }
   }
 
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
 
     .board { margin-top: 3px; }
     .centre {
@@ -302,7 +302,7 @@
     .board.review .right { grid-area: 2 / 3; }
     .board.review :global(.seat) { min-height: 0; }
   }
-  @media (max-width: 760px) and (orientation: portrait) {
+  @media (max-width: 760.98px) and (orientation: portrait) {
     .board.review { grid-template-columns: minmax(0, 1fr); }
     .board.review .right { grid-area: 2 / 1; }
     .board.review .across { grid-area: 3 / 1; }
@@ -312,7 +312,7 @@
   @media (max-width: 359px) and (orientation: portrait) {
     .board.review .place { --tile-width: 32px; }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .board.review .place { --tile-width: 28px; }
   }
 </style>

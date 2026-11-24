@@ -4,11 +4,12 @@ import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserChecks, launchChrome, openPanel } from './browser-harness.mjs';
+import { browserChecks, launchChrome, openPanel, wordsContrast } from './browser-harness.mjs';
 import { createFixtureHandler } from './static-fixture-server.mjs';
 import init, { Game } from '../src/wasm/riichi.js';
 import { MatchSession, SAVE_KEY, SETTINGS_KEY } from '../src/lib/session.js';
 import { unseenTileCounts } from '../src/lib/ui.js';
+import { MANIFEST } from '../src/lib/model-manifest.js';
 
 await init({module_or_path:readFileSync(new URL('../src/wasm/riichi_bg.wasm',import.meta.url))});
 const web=fileURLToPath(new URL('../',import.meta.url)),output=resolve(web,'test-results');
@@ -46,6 +47,23 @@ const failingWorker=theme=>async p=>{
     else void request.continue();
   });
 };
+// Trained AI on offer, its worker a stand-in sure of the last legal move, so
+// that the player's own moves differ and are flagged. Nothing is downloaded.
+const STAND_IN=`self.onmessage=({data:d})=>{if(d.cancel!=null)return;self.postMessage({id:d.id,progress:'network ready',ready:true});
+const one=m=>{let a=-1;for(let i=0;i<m.length;i++)if(m[i])a=i;return{action:a,weights:Array.from(m,(v,i)=>Number(i===a))};};
+if(d.count!=null){const w=d.mask.length/d.count,o=[];for(let k=0;k<d.count;k++)o.push(one(d.mask.slice(k*w,(k+1)*w)));self.postMessage({id:d.id,analyses:o});}
+else{const r=one(d.mask);self.postMessage({id:d.id,action:r.action,analysis:{...r,value:.12,hands:null}});}};`;
+const networkUrl=`${MANIFEST.origin}/${MANIFEST.object}`;
+async function trainedReviews(p){
+  await p.setRequestInterception(true);
+  p.on('request',request=>{
+    const url=request.url();
+    const answer=url.includes('/assets/policy.worker-')?request.respond({status:200,contentType:'text/javascript',body:STAND_IN})
+      :url===networkUrl&&request.method()==='HEAD'?request.respond({status:200,headers:{'Access-Control-Allow-Origin':'*'},body:''})
+      :url===networkUrl?request.abort():request.continue();
+    void answer.catch(()=>{});
+  });
+}
 function contrast(a,b){
   const luminance=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
   const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);
@@ -209,6 +227,70 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
     assert.ok(contrast(colour,ground)>=4.5,`a button under the pointer in the ${theme} theme: ${colour} on ${ground}, ${contrast(colour,ground).toFixed(2)}`);
     if(theme==='light')await shot(p,'polish-recovery-light');
   }
+ });
+ await check('the reviews\u2019 words in gold can be read in both themes',async()=>{
+  // In the borders' gold, Flagged on a line under the gold wash of the
+  // decision on show was 3.6 to 1 in the light theme, and the player's own
+  // weight, at 0.75, 4.4: under the 4.5 that words this small need.
+  const p=await open(result,1200,900,trainedReviews);
+  const theme=value=>p.emulateMediaFeatures([{name:'prefers-color-scheme',value},{name:'prefers-reduced-motion',value:'reduce'}]);
+  const readable=async(selector,where)=>{
+   for(const value of ['light','dark']){
+    await theme(value);
+    const seen=await wordsContrast(p,selector);
+    assert.ok(seen.ratio>=4.5,`${where} in the ${value} theme: "${seen.text}" ${seen.colour} on ${seen.ground}, ${seen.ratio.toFixed(2)}`);
+   }
+   await theme('light');
+  };
+  await p.waitForSelector('.screen [data-review-game]');
+  await p.click('.screen .buttons .quiet');
+  await p.waitForSelector('.review select[aria-label="Review adviser"]');
+  await p.select('.review select[aria-label="Review adviser"]','strong');
+  await p.waitForSelector('.review .policy-preference .played strong');
+  await readable('.review .policy-preference strong','Trained AI\u2019s preference and the player\u2019s');
+  await p.click('.screen [data-review-game]');
+  await p.waitForSelector('[data-game-review] [data-decision]');
+  await p.click('.rail [data-filter-option="every"]');
+  await p.waitForSelector('.rail .flag-mark');
+  await readable('.rail .flag-mark','a flagged decision\u2019s line');
+  assert.deepEqual(p.errors,[]);
+ });
+ await check('a window between two whole pixels is laid out as the whole pixel under it',async()=>{
+  // At a browser zoom of 125 per cent a window 951 device pixels wide is 760.8
+  // CSS pixels, and matched neither (max-width: 760px) nor (min-width: 761px):
+  // the table, the seats and the hand fell back to styles meant for no size.
+  // A frame zoomed by 1.25 is as wide as such a window. The built page's media
+  // rules that match in it are those that match at the whole pixel under its
+  // size, across and down.
+  const p=await (await openContext(browser)).newPage();p.errors=[];p.on('pageerror',e=>p.errors.push(e.message));
+  await p.setViewport({width:1400,height:1400});
+  await p.evaluateOnNewDocument((key,settings,s)=>{
+   if(location.protocol!=='http:')return;
+   Object.defineProperty(navigator,'serviceWorker',{value:undefined});
+   localStorage.setItem(key,JSON.stringify(s));
+   localStorage.setItem(settings,JSON.stringify({version:1,difficulty:'club',opponents:['club','club','club'],hints:true,confirmDiscards:true,shortcuts:true,tileFace:'classic',reviewAdviser:'club'}));
+  },SAVE_KEY,SETTINGS_KEY,start.snapshot);
+  // The frame's host is a page of the site's own origin, so that the frame
+  // keeps the storage it would have as a window of its own.
+  const site=`http://127.0.0.1:${server.address().port}/mahjong/`;
+  await p.goto(`${site}frame-host`);
+  const matched=async(width,height)=>{
+   await p.evaluate(html=>{document.body.innerHTML=html;},`<iframe style="border:0;zoom:1.25;width:${width}px;height:${height}px" src="${site}"></iframe>`);
+   const frame=await (await p.waitForSelector('iframe')).contentFrame();
+   await frame.waitForSelector('.hand');
+   return frame.evaluate(()=>{
+    const queries=new Set();
+    const walk=rules=>{for(const rule of rules){if(rule.media)queries.add(rule.media.mediaText);if(rule.cssRules)walk(rule.cssRules);}};
+    for(const sheet of document.styleSheets)walk(sheet.cssRules);
+    return [...queries].filter(query=>matchMedia(query).matches).sort();
+   });
+  };
+  for(const [whole,between] of [[[760,900],[760.8,900]],[[1000,500],[1000,500.8]]]){
+   const there=await matched(...whole),near=await matched(...between);
+   assert.ok(there.length>0);
+   assert.deepEqual(near,there,`${between.join(' by ')} is laid out as ${whole.join(' by ')}`);
+  }
+  assert.deepEqual(p.errors,[]);
  });
  await check('a phone\u2019s settings keep an opened section where it was pressed, and its play area scrolls with the page',async()=>{
   const p=await open();

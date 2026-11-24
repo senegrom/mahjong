@@ -57,5 +57,5 @@
   /* As the hand's review draws its own choice of decisions: a pill each, the
      one pressed in gold, which says so in words as well (aria-pressed). */
   button { border-radius: 999px; padding: 6px 12px; font-size: .84rem; background: transparent; border-color: rgba(255, 255, 255, .22); }
-  button[aria-pressed='true'] { border-color: var(--gold); color: var(--gold); }
+  button[aria-pressed='true'] { border-color: var(--gold); color: var(--gold-text); }
 </style>

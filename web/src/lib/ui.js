@@ -119,7 +119,7 @@ export function land(heading, scroll) {
 /** Where a hand's result is a sheet over the table and the hand, as
  * ScoreScreen's styles have it: on a phone held upright, and on a small one
  * held sideways, up to 760 pixels wide. */
-export const RESULT_SHEET = '(max-width: 760px)';
+export const RESULT_SHEET = '(max-width: 760.98px)';
 
 /** Where the game's review has room for its list of hands and decisions in a
  * column of its own beside the decision on show, rather than folded above it. */

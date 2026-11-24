@@ -337,10 +337,10 @@
   h2:focus { outline: none; }
   h2:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h2 { scroll-margin: 8px 0; }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     h2 { scroll-margin-top: 72px; }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     h2 { scroll-margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   }
 
@@ -390,7 +390,7 @@
 
   .tabs button.on {
     border-color: var(--gold);
-    color: var(--gold);
+    color: var(--gold-text);
   }
 
   /* Sized as the filter's buttons are, a finger's width tall, but
@@ -448,9 +448,10 @@
     font-size: 0.9rem;
   }
 
+  /* Half the ivory was 4.4 to 1 on the dark theme's list; 0.6 is 5.8. */
   .turn {
     font-variant-numeric: tabular-nums;
-    opacity: 0.5;
+    opacity: 0.6;
     min-width: 1.4em;
     text-align: right;
   }
@@ -468,7 +469,7 @@
   }
 
   .advised .what {
-    color: var(--gold);
+    color: var(--gold-text);
   }
 
   .why {
@@ -512,7 +513,7 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    opacity: 0.5;
+    opacity: 0.6;
   }
 
   .numbers td {

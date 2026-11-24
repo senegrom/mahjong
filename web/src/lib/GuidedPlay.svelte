@@ -327,7 +327,7 @@
   h3:focus { outline: none; }
   h3:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   h3 { scroll-margin: 8px 0; }
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     h3 { scroll-margin-top: 72px; }
   }
   h4 { margin: 0 0 10px; font-size: .88rem; } h4 span { font-weight: 400; font-size: .78rem; }
@@ -339,7 +339,7 @@
   label { display: grid; gap: 6px; font-size: .8rem; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; }
   .guide-prompt { display: grid; gap: 16px; padding: 20px; border-radius: 14px; border: 1px solid #d8a12a77; background: #0004; }
-  .eyebrow { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; }
+  .eyebrow { color: var(--gold-text); font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; }
   select, input:not([type=checkbox]), button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 10px; font: inherit; box-sizing: border-box; min-width: 0; max-width: 100%; }
   select option { background: #17241f; color: var(--ivory); }
   button { cursor: pointer; font-size: .82rem; } button:disabled { opacity: .5; cursor: default; }

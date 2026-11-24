@@ -28,7 +28,7 @@
   // one alone, "Watch", "Physical", "Guided", so that the four fit one row;
   // their names, said to a screen reader, and their text stay whole.
   const MODES: [GameMode, string, string, string][] = [['play', '', 'Play', ''], ['watch', 'Agent ', 'watch', ''], ['physical', '', 'Physical', ' agent play'], ['guided', '', 'Guided', ' physical game']];
-  const COMPACT = '(max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape)';
+  const COMPACT = '(max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape)';
   let compact = $state(false);
   let guideOpen = $state(false), optionsOpen = $state(false), offlineOpen = $state(false), exportOpen = $state(false), networkOpen = $state(false);
   let settingsDialog = $state<HTMLDialogElement | null>(null);
@@ -326,7 +326,7 @@
   .swatch.striped { border: 3px solid transparent; background: linear-gradient(var(--ivory),var(--ivory)) padding-box, repeating-linear-gradient(45deg,#e2453d 0 4px,var(--gold) 4px 8px,#7fd1a0 8px 12px) border-box; }
   .swatch.from-draw { background-image: linear-gradient(var(--from-draw-shade), var(--from-draw-shade)); }
   .swatch.claimed { border: 2px solid var(--claimed-border); }
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .bar { gap: 8px; flex-wrap: nowrap; }
     h1 { font-size: 1rem; letter-spacing: .1em; }
     .bar select, .restart { padding: 8px; }
@@ -341,12 +341,12 @@
     .bar select { min-width: 0; max-width: 100%; }
     .restart { white-space: nowrap; flex-shrink: 0; }
   }
-  @media (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .bar, .preferences { grid-column: 1 / -1; }
   }
   .settings-trigger, .mobile-preferences-head, .mobile-new-game { display: none; }
 
-  @media (max-width: 760px), (min-width: 640px) and (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     .bar {
       position: sticky;
       top: 0;

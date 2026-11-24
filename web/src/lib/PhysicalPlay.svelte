@@ -279,7 +279,9 @@
   .physical-editor { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
   h2 { margin: 0; font-size: 1.15rem; margin-right: auto; }
   .physical-heading, .physical-toolbar, .flags, .record-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-  .intro, .help { font-size: .82rem; line-height: 1.5; opacity: .8; margin: 0; max-width: 85ch; }
+  /* The intro lies on the bare felt, where .8 was 4.2 to 1 in the light
+     theme; .9 is 4.7 on the lightest felt there is. */
+  .intro, .help { font-size: .82rem; line-height: 1.5; opacity: .9; margin: 0; max-width: 85ch; }
   .physical-toolbar { padding: 12px; background: #0004; border-radius: 12px; }
   .physical-toolbar > label, .fields > label, .meld-fields > label { display: grid; gap: 5px; font-size: .78rem; min-width: 0; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; }
@@ -305,6 +307,6 @@
   .meld-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; align-items: end; }
   .discard-fields { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; padding: 8px 0; border-bottom: 1px solid #ffffff18; }
   .discard-fields input[type=number] { width: 66px; }
-  .failure { margin: 0; padding: 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+  .failure { margin: 0; padding: 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
   @media (max-width: 740px) { .physical-seats { grid-template-columns: 1fr; } }
 </style>

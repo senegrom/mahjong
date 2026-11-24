@@ -323,7 +323,7 @@
   @keyframes thinking-pulse { 0%,100% { opacity: .22; transform: scale(.995); } 50% { opacity: .9; transform: scale(1.008); } }
 
   /* Before the wide-screen sizes: a short landscape window matches both. */
-  @media (max-width: 760px), (max-height: 500px) and (orientation: landscape) {
+  @media (max-width: 760.98px), (max-height: 500.98px) and (orientation: landscape) {
     .seat { padding: 6px; gap: 4px; }
     header { font-size: .7rem; gap: 2px 5px; }
     .back { width: 4px; height: 9px; }

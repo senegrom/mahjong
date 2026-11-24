@@ -66,7 +66,7 @@
 
   /* Down a phone the seats are stacked, so reserved space costs scrolling
      rather than steadiness. The rows grow as the discards come. */
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .compact {
       min-height: calc(var(--tile-width) * 0.5 * 1.35);
     }

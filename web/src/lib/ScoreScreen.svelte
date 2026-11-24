@@ -317,7 +317,7 @@
      repeated. */
   .buttons .whole-game { display: none; }
 
-  @media (max-width: 760px) {
+  @media (max-width: 760.98px) {
     .buttons .whole-game { display: block; }
     .screen {
       position: fixed;
