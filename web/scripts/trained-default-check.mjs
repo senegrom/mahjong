@@ -111,7 +111,7 @@ async function clickButton(page, scope, text) {
 /** Waits until a Trained wait inside `scope` names the network's download,
  * which the page holds open (open's `hold`) so that it is under way. */
 async function downloading(page, scope) {
-  await page.waitForFunction((scope, download) => new RegExp(`downloading ${download.replace(/[()]/g, '\\$&')} \\d+%`).test(document.querySelector(scope)?.textContent ?? ''),
+  await page.waitForFunction((scope, download) => new RegExp(`downloading ${download.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\d+%`).test(document.querySelector(scope)?.textContent ?? ''),
     { timeout: 60000 }, scope, DOWNLOAD);
   // The note is said as the save begins, a moment before the page asks for
   // the network: its turn at the network and what is stored are looked at
