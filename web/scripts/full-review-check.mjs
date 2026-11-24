@@ -593,11 +593,13 @@ try{
    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
    await pointerPress(p,await inReach(await resultButton(p,'Next hand')),true);
    await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'));
-   // The mode's button, tapped where the top of the page shows it, under
-   // the game's bar.
+   // The mode's button, brought into view as little as will show it, below
+   // the game's bar that stays at the top of the screen, and tapped there.
    const mode=async name=>{
-    await p.evaluate(()=>scrollTo(0,0));await settle(p);
-    await pointerPress(p,await p.$(`.game-modes button[aria-label="${name}"]`),true);
+    const button=await p.$(`.game-modes button[aria-label="${name}"]`);
+    await button.evaluate(el=>el.scrollIntoView({block:'nearest'}));await settle(p);
+    assert.ok(await uncovered(button),`the ${name} button is in view below the bar ${where}`);
+    await pointerPress(p,button,true);
    };
    await mode('Agent watch');await p.waitForSelector('.agent-watch');
    assert.equal(await p.$('.standings'),null,`Play's standings go with Play ${where}`);

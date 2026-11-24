@@ -377,6 +377,10 @@
       background: color-mix(in srgb, var(--felt) 92%, transparent);
       backdrop-filter: blur(12px);
     }
+    /* Brought into view, by a script or by focus reaching one, the mode
+       buttons stop below the bar, which stays at the top of the screen, as
+       the standings' heading does. */
+    .game-modes, .game-modes button { scroll-margin-top: 72px; }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
     /* Wide enough to show the Trained network with its version, "Trained 0.1.3000", whole: a select cuts its
