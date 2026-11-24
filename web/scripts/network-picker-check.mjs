@@ -153,12 +153,19 @@ async function pick(page, version, accept = true) {
   await reloaded;
   return message;
 }
-/** The production worker's own status reply for this page's player's pick. */
-const workerStatus = (page, version) => page.evaluate(version => new Promise((done, fail) => {
+/** The production worker's own status reply for this page's player's pick,
+ * asked as a page of this build asks: saying which packings it understands
+ * (offline.js). A page of a build from before packed networks says none
+ * (`packing` undefined here), and is told no packed network. */
+const workerStatus = (page, version, packing = ['half']) => page.evaluate((version, packing) => new Promise((done, fail) => {
   const channel = new MessageChannel();
   channel.port1.onmessage = ({ data }) => data.error ? fail(new Error(data.error)) : done(data.value);
-  navigator.serviceWorker.controller.postMessage({ type: 'MAHJONG_STATUS', version }, [channel.port2]);
-}), version);
+  navigator.serviceWorker.controller.postMessage({ type: 'MAHJONG_STATUS', version, ...(packing ? { packing } : {}) }, [channel.port2]);
+}), version, packing);
+/** What the worker names a network as: a packed one with its packing and
+ * the packed size it is stored at (service-worker.js). */
+const identityOf = network => ({ url: addressOf(network), version: network.version, sha256: network.sha256, bytes: network.bytes,
+  ...(network.packing ? { packing: network.packing, storedBytes: network.storedBytes } : {}) });
 const playing = (network, seats = 3) => ({ summary: `Trained network ${network.version}`, picker: network.version, menu: `Trained ${network.version}`,
   badges: Array(seats).fill(`Trained ${network.version} | Trained ${network.version} opponent`) });
 
@@ -198,9 +205,14 @@ try {
       assert.ok((await page.$eval('[data-ai-status]', el => el.textContent)).includes(`Trained AI ${older.version} — optional`));
       // The service worker reports on the network the page plays.
       const reply = await workerStatus(page, older.version);
-      assert.deepEqual(reply.network, { url: addressOf(older), version: older.version, sha256: older.sha256, bytes: older.bytes });
+      assert.deepEqual(reply.network, identityOf(older));
       assert.equal(reply.aiReady, false);
-      assert.equal((await workerStatus(page)).network.version, MANIFEST.version, 'and on the default for a page without a pick');
+      assert.deepEqual((await workerStatus(page)).network, identityOf(MANIFEST), 'and on the default for a page without a pick');
+      // A page from before packed networks says no packing: it is named a
+      // network published whole as ever, and no packed one, which it would
+      // take for a whole one and download only to refuse.
+      assert.deepEqual((await workerStatus(page, older.version, null)).network, older.packing ? undefined : identityOf(older));
+      assert.deepEqual((await workerStatus(page, undefined, null)).network, MANIFEST.packing ? undefined : identityOf(MANIFEST));
       await page.screenshot({ path: resolve(output, `network-picker-${older.version}.png`), fullPage: true });
 
       // A fresh page reads the pick back from the settings.
