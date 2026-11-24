@@ -64,7 +64,12 @@ the top ten bits of its payload. Network 3000 packs to 58,988,183 bytes, its
 432 ranges 115.9 MB of its 116.9, and gzip would take 5 MB more off it, which
 its host does not do: a packed object is stored with no content encoding, so
 that `workers/model-cdn` serves byte ranges of it and a download that broke
-asks for the rest. Rounding every weight of the site's network to float16 and
+asks for the rest. A gzipped object, every network published whole, is
+answered with the status, body, encoding and caching it had before, its
+range ignored; what is new for it is that an allowed origin's answers carry
+`Access-Control-Expose-Headers: Content-Range`, the preflight
+`Access-Control-Allow-Headers: Range`, and that a GET with a Range header
+costs the bucket a `head` and a `get`, where one without costs a `get`. Rounding every weight of the site's network to float16 and
 back changes no move in 3,000 stored decisions; logits moved 0.007 on average
 and 0.047 at most.
 
@@ -78,8 +83,9 @@ from bytes whose digest was just checked, by a conversion tested on every one
 of the 65,536 halves, and hashing 117 MB more at each start would prove
 nothing more. While a worker widens the network it holds the packed 59 MB and
 the whole 117 MB together, 176 MB where it held 117 before; the packed bytes
-are let go before the session is made, so from there it holds what it held
-before. Widening took 136 to 470 ms in Node on a desktop that was busy
+are no longer reachable once the session is begun, and from when the
+collector frees them, which is its own business, the worker holds what it
+held before. Widening took 136 to 470 ms in Node on a desktop that was busy
 otherwise.
 
 `node web/scripts/check-half-network.mjs network.onnx [--packed file] [--out

@@ -57,7 +57,8 @@ async function open({ url, expect, scope, webgpu }, fetched) {
   catch (error) { throw new Refusal(`the network could not be read: ${said(error)}`, false); }
   if (!bytes) throw new Refusal('the network is not saved on this device', false);
   // A packed network is stored packed and widened here, as the opponent's
-  // worker widens it (network-pack.js), the packed bytes let go at once.
+  // worker widens it (network-pack.js); the packed bytes are no longer
+  // reachable once it is, and the collector frees them when it will.
   if (expect.packing) {
     try { bytes = unpackNetwork(bytes, expect.bytes); }
     catch (error) { throw new Refusal(`the network could not be read: ${said(error)}`, false); }

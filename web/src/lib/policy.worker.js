@@ -51,9 +51,10 @@ let handed = null;
  * window that is at the same network goes first (network-transfer.js): the
  * wait is said, which is also the sign of life the page times this worker's
  * silence by. A packed network is widened here, off the page's thread, into
- * the whole file the runtime reads (network-pack.js); its packed bytes are
- * let go as this returns, before the session is made, so that the two are
- * held together only while it is widened, 59 and 117 MB for network 3000. */
+ * the whole file the runtime reads (network-pack.js). Its packed bytes are
+ * no longer reachable once this returns, before the session is made: the two
+ * are reachable together only while it is widened, 59 and 117 MB for network
+ * 3000. When the collector frees the packed bytes is its own business. */
 async function networkFile(url, scope, note) {
   const bytes = handed?.url === url ? handed.bytes : await networkBytes({ url, scope,
     onProgress: ({ bytes: received, total }) => note(`downloading the network ${Math.floor(100 * received / total)}%`),

@@ -16,7 +16,7 @@
  *   8   u32      count of float ranges, n
  *   12  n x (u32 offset, u32 length)
  *                each range's place in the whole file and its length in
- *                bytes as float32, a multiple of 4; ascending, apart
+ *                bytes as float32, a multiple of 4; ascending, not overlapping
  *   12 + 8n      payload: the whole file in order, each range at half its
  *                length (one little-endian float16 for each float32)
  *

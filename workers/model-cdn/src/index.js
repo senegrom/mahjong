@@ -17,7 +17,12 @@
  *  - gzipped and labelled so (Content-Encoding: gzip), as every network was
  *    published before half precision: the browser decodes it. A Range header
  *    is ignored and the whole object sent, as HTTP allows, since a byte range
- *    of a gzip stream cannot be decoded on its own.
+ *    of a gzip stream cannot be decoded on its own. Its status, body,
+ *    encoding and caching are as they were before ranges; what is new for it
+ *    is that an allowed origin's answers carry `Access-Control-Expose-Headers:
+ *    Content-Range` and the preflight `Access-Control-Allow-Headers: Range`,
+ *    and that a GET with a Range header costs a `head` and a `get` of the
+ *    bucket where one without costs a `get`.
  *  - without a content encoding, as a packed half-precision network is
  *    published (web/src/lib/network-pack.js, publish-model-r2.mjs --packing
  *    half): a byte range of it is a byte range of the file, so a download
