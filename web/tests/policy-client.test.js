@@ -16,7 +16,7 @@ const policy = globals => loadModule('policy.js', {
   networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null, networkReleased: () => {},
   // Batches stay on WebAssembly here; the graphics card's routing has tests of its own (webgpu.test.js).
   batchesOnCard: (positions, signal, wasm) => wasm(positions, signal), resetCard: () => {}, ...globals,
-}, ['analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
+}, ['analyzePolicy', 'analyzeBatch', 'modelIsAvailable', 'networkInWorker', 'reportLoading', 'reportProgress', 'resetPolicy', 'LOADING_SILENCE_MS']);
 
 test('a page that plays another listed network probes and asks for that one alone', async t => {
   const older = NETWORKS.find(network => network.version === '0.1.410');
@@ -270,6 +270,23 @@ test('a network still arriving is not cut off by the decision deadline', async t
   worker.say(id, { action: 1 });
   assert.equal(await decision, 1);
   assert.ok(notes.includes('downloading the network 10%'), 'the player sees the download');
+});
+
+test('the worker holds the network only once it has said so, and not after it is ended', async t => {
+  const { api, ask, workers } = loadingClient(t);
+  assert.equal(api.networkInWorker(), false, 'no worker');
+  const decision = ask();
+  await setImmediate();
+  const [worker] = workers, { id } = worker.messages[0];
+  worker.say(id, { progress: 'downloading the network 37%' });
+  assert.equal(api.networkInWorker(), false, 'loading it');
+  worker.say(id, { progress: 'network ready', ready: true });
+  assert.equal(api.networkInWorker(), true, 'loaded');
+  worker.say(id, { action: 1 });
+  assert.equal(await decision, 1);
+  assert.equal(api.networkInWorker(), true, 'and still between decisions');
+  api.resetPolicy();
+  assert.equal(api.networkInWorker(), false, 'ended');
 });
 
 test("the worker's own download is told to every mode while it loads, whatever Play is doing, and nothing once it holds the network", async t => {

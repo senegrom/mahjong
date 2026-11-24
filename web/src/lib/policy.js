@@ -54,6 +54,11 @@ export function reportProgress(callback) { onProgress = callback; }
  * reportProgress. */
 export function reportLoading(callback) { onLoading = callback; }
 
+/** Whether the opponents' worker holds the network now, loaded and ready
+ * for a decision: what a new game reads to know the network is at hand
+ * where the page holds none of its own (opponents.js trainedAtHand). */
+export function networkInWorker() { return Boolean(worker) && loaded; }
+
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
   generation++;
   preparation = null;

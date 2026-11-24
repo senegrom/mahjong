@@ -1,4 +1,5 @@
 import { trainedName } from './trained-network.js';
+import { noteIsDownload } from './ui.js';
 
 /** Configuration is in fixed physical order from the human: right, opposite,
  * left. Wind labels rotate between hands; these controller assignments do not.
@@ -49,20 +50,35 @@ export function standInFor(preferred, playing) {
   return preferred.every((type, seat) => type === playing[seat] || (type === 'neural' && playing[seat] === 'club')) ? [...preferred] : null;
 }
 
-/** The table a new game is dealt with while a stand-in holds for `chosen`:
- * that table once the trained network is at hand (trainedAtHand), and until
- * then the stand-in again, Club in each of its Trained seats. */
-export function tableAfterStandIn(chosen, atHand) {
-  return chosen.map(type => (type === 'neural' && !atHand ? 'club' : type));
+/** The table a new game is dealt with while a stand-in holds for `chosen`.
+ * A stand-in never sticks, and never deals a long wait behind the player's
+ * back:
+ * - the trained network is at hand (trainedAtHand): the table chosen, and
+ *   the stand-in ends;
+ * - it is not, but its download is under way (trainedUnderWay): Club again
+ *   in each Trained seat, and the stand-in holds;
+ * - neither: the table chosen, and the stand-in ends. Its first Trained move
+ *   asks for the network, and the wait, with Play Club meanwhile, comes
+ *   again.
+ * `where` is what the page knows of the network then: { atHand, underWay }. */
+export function tableAfterStandIn(chosen, { atHand, underWay }) {
+  const club = !atHand && underWay;
+  return chosen.map(type => (type === 'neural' && club ? 'club' : type));
 }
 
-/** Whether a game against the trained network would begin without the wait
- * a stand-in is taken for. The network is saved on this device (`offline`
- * says aiReady); or, in a browser that cannot save it for offline play, it
- * can be reached (`available`) and its worker is not in the middle of
- * loading it (`loading`, the worker's own note): there it is held by the
- * worker alone, and fetched only when a Trained opponent first asks. */
-export function trainedAtHand(available, offline, loading = '') {
-  if (offline?.aiReady) return true;
-  return offline?.supported === false && Boolean(available) && !loading;
+/** Whether a Trained opponent would begin without a long download: the page
+ * holds the network (`network`, offline's OfflineState.network, 'ready':
+ * stored, or bytes storage refused held for the worker), or the opponents'
+ * worker has it loaded (`workerLoaded`, policy.js networkInWorker). Nothing
+ * else: not offline's aiReady, which can still say saved once the browser
+ * has evicted the network, and not a worker that is merely not loading. */
+export function trainedAtHand({ network, workerLoaded }) {
+  return network === 'ready' || Boolean(workerLoaded);
+}
+
+/** Whether the network's download is under way: the page's (`network`
+ * 'downloading', or 'waiting' its turn behind another window's), or the
+ * opponents' worker's own, by its note (`workerNote`, noteIsDownload). */
+export function trainedUnderWay({ network, workerNote }) {
+  return network === 'downloading' || network === 'waiting' || noteIsDownload(workerNote);
 }

@@ -19,7 +19,7 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, analyzePolicy, modelIsAvailable, networkInWorker, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
@@ -29,7 +29,7 @@
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
   import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents, standInFor, tableAfterStandIn,
-    trainedAtHand } from './lib/opponents.js';
+    trainedAtHand, trainedUnderWay } from './lib/opponents.js';
   import { MANIFEST, playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -376,7 +376,9 @@
           // where the player's own stored table says Trained is one, taken
           // before the page was loaded again: the table stays their
           // preference rather than being written over with the match's, and
-          // the network they wait for goes on being fetched. A record that
+          // the network they wait for is asked for again where it can be
+          // saved (where it cannot, nothing fetches it until a Trained move
+          // asks, and the next new game is their table: opponents.js). A record that
           // holds no table of its own is written over, as it always was.
           returnTable = standInFor(storedTable, session.opponents);
           update(session);
@@ -520,15 +522,18 @@
 
   // Deals a new match: at the table named, which is the player's own pick
   // and ends a stand-in, or else at the table as it is. While a stand-in
-  // holds, that is the table it stands in for once the trained network is
-  // at hand, and until then the stand-in again, which goes on holding
-  // (opponents.js).
+  // holds, that is the table it stands in for, and the stand-in ends, unless
+  // the network is not at hand and its download is under way: then the
+  // stand-in again, which goes on holding (opponents.js).
   function start(strength = null) {
     if (saveConflict) return;
     let table = strength ?? opponents;
     if (strength) returnTable = null;
     else if (returnTable) {
-      table = tableAfterStandIn(returnTable, trainedAtHand(trainedAvailable, offline, workerNote));
+      table = tableAfterStandIn(returnTable, {
+        atHand: trainedAtHand({ network: offline.network, workerLoaded: networkInWorker() }),
+        underWay: trainedUnderWay({ network: offline.network, workerNote }),
+      });
       if (!standInFor(returnTable, table)) returnTable = null;
     }
     session?.dispose();

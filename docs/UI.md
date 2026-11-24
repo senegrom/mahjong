@@ -267,14 +267,24 @@ for the rest of the match, by the command **Continue with Club opponents**
 records after a failure, and the download carries on. The button goes, and
 focus goes on to the hand. The table shows Club, in its seats and in the
 Opponents select, but the table the player chose stays their stored choice: a
-stand-in is for one match. A new game goes back to the chosen table once the
-trained network is saved on the device (in a browser that cannot save it: once
-it can be reached and is not still loading), and until then keeps Club. The
+stand-in is for one match. A stand-in never sticks, and never deals a long
+wait behind the player's back. A new game goes back to the chosen table when
+the network is at hand, which is when the page holds it (`offline.network`
+'ready': stored, or bytes storage refused held for the opponents' worker) or
+that worker has it loaded, and the stand-in ends. Where it is not at hand but
+its download is under way, the page's (downloading, or waiting behind another
+window) or the worker's by its note, the new game keeps Club, and the
+stand-in holds. Where neither, the new game is the chosen table and the
+stand-in ends: its first Trained move asks for the network, and the wait,
+with **Play Club meanwhile**, comes again. The
 stand-in ends when the player picks opponents themself, in the select or the
 custom table, which is stored as any pick is. Nothing marks it in what is
 saved: after a reload the page knows it by the two tables alone, the match
 playing Club exactly where the stored choice says Trained, keeps both as they
-are, and goes on fetching the network. The stored choice is the table the
+are, and asks for the network again where it can be saved. In a browser that
+cannot save it (`offline.supported` false) no worker runs after the reload
+and nothing is fetching it, so the next new game is the chosen table, and
+its first Trained move brings the wait. The stored choice is the table the
 player's own record holds, seat by seat, as every page now writes it; a record
 that holds none (one from before 810, which is read as Trained once) is no
 choice to stand in for, and a saved Club match there stays the player's table,

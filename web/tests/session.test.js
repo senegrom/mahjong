@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
-import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents, standInFor, tableAfterStandIn, trainedAtHand } from '../src/lib/opponents.js';
+import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents, standInFor, tableAfterStandIn, trainedAtHand, trainedUnderWay } from '../src/lib/opponents.js';
 import { heldSafeCount, callTiles, callLabel, partedNote, startupWords, unseenTileCounts, waitIsDownload, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
 import { average, swapMoves } from '../src/lib/suits.js';
@@ -224,27 +224,38 @@ test("a stand-in is Club where the player's own table says Trained, and nothing 
   assert.equal(standInFor(null, club), null);
 });
 
-test('a new game keeps a stand-in until the trained network is at hand, then goes back to the table it stood in for', () => {
+test('a new game after a stand-in: the chosen table where the network is at hand or nothing is fetching it, Club only while its download is under way', () => {
   const chosen = ['neural', 'club', 'neural'];
-  assert.deepEqual(tableAfterStandIn(chosen, false), ['club', 'club', 'club']);
-  assert.deepEqual(tableAfterStandIn(['neural', 'beginner', 'neural'], false), ['club', 'beginner', 'club']);
-  assert.deepEqual(tableAfterStandIn(chosen, true), chosen);
-  // The stand-in still holds for the one, and no longer for the other.
-  assert.deepEqual(standInFor(chosen, tableAfterStandIn(chosen, false)), chosen);
-  assert.equal(standInFor(chosen, tableAfterStandIn(chosen, true)), null);
-  // At hand: saved on this device, whatever else is said of it.
-  assert.equal(trainedAtHand(false, { aiReady: true, supported: true, phase: 'ready' }), true);
-  // Not while it is only reachable, being fetched, or failed to save.
-  for (const offline of [{ aiReady: false, supported: true, phase: 'ai', progress: 60 }, { aiReady: false, supported: true, phase: 'ready' },
-    { aiReady: false, supported: true, phase: 'incomplete' }, { aiReady: false, supported: null, phase: 'checking' }, null]) {
-    assert.equal(trainedAtHand(true, offline), false, JSON.stringify(offline));
+  // What the page knows of the network as the new game is dealt, in each
+  // case, and whether the stand-in holds (Club again) or ends.
+  const rows = [
+    ['saved on this device', { network: 'ready' }, false],
+    ['storage refused, the bytes held for the worker', { network: 'ready' }, false],
+    ['storage refused, no bytes held, nothing fetching', { network: 'none' }, false],
+    ['storage refused, no bytes held, the worker fetching', { network: 'none', workerNote: 'downloading the network 40%' }, true],
+    ['nothing can be saved, the worker loaded', { network: 'none', workerLoaded: true }, false],
+    ['nothing can be saved, the worker loading', { network: 'none', workerNote: 'downloading the network 12%' }, true],
+    ['nothing can be saved, the worker gone', { network: 'none' }, false],
+    ['the page downloading', { network: 'downloading' }, true],
+    ['waiting behind another window', { network: 'waiting' }, true],
+    ['the worker waiting behind another window', { network: 'none', workerNote: 'waiting for another window to download the network' }, true],
+    ['the download failed', { network: 'none' }, false],
+    ['the worker loading a stored network', { network: 'none', workerNote: 'loading the network' }, false],
+    ['downloading, and the worker loaded already', { network: 'downloading', workerLoaded: true }, false],
+  ];
+  for (const [name, known, holds] of rows) {
+    const where = { atHand: trainedAtHand(known), underWay: trainedUnderWay(known) };
+    const table = tableAfterStandIn(chosen, where);
+    assert.deepEqual(table, holds ? ['club', 'club', 'club'] : chosen, name);
+    assert.deepEqual(standInFor(chosen, table), holds ? chosen : null, `${name}: the stand-in ${holds ? 'holds' : 'ends'}`);
   }
-  // A browser that cannot save it holds it in its worker alone: at hand once
-  // it can be reached and the worker is not in the middle of loading it.
-  const unsaved = { aiReady: false, supported: false, phase: 'unavailable' };
-  assert.equal(trainedAtHand(true, unsaved), true);
-  assert.equal(trainedAtHand(true, unsaved, 'downloading the network 40%'), false);
-  assert.equal(trainedAtHand(false, unsaved), false);
+  // Only those two say the network is at hand: not offline's aiReady, nor a
+  // worker that is merely not loading.
+  assert.equal(trainedAtHand({ network: 'none', aiReady: true }), false);
+  assert.equal(trainedAtHand({}), false);
+  assert.equal(trainedUnderWay({}), false);
+  // Seats that were never Trained keep their type either way.
+  assert.deepEqual(tableAfterStandIn(['neural', 'beginner', 'neural'], { atHand: false, underWay: true }), ['club', 'beginner', 'club']);
 });
 
 test('busy sessions ignore additional player choices', async () => {
