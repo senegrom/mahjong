@@ -339,7 +339,7 @@
   label { display: grid; gap: 6px; font-size: .8rem; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; }
   .guide-prompt { display: grid; gap: 16px; padding: 20px; border-radius: 14px; border: 1px solid #d8a12a77; background: #0004; }
-  .eyebrow { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; }
+  .eyebrow { color: var(--gold-text); font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; }
   select, input:not([type=checkbox]), button { min-height: 44px; color: inherit; background: #0004; border: 1px solid #ffffff55; border-radius: 8px; padding: 8px 10px; font: inherit; box-sizing: border-box; min-width: 0; max-width: 100%; }
   select option { background: #17241f; color: var(--ivory); }
   button { cursor: pointer; font-size: .82rem; } button:disabled { opacity: .5; cursor: default; }

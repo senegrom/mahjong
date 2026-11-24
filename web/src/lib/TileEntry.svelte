@@ -52,7 +52,7 @@
   .entry-label { font-size: .8rem; font-weight: 600; }
   .entered { display: flex; flex-wrap: wrap; gap: 5px; align-items: end; }
   /* Pressed with a finger too: 44 px, its words in the middle. */
-  summary { cursor: pointer; min-height: 44px; padding-block: 13px; font-size: .8rem; color: var(--gold); }
+  summary { cursor: pointer; min-height: 44px; padding-block: 13px; font-size: .8rem; color: var(--gold-text); }
   .palette { display: grid; grid-template-columns: repeat(9,minmax(0,1fr)); gap: 6px; max-width: 510px; padding: 7px 3px; }
   .palette :global(button.tile) { width: 100%; min-height: 44px; }
   /* Nine columns leave a tile 44 px wide, the least a finger presses surely,

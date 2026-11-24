@@ -30,7 +30,7 @@
 
 <style>
   .policy-preference { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
-  strong { color: var(--gold); }
+  strong { color: var(--gold-text); }
   /* "by rule", its dotted line saying that its title says more. */
   .rule { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
   .played { opacity: .75; }

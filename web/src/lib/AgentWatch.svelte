@@ -222,7 +222,9 @@
   .agent-watch { display: grid; gap: 14px; grid-column: 1 / -1; }
   .watch-heading, .watch-controls, .watch-round { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; }
   h2 { font-size: 1.15rem; margin: 0; }
-  .watch-heading > span { font-size: .85rem; opacity: .7; }
+  /* On the bare felt: at .7 it was 3.75 to 1 in the light theme, .9 is 4.7
+     on the lightest felt there is. */
+  .watch-heading > span { font-size: .85rem; opacity: .9; }
   .watch-setup { padding: 12px; background: #0003; border-radius: 12px; }
   /* What a finger presses is 44 px tall: a summary, its words in the middle,
      and a tick box's label. */

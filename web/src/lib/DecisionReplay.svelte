@@ -360,7 +360,7 @@
   .row strong { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
   meter { flex-shrink: 0; width: 90px; accent-color: var(--gold); }
   .tag { min-width: 4.5em; font-size: .72rem; font-weight: 700; white-space: nowrap; }
-  .tag .ai { color: var(--gold); }
+  .tag .ai { color: var(--gold-text); }
   .reach { border: 1px solid #ffffff28; border-radius: 8px; padding: 6px; display: grid; gap: 4px; }
   .reach-heading { border-top-color: transparent; }
   .numbers { font-size: .82rem; }

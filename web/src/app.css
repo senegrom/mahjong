@@ -18,12 +18,14 @@
   /* Gold as a colour of words. The gold of the borders and rings is 3.5 to
      4.4 to 1 against the table's panels, under the 4.5 that small text needs
      to be read, so words in gold are written in a lighter one, 5 to 1 or
-     more on a seat's or the hand's panel. It is not for words on the bare
+     more on a seat's or the hand's panel, an adviser's, a guide's prompt or
+     a review's. It is not for words on the bare
      felt or in the middle of the table's centre, which are lighter still:
      there it is under 4 to 1, and words are ivory. */
   --gold-text: #f0c869;
   /* Red as a colour of words on the pale panel of a failure, 5.2 to 1; the
-     accent itself is 4.3 there. */
+     accent itself is 4.3 there. A Trained opponent's failure and a refused
+     physical table are said in it. */
   --accent-text: #a52b17;
   /* The two marks in a discard row: the shade over the face of a tile
      thrown straight from the draw (tsumogiri), a veil of black that keeps

@@ -107,7 +107,7 @@
 <style>
   .weights { padding: 14px; border: 1px solid #d8a12a66; border-radius: 12px; background: #0003; min-width: 0; }
   .recommendation { display: flex; flex-wrap: wrap; gap: 6px 16px; }
-  .recommendation > span { color: var(--gold); }
+  .recommendation > span { color: var(--gold-text); }
   /* "by rule", its dotted line saying that its title says more. */
   .rule { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
   p { font-size: .78rem; line-height: 1.45; opacity: .8; margin: 8px 0 12px; }
@@ -119,7 +119,7 @@
   .choice-label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
   .weight-row strong { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
   meter { flex-shrink: 0; width: 90px; accent-color: var(--gold); }
-  .best { color: var(--gold); border-color: #4ea3ff; }
+  .best { color: var(--gold-text); border-color: #4ea3ff; }
   .selected-label { flex-basis: 100%; font-size: .7rem; }
   .reach-group { margin: 4px 0 10px; border: 1px solid #ffffff28; border-radius: 8px; padding: 8px; }
   .reach-heading { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-variant-numeric: tabular-nums; }
@@ -127,7 +127,7 @@
   .reach-heading > strong:last-child { min-width: 56px; text-align: right; }
   .reach-group p { margin: 6px 0; }
   .reach-discards { border-left: 2px solid #ffffff28; padding-left: 4px; }
-  .worth { color: var(--gold); font-variant-numeric: tabular-nums; }
+  .worth { color: var(--gold-text); font-variant-numeric: tabular-nums; }
   .beliefs { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ffffff22; }
   .beliefs h3 { margin: 0; font-size: .84rem; font-weight: 600; }
   .belief { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 0; border-top: 1px solid #ffffff10; }

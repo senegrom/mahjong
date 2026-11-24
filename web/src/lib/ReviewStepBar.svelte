@@ -190,7 +190,7 @@
   .dot { opacity: .7; }
   /* "by rule", its dotted line saying that its title says more. */
   .rule { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
-  .flag { font-weight: 650; color: var(--gold); }
+  .flag { font-weight: 650; color: var(--gold-text); }
   /* Flush under the game's bar where that stays at the top of the screen
      (AppSettings): on a phone held upright.
 

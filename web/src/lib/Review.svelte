@@ -390,7 +390,7 @@
 
   .tabs button.on {
     border-color: var(--gold);
-    color: var(--gold);
+    color: var(--gold-text);
   }
 
   /* Sized as the filter's buttons are, a finger's width tall, but
@@ -448,9 +448,10 @@
     font-size: 0.9rem;
   }
 
+  /* Half the ivory was 4.4 to 1 on the dark theme's list; 0.6 is 5.8. */
   .turn {
     font-variant-numeric: tabular-nums;
-    opacity: 0.5;
+    opacity: 0.6;
     min-width: 1.4em;
     text-align: right;
   }
@@ -468,7 +469,7 @@
   }
 
   .advised .what {
-    color: var(--gold);
+    color: var(--gold-text);
   }
 
   .why {
@@ -512,7 +513,7 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    opacity: 0.5;
+    opacity: 0.6;
   }
 
   .numbers td {
