@@ -204,7 +204,7 @@ test("Watch, a guided game, physical play and both reviews show the worker's own
     const { source, ast } = component(`../src/lib/${name}.svelte`);
     const download = find(ast.instance, node => node.type === 'VariableDeclarator' && node.id.name === 'download');
     const shown = download.init.arguments[0];
-    const state = { waitingNote, workerNote: note, offline: null, isTrained: agent => agent === 'full',
+    const state = { waitingNote, networkInWorker: () => false, workerNote: note, offline: null, isTrained: agent => agent === 'full',
       state: { agent: 'full' }, agent: 'full', watch: { lineup: ['full', 'club', 'club', 'club'] } };
     assert.equal(vm.runInContext(source.slice(shown.start, shown.end), vm.createContext(state)), note, name);
     // The page hands each the note.

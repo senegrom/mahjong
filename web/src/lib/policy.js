@@ -6,6 +6,7 @@ import { networkIsStored } from './network-store.js';
 import { networkUrl, playedNetwork } from './trained-network.js';
 import { MEMORY_LIMITS_MIB, nextMemoryLimit } from './memory-budget.js';
 import { batchesOnCard, resetCard } from './gpu-batches.js';
+import { networkHeld } from './network-held.js';
 
 /** The trained opponent: the network itself, not a small copy taught to
  * imitate it. It reads Mortal's 1012 planes, which the engine in this page
@@ -56,7 +57,8 @@ export function reportLoading(callback) { onLoading = callback; }
 
 /** Whether the opponents' worker holds the network now, loaded and ready
  * for a decision: what a new game reads to know the network is at hand
- * where the page holds none of its own (opponents.js trainedAtHand). */
+ * where the page holds none of its own (opponents.js trainedAtHand). Said to
+ * network-held.js as it changes, for the components that name a wait. */
 export function networkInWorker() { return Boolean(worker) && loaded; }
 
 export function resetPolicy(reason = new DOMException('Match changed', 'AbortError')) {
@@ -69,6 +71,7 @@ export function resetPolicy(reason = new DOMException('Match changed', 'AbortErr
   const old = worker;
   worker = null;
   loaded = false;
+  networkHeld(false);
   clearTimeout(loading);
   old?.terminate();
   for (const pending of waiting.values()) pending.reject(reason);
@@ -94,6 +97,7 @@ function stillLoading(current) {
 function networkLoaded() {
   if (!loaded) onLoading?.('');
   loaded = true;
+  networkHeld(true);
   clearTimeout(loading);
   for (const request of waiting.values()) request.queued();
 }
@@ -135,6 +139,7 @@ function ensureWorker() {
   const current = new Worker(new URL('./policy.worker.js', import.meta.url), { type: 'module' });
   worker = current;
   loaded = false;
+  networkHeld(false);
   stillLoading(current);
   current.onmessage = ({ data }) => {
     if (worker !== current) return;

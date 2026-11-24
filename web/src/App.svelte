@@ -694,7 +694,7 @@
   // opponents, while the download carries on. Nothing is reset here, so the
   // worker and whatever is fetching the network go on; the table the player
   // chose stays their preference (update, returnTable).
-  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline));
+  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline, { held: networkInWorker() }));
   let standInPressed = false;
   function playClubMeanwhile() {
     session?.clubMeanwhile();
@@ -1037,7 +1037,7 @@
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-              loadNote={waitingNote(loadNote, offline)} onclub={downloadWait ? playClubMeanwhile : null}
+              loadNote={waitingNote(loadNote, offline, { held: networkInWorker() })} onclub={downloadWait ? playClubMeanwhile : null}
               {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
               {selectedTile} {callChoices} {choose} discard={tile => confirmation(() => discard(tile))}
               oncancel={() => confirmation(() => { selected = null; })} />

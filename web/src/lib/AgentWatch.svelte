@@ -2,6 +2,7 @@
   import { onDestroy, tick } from 'svelte';
   import { Game } from '../wasm/riichi.js';
   import { analyzePolicy } from './policy.js';
+  import { networkInWorker } from './network-held.js';
   import { AGENTS, agentName, evaluateAgent, isTrained } from './agents.js';
   import { SEAT_NAMES } from './tiles.js';
   import { WatchSession } from './watch-session.js';
@@ -59,7 +60,7 @@
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   // A Trained seat may be waiting for the network's first download.
-  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote(workerNote, offline) : '');
+  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote(workerNote, offline, { held: networkInWorker() }) : '');
   $effect(() => {
     if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched

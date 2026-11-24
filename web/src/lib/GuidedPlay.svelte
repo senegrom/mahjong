@@ -7,6 +7,7 @@
   import { emptyGuided, guidedEvent, editGuided, undoGuided, GUIDED_FORMAT, parseGuided, visibleCounts, doraTiles, viewMelds } from './guided-game.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import { land, pressedByKeyboard, waitingNote } from './ui.js';
+  import { networkInWorker } from './network-held.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import HandTile from './HandTile.svelte';
@@ -54,7 +55,7 @@
     : (position.players[fixPlace]?.discards ?? []).map((discard, index) => ({ key: String(index),
       words: `${index + 1} · ${tileWords(discard.tile)}${discard.claimed ? ' · called' : ''}` })));
   // Trained advice may be waiting for the network's first download.
-  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
+  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline, { held: networkInWorker() }) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;

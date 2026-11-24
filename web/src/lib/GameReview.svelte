@@ -6,6 +6,7 @@
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, noneSaid, playlist, revealing } from './game-review.js';
   import { REVIEW_WIDE, heldEnter, moveHandFocus, repeatedClick, reviewKey, waitingNote } from './ui.js';
+  import { networkInWorker } from './network-held.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -137,7 +138,7 @@
   let list = $derived(playlist(status.hands, filter));
   let reviewing = $derived(status.hands.find(hand => hand.status === 'reviewing') ?? null);
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
-  let download = $derived(waitingNote(workerNote, offline));
+  let download = $derived(waitingNote(workerNote, offline, { held: networkInWorker() }));
 
   // The decision on show: the player's place, or where the review lands
   // while they have none for this match.

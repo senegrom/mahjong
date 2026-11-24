@@ -697,7 +697,7 @@ test('the table shows the network download while a Trained opponent waits for it
   // more.
   for (const entry of [{ bytes: 116935691, storedBytes: 107878377 }, { bytes: 116935691 }]) {
     const megabytes = Math.round((entry.storedBytes ?? entry.bytes) / 1e6);
-    assert.equal(waitingNote('', { network: 'downloading', progress: 7 }, entry), `downloading the trained network (${megabytes} MB) 7%`);
+    assert.equal(waitingNote('', { network: 'downloading', progress: 7 }, { network: entry }), `downloading the trained network (${megabytes} MB) 7%`);
   }
   // Behind another window's download of it.
   assert.equal(waitingNote('', { phase: 'ai', network: 'waiting', progress: 0 }), 'waiting for another window to download the trained network');
@@ -754,6 +754,19 @@ test('ordinary thinking, with the network in hand and the save still at 99, show
   assert.equal(waitIsDownload('', thinking), false);
   assert.equal(waitingNote('loading the network', thinking), 'loading the network');
   assert.equal(waitIsDownload('loading the network', thinking), false);
+  // A page download under way, or its turn behind another window, while the
+  // opponents' worker already holds the network (a new game starts the save
+  // again where the network is not stored): each Trained move is thinking,
+  // so neither the note nor the offer is shown; the worker's own note still is.
+  for (const network of ['downloading', 'waiting']) {
+    const offline = { phase: 'ai', network, progress: 30 };
+    assert.equal(waitingNote('', offline, { held: true }), '', network);
+    assert.equal(waitIsDownload('', offline, { held: true }), false, network);
+    assert.notEqual(waitingNote('', offline, { held: false }), '', network);
+    assert.equal(waitIsDownload('', offline, { held: false }), true, network);
+    assert.notEqual(waitingNote('', offline), '', `${network}, unsaid`);
+  }
+  assert.equal(waitingNote('downloading the network 5%', { network: 'none' }, { held: true }), 'downloading the network 5%');
 });
 
 test('the start-up line says which of the two it still waits for: the tile graphics, or the engine once they are in', () => {

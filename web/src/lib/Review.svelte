@@ -4,6 +4,7 @@
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
+  import { networkInWorker } from './network-held.js';
   import { agreement } from './game-review.js';
   import { reviewWithStrong } from './review-policy.js';
   import { fromWaiting, land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
@@ -57,7 +58,7 @@
   });
   let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : clubNotes);
   // A first Trained review can be what downloads the network.
-  let download = $derived(waitingNote(workerNote, offline));
+  let download = $derived(waitingNote(workerNote, offline, { held: networkInWorker() }));
 
   // The review's two status lines come into the page with it, and a screen
   // reader hears a status line only once it knows it. So the lines wait in

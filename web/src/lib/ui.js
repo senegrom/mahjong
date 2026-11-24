@@ -27,9 +27,15 @@ const megabytes = network => Math.round((network.storedBytes ?? network.bytes) /
  * While the network downloads, `offline.progress` is the percent of it
  * received. The note says how much the download is, the size of the
  * `network` the page plays, once, so that a player on a slow or metered link
- * knows what the wait is ("downloading the trained network (59 MB) 37%"). */
-export function waitingNote(note, offline, network = playedNetwork()) {
+ * knows what the wait is ("downloading the trained network (59 MB) 37%").
+ *
+ * `held` says the opponents' worker holds the network already (policy.js
+ * networkInWorker): then nothing waits for the page's download, which a new
+ * game may start again where the network is not stored, and only the
+ * worker's own note is said. */
+export function waitingNote(note, offline, { held = false, network = playedNetwork() } = {}) {
   if (note) return note;
+  if (held) return '';
   if (offline?.network === 'downloading') return `downloading the trained network (${megabytes(network)} MB) ${offline.progress ?? 0}%`;
   if (offline?.network === 'waiting') return 'waiting for another window to download the trained network';
   return '';
@@ -51,9 +57,11 @@ export function noteIsDownload(note) {
  * 'ai' while the runtime is saved and the opponents already play, nor by a
  * first visit's install, which the network does not wait for. Only then does
  * play offer Club meanwhile: a start or a thought takes seconds, a download
- * minutes. */
-export function waitIsDownload(note, offline) {
+ * minutes. Never where the opponents' worker holds the network (`held`), as
+ * waitingNote has it. */
+export function waitIsDownload(note, offline, { held = false } = {}) {
   if (note) return noteIsDownload(note);
+  if (held) return false;
   return offline?.network === 'downloading' || offline?.network === 'waiting';
 }
 
