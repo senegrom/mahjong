@@ -42,9 +42,21 @@
     // What the first seat, the one the view belongs to, is called: the
     // person playing, or in Watch the agent being followed.
     playerLabel = 'You',
+    // Told whether the chip shows, for the page to keep its foot clear of
+    // it (App).
+    onchip = null,
   } = $props();
 
   let minimized = $state(false);
+  // The page is told as the chip comes and goes, and that it is gone when
+  // the result itself goes. A style of the page's that looked for the chip
+  // (main:has) was not always applied as the chip came: in CI the page's
+  // last line then lay under it.
+  $effect(() => {
+    const shown = minimized;
+    onchip?.(shown);
+    return () => { if (shown) onchip?.(false); };
+  });
   // Which yaku the reader is asking about, and the tiles that make it. A
   // yaku about how the hand was won lights nothing, and says why instead.
   let asking = $state(null);

@@ -106,6 +106,9 @@
   // whether the keyboard sent it there, for the result to step aside for it.
   let standingsHeading = $state(null);
   let standingsFocused = $state(false);
+  // Whether the result's chip shows (ScoreScreen says): the page then ends
+  // lower, so that its last line can be scrolled clear of the chip.
+  let resultChip = $state(false);
   let picked = $state(null);
   let selected = $state(null);
   let handElement = $state(null);
@@ -800,7 +803,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<main>
+<main class:chip={resultChip}>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
     {tileFace} {pendingTileFace} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
@@ -846,7 +849,7 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} />
+    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} onchip={shown => { resultChip = shown; }} />
   {:else if ready && mode === 'guided'}
     <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} />
   {:else if ready && mode === 'physical'}
@@ -883,7 +886,8 @@
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
               bets={view.riichi_sticks ?? 0} onnext={nextHand}
               onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
-              ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)} />
+              ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)}
+              onchip={shown => { resultChip = shown; }} />
             {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
@@ -945,8 +949,10 @@
     .controls { padding: 0 8px; }
     /* The result's chip lies over the foot of the screen (ScoreScreen), so
        while it shows the page ends that much lower, and its last line, the
-       hand's history, can be scrolled clear of it. */
-    main:has(:global(.result-chip)) { padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px); }
+       hand's history, can be scrolled clear of it. The page is told that
+       the chip shows (resultChip) and does not look for it with :has, which
+       a browser did not always apply as the chip came. */
+    main.chip { padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px); }
   }
   @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {
     main { max-width: none; grid-template-columns: minmax(270px, .85fr) minmax(340px, 1.15fr); align-items: start; }

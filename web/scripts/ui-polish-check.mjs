@@ -325,10 +325,11 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
     const root=document.documentElement;
     window.scrollTo(0,root.scrollHeight);
     return{chip:document.querySelector('.result-chip').getBoundingClientRect().top,chipHeight:document.querySelector('.result-chip').getBoundingClientRect().height,
-      history:document.querySelector('.history summary').getBoundingClientRect().bottom,fromEnd:root.scrollHeight-root.scrollTop-innerHeight};
+      history:document.querySelector('.history summary').getBoundingClientRect().bottom,fromEnd:root.scrollHeight-root.scrollTop-innerHeight,
+      room:getComputedStyle(document.querySelector('main')).paddingBottom,told:document.querySelector('main').classList.contains('chip'),inside:Boolean(document.querySelector('main .result-chip'))};
   });
   assert.ok(Math.abs(foot.fromEnd)<1,`the page is at its end: ${foot.fromEnd}`);
-  assert.ok(foot.history<=foot.chip,`the hand's history ends above the chip: ${foot.history} against ${foot.chip}`);
+  assert.ok(foot.history<=foot.chip,`the hand's history ends above the chip: ${foot.history} against ${foot.chip}; the page's foot is ${foot.room}, told of the chip ${foot.told}, the chip inside it ${foot.inside}`);
   assert.ok(foot.chipHeight>=44);
   assert.deepEqual(over.errors,[]);
  });

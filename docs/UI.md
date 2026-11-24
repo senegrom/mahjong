@@ -54,7 +54,8 @@ How the table is laid out follows the window, its height as well as its width.
   the screen as the page moved, under the game's bar, which stays there too,
   and a play area taller than the screen held a call's buttons under its foot.
   While the result's chip shows, the page ends 56 pixels lower, so that its
-  last line can be scrolled clear of the chip. In the settings' dialog an
+  last line can be scrolled clear of the chip: the result tells the page
+  that the chip shows, in play and in Agent watch. In the settings' dialog an
   opened section stays where it was pressed, rather than going to the foot of
   the list.
 
