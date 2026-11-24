@@ -407,7 +407,10 @@ test('storage failure is a visible offline warning, not a prohibition on online 
   assert.equal(c.state().aiReady, false);
   assert.match(c.state().warning, /Online play is still available/);
   c.faults.ai = false;
-  await c.api.prepareOfflineAi();
+  // Not tried again by itself; at the player's word it is.
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.equal(c.state().aiReady, false);
+  await c.api.prepareOfflineAi({ byPlayer: true });
   assert.equal(c.state().aiReady, true);
 });
 
@@ -552,7 +555,8 @@ test('a page download that fails is incomplete and a storage failure is only an 
   assert.match(c.state().warning, /Online play is still available/);
   assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
   c.faults.network = null;
-  await c.api.prepareOfflineAi();
+  // Refused by storage, it is tried again at the player's word.
+  await c.api.prepareOfflineAi({ byPlayer: true });
   assert.equal(c.state().aiReady, true);
 });
 
@@ -660,6 +664,43 @@ test('bytes storage refused are handed on for online play, not downloaded again'
   assert.equal(c.saves.length, 1);
 });
 
+test('a save storage refused is not tried again by itself, at every new game or worker, only at the player\'s word', async () => {
+  const bytes = new Uint8Array(116);
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline();
+  c.faults.network = Object.assign(new Error('The network is not saved offline: quota'), { name: 'NetworkStorageError', bytes });
+  // The first new game: the network is downloaded once, refused, and its
+  // bytes handed to the opponent's worker, which plays from them.
+  assert.equal((await c.api.prepareNetwork()).unstoredNetwork, bytes);
+  await settle();
+  assert.deepEqual([c.saves.length, c.state().network], [1, 'ready']);
+  // The second new game, and a worker asking again: nothing downloads, and
+  // the network stays ready while the worker holds the bytes.
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.equal(await c.api.prepareNetwork(), null, 'a new worker fetches for itself');
+  await settle();
+  assert.deepEqual([c.saves.length, c.state().network, c.state().phase], [1, 'ready', 'incomplete']);
+  // Once that worker is gone, so are the bytes.
+  c.api.networkReleased();
+  assert.equal(c.state().network, 'none');
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.equal(c.saves.length, 1);
+  // The player's own press tries again, and a save that then works is whole.
+  c.faults.network = null;
+  assert.equal((await c.api.prepareOfflineAi({ byPlayer: true })).aiReady, true);
+  assert.deepEqual([c.saves.length, c.state().network], [2, 'ready']);
+});
+
+test('storage that works saves at every ask as before: a second new game after a failed download tries again by itself', async () => {
+  const c = coordinator({ coreReady: true, held: false });
+  await c.api.startOffline();
+  c.faults.network = new Error('The network could not be fetched: 503');
+  await assert.rejects(c.api.prepareOfflineAi(), /could not be fetched/);
+  c.faults.network = null;
+  assert.equal((await c.api.prepareOfflineAi()).aiReady, true);
+  assert.equal(c.state().network, 'ready');
+});
+
 test('a network storage has no room for is not downloaded only to be refused', async () => {
   const c = coordinator({ coreReady: true, held: false });
   c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 - NETWORK.bytes + 1 });
@@ -670,7 +711,7 @@ test('a network storage has no room for is not downloaded only to be refused', a
   assert.equal(c.state().phase, 'incomplete');
   assert.match(c.state().warning, /too little free storage.*Online play is still available/);
   c.navigator.storage.estimate = async () => ({ quota: 1000, usage: 1000 - NETWORK.bytes });
-  assert.equal((await c.api.prepareOfflineAi()).aiReady, true, 'room for it exactly is room');
+  assert.equal((await c.api.prepareOfflineAi({ byPlayer: true })).aiReady, true, 'room for it exactly is room');
   assert.equal(c.saves.length, 1);
 });
 

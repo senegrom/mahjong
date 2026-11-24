@@ -230,7 +230,12 @@ labelled online-only. Saved matches remain a separate, unchanged mechanism.
 When the browser reports too little free storage for the network, the page does
 not download it only to have it refused; the opponent's worker fetches it once
 for the session. When storage refuses a network the page has already verified,
-those bytes go to the worker instead of being downloaded again.
+those bytes go to the worker instead of being downloaded again. A save that
+storage refused in this page, the network or its runtime, is not tried again
+by itself, at the next new game or worker: only the player's own press of the
+offline panel's download button, or a reload, tries again. Until then the
+network is 'ready' while the worker holds the bytes it was handed, and 'none'
+once that worker is gone, when the next worker fetches it for itself.
 These checks never read the network again: they read the size and digest
 recorded when the network was verified and stored. The network is checked in
 full again each time it is loaded to play (see [verification and

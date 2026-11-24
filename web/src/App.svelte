@@ -484,7 +484,11 @@
     }
   }
 
+  // A new game or a restored match asks for the trained save; the offline
+  // panel's button is the player's own ask, the one that tries again a save
+  // storage refused in this page (offline.js prepareOfflineAi).
   function downloadAi() { void prepareOfflineAi().catch(() => {}); }
+  function downloadAiForPlayer() { void prepareOfflineAi({ byPlayer: true }).catch(() => {}); }
 
   // Another network is loaded with the page, not swapped into this one: the
   // opponents' worker, every adviser and the offline status are about the
@@ -943,7 +947,7 @@
     {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
     {difficulty} {opponents} {ready} {saveConflict} {trainedAvailable} {offline}
-    {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
+    {changeOpponents} {startFresh} {configureTable} downloadAi={downloadAiForPlayer} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   <!-- On a phone the Tile face select is in the settings' dialog, and while
        that is open this alert would lie behind it, unheard and dimmed: the

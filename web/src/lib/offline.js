@@ -27,6 +27,12 @@ let networkJob = null;
 // opponent's worker, and whether that worker asked for this job's network
 // (prepareNetwork) and so took them.
 let heldOnly = false, networkTaken = false;
+// Whether storage refused a trained save in this page, the network or its
+// runtime: such a save is not tried again by itself, at every new game or
+// worker, only at the player's own word (prepareOfflineAi's `byPlayer`) or
+// after a reload. Storage that refused once refuses again, and the network
+// is 59 MB downloaded for nothing each time.
+let refusedHere = false;
 let coreJob = null;
 // A player who asked for Trained offline keeps it across upgrades: each
 // version's page saves its own network, automatically once per page. So does
@@ -464,9 +470,17 @@ export async function refreshOffline() {
  * says a save is whole that is not. Where the network itself stands is said
  * apart from the whole save, in `network` (OfflineState.network): the
  * opponent plays as soon as the network is in hand, while the phase may stay
- * 'ai' for the runtime. */
-export function prepareOfflineAi() {
+ * 'ai' for the runtime.
+ *
+ * Once storage has refused a save in this page, it starts again only when
+ * the player asks (`byPlayer`, the offline panel's button); asked otherwise,
+ * by a new game or the opponent's worker, it answers null at once and leaves
+ * the network's state as it stands: 'ready' while that worker holds the
+ * bytes it was handed, 'none' once they have gone (networkReleased). */
+export function prepareOfflineAi({ byPlayer = false } = {}) {
   if (aiJob) return aiJob;
+  if (refusedHere && !byPlayer) return Promise.resolve(null);
+  refusedHere = false;
   wanted = true;
   heldOnly = false;
   networkTaken = false;
@@ -496,6 +510,9 @@ export function prepareOfflineAi() {
  * not its business: the worker loads it from the site either way. */
 export function prepareNetwork() {
   void prepareOfflineAi().catch(() => {});
+  // Not started again after storage refused (prepareOfflineAi): the worker
+  // fetches the network for itself, as where nothing can be saved.
+  if (!aiJob) return Promise.resolve(null);
   networkTaken = true;
   return networkJob;
 }
@@ -581,6 +598,7 @@ async function saveTrained(handOver, live, end) {
       refused ??= error;
     }
     if (refused) {
+      refusedHere = true;
       trainedSays('incomplete', `${refused.message} Online play is still available.`, { aiReady: false });
       return handed ? { aiReady: false, ...handed } : null;
     }
