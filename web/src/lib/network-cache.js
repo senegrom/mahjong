@@ -26,7 +26,10 @@ export function validateNetwork(expect) {
 export const heldBytes = expect => (expect.packing ? expect.storedBytes : expect.bytes);
 
 /** How often a transfer that broke or stalled is asked again for the rest,
- * and how long it pauses first: only for a packed network, which its host
+ * in a row without a new byte, and how long it pauses before the first such
+ * request: each pause in a row is twice the last, 2, 4, 8, 16 and 32 s,
+ * about a minute in all, for a phone that moves from wifi to its mobile
+ * network or a train in a tunnel. Only for a packed network, which its host
  * stores without an encoding, so that a byte range of it means something. */
 export const RESUME = Object.freeze({ attempts: 5, pauseMs: 2000 });
 
@@ -90,19 +93,25 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
  * ignores cancellation. describe(kind, detail) words each failure for the
  * caller: 'status', 'overrun', 'size', 'digest' or 'timeout'.
  *
- * With `resume`, a transfer that stalls past its idle deadline, whose
- * connection fails (a TypeError, as fetch and its body throw for a network
- * error) or whose body ends short keeps the bytes it received and is asked
- * again, after `pauseMs`, for the rest, `Range: bytes=<received>-`, up to
- * `resume` times in a row without new bytes before it fails as it would
- * have without. One that breaks with every byte in hand asks nothing more,
- * and the digest decides. A 206 is taken
+ * With `resume`, a transfer that has received bytes and then stalls past its
+ * idle deadline, whose connection fails (a TypeError, as fetch and its body
+ * throw for a network error) or whose body ends short keeps them and is
+ * asked again for the rest, `Range: bytes=<received>-`, after a pause of
+ * `pauseMs` that doubles with each attempt in a row that brought no new
+ * byte, up to `resume` such attempts, before it fails as it would have
+ * without; an attempt that brings new bytes starts the count and the pauses
+ * over. One that fails before any byte arrived is never asked again: it is
+ * said at once, as for a network that cannot resume. One that breaks with
+ * every byte in hand asks nothing more, and the digest decides. A 206 is taken
  * from where its Content-Range says it starts, at or before the bytes in
  * hand; one that starts after them, or whose Content-Range cannot be read or
  * names another size, is let go and the next request asks for the whole. A
  * 200 is the whole object again, kept from its first byte. Progress never
  * runs backwards: it says the most ever held, and is said again as each
- * request begins, a sign of life for whoever waits on this transfer. The
+ * pause begins and as it ends, a sign of life for whoever waits on this
+ * transfer: the longest silence is a stall's idle deadline or the longest
+ * pause, whichever is longer (60 s against 32 s for a network), never the
+ * two end to end. The
  * SHA-256 of the whole decides, as ever, and the total deadline covers every
  * request and pause. Only a packed network is asked so: an object stored
  * gzipped has no byte range that means anything, and its host ignores one. */
@@ -184,19 +193,21 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
   if (totalMs) total = setTimeout(() => { overall = new Error(describe('timeout')); end(overall); wake?.(); }, totalMs);
   try {
     let response;
-    // An attempt that brought bytes no earlier one had does not count against
-    // the budget: a link that drops often but keeps advancing goes on.
-    for (let attempt = 0, best = 0; ; attempt++) {
+    // `inRow` counts the attempts in a row that brought no byte not held
+    // before: one that did starts it, and the pauses, over, so that a link
+    // that drops often but keeps advancing goes on.
+    for (let inRow = 0, best = 0; ; inRow++) {
       try { response = await receive(); break; } catch (error) {
         letGo(); clearTimeout(idle);
         const broke = !overall && Boolean(error?.resumable || error instanceof TypeError);
         // Broken after its last byte: nothing is left to ask for. The last
         // response's headers, all its caller reads of it, came whole.
         if (broke && seen === size) { response = last; stopped = overall; break; }
-        if (shown > best) { best = shown; attempt = 0; }
-        if (!broke || attempt >= resume) throw overall ?? error;
+        if (shown > best) { best = shown; inRow = 0; }
+        if (!broke || !shown || inRow >= resume) throw overall ?? error;
       }
-      await new Promise(done => { wake = done; pause = setTimeout(done, pauseMs); });
+      said();
+      await new Promise(done => { wake = done; pause = setTimeout(done, pauseMs * 2 ** inRow); });
       wake = null; clearTimeout(pause);
       if (overall) throw overall;
       said();

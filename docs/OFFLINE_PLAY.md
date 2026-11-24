@@ -124,11 +124,15 @@ because a browser cuts a service worker's work short after a few minutes, too
 soon for the network on a slow link (see [cache lifetime and
 upgrades](ONNX_RUNTIME.md#cache-lifetime-and-upgrades)). A page has no such
 deadline: a transfer that keeps receiving bytes may take up to three hours.
-A packed network's transfer that stalls for a minute, or whose connection
-drops, keeps what it received and asks for the rest two seconds later, up to
-five times in a row that bring no new bytes, the whole file's digest still deciding; one that fails after
-that, and any stall of a network published whole, which its host stores
-gzipped and cannot serve in part, fails and can be retried, from the start.
+A packed network's transfer that has received bytes and then stalls for a
+minute, or whose connection drops, keeps them and asks for the rest after a
+pause of two seconds, then four, eight, sixteen and thirty-two while
+nothing new arrives, about a minute in all, the pauses starting over once
+bytes come again; the whole file's digest still decides. One that fails
+before any byte arrived is said at once and offers Club, as before. One
+that fails after its pauses, and any stall of a network published whole,
+which its host stores gzipped and cannot serve in part, fails and can be
+retried, from the start.
 Every percentage and size said of the network is of what is downloaded, the
 packed file where the network is packed, and never goes back.
 The two are saved side by side, in either order. The page begins the network

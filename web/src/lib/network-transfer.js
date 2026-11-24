@@ -9,8 +9,9 @@ import { RESUME, digestOf, hasStoredNetwork, heldBytes, networkCache, networkCac
 export { NETWORK_CACHE, hasStoredNetwork, heldBytes, networkCacheName, pruneNetworkCache, validateNetwork } from './network-cache.js';
 // A page has no event deadline, so a slow but progressing transfer may take
 // hours; a stalled one still ends after a minute without bytes, or, for a
-// packed network, once it has been asked for the rest RESUME.attempts times
-// and stalled or broken each time.
+// packed network that has received some, once it has been asked for the rest
+// RESUME.attempts times in a row, pausing longer each time, and nothing new
+// came (network-cache.js).
 const NETWORK_TIMEOUTS = Object.freeze({ totalMs: 3 * 60 * 60 * 1000, idleMs: 60000, pauseMs: RESUME.pauseMs });
 /** How long one waits its turn at a network before going ahead regardless
  * (alone): SILENT_MS after its holder last said it is alive, or TURN_MS in
