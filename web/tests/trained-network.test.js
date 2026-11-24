@@ -41,9 +41,9 @@ test('0.1.3000 is the default, and 0.1.2610, 0.1.1410, 0.1.810 and 0.1.410 stay 
   assert.deepEqual(NETWORKS.map(network => network.version), ['0.1.3000', '0.1.2610', '0.1.1410', '0.1.810', '0.1.410']);
   assert.equal(MANIFEST, find('0.1.3000'));
   assert.deepEqual({ ...find('0.1.3000') }, { version: '0.1.3000', source: 'fusion-place-ruled/history/gen-03000', generation: 3000,
-    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116935691, storedBytes: 107878377, origin,
-    object: 'models/g3000/afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc',
-    sha256: 'afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc', webgpu: true });
+    reward: { kind: 'placement', alpha: 0.05 }, precision: 'float32', bytes: 116935691, storedBytes: 58988183, packing: 'half', origin,
+    object: 'models/g3000/992cf105be5393d9c1ead0d87688d69ec6e6b005c7191d95e42fb4b18940c78a',
+    sha256: '992cf105be5393d9c1ead0d87688d69ec6e6b005c7191d95e42fb4b18940c78a', webgpu: true });
   // The exports from before the field say nothing of WebGPU, and stay on WebAssembly.
   for (const network of NETWORKS.slice(1)) assert.equal('webgpu' in network, false, network.version);
   assert.deepEqual({ ...find('0.1.2610') }, { version: '0.1.2610', source: 'fusion-place-a005/history/gen-02610', generation: 2610,

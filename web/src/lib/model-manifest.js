@@ -21,10 +21,11 @@ export const NETWORKS = Object.freeze([
     },
     "precision": "float32",
     "bytes": 116935691,
-    "storedBytes": 107878377,
+    "storedBytes": 58988183,
+    "packing": "half",
     "origin": "https://mahjong-model.connect4-chaos.workers.dev",
-    "object": "models/g3000/afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc",
-    "sha256": "afcac316b59f2144a0d66a7ee33aacd2419e78668173082a3ac11d3555dedfbc",
+    "object": "models/g3000/992cf105be5393d9c1ead0d87688d69ec6e6b005c7191d95e42fb4b18940c78a",
+    "sha256": "992cf105be5393d9c1ead0d87688d69ec6e6b005c7191d95e42fb4b18940c78a",
     "webgpu": true
   },
   {
