@@ -65,6 +65,79 @@ export async function openPanel(page, summary) {
   await page.evaluate(() => window.__panelSettled);
 }
 
+/** How well the words of the elements matching `selector` can be read: their
+ * colour as drawn, with their own opacity and every ancestor's, against each
+ * pixel behind each piece of text's box, in one screenshot of the screen with
+ * no words drawn (for light words, the lightest pixel). The first is brought
+ * onto the middle of the screen, and every one on the screen with it is read.
+ * Answers the worst one's ratio, colour, the pixel behind it that gives that
+ * ratio, and its words. */
+export async function wordsContrast(page, selector) {
+  // Each piece of text in them, its own box: a tile drawn among the words
+  // is no part of what is behind them.
+  const words = await page.$$eval(selector, elements => {
+    elements[0]?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const found = [];
+    for (const element of elements) {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!node.textContent.trim() || parent.closest('.visually-hidden')) continue;
+        let opacity = 1;
+        for (let up = parent; up; up = up.parentElement) opacity *= Number(getComputedStyle(up).opacity);
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const box of range.getClientRects()) {
+          // Only what a box that scrolls or clips lets be seen of it.
+          let [left, top, right, bottom] = [box.left, box.top, box.right, box.bottom];
+          for (let up = parent.parentElement; up; up = up.parentElement) {
+            const style = getComputedStyle(up);
+            if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+            const clip = up.getBoundingClientRect();
+            [left, top, right, bottom] = [Math.max(left, clip.left), Math.max(top, clip.top), Math.min(right, clip.right), Math.min(bottom, clip.bottom)];
+          }
+          found.push({ colour: getComputedStyle(parent).color, opacity, text: node.textContent.trim().slice(0, 40),
+            box: [left, top, right, bottom].map(edge => Math.round(edge * devicePixelRatio)) });
+        }
+      }
+    }
+    return found.filter(({ box }) => box[2] - box[0] >= 2 && box[3] - box[1] >= 2 && box[1] >= 0 && box[3] <= innerHeight * devicePixelRatio);
+  });
+  assert.ok(words.length, `no words match ${selector} on the screen`);
+  const hidden = await page.addStyleTag({ content: '*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }' });
+  let shot;
+  try {
+    await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+    shot = await page.screenshot({ encoding: 'base64', type: 'png' });
+  } finally { await hidden.evaluate(node => node.remove()); }
+  // The screenshot is read back in the page, which decodes a PNG already.
+  return page.evaluate(async (shot, words) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${shot}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const light = rgb => rgb.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+      .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+    let worst = null;
+    for (const { colour, opacity, text, box } of words) {
+      const [left, top] = [Math.max(0, box[0]), Math.max(0, box[1])];
+      const [right, bottom] = [Math.min(image.width, box[2]), Math.min(image.height, box[3])];
+      const pixels = context.getImageData(left, top, right - left, bottom - top).data;
+      const parts = colour.match(/[\d.]+/g).map(Number), alpha = (parts[3] ?? 1) * opacity;
+      for (let at = 0; at < pixels.length; at += 4) {
+        const behind = [pixels[at], pixels[at + 1], pixels[at + 2]];
+        const drawn = parts.slice(0, 3).map((v, i) => v * alpha + behind[i] * (1 - alpha));
+        const x = light(drawn), y = light(behind), ratio = (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+        if (!worst || ratio < worst.ratio) worst = { ratio, ground: `rgb(${behind.join(', ')})`, colour, text };
+      }
+    }
+    return worst;
+  }, shot, words);
+}
+
 /** Named cases, run one after another. A case can open several browser
  * contexts: pushed to `contexts`, they are all closed before the next case,
  * whether it passed or not, and a context that fails to close fails it too. */

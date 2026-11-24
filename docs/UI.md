@@ -63,13 +63,30 @@ Words in gold are written in a lighter gold than the borders and rings
 table's panels, and small text needs 4.5. The honba and the riichi bets in the
 table's centre are ivory, since the middle of the centre is the lightest felt
 on the page, and a review's word for what a seat was doing has a backing of
-its own. What went wrong with a Trained
-opponent is said in a red that reads on its panel in either theme
-(`--accent-text`), and its buttons are filled; as plain controls they were 2.3
-to 1 in the light theme, and 1.3 under the pointer. Under a finger
-(`pointer: coarse`) the settings' and the history's headings are 44 pixels
-high, and a yaku's name on a result 32. `ui-polish-check.mjs` holds the
-layouts above and the panel's contrast.
+its own. The other screens write their words in the same lighter gold: an
+adviser's next choice, its estimate and its chosen row in Agent watch,
+Physical agent play and a guided game, a guide's step over its prompt, a
+palette's "Choose a tile", the chosen list and the adviser's move in a hand's
+review, Trained AI's preference, and in the game's review the filter pressed,
+Flagged on a line and in the step bar, and the AI tag in Trained AI's view.
+In the borders' gold an adviser's, a guide's and a palette's were 3.6 to 4.4 to
+1 on the light theme's panels, and Flagged on a line, under the gold wash of
+the decision on show, 3.6; the reviews' others passed, on darker panels. In
+the lighter gold they are 5.2 to 11.2 to 1, measured by pixels in both themes.
+Words on the bare felt beside them are ivory at 0.9 or more, 4.7 to 1 on the
+lightest felt there is. What went wrong with a Trained opponent, and why a
+physical table cannot be analysed, are said in a red that reads on their
+panel in either theme (`--accent-text`); the accent was 4.3 to 1 on the light
+theme's pale panel. The first panel's buttons are filled; as plain controls
+they were 2.3 to 1 in the light theme, and 1.3 under the pointer. A list
+pressed, the hand review's or the game review's filter, is still told from
+the others by its colour alone, as before, besides what a screen reader
+hears (`aria-pressed`). Under a finger (`pointer: coarse`) the settings' and
+the history's headings are 44 pixels high, and a yaku's name on a result 32.
+`ui-polish-check.mjs` holds the layouts above, the panel's contrast, and
+Flagged on a review's line and the review's two preferences in both themes;
+`webapp-reliability-check.mjs` an analysed table's words in gold and the
+refusal's red, and `guided-game-check.mjs` a guide's step.
 
 ## Tile faces
 
