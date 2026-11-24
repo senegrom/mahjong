@@ -95,7 +95,8 @@ export async function hasStoredNetwork(url, expect, { scope } = {}) {
  * error) or whose body ends short keeps the bytes it received and is asked
  * again, after `pauseMs`, for the rest, `Range: bytes=<received>-`, up to
  * `resume` times in a row without new bytes before it fails as it would
- * have without. A 206 is taken
+ * have without. One that breaks with every byte in hand asks nothing more,
+ * and the digest decides. A 206 is taken
  * from where its Content-Range says it starts, at or before the bytes in
  * hand; one that starts after them, or whose Content-Range cannot be read or
  * names another size, is let go and the next request asks for the whole. A
@@ -112,7 +113,7 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
   let controller = null, idle, total, pause, reader = null, giveUp = null;
   // Why the wait under way ends: a deadline, or nothing yet. `overall` is the
   // total deadline's, which no further request survives.
-  let stopped = null, overall = null, seen = 0, shown = 0;
+  let stopped = null, overall = null, seen = 0, shown = 0, last = null;
   const end = error => { stopped = error; controller?.abort(error); giveUp?.(error); };
   const resetIdle = () => {
     clearTimeout(idle);
@@ -146,6 +147,7 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
       request.headers.set('Range', `bytes=${seen}-`);
     }
     const response = await bounded(fetch(url, request));
+    last = response;
     reader = response.body?.getReader() ?? null;
     if (response.status === 206) {
       const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get('Content-Range') ?? '');
@@ -187,8 +189,12 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
     for (let attempt = 0, best = 0; ; attempt++) {
       try { response = await receive(); break; } catch (error) {
         letGo(); clearTimeout(idle);
+        const broke = !overall && Boolean(error?.resumable || error instanceof TypeError);
+        // Broken after its last byte: nothing is left to ask for. The last
+        // response's headers, all its caller reads of it, came whole.
+        if (broke && seen === size) { response = last; stopped = overall; break; }
         if (shown > best) { best = shown; attempt = 0; }
-        if (attempt >= resume || overall || !(error?.resumable || error instanceof TypeError)) throw overall ?? error;
+        if (!broke || attempt >= resume) throw overall ?? error;
       }
       await new Promise(done => { wake = done; pause = setTimeout(done, pauseMs); });
       wake = null; clearTimeout(pause);

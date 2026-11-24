@@ -574,6 +574,23 @@ test('a link that breaks more often than the attempts allow goes on while every 
   assert.equal(h.fetches(), 8);
 });
 
+test('a transfer that breaks or stalls after its last byte asks nothing more, and its digest decides', async t => {
+  const broken = host(t, [() => new Response(breaking(packed))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
+  assert.deepEqual(broken.asked, [null], 'no request for bytes past the end, which its host answers 416');
+  const stalled = host(t, [() => new Response(new ReadableStream({ start(controller) { controller.enqueue(packed); },
+    pull: () => new Promise(() => {}) }))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: { ...quick, idleMs: 30 } }), packed);
+  assert.deepEqual(stalled.asked, [null]);
+  // The same for a network that is never resumed, and other bytes still fail.
+  const plain = host(t, [() => new Response(breaking(good))]);
+  assert.deepEqual(await verifiedNetworkBytes({ url, expect, timeouts: quick }), good);
+  assert.deepEqual(plain.asked, [null]);
+  const wrong = host(t, [() => new Response(breaking(Uint8Array.from(packed, byte => byte ^ 1)))]);
+  await assert.rejects(verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), /not the one/);
+  assert.equal(wrong.fetches(), 1);
+});
+
 test('a body that ends short is a break too, and the total deadline ends every attempt and pause', async t => {
   const h = host(t, [() => new Response(packed.slice(0, 7)), () => part(7, 16)]);
   assert.deepEqual(await verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts: quick }), packed);
