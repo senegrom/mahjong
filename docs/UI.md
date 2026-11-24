@@ -272,7 +272,9 @@ focus goes on to the hand. The table shows Club in its seats, and the
 Opponents select says **Club meanwhile**, an entry of its own, so that Club is
 not read as the player's setting: the table the player chose stays their
 stored choice, and a stand-in is for one match. A stand-in never sticks, and never deals a long
-wait behind the player's back. A new game goes back to the chosen table when
+wait behind the player's back, as far as `offline.network` 'ready' is fresh:
+a copy the browser evicted since the page last looked is found at the first
+Trained move, whose wait and button then come. A new game goes back to the chosen table when
 the network is at hand, which is when the page holds it (`offline.network`
 'ready': stored, or bytes storage refused held for the opponents' worker) or
 that worker has it loaded, and the stand-in ends. Where it is not at hand but
