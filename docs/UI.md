@@ -268,9 +268,10 @@ thinks, the turn's controls offer **Play Club meanwhile** under the prompt,
 what it does in its title. Pressed, this match's Trained opponents are Club's
 for the rest of the match, by the command **Continue with Club opponents**
 records after a failure, and the download carries on. The button goes, and
-focus goes on to the hand. The table shows Club, in its seats and in the
-Opponents select, but the table the player chose stays their stored choice: a
-stand-in is for one match. A stand-in never sticks, and never deals a long
+focus goes on to the hand. The table shows Club in its seats, and the
+Opponents select says **Club meanwhile**, an entry of its own, so that Club is
+not read as the player's setting: the table the player chose stays their
+stored choice, and a stand-in is for one match. A stand-in never sticks, and never deals a long
 wait behind the player's back. A new game goes back to the chosen table when
 the network is at hand, which is when the page holds it (`offline.network`
 'ready': stored, or bytes storage refused held for the opponents' worker) or
@@ -281,7 +282,9 @@ stand-in holds. Where neither, the new game is the chosen table and the
 stand-in ends: its first Trained move asks for the network, and the wait,
 with **Play Club meanwhile**, comes again. The
 stand-in ends when the player picks opponents themself, in the select or the
-custom table, which is stored as any pick is. Nothing marks it in what is
+custom table, which is stored as any pick is: Club too, though Club plays
+already, which then deals Club and makes it their choice, and Trained, which
+deals Trained and its wait. Nothing marks it in what is
 saved: after a reload the page knows it by the two tables alone, the match
 playing Club exactly where the stored choice says Trained, keeps both as they
 are, and asks for the network again where it can be saved. In a browser that

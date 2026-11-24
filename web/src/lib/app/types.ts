@@ -94,6 +94,9 @@ export interface SettingsProps extends OfflineStatusProps {
   onnetworkchange?: (version: string) => boolean;
   difficulty: Difficulty; opponents: Opponent[];
   ready: boolean; saveConflict: string; trainedAvailable: boolean;
+  /** Club plays this match in place of the Trained table the player chose
+   * (Play Club meanwhile): the Opponents select says so. */
+  standIn?: boolean;
   changeOpponents: (event: Event & { currentTarget: HTMLSelectElement }) => void;
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;

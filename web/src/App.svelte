@@ -573,12 +573,16 @@
     if (startFresh([...draftOpponents])) customDialog?.close();
   }
 
+  // While a stand-in holds, the select shows "Club meanwhile", and any pick
+  // there is the player's own, Club included, though the match plays Club
+  // already: it deals that table and ends the stand-in.
   function changeOpponents(event) {
     const strength = event.currentTarget.value;
     // The control displays the active mode until the change is confirmed.
-    event.currentTarget.value = difficulty;
+    event.currentTarget.value = returnTable ? 'meanwhile' : difficulty;
+    if (strength === 'meanwhile') return;
     if (strength === 'custom') configureTable();
-    else if (strength !== difficulty) startFresh(strength);
+    else if (strength !== difficulty || returnTable) startFresh(strength);
   }
 
   function canDiscard(tile) { return !busy && !failure && !saveConflict && discardChoices.some((choice) => choice.tile === tile); }
@@ -946,7 +950,7 @@
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
     {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
-    {difficulty} {opponents} {ready} {saveConflict} {trainedAvailable} {offline}
+    {difficulty} {opponents} {ready} {saveConflict} {trainedAvailable} {offline} standIn={Boolean(returnTable)}
     {changeOpponents} {startFresh} {configureTable} downloadAi={downloadAiForPlayer} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   <!-- On a phone the Tile face select is in the settings' dialog, and while

@@ -20,7 +20,7 @@
     shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
     tileFace, pendingTileFace = null, faceWarning = '',
     network = playedNetwork().version, runtime = null, onnetworkchange,
-    difficulty, opponents, ready, saveConflict, trainedAvailable, offline,
+    difficulty, opponents, ready, saveConflict, trainedAvailable, offline, standIn = false,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
   }: SettingsProps = $props();
@@ -105,7 +105,11 @@
   <h1>Riichi</h1>
   {#if mode === 'play'}<label class="opponents">
     <span>Opponents</span>
-    <select class="app-control" value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+    <!-- While Club stands in for Trained (Play Club meanwhile), the select
+         says so in an entry of its own, so that Club is not read as the
+         player's choice; picking Club or Trained there is a pick (App). -->
+    <select class="app-control" value={standIn ? 'meanwhile' : difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+      {#if standIn}<option value="meanwhile">Club meanwhile</option>{/if}
       <option value="beginner">Beginner</option>
       <option value="club">Club</option>
       {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained {network}</option>{/if}
