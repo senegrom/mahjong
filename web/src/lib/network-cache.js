@@ -212,6 +212,9 @@ export async function verifiedDownload(url, expect, { init, idleMs, totalMs, onP
       if (overall) throw overall;
       said();
     }
+    // Every byte is in hand: the idle deadline was the transfer's, and hashing
+    // what arrived is no part of that. Only the total deadline still runs.
+    clearTimeout(idle);
     if (await bounded(digestOf(bytes)) !== expect.sha256) throw new Error(describe('digest'));
     return { response, bytes };
   } finally {

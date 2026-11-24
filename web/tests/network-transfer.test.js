@@ -638,7 +638,13 @@ test('each pause in a row is twice the last, and a waiting window still waits th
   const waiter = verifiedNetworkBytes({ url: halfUrl, expect: half, timeouts });
   let done = false;
   void holder.finally(() => { done = true; });
-  for (let second = 0; second < 400 && !done; second++) { t.mock.timers.tick(1000); await turns(); }
+  // The clock is moved only until the last request has been asked. What
+  // follows needs no timer, and it hashes in real time: a clock moved on
+  // meanwhile ran out the transfer's idle minute, or the waiting window's
+  // patience, before a hash that takes a millisecond had answered, and the
+  // test failed once in CI by the first.
+  for (let second = 0; second < 400 && !done && asked.length < 6; second++) { t.mock.timers.tick(1000); await turns(); }
+  assert.equal(asked.length, 6);
   assert.deepEqual(await holder, packed);
   assert.deepEqual(asked.slice(1).map((at, index) => at - asked[index]), [62000, 4000, 8000, 16000, 92000],
     'a stall\'s minute and 2 s, then 4, 8 and 16 s, then a minute\'s stall and 32 s');

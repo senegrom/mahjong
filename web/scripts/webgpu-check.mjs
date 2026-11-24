@@ -20,7 +20,11 @@
  * whose Chrome has none, it says so and passes. The network is the file
  * MAHJONG_WEBGPU_NETWORK names, else MAHJONG_NETWORK's; one whose graph does
  * not run whole on WebGPU is not one the page would send to the card, and is
- * skipped too.
+ * skipped too. The file may be a packed network (src/lib/network-pack.js),
+ * as the site's default is published: it is then saved packed, as a page
+ * saves it, and the card's worker widens it, as on the site, while
+ * WebAssembly is handed the whole file it widens to, so that the two are
+ * asked about the same weights.
  *   MAHJONG_WEBGPU_NETWORK=<network.onnx> node scripts/webgpu-check.mjs
  * Build the site first: npm run build. */
 import assert from 'node:assert/strict';
@@ -38,6 +42,7 @@ import { reviewTable } from '../src/lib/trained-move.js';
 import { GPU_BATCH, BATCH } from '../src/lib/game-review.js';
 import { TIMED_RUNS, WEIGHT_BOUND, agreement, fastEnough, median, softwareAdapter, timedOrder } from '../src/lib/webgpu.js';
 import { networkCacheName } from '../src/lib/network-cache.js';
+import { isPacked, unpackNetwork } from '../src/lib/network-pack.js';
 import { clubAdvisedGame, eachDecision, reviewCheckGame } from '../tests/fixtures/review-check-game.js';
 
 /** The fewest decisions that must keep their best move on the card: its
@@ -59,12 +64,13 @@ assert.ok(playWorker && cardWorker, 'the build has both workers');
 const args = ['--enable-unsafe-webgpu', '--enable-features=WebGPU', '--ignore-gpu-blocklist',
   ...(process.platform === 'win32' ? ['--use-angle=d3d11'] : [])];
 const PAGE = '<!doctype html><meta charset="utf-8"><title>WebGPU check</title><body></body>';
-let network = null, planes = null, masks = null, wasmFetches = 0;
+let network = null, whole = null, planes = null, masks = null, wasmFetches = 0;
 const server = createServer(createFixtureHandler({ root: dist, intercept: name => {
   // This page has no service worker: every fetch of the runtime's WebAssembly reaches the server.
   if (name === `${webgpu}ort-wasm-simd-threaded.jsep.wasm`) wasmFetches++;
   if (name === 'webgpu-check.html') return { body: PAGE };
   if (name === 'webgpu-check/network.onnx') return { body: network };
+  if (name === 'webgpu-check/whole.onnx') return { body: whole };
   if (name === 'webgpu-check/planes.bin') return { body: planes };
   if (name === 'webgpu-check/masks.bin') return { body: masks };
   return undefined;
@@ -122,7 +128,9 @@ try {
   if (skip) console.log(`SKIP WebGPU against WebAssembly: ${skip}.`);
   else {
     network = readFileSync(path);
-    if (!runsOnWebgpu(graphOperators(network))) {
+    const packed = isPacked(network);
+    whole = packed ? Buffer.from(unpackNetwork(network)) : network;
+    if (!runsOnWebgpu(graphOperators(whole))) {
       console.log(`SKIP WebGPU against WebAssembly: ${path} does not run whole on WebGPU; export it again with neural/export.py.`);
     } else {
       const rows = await positions();
@@ -131,10 +139,14 @@ try {
       rows.forEach((row, at) => { laid.set(row.planes, at * width); legal.set(row.mask, at * row.mask.length); });
       planes = Buffer.from(laid.buffer);
       masks = Buffer.from(legal.buffer);
-      const expect = { bytes: network.length, sha256: createHash('sha256').update(network).digest('hex') };
-      console.log(`Adapter: ${adapter.name || 'unnamed'}; ${rows.length} positions of ${width / POSITIONS} planes; network ${path}.`);
+      // The identity of what is saved: a packed network's digest and saved
+      // size are the packed file's, and its bytes the whole file's.
+      const sha256 = createHash('sha256').update(network).digest('hex');
+      const expect = packed ? { bytes: whole.length, sha256, packing: 'half', storedBytes: network.length } : { bytes: network.length, sha256 };
+      console.log(`Adapter: ${adapter.name || 'unnamed'}; ${rows.length} positions of ${width / POSITIONS} planes; network ${path}${packed ? `, packed (${network.length} bytes for ${whole.length})` : ''}.`);
       await check('the card is brought up on a batch WebAssembly answered, passes the page\'s gates, and answers every batch as WebAssembly does', async () => {
         const result = await page.evaluate(async ({ playWorker, cardWorker, runtimeBase, webgpuBase, cacheName, expect, width, gpuBatch, wasmBatch, runs, order }) => {
+          const packed = Boolean(expect.packing);
           const fetched = async name => new Uint8Array(await (await fetch(`webgpu-check/${name}`)).arrayBuffer());
           const allPlanes = new Float32Array((await fetched('planes.bin')).buffer), allMasks = await fetched('masks.bin');
           const count = allPlanes.length / width, moves = allMasks.length / count;
@@ -174,7 +186,7 @@ try {
           const card = open(cardWorker);
           try {
             // A first batch, which loads the network, then the sample.
-            await onWasm(0, wasmBatch, { network: bytes });
+            await onWasm(0, wasmBatch, { network: packed ? await fetched('whole.onnx') : bytes });
             const sample = await onWasm(wasmBatch, wasmBatch);
             const opened = await card.ask({ open: { url, expect, scope, webgpu: webgpuBase } }).catch(error => ({ refused: error.message }));
             if (opened.refused) return { refused: opened.refused };
