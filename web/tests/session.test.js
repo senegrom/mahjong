@@ -714,17 +714,35 @@ test("a waiting note is parted from the share of a download it ends with, which 
 });
 
 test('a wait is a download while the page saves the network or its worker fetches it, and not while the network starts or thinks', () => {
-  // By the page: its own download, and a first visit's install before it.
-  assert.equal(waitIsDownload('', { phase: 'ai', progress: 3 }), true);
-  assert.equal(waitIsDownload('', { phase: 'checking', installing: true }), true);
-  assert.equal(waitIsDownload('', { phase: 'ready', installing: true, aiReady: true }), false);
-  for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitIsDownload('', { phase }), false, phase);
+  // By the page: where the network itself stands, downloading or waiting its
+  // turn behind another window.
+  assert.equal(waitIsDownload('', { phase: 'ai', network: 'downloading', progress: 3 }), true);
+  assert.equal(waitIsDownload('', { phase: 'ai', network: 'waiting', progress: 0 }), true);
+  // Not where it is in hand, or none is asked for, has failed, or is left to
+  // the worker: whatever the save's phase, and never by an install.
+  for (const network of ['ready', 'none', undefined]) {
+    for (const phase of ['checking', 'ready', 'ai', 'incomplete', 'unavailable']) {
+      assert.equal(waitIsDownload('', { phase, network, progress: 40 }), false, `${phase}, ${network}`);
+      assert.equal(waitIsDownload('', { phase, network, progress: 40, installing: true }), false, `${phase}, ${network}, installing`);
+    }
+  }
   assert.equal(waitIsDownload('', null), false);
   // By the opponent's worker, whose note then stands for the page's.
-  assert.equal(waitIsDownload('downloading the network 12%', { phase: 'unavailable' }), true);
+  assert.equal(waitIsDownload('downloading the network 12%', { phase: 'unavailable', network: 'none' }), true);
+  assert.equal(waitIsDownload('waiting for another window to download the network', { network: 'none' }), true);
   for (const note of ['loading the network', 'starting the network', 'network ready', 'retrying the agent with more memory']) {
-    assert.equal(waitIsDownload(note, { phase: 'ai', progress: 50 }), false, note);
+    assert.equal(waitIsDownload(note, { phase: 'ai', network: 'downloading', progress: 50 }), false, note);
   }
+});
+
+test('ordinary thinking, with the network in hand and the save still at 99, shows no wait and offers no Club meanwhile', () => {
+  // The opponents play while the runtime is still being saved, on a first
+  // visit beside the install: that is thinking, not a download.
+  const thinking = { phase: 'ai', network: 'ready', progress: 99, installing: true };
+  assert.equal(waitingNote('', thinking), '');
+  assert.equal(waitIsDownload('', thinking), false);
+  assert.equal(waitingNote('loading the network', thinking), 'loading the network');
+  assert.equal(waitIsDownload('loading the network', thinking), false);
 });
 
 test('the start-up line says which of the two it still waits for: the tile graphics, or the engine once they are in', () => {

@@ -35,16 +35,26 @@ export function waitingNote(note, offline, network = playedNetwork()) {
   return '';
 }
 
+/** Whether a note of the opponent's worker says it is fetching the network
+ * itself, or waits its turn behind another window's download of it
+ * ("downloading the network 12%", "waiting for another window to download
+ * the network"), rather than loading it from this device or thinking. */
+export function noteIsDownload(note) {
+  return /^(downloading|waiting for another window)\b/.test(note ?? '');
+}
+
 /** Whether what a Trained opponent waits for is a download, the wait
  * waitingNote names, rather than the network starting from this device's
- * copy or thinking: the page saving the network (phase 'ai'), a first
- * visit's install before that, or the opponent's worker fetching the network
- * itself, whose note then stands for the page's ("downloading the network
- * 12%"). Only then does play offer Club meanwhile: a start or a thought
- * takes seconds, a download minutes. */
+ * copy or thinking: the worker's own note where it has one (noteIsDownload),
+ * and with none, where the network itself stands, `offline.network`
+ * 'downloading' or 'waiting'. Never by the whole save's phase, which stays
+ * 'ai' while the runtime is saved and the opponents already play, nor by a
+ * first visit's install, which the network does not wait for. Only then does
+ * play offer Club meanwhile: a start or a thought takes seconds, a download
+ * minutes. */
 export function waitIsDownload(note, offline) {
-  if (note) return /^downloading\b/.test(note);
-  return Boolean(offline && (offline.phase === 'ai' || (offline.installing && !offline.aiReady)));
+  if (note) return noteIsDownload(note);
+  return offline?.network === 'downloading' || offline?.network === 'waiting';
 }
 
 /** A waiting note parted from the figure it ends with, how far a download

@@ -250,14 +250,17 @@ said twice. It holds the keys wherever they work: with **Keyboard shortcuts in
 your hand** on, on the player's turn, and not on a touch screen.
 
 While a Trained opponent waits for the network, the prompt says what it waits
-for, and how much that is: "downloading the trained network (108 MB) 37%",
-the size being the network's as it is fetched, and before that, while a first
-visit's service worker still saves the game, "saving the game, then
-downloading the trained network (108 MB)". Only the words are in the prompt's
-live region. How far the download has got stands beside them, outside it, so
+for: the worker's own note while it loads the network, and otherwise where
+the network stands (`offline.network`), "downloading the trained network
+(108 MB) 37%" while its bytes arrive, the size being the played network's as
+it is fetched, or "waiting for another window to download the trained
+network". Nothing is said of a first visit's install, which the network does
+not wait for, nor of the save's runtime, held at 99 while the opponents
+already play. Only the words are in the prompt's live region. How far the download has got stands beside them, outside it, so
 a screen reader hears the download once and not at every percent.
 
-While that wait is the download, and never while the network only starts or
+While that wait is the download, the page's or the worker's, or a turn
+behind another window's, and never while the network only starts or
 thinks, the turn's controls offer **Play Club meanwhile** under the prompt,
 what it does in its title. Pressed, this match's Trained opponents are Club's
 for the rest of the match, by the command **Continue with Club opponents**
