@@ -238,9 +238,26 @@ try {
       assert.match(await page.$eval('[data-face-error]', el => el.textContent.trim()), /could not load/);
       await page.setViewport({ width: 1100, height: 1000 });
       await page.waitForSelector('.settings-trigger', { hidden: true });
+      // The settings move out of the dialog as the page learns the new width,
+      // a moment after the bar's own styles change: the pick waits for the
+      // one Tile face select there is then, on the page, so that it is the
+      // one that stays.
+      await page.waitForFunction(() => {
+        const selects = document.querySelectorAll('select[aria-label="Tile face"]');
+        return selects.length === 1 && !selects[0].closest('dialog');
+      }, { timeout: 15000 });
       denyUnusedArt = false;
       await page.select('select[aria-label="Tile face"]', 'matisse');
-      await page.waitForSelector('.hand .tile.matisse');
+      // What the page shows, should the pick not take.
+      const shows = () => page.evaluate(() => ({
+        selects: [...document.querySelectorAll('select[aria-label="Tile face"]')].map(el => [el.value, Boolean(el.closest('dialog')), el.getAttribute('aria-busy')]),
+        progress: document.querySelector('[data-face-progress]')?.textContent.trim() ?? null,
+        failure: document.querySelector('[data-face-error]')?.textContent.trim() ?? null,
+        dialogLine: document.querySelector('[data-face-failure]')?.textContent.trim() ?? null,
+        tiles: [...new Set([...document.querySelectorAll('.hand .tile')].map(el => [...el.classList].filter(name => ['classic', 'matisse', 'van-gogh'].includes(name)).join(' ')))],
+      }));
+      await page.waitForSelector('.hand .tile.matisse', { timeout: 60000 })
+        .catch(async error => { throw new Error(`the Matisse face did not take: ${JSON.stringify(await shows())}`, { cause: error }); });
       await page.waitForFunction(() => !document.querySelector('[data-face-progress]'));
       assert.equal(await page.$('[data-face-error]'), null);
       assert.equal(await savedMatch(page), saved);
