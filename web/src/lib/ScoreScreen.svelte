@@ -49,9 +49,7 @@
 
   let minimized = $state(false);
   // The page is told as the chip comes and goes, and that it is gone when
-  // the result itself goes. A style of the page's that looked for the chip
-  // (main:has) was not always applied as the chip came: in CI the page's
-  // last line then lay under it.
+  // the result itself goes: it keeps its foot clear of the chip (App).
   $effect(() => {
     const shown = minimized;
     onchip?.(shown);

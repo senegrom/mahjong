@@ -318,6 +318,14 @@ try{await mkdir(output,{recursive:true});await new Promise(done=>server.listen(0
   assert.ok(review);
   await review.click();
   await over.waitForSelector('.result-chip');
+  // The page's foot makes room as the chip comes, and under reduced motion,
+  // which these checks ask for, every change of style eases over a hundredth
+  // of a millisecond (app.css): it is in effect at the next frame, not at
+  // once. Measured before that frame, as a slow machine does, the foot was
+  // still its 24 pixels and the history lay 30 under the chip (in CI, in
+  // three runs). So the room is waited for, and its lack said as such.
+  await over.waitForFunction(()=>parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom)>=56,{timeout:10000})
+    .catch(()=>assert.fail('the page\u2019s foot never made room for the chip'));
   // Scrolled to its end and measured in one step: the page grows a moment
   // after the chip shows, as the hand's review arrives, and measured a step
   // after the scroll it was no longer at its end (once, in CI).
