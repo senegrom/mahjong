@@ -27,11 +27,12 @@ let networkJob = null;
 // opponent's worker, and whether that worker asked for this job's network
 // (prepareNetwork) and so took them.
 let heldOnly = false, networkTaken = false;
-// Whether storage refused a trained save in this page, the network or its
-// runtime: such a save is not tried again by itself, at every new game or
-// worker, only at the player's own word (prepareOfflineAi's `byPlayer`) or
-// after a reload. Storage that refused once refuses again, and the network
-// is 59 MB downloaded for nothing each time.
+// Whether storage refused the network in this page: its save is then not
+// tried again by itself, at every new game or worker, only at the player's
+// own word (prepareOfflineAi's `byPlayer`) or after a reload. Storage that
+// refused it once refuses it again, and the network is 59 MB downloaded for
+// nothing each time. A refusal of the runtime alone, a few megabytes beside
+// a network that is stored, is tried again at the next ask as it always was.
 let refusedHere = false;
 let coreJob = null;
 // A player who asked for Trained offline keeps it across upgrades: each
@@ -259,7 +260,8 @@ async function persistentStorage(ask = false) {
  * nothing, the update's own page saves what it plays once it runs online. */
 async function saveUpdate(registration) {
   const next = registration.waiting;
-  if (!next || updatesSaved.has(next) || !navigator.onLine) return;
+  // Storage that refused this page's network would refuse the update's.
+  if (!next || updatesSaved.has(next) || !navigator.onLine || refusedHere) return;
   updatesSaved.add(next);
   try {
     // This version's own preparation, when under way, comes first; its
@@ -472,7 +474,7 @@ export async function refreshOffline() {
  * opponent plays as soon as the network is in hand, while the phase may stay
  * 'ai' for the runtime.
  *
- * Once storage has refused a save in this page, it starts again only when
+ * Once storage has refused the network in this page, it starts again only when
  * the player asks (`byPlayer`, the offline panel's button); asked otherwise,
  * by a new game or the opponent's worker, it answers null at once and leaves
  * the network's state as it stands: 'ready' while that worker holds the
@@ -561,7 +563,7 @@ async function saveTrained(handOver, live, end) {
   try {
     // Storage that refuses, the network or the runtime, leaves online play
     // as it was: said as a warning at the end, never as a failed download.
-    let handed = null, refused = null;
+    let handed = null, refused = null, networkRefused = false;
     const stored = await networkIsStored(url, network);
     if (stored) { received = 1; networkIs('ready'); }
     else {
@@ -579,6 +581,7 @@ async function saveTrained(handOver, live, end) {
       } catch (error) {
         if (error.name !== 'NetworkStorageError') throw error;
         refused = error;
+        networkRefused = true;
         // Bytes verified but refused by storage go to the opponent's worker,
         // which would otherwise download the same network again. Without
         // them, as where storage had no room for the download, that worker
@@ -598,7 +601,7 @@ async function saveTrained(handOver, live, end) {
       refused ??= error;
     }
     if (refused) {
-      refusedHere = true;
+      if (networkRefused) refusedHere = true;
       trainedSays('incomplete', `${refused.message} Online play is still available.`, { aiReady: false });
       return handed ? { aiReady: false, ...handed } : null;
     }

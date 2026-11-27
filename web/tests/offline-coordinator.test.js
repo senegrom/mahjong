@@ -407,10 +407,9 @@ test('storage failure is a visible offline warning, not a prohibition on online 
   assert.equal(c.state().aiReady, false);
   assert.match(c.state().warning, /Online play is still available/);
   c.faults.ai = false;
-  // Not tried again by itself; at the player's word it is.
-  assert.equal(await c.api.prepareOfflineAi(), null);
-  assert.equal(c.state().aiReady, false);
-  await c.api.prepareOfflineAi({ byPlayer: true });
+  // The runtime alone was refused, beside a network that is stored: the
+  // next ask tries again by itself, as it always did, and costs no network.
+  await c.api.prepareOfflineAi();
   assert.equal(c.state().aiReady, true);
 });
 

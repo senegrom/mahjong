@@ -4,7 +4,6 @@
   import ReviewPreference from './ReviewPreference.svelte';
   import { tileWords } from './tiles.js';
   import { analyzePolicy } from './policy.js';
-  import { networkInWorker } from './network-held.js';
   import { agreement } from './game-review.js';
   import { reviewWithStrong } from './review-policy.js';
   import { fromWaiting, land, pressedByKeyboard, reviewFallbackNote, waitingNote } from './ui.js';
@@ -32,7 +31,7 @@
   // on they keep back what the adviser would have done, whichever adviser it
   // is, rather than give away what the review of the game asks the player to
   // find.
-  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, workerNote = '', adviser = $bindable('strong'),
+  let { notes = [], hints = true, engine = null, trainedAvailable = false, offline = null, workerNote = '', held = false, adviser = $bindable('strong'),
     heading = $bindable(null), onask = () => () => {}, hideAnswers = false } = $props();
   let trainedNotes = $state.raw(null);
   let reviewing = $state(false);
@@ -58,7 +57,7 @@
   });
   let activeNotes = $derived(reviewer === 'strong' ? trainedNotes ?? [] : clubNotes);
   // A first Trained review can be what downloads the network.
-  let download = $derived(waitingNote(workerNote, offline, { held: networkInWorker() }));
+  let download = $derived(waitingNote(workerNote, offline, { held }));
 
   // The review's two status lines come into the page with it, and a screen
   // reader hears a status line only once it knows it. So the lines wait in

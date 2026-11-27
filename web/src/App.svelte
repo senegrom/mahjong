@@ -20,6 +20,7 @@
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
   import { analyzeBatch, analyzePolicy, modelIsAvailable, networkInWorker, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
+  import { watchNetworkHeld } from './lib/network-held.js';
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
@@ -95,6 +96,10 @@
   // What the opponent's worker last said of the network while it loads it,
   // for the modes other than Play, which show it beside their own thinking.
   let workerNote = $state('');
+  // Whether the opponents' worker holds the network (network-held.js), as
+  // state of the page's own: each screen that names a wait is handed it, and
+  // computes its note again when it changes.
+  let workerHolds = $state(false);
   let session = $state.raw(null);
   let view = $state(null);
   let choices = $state([]);
@@ -405,6 +410,7 @@
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
     reportLoading((note) => { if (mounted) workerNote = note; });
+    const unwatchHeld = watchNetworkHeld(value => { if (mounted) workerHolds = value; });
     // Where a review's batches run decides its time a position, which is none
     // once they run elsewhere than where it was measured (MatchReview): its
     // screen keeps what it last read, so the review tells it to read again.
@@ -444,6 +450,7 @@
       faceLoad?.abort();
       unwatchOffline();
       unwatchModel();
+      unwatchHeld();
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
@@ -565,7 +572,8 @@
 
   function configureTable() {
     settingsOpen = false;
-    draftOpponents = [...opponents];
+    // The player's own table: during a stand-in the match plays another.
+    draftOpponents = [...(returnTable ?? opponents)];
     customDialog?.showModal();
   }
 
@@ -574,14 +582,18 @@
   }
 
   // While a stand-in holds, the select shows "Club meanwhile", and any pick
-  // there is the player's own, Club included, though the match plays Club
-  // already: it deals that table and ends the stand-in.
+  // there is the player's own. The table the match already plays, Club for
+  // a choice of Trained, becomes their choice as the match stands: nothing
+  // is dealt for it, the match goes on, and the stand-in ends (the stored
+  // choice follows the match's table once no other is kept for it). Any
+  // other pick deals its table, as a pick always does.
   function changeOpponents(event) {
     const strength = event.currentTarget.value;
     // The control displays the active mode until the change is confirmed.
     event.currentTarget.value = returnTable ? 'meanwhile' : difficulty;
     if (strength === 'meanwhile') return;
     if (strength === 'custom') configureTable();
+    else if (returnTable && strength === difficulty) returnTable = null;
     else if (strength !== difficulty || returnTable) startFresh(strength);
   }
 
@@ -645,11 +657,14 @@
   }
 
   async function onKey(event) {
-    // Enter held down presses nothing twice, in any mode: its repeats would
-    // press whatever took the pressed control's place, or wherever focus went
-    // as it did, such as New game and its confirmation (heldPress).
-    if (heldPress(event)) { event.preventDefault(); return; }
     if (mode !== 'play') return;
+    // Enter held down presses nothing twice in play: its repeats would press
+    // whatever took the pressed control's place, a tile or a call of the
+    // next decision, or wherever focus went as it did, such as New game and
+    // its confirmation (heldPress). Watch, the physical table and the guided
+    // game keep a held Enter's repeats, on Undo and a palette's tiles: there
+    // nothing takes a pressed button's place that a repeat could harm.
+    if (heldPress(event)) { event.preventDefault(); return; }
     if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -702,7 +717,7 @@
   // opponents, while the download carries on. Nothing is reset here, so the
   // worker and whatever is fetching the network go on; the table the player
   // chose stays their preference (update, returnTable).
-  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline, { held: networkInWorker() }));
+  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline, { held: workerHolds }));
   let standInPressed = false;
   function playClubMeanwhile() {
     session?.clubMeanwhile();
@@ -950,7 +965,7 @@
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
     {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
-    {difficulty} {opponents} {ready} {saveConflict} {trainedAvailable} {offline} standIn={Boolean(returnTable)}
+    {difficulty} opponents={returnTable ?? opponents} {ready} {saveConflict} {trainedAvailable} {offline} standIn={Boolean(returnTable)}
     {changeOpponents} {startFresh} {configureTable} downloadAi={downloadAiForPlayer} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
   <!-- On a phone the Tile face select is in the settings' dialog, and while
@@ -997,14 +1012,14 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} onchip={shown => { resultChip = shown; }} />
+    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} held={workerHolds} onchip={shown => { resultChip = shown; }} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} held={workerHolds} />
   {:else if ready && mode === 'physical'}
-    <PhysicalPlay {trainedAvailable} {storage} {offline} {workerNote} />
+    <PhysicalPlay {trainedAvailable} {storage} {offline} {workerNote} held={workerHolds} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} onclose={closeGameReview} {shortcuts} {touch}
+      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} held={workerHolds} onclose={closeGameReview} {shortcuts} {touch}
         bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
         bind:hideTiles={reviewHideTiles} />
     {/if}
@@ -1041,11 +1056,11 @@
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)}
               onstandings={() => land(standingsHeading, true, 'start')}
               onchip={shown => { resultChip = shown; }} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} held={workerHolds} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-              loadNote={waitingNote(loadNote, offline, { held: networkInWorker() })} onclub={downloadWait ? playClubMeanwhile : null}
+              loadNote={waitingNote(loadNote, offline, { held: workerHolds })} onclub={downloadWait ? playClubMeanwhile : null}
               {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
               {selectedTile} {callChoices} {choose} discard={tile => confirmation(() => discard(tile))}
               oncancel={() => confirmation(() => { selected = null; })} />

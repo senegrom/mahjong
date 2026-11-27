@@ -45,7 +45,7 @@
   // there before the second press of a double click lands, which would
   // answer the next decision too: it is let go (repeatedClick). Enter held
   // down on one presses it once as well, which App sees to for every button
-  // in a `data-moves` row and everywhere else (heldPress).
+  // in a `data-moves` row and every other in play (heldPress).
   function press(event: MouseEvent, act: () => void) {
     if (!repeatedClick(event)) act();
   }

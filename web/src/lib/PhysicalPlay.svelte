@@ -7,16 +7,15 @@
   import { PhysicalStore } from './physical-store.js';
   import { TILE_TYPES, WINDS, tileWords } from './tiles.js';
   import { waitingNote } from './ui.js';
-  import { networkInWorker } from './network-held.js';
   import TileEntry from './TileEntry.svelte';
   import Tile from './Tile.svelte';
   import AgentWeights from './AgentWeights.svelte';
 
-  let { trainedAvailable, storage, offline = null, workerNote = '' } = $props();
+  let { trainedAvailable, storage, offline = null, workerNote = '', held = false } = $props();
   let position = $state(emptyPosition());
   let agent = $state('club');
   // A Trained analysis may be waiting for the network's first download.
-  let download = $derived(isTrained(agent) ? waitingNote(workerNote, offline, { held: networkInWorker() }) : '');
+  let download = $derived(isTrained(agent) ? waitingNote(workerNote, offline, { held }) : '');
   let agentChosen = $state(false);
   let analysis = $state(null);
   let analyzedKey = '';

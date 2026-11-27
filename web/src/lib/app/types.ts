@@ -92,6 +92,9 @@ export interface SettingsProps extends OfflineStatusProps {
   /** Asked to play another listed network by version: true once App takes
    * the pick (it reloads the page), false to keep the one playing. */
   onnetworkchange?: (version: string) => boolean;
+  /** `difficulty` is the match's table by its name; `opponents` the table
+   * the player chose, which is the match's but for a stand-in, whose match
+   * plays Club in the chosen table's Trained seats. */
   difficulty: Difficulty; opponents: Opponent[];
   ready: boolean; saveConflict: string; trainedAvailable: boolean;
   /** Club plays this match in place of the Trained table the player chose

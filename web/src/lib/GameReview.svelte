@@ -6,7 +6,6 @@
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, noneSaid, playlist, revealing } from './game-review.js';
   import { REVIEW_WIDE, heldEnter, moveHandFocus, repeatedClick, reviewKey, waitingNote } from './ui.js';
-  import { networkInWorker } from './network-held.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -53,7 +52,7 @@
    * review's own time a position. Whatever it asks, the review waits for at
    * its gate, as it waits for the hand's notes (App).
    */
-  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, workerNote = '', onclose, shortcuts = true, touch = false,
+  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, workerNote = '', held = false, onclose, shortcuts = true, touch = false,
     filter = $bindable('flagged'), place = $bindable(null), revealed = $bindable({}), hideMove = $bindable(false),
     hideTiles = $bindable(false) } = $props();
 
@@ -138,7 +137,7 @@
   let list = $derived(playlist(status.hands, filter));
   let reviewing = $derived(status.hands.find(hand => hand.status === 'reviewing') ?? null);
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
-  let download = $derived(waitingNote(workerNote, offline, { held: networkInWorker() }));
+  let download = $derived(waitingNote(workerNote, offline, { held }));
 
   // The decision on show: the player's place, or where the review lands
   // while they have none for this match.

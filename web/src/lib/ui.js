@@ -243,8 +243,8 @@ export function handKeyActs(key) {
 }
 
 /** Whether a keydown is Enter held down on something Enter presses: a
- * button, a summary, a link or anything with role="button", anywhere in the
- * app and in every mode. Enter presses as it goes down and again at every
+ * button, a summary, a link or anything with role="button". App asks this of
+ * every key in play. Enter presses as it goes down and again at every
  * repeat, and what takes a pressed control's place, or wherever focus lands
  * as it goes, is pressed in turn: a tile or a call of the next decision drawn
  * where the last one was, or New game, whose confirmation then holds the page.
