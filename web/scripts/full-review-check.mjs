@@ -294,6 +294,9 @@ try{
   const p=await open(snapshot,{hints:false,width:1100,height:900});
   const names=await p.$$eval('.win .yaku-name span:first-child',els=>els.map(el=>el.textContent.trim()));
   assert.deepEqual(names,view.outcome.wins[0].yaku.map(yaku=>yaku.name),'every yaku is a control');
+  // One of 24 pixels at the least, as a control under a mouse must be: a line of its text alone is 23.
+  const heights=await p.$$eval('.win .yaku-name',els=>els.map(el=>el.getBoundingClientRect().height));
+  assert.ok(heights.length>0&&heights.every(height=>height>=24),`a yaku's name is 24 pixels high or more: ${heights.join(' ')}`);
   assert.equal(await p.$('.yaku-note'),null,'nothing is explained until it is asked about');
   // Hovering the name explains it; a yaku with a shape lifts its own tiles.
   const shaped=await p.evaluate(list=>{

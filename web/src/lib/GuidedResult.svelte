@@ -167,7 +167,7 @@
   /* The yaku name is the control: hovering or tabbing to it explains the
      yaku and lifts the tiles that make it. */
   .yaku { list-style: none; margin: 0; padding: 0; }
-  .yaku-name { display: block; width: 100%; padding: 1px 0; border: 0; background: none;
+  .yaku-name { display: block; width: 100%; min-height: 24px; padding: 1px 0; border: 0; background: none;
     color: inherit; font: inherit; text-align: left; cursor: help; }
   .yaku-name:hover, .yaku-name.asking { color: var(--gold-text, #f0c869); }
   .yaku-name:focus-visible { outline: 2px solid var(--gold, #d8a12a); outline-offset: 2px; border-radius: 4px; }

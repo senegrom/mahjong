@@ -328,8 +328,10 @@
   .yaku li.dora-count, .yaku li.ura-count { display: flex; justify-content: space-between; gap: 12px; }
   /* The name is the control: hovering or tabbing to it explains the yaku and
      lifts the tiles that make it. It must not look like a button in a row of
-     numbers, so it keeps the row's own shape. */
-  .yaku-name { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 1px 0;
+     numbers, so it keeps the row's own shape. It is 24 pixels high at the
+     least, the least a control may be under a mouse: its line alone made it
+     23. Under a finger it is 32 (below). */
+  .yaku-name { display: flex; width: 100%; min-height: 24px; align-items: center; justify-content: space-between; gap: 12px; padding: 1px 0;
     border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: help; }
   .yaku-name:hover, .yaku-name.asking { color: var(--gold-text, #f0c869); }
   .yaku-name:focus-visible { outline: 2px solid var(--gold, #d8a12a); outline-offset: 2px; border-radius: 4px; }
