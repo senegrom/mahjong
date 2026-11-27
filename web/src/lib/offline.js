@@ -260,13 +260,19 @@ async function persistentStorage(ask = false) {
  * nothing, the update's own page saves what it plays once it runs online. */
 async function saveUpdate(registration) {
   const next = registration.waiting;
-  // Storage that refused this page's network would refuse the update's.
+  // Storage that refused this page's network would refuse the update's: it
+  // is not fetched to be refused. Nothing asks again for this update after
+  // that, a retry of the player's that works included; its own page saves
+  // what it plays once it runs.
   if (!next || updatesSaved.has(next) || !navigator.onLine || refusedHere) return;
   updatesSaved.add(next);
   try {
     // This version's own preparation, when under way, comes first; its
-    // network is then ahead of the update's in saveNetwork's queue.
+    // network is then ahead of the update's in saveNetwork's queue. It may be
+    // refused while this waits for it, which is the usual order: an update
+    // is found while the page's own save still runs.
     await aiJob?.catch(() => {});
+    if (refusedHere) return;
     const info = await request('MAHJONG_STATUS', null, next);
     if (!info?.hasModel || !info.aiRequested || info.aiReady || !info.network) return;
     await request('MAHJONG_PREPARE_AI', null, next);

@@ -978,7 +978,7 @@
        waits in the page, empty and out of sight, before its words arrive. -->
   <p class={notice ? 'notice' : 'visually-hidden'} data-notice role="status">{notice}</p>
 
-  <OpponentDialog bind:customDialog bind:draftOpponents {opponents} {trainedAvailable}
+  <OpponentDialog bind:customDialog bind:draftOpponents opponents={returnTable ?? opponents} {trainedAvailable}
     {ready} {saveConflict} {startCustomTable} />
 
   {#if saveConflict}

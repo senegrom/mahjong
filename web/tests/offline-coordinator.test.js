@@ -554,7 +554,10 @@ test('a page download that fails is incomplete and a storage failure is only an 
   assert.match(c.state().warning, /Online play is still available/);
   assert.equal(c.calls.includes('MAHJONG_NETWORK_SAVED'), false);
   c.faults.network = null;
-  // Refused by storage, it is tried again at the player's word.
+  // Refused by storage, the network is not saved again by itself, though
+  // storage would now take it: only at the player's word.
+  assert.equal(await c.api.prepareOfflineAi(), null);
+  assert.equal(c.state().aiReady, false);
   await c.api.prepareOfflineAi({ byPlayer: true });
   assert.equal(c.state().aiReady, true);
 });

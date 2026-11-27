@@ -290,10 +290,10 @@ stand-in ends: its first Trained move asks for the network, and the wait,
 with **Play Club meanwhile**, comes again. The
 stand-in ends when the player picks opponents themself, in the select or the
 custom table, which opens on the table they chose and not on the stand-in's,
-and is stored as any pick is. A pick of the table the match
+and is stored as any pick is. A pick in the select of the table the match
 already plays, Club for a choice of Trained, makes it their choice as the
-match stands, and deals nothing; any other pick deals its table, Trained with
-its wait. Nothing marks it in what is
+match stands, and deals nothing; any other pick there, and any table
+confirmed in the custom table, deals its table, Trained with its wait. Nothing marks it in what is
 saved: after a reload the page knows it by the two tables alone, the match
 playing Club exactly where the stored choice says Trained, keeps both as they
 are, and asks for the network again where it can be saved. In a browser that

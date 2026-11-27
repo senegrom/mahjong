@@ -255,9 +255,14 @@ try {
     assert.deepEqual((await settings(page)).opponents, ['club', 'club', 'club']);
     await page.waitForFunction(() => document.querySelector('select[aria-label="opponent strength"]').value === 'club');
     assert.equal(await page.$('select[aria-label="opponent strength"] option[value="meanwhile"]'), null, 'no stand-in is said any more');
+    assert.equal((await match(page)).commands.length, picked.commands.length, 'nothing was played or dealt by the pick');
+    // The next move is this same match's: had the pick dealt a game, what
+    // is saved by now would be that game, of another seed.
+    await page.waitForSelector(playable, { timeout: 45000 });
+    await (await page.$('.call-options [data-choice=pass]') ?? await page.$('.hand button[data-hand-index]:not(:disabled)')).click();
+    await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, picked.commands.length);
     const kept = await match(page);
     assert.equal(kept.seed, picked.seed, 'the match goes on: no game is dealt for a pick of the table it plays');
-    assert.equal(kept.commands.length, picked.commands.length);
     const clubSeed = kept.seed;
     await page.click('.restart');
     await page.waitForFunction((key, seed) => JSON.parse(localStorage.getItem(key)).seed !== seed, {}, SAVE_KEY, clubSeed);
