@@ -15,7 +15,8 @@
   import Standings from './Standings.svelte';
   import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
-  let { trainedAvailable, hints = true, offline = null, workerNote = '' } = $props();
+  // onchip is the result's word to the page that its chip shows (ScoreScreen).
+  let { trainedAvailable, hints = true, offline = null, workerNote = '', onchip = null } = $props();
   // Trained at every seat by default, the followed one and the three it plays
   // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
@@ -212,7 +213,7 @@
     {#if standings}<Standings {standings} onagain={start} onsave={saveGame} playerLabel={positions[0]} bind:heading={standingsHeading} />{/if}
     {#if view.phase === 'over' && view.outcome}
       <ScoreScreen outcome={view.outcome} seats={view.seats} finalHand={Boolean(standings)} {busy} {hints} dora={shownDora}
-        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={play} ongame={saveGame} {standingsFocused} />
+        bets={view.riichi_sticks ?? 0} playerLabel={positions[0]} onnext={play} ongame={saveGame} {standingsFocused} {onchip} />
     {/if}
     <details><summary>Hand history · {log.length} events</summary>{#each log as line, index (index)}<p class="log-line">{line}</p>{/each}</details>
   {/if}
