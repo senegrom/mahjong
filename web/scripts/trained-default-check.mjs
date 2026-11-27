@@ -97,7 +97,11 @@ async function open({ mode = 'play', reachable = true, saved = {}, hold = false 
 }
 const settings = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SETTINGS_KEY);
 const match = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
-const prompt = page => page.$eval('#hand-help', el => el.textContent.trim());
+// The turn's prompt: what it says, with how far a download has got beside it.
+const PROMPT = '.controls .prompt';
+const prompt = page => page.$eval(PROMPT, el => el.textContent.trim());
+// The download as every wait names it: the network's size as it is fetched.
+const DOWNLOAD = `the trained network (${Math.round((MANIFEST.storedBytes ?? MANIFEST.bytes) / 1e6)} MB)`;
 async function clickButton(page, scope, text) {
   await page.waitForFunction((scope, text) => [...document.querySelectorAll(`${scope} button`)]
     .some(button => button.textContent.trim() === text && !button.disabled), {}, scope, text);
@@ -107,8 +111,8 @@ async function clickButton(page, scope, text) {
 /** Waits until a Trained wait inside `scope` names the network's download,
  * which the page holds open (open's `hold`) so that it is under way. */
 async function downloading(page, scope) {
-  await page.waitForFunction(scope => /downloading the trained network \d+%/.test(document.querySelector(scope)?.textContent ?? ''),
-    { timeout: 60000 }, scope);
+  await page.waitForFunction((scope, download) => new RegExp(`downloading ${download.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\d+%`).test(document.querySelector(scope)?.textContent ?? ''),
+    { timeout: 60000 }, scope, DOWNLOAD);
   // The note is said as the save begins, a moment before the page asks for
   // the network: its turn at the network and what is stored are looked at
   // first. On a slow machine that moment is long enough to be seen, so the
@@ -143,11 +147,16 @@ try {
     // network's download does not wait for the service worker, which on a
     // first visit is still saving the game and every tile graphic: it begins
     // at once, and the table shows it rather than only "thinking".
-    const download = 'downloading the trained network';
-    await page.waitForFunction(text => document.querySelector('#hand-help')?.textContent.includes(text)
-      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, download);
+    const download = `downloading ${DOWNLOAD}`;
+    await page.waitForFunction((prompt, text) => document.querySelector(prompt)?.textContent.includes(text)
+      || document.querySelector('.hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 }, PROMPT, download);
     if (!(await prompt(page)).includes(download)) await page.click('.hand button[data-hand-index]:not(:disabled)');
-    await downloading(page, '#hand-help');
+    await downloading(page, PROMPT);
+    // Only the prompt's words are a live region: how far the download has
+    // got is shown beside them, outside it, so that a screen reader hears
+    // the download once and not at every percent.
+    assert.deepEqual(await page.$eval(PROMPT, el => [el.querySelector('[role="status"]').textContent.trim(), /^\d+%$/.test(el.querySelector('[data-figure]').textContent),
+      Boolean(el.querySelector('[data-figure]').closest('[role="status"], [aria-live]'))]), [download, true, false]);
     for (const deadline = Date.now() + 30000; !installing.size;) {
       assert.ok(Date.now() < deadline, 'the service worker never reached the unused faces');
       await new Promise(done => setTimeout(done, 50));
@@ -170,6 +179,95 @@ try {
     assert.ok((await match(page)).commands.some(command => command.type === 'club'));
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).difficulty === 'club', {}, SETTINGS_KEY);
     assert.deepEqual((await settings(page)).opponents, ['club', 'club', 'club'], 'the player\'s fallback is the table they now have');
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'club');
+    assert.deepEqual(page.problems, []);
+  });
+
+  await check('Play Club meanwhile gives a table waiting for the download to Club for the match, and Trained stays the stored choice through a reload and a new game', async () => {
+    // The network's download is held open, so it is under way for as long as
+    // this check runs, after the reload too.
+    const page = await open({ hold: true });
+    await page.waitForSelector('.board');
+    // East discards first; then, or at once, a Trained opponent waits, and
+    // while what it waits for is the download the table offers Club meanwhile.
+    const playable = '.hand button[data-hand-index]:not(:disabled), .call-options button:not(:disabled)';
+    await page.waitForFunction(() => document.querySelector('[data-club-meanwhile], .hand button[data-hand-index]:not(:disabled)'), { timeout: 60000 });
+    if (!await page.$('[data-club-meanwhile]')) await page.click('.hand button[data-hand-index]:not(:disabled)');
+    await page.waitForSelector('[data-club-meanwhile]', { timeout: 60000 });
+    assert.ok((await prompt(page)).includes(`downloading ${DOWNLOAD}`), 'the wait is the download');
+    const chosen = await settings(page);
+    assert.deepEqual([chosen.difficulty, chosen.opponents], ['neural', ['neural', 'neural', 'neural']]);
+    await page.screenshot({ path: resolve(output, 'trained-default-meanwhile.png'), fullPage: true });
+    // The wait holds nobody in Play either: the other modes open while the
+    // download goes on, and on coming back the match is there as it was,
+    // still waiting, with the offer.
+    const waitingMatch = JSON.stringify(await match(page));
+    assert.deepEqual(await page.$$eval('.game-modes button', buttons => buttons.map(button => button.disabled)), [false, false, false, false],
+      'no mode is held by the waiting match');
+    await page.click('.game-modes button:nth-child(2)');
+    await page.waitForSelector('.agent-watch');
+    assert.equal(await page.$('[data-club-meanwhile]'), null);
+    assert.equal(await page.$eval('.game-modes button:nth-child(2)', button => button.getAttribute('aria-pressed')), 'true');
+    await page.click('.game-modes button:first-child');
+    await page.waitForSelector('[data-club-meanwhile]', { timeout: 60000 });
+    assert.equal(JSON.stringify(await match(page)), waitingMatch, 'the match is as it was');
+    assert.ok((await prompt(page)).includes(`downloading ${DOWNLOAD}`), 'and still waits for the download');
+    await page.click('[data-club-meanwhile]');
+    await page.waitForFunction(playable => !document.querySelector('[data-club-meanwhile]') && document.querySelector(playable), { timeout: 45000 }, playable);
+    assert.equal(await page.$('.failure'), null, 'nothing failed, and nothing asks to be recovered');
+    // The match is Club's from here, and shows it; its Trained seats were
+    // given up by one recorded command, as after a failure.
+    assert.equal((await match(page)).commands.filter(command => command.type === 'club').length, 1);
+    // The select says Club stands in, in an entry of its own, rather than
+    // showing Club as if it were the player's choice.
+    assert.deepEqual(await page.$eval('select[aria-label="opponent strength"]', el => [el.value, el.selectedOptions[0].textContent.trim()]), ['meanwhile', 'Club meanwhile']);
+    assert.deepEqual(await page.$$eval('.place .opponent-type', badges => badges.map(badge => badge.dataset.controller)), ['club', 'club', 'club']);
+    // The button went as it was pressed: the hand has focus, not the page.
+    assert.ok(await page.evaluate(() => document.querySelector('.hand').contains(document.activeElement)), 'focus goes on to the hand');
+    // The table the player chose is still what is stored.
+    assert.deepEqual(await settings(page), chosen);
+    const before = (await match(page)).commands.length;
+    await (await page.$('.call-options [data-choice=pass]') ?? await page.$('.hand button[data-hand-index]:not(:disabled)')).click();
+    await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, before);
+    assert.ok(!(await match(page)).commands.some(command => command.type === 'opponent'), 'no Trained move is played or waited for');
+    assert.deepEqual(await settings(page), chosen, 'nor does a move store the stand-in');
+    // Loaded again, nothing saved marks the stand-in: the match says Club and
+    // the stored choice Trained, and the page keeps both as they are.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(`${playable}, .screen`, { timeout: 60000 });
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'meanwhile');
+    assert.deepEqual(await settings(page), chosen);
+    // A new game while the network is still not saved keeps the stand-in.
+    page.on('dialog', dialog => void dialog.accept());
+    const seed = (await match(page)).seed;
+    await page.click('.restart');
+    await page.waitForFunction((key, seed) => JSON.parse(localStorage.getItem(key)).seed !== seed, {}, SAVE_KEY, seed);
+    assert.deepEqual((await match(page)).opponents, ['club', 'club', 'club']);
+    assert.deepEqual(await settings(page), chosen);
+    assert.equal(await page.$('.failure'), null);
+    assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'meanwhile');
+    // The player's own pick of Club, the table the match already plays,
+    // makes Club their choice as the match stands: it is stored, the stand-in
+    // ends, nothing is dealt for it, and it sticks through a new game.
+    const picked = await match(page);
+    await page.select('select[aria-label="opponent strength"]', 'club');
+    await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).difficulty === 'club', {}, SETTINGS_KEY);
+    assert.deepEqual((await settings(page)).opponents, ['club', 'club', 'club']);
+    await page.waitForFunction(() => document.querySelector('select[aria-label="opponent strength"]').value === 'club');
+    assert.equal(await page.$('select[aria-label="opponent strength"] option[value="meanwhile"]'), null, 'no stand-in is said any more');
+    assert.equal((await match(page)).commands.length, picked.commands.length, 'nothing was played or dealt by the pick');
+    // The next move is this same match's: had the pick dealt a game, what
+    // is saved by now would be that game, of another seed.
+    await page.waitForSelector(playable, { timeout: 45000 });
+    await (await page.$('.call-options [data-choice=pass]') ?? await page.$('.hand button[data-hand-index]:not(:disabled)')).click();
+    await page.waitForFunction((key, count) => JSON.parse(localStorage.getItem(key)).commands.length > count, { timeout: 45000 }, SAVE_KEY, picked.commands.length);
+    const kept = await match(page);
+    assert.equal(kept.seed, picked.seed, 'the match goes on: no game is dealt for a pick of the table it plays');
+    const clubSeed = kept.seed;
+    await page.click('.restart');
+    await page.waitForFunction((key, seed) => JSON.parse(localStorage.getItem(key)).seed !== seed, {}, SAVE_KEY, clubSeed);
+    assert.deepEqual((await match(page)).opponents, ['club', 'club', 'club']);
+    assert.deepEqual((await settings(page)).opponents, ['club', 'club', 'club']);
     assert.equal(await page.$eval('select[aria-label="opponent strength"]', el => el.value), 'club');
     assert.deepEqual(page.problems, []);
   });

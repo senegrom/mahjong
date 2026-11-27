@@ -87,9 +87,9 @@ try {
   await check('a selection is said by a region that was already in the page, out of sight', desktop, async page => {
     // A screen reader listens to a live region only once it exists, so the
     // words must change inside one node rather than arrive with a new one.
-    // The selection's region is the one just before the hand's prompt; the
+    // The selection's region is the one just before the turn's prompt; the
     // settings' Export game has an empty one of its own, earlier in the page.
-    const region = await page.$('.visually-hidden[role="status"]:has(+ #hand-help)');
+    const region = await page.$('.visually-hidden[role="status"]:has(+ .prompt)');
     const read = () => region.evaluate(el => (el.isConnected ? el.textContent : null));
     assert.equal(await read(), 'Selected: 1 characters');
     await page.click('.confirm-discard button:last-child');
@@ -103,17 +103,22 @@ try {
       return { width: box.width, height: box.height, position: style.position, display: style.display, clip: style.clipPath };
     }), { width: 1, height: 1, position: 'absolute', display: 'block', clip: 'inset(50%)' });
   });
-  await check("the turn's prompt shows its sentence alone, and the hand's description still names the keys", desktop, async page => {
-    // The keys are in the prompt out of sight, as the page's other unseen
-    // words are, and the hand names the prompt as its description, so a
-    // screen reader hears them with the hand.
-    assert.deepEqual(await page.$eval('#hand-help .visually-hidden', el => {
+  await check("the turn's prompt says its sentence alone, and the hand's description, no live region, names the keys", desktop, async page => {
+    // The prompt's sentence is a live region, which a screen reader hears as
+    // the turn comes. The keys are out of sight, as the page's other unseen
+    // words are, in what the hand names as its description, which is no live
+    // region and repeats nothing of the prompt: read as the hand takes focus,
+    // it does not say the turn a second time.
+    assert.deepEqual(await page.$eval('.prompt', el => [el.textContent.trim(), el.querySelector('[role="status"]')?.textContent.trim(), el.getAttribute('role')]),
+      ['Your turn. Select a tile, then confirm the discard.', 'Your turn. Select a tile, then confirm the discard.', null]);
+    assert.deepEqual(await page.$eval('#hand-help', el => {
       const box = el.getBoundingClientRect();
-      return { text: el.textContent, width: box.width, height: box.height, clip: getComputedStyle(el).clipPath };
-    }), { text: 'Focus your hand to use arrows and Enter.', width: 1, height: 1, clip: 'inset(50%)' });
+      return { text: el.textContent, width: box.width, height: box.height, clip: getComputedStyle(el).clipPath,
+        live: el.getAttribute('role') ?? el.getAttribute('aria-live') ?? el.closest('[role="status"], [aria-live]')?.tagName ?? null };
+    }), { text: 'Focus your hand to use arrows and Enter.', width: 1, height: 1, clip: 'inset(50%)', live: null });
     const hand = await page.accessibility.snapshot({ root: await page.$('.hand'), interestingOnly: false });
     assert.equal(hand?.name, 'your tiles');
-    assert.match(hand?.description ?? '', /^Your turn\. Select a tile, then confirm the discard\.\s+Focus your hand to use arrows and Enter\.$/);
+    assert.equal(hand?.description, 'Focus your hand to use arrows and Enter.');
   });
   await check('real offline status reacts to a parent update and invokes download once', desktop, async page => {
     await openPanel(page, '.offline-settings > summary');

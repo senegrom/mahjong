@@ -2407,7 +2407,7 @@ try {
   });
 
 
-  await cases.check('on a phone the final result, which covers the standings, opens the review, and the review comes back to the standings', async () => {
+  await cases.check("on a phone a finished match opens on its standings, the result's sheet stepped aside; brought back by its chip, the final result opens the review too, and the review comes back to the standings", async () => {
     for (const [width, height] of [[390, 844], [320, 568], [844, 390]]) {
       // Only the way in and out is looked at here, so Trained AI is out of
       // reach and the review only waits for it.
@@ -2432,6 +2432,14 @@ try {
         continue;
       }
       assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', 'the result is a sheet over the standings');
+      // The page opens on the standings, the sheet stepped aside for them
+      // and their own button free to tap; the sheet's chip brings the result
+      // back over them, which offers the review as well.
+      await page.waitForFunction(() => document.activeElement?.matches('.standings h2'));
+      assert.equal(await page.$eval('.screen', el => getComputedStyle(el).display), 'none', `the sheet starts stepped aside at ${width}x${height}`);
+      assert.ok(await tappable(page, standing), `the standings' own button can be tapped as the page opens at ${width}x${height}`);
+      await page.tap('.result-chip');
+      await page.waitForFunction(() => document.activeElement?.matches('.screen'));
       assert.equal(await page.$eval(sheet, el => el.innerText.trim()), 'Review game', 'the short label, beside Save hand and Save game');
       assert.ok(await tappable(page, sheet), `the result's own button can be tapped at ${width}x${height}`);
       await page.tap(sheet);
@@ -2463,8 +2471,13 @@ try {
       const page = await openPage(width, height, { network: false });
       const standing = '.standings [data-review-game]';
       assert.equal(await page.$eval('.screen', el => getComputedStyle(el).position), 'fixed', 'the result is a sheet over the standings');
-      // The sheet takes focus as it appears; the standings' buttons come
-      // before it, so Shift+Tab reaches them although the sheet covers them.
+      // The page opens on the standings, the sheet stepped aside. Its chip,
+      // which follows their buttons, brings the result back over them by
+      // keyboard, with focus; the standings' buttons come before the sheet,
+      // so Shift+Tab reaches them although it covers them again.
+      await page.waitForFunction(() => document.activeElement?.matches('.standings h2'));
+      for (let presses = 0; presses < 6 && !await page.evaluate(() => document.activeElement?.matches('.result-chip')); presses++) await page.keyboard.press('Tab');
+      await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.activeElement?.matches('.screen'));
       for (let presses = 0; presses < 6 && !await page.evaluate(selector => document.activeElement?.matches(selector), standing); presses++) {
         await page.keyboard.down('Shift');

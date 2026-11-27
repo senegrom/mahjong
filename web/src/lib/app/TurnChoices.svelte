@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TurnChoicesProps } from './types';
   import Tile from '../Tile.svelte';
-  import { callLabel, callTiles, quadOnOffer } from '../ui.js';
+  import { RELOAD_TO_CONTINUE, callLabel, callTiles, partedNote, quadOnOffer, repeatedClick } from '../ui.js';
   import { tileWords, SEAT_NAMES as NAMES } from '../tiles.js';
 
   // All actions return to App's guarded match session. The controls do not
@@ -9,7 +9,7 @@
   let {
     view, shownDora, busy, thinking, failure, saveConflict, loadNote,
     pendingOpponent, myTurn, confirmDiscards, shortcuts, touch,
-    selectedTile, callChoices, choose, discard, oncancel,
+    selectedTile, callChoices, choose, discard, oncancel, onclub = null,
   }: TurnChoicesProps = $props();
   // The discard a call is offered on, and the tile chosen while its discard
   // waits to be confirmed. Each has a panel that comes and goes with it.
@@ -24,26 +24,54 @@
   // are. So their news is said by one region that is always here.
   let announcement = $derived(offered ? `${discarder} ${robbing ? 'declared a kan of' : 'discarded'} the ${tileWords(offered)}`
     : chosen ? `Selected: ${tileWords(chosen)}` : '');
+  // What a Trained opponent waits for, where the page or its worker says:
+  // the note's words, and the share of a download it ends with. The prompt
+  // says the words, which change a few times in a download, and shows the
+  // share beside them, which changes a hundred times: a screen reader reads
+  // out every change of a live region.
+  let waiting = $derived(partedNote(busy && thinking && !failure && !saveConflict ? loadNote : ''));
+  let said = $derived(saveConflict ? RELOAD_TO_CONTINUE
+    : failure ? 'Choose a recovery option above to continue.'
+    : busy ? (!thinking ? 'Playing the turn…'
+      : waiting.words || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…'))
+    : myTurn ? (confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.')
+    : callChoices.length ? 'Choose a call, or pass.' : 'Waiting for the others…');
+  // The hand takes focus as the turn comes (App) and the tile guide gives the
+  // keys, so only a screen reader is told them, wherever they work: with the
+  // shortcuts on, on the player's turn, and not on a touch screen.
+  let keys = $derived(myTurn && !busy && !failure && !saveConflict && !touch && shortcuts ? 'Focus your hand to use arrows and Enter.' : '');
+  // A press on a choice acts once. The next decision's buttons are drawn
+  // where these were, and against opponents that answer at once they are
+  // there before the second press of a double click lands, which would
+  // answer the next decision too: it is let go (repeatedClick). Enter held
+  // down on one presses it once as well, which App sees to for every button
+  // in a `data-moves` row and every other in play (heldPress).
+  function press(event: MouseEvent, act: () => void) {
+    if (!repeatedClick(event)) act();
+  }
 </script>
 
 <p class="visually-hidden" role="status">{announcement}</p>
-<p id="hand-help" class="prompt" class:staged={Boolean(offered)} role="status">
-  {#if saveConflict}Reload the latest match to continue here.
-  {:else if failure}Choose a recovery option above to continue.
-  {:else if busy}{thinking ? (loadNote || (pendingOpponent ? `${pendingOpponent.position} Trained opponent is thinking…` : 'Trained opponents are thinking…')) : 'Playing the turn…'}
-  {:else if myTurn}
-    {confirmDiscards ? 'Your turn. Select a tile, then confirm the discard.' : 'Your turn. Choose a tile to discard.'}
-    <!-- The hand takes focus as the turn comes (App) and the tile guide gives
-         the keys, so only a screen reader is told them here, in the prompt
-         that the hand names as its description. -->
-    {#if !touch && shortcuts}<span class="visually-hidden">Focus your hand to use arrows and Enter.</span>{/if}
-  {:else if !callChoices.length}Waiting for the others…
-  {:else}Choose a call, or pass.{/if}
-</p>
+<!-- Only the prompt's words are a live region. How far a download has got is
+     shown beside them, outside it (waiting). -->
+<p class="prompt" class:staged={Boolean(offered)}><span role="status">{said}</span>{#if waiting.figure}{' '}<span data-figure>{waiting.figure}</span>{/if}</p>
+<!-- What the hand names as its description, which a screen reader reads as
+     the hand takes focus: the keys, and nothing the prompt has just said. It
+     is no live region, so a turn is not heard twice. -->
+<p id="hand-help" class="visually-hidden">{keys}</p>
+<!-- Offered by App only while what a Trained opponent waits for is the
+     network's download, never while it thinks. What it does is in its
+     title, to keep the words on the table few. -->
+{#if onclub}
+  <div class="meanwhile">
+    <button class="app-control" data-club-meanwhile onclick={onclub}
+      title="Club plays the Trained opponents' seats for this match. The download goes on; a new game goes back to Trained unless it is still under way.">Play Club meanwhile</button>
+  </div>
+{/if}
 {#if chosen}
-  <div class="confirm-discard">
+  <div class="confirm-discard" data-moves>
     <span>Selected: {tileWords(chosen)}</span>
-    <button class="app-control primary" onclick={() => { if (selectedTile) discard(selectedTile); }}>Discard {tileWords(chosen)}</button>
+    <button class="app-control primary" onclick={event => press(event, () => { if (selectedTile) discard(selectedTile); })}>Discard {tileWords(chosen)}</button>
     <button class="app-control" onclick={oncancel}>Cancel</button>
   </div>
 {/if}
@@ -56,10 +84,10 @@
         <span class="call-message"><strong>{discarder}</strong><span>{robbing ? 'declared a kan of' : 'discarded'} the {tileWords(offered)}</span></span>
       </div>
     {/if}
-    <div class="call-options">
+    <div class="call-options" data-moves>
       {#each callChoices as choice, index (index)}
         <button class="app-control" class:primary={choice.kind === 'ron' || choice.kind === 'tsumo'} class:win-call={choice.kind === 'ron' || choice.kind === 'tsumo'} data-choice={choice.kind}
-          aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={() => choose(choice)}>
+          aria-label={callLabel(choice, robbing)} disabled={busy || Boolean(failure || saveConflict)} onclick={event => press(event, () => choose(choice))}>
           <span class="call-label">{callLabel(choice, robbing)}</span>
           <span class="call-word">{callLabel(choice, robbing).split(' — ')[0]}</span>
           {#if callTiles(choice, view.pending_discard).length}

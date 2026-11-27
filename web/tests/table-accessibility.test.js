@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
-import { meldWords } from '../src/lib/ui.js';
+import { RELOAD_TO_CONTINUE, meldWords } from '../src/lib/ui.js';
 import { TILE_TYPES, tileShorthand, tileWords } from '../src/lib/tiles.js';
 import { componentLoader } from './fixtures/load-component.js';
 import { text } from './fixtures/markup-text.js';
@@ -35,6 +35,12 @@ test('a hand tile is a toggle only when a press selects it for confirmation', as
   assert.deepEqual(pressed(await hand({ confirmDiscards: false, picked: 0 })), [null, null, null]);
   // With it, a press selects the tile, and the selection is its pressed state.
   assert.deepEqual(pressed(await hand({ confirmDiscards: true, selected: 1 })), ['false', 'true', 'false']);
+  // The arrow keys' marker is drawn as a selection is, and named so, but no
+  // press selected its tile: only the selected tile is announced as pressed.
+  const marked = await hand({ confirmDiscards: true, picked: 0 });
+  assert.deepEqual(pressed(marked), ['false', 'false', 'false']);
+  assert.match(marked, /<button class="tile [^"]*\bselected\b[^"]*"[^>]*data-hand-index="0"/);
+  assert.deepEqual(pressed(await hand({ confirmDiscards: true, picked: 0, selected: 1 })), ['false', 'true', 'false']);
 });
 
 test('tile entry names tiles in words and its buttons are plain buttons', async () => {
@@ -104,25 +110,60 @@ test('riichi, calls, an offered discard and a selection are said by regions alre
   for (const markup of [call, selection]) assert.doesNotMatch(markup, /aria-live/);
 });
 
-test("the turn's prompt names no keys on screen, and a screen reader still hears them in the hand's description", async () => {
+test("the turn's prompt says its sentence alone, in a live region, and the hand's description, which is none, names the keys", async () => {
   // The hand takes focus as the turn comes (App) and the tile guide gives the
-  // keys, so the prompt shows its sentence alone. The keys stay in it out of
-  // sight, since the hand names the prompt as its description.
+  // keys, so the prompt shows its sentence alone. A screen reader hears the
+  // sentence from the prompt, a live region, and the keys from the hand's
+  // description as the hand takes focus: the description is no live region
+  // and repeats nothing of the prompt, so a turn is not heard twice.
   const view = { phase: 'act', round: 'east', kyoku: 1, wall: 60, counters: 0, riichi_sticks: 0, dora_indicators: ['1z'], dora_types: [],
     dora: [], safe: [], shanten: 1, waits: [], waits_left: [], furiten: false, pending_discard: null, pending_from: null, outcome: null,
     seats: [seat('east', 0, { hand: ['1m', '2m'], drawn: '3m', turn: true }), seat('south', 1), seat('west', 2), seat('north', 3)] };
-  const prompt = async props => /<p id="hand-help"[^>]*>([^]*?)<\/p>/.exec(await html('app/TurnChoices.svelte', { view, shownDora: [],
+  const choices = props => html('app/TurnChoices.svelte', { view, shownDora: [],
     busy: false, thinking: false, failure: '', saveConflict: '', loadNote: '', pendingOpponent: null, myTurn: true, confirmDiscards: false,
-    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props }))[1];
-  const keys = /<span class="visually-hidden[^"]*">Focus your hand to use arrows and Enter\.<\/span>/;
-  const keyed = await prompt({});
-  assert.match(keyed, keys);
-  assert.equal(text(keyed.replace(keys, '')), 'Your turn. Choose a tile to discard.');
+    shortcuts: true, touch: false, selectedTile: null, callChoices: [], choose() {}, discard() {}, oncancel() {}, ...props });
+  // The prompt: what its live region says, and what stands beside that.
+  const prompt = markup => {
+    const [, said, beside] = /<p class="prompt[^"]*"><span role="status"[^>]*>([^<]*)<\/span>([^]*?)<\/p>/.exec(markup);
+    return [text(said), text(beside)];
+  };
+  // The hand's description: its attributes, and its words.
+  const help = markup => /<p id="hand-help"([^>]*)>([^<]*)<\/p>/.exec(markup).slice(1);
+  const turn = await choices({});
+  assert.deepEqual(prompt(turn), ['Your turn. Choose a tile to discard.', '']);
+  assert.deepEqual(prompt(await choices({ confirmDiscards: true })), ['Your turn. Select a tile, then confirm the discard.', '']);
+  const [attributes, keys] = help(turn);
+  assert.equal(keys, 'Focus your hand to use arrows and Enter.');
+  assert.match(attributes, /class="visually-hidden[^"]*"/);
+  assert.doesNotMatch(attributes, /role=|aria-live/, 'the description is no live region');
   const hand = await html('app/PlayerHand.svelte', { view, engine: null, closed: false, hints: false, busy: false, blocked: false,
     discardChoices: [], confirmDiscards: false, picked: null, selected: null, canDiscard: () => true, selectTile() {}, syncHandFocus() {} });
   assert.match(hand, /<div class="hand\b[^"]*"[^>]*aria-describedby="hand-help"/);
-  // On a touch screen, or with the shortcuts off, there are no keys to name.
-  for (const props of [{ touch: true }, { shortcuts: false }]) assert.doesNotMatch(await prompt(props), /arrows and Enter/, JSON.stringify(props));
+  // On a touch screen, with the shortcuts off, or off the player's turn,
+  // there are no keys to name.
+  for (const props of [{ touch: true }, { shortcuts: false }, { myTurn: false }, { busy: true }]) {
+    assert.equal(help(await choices(props))[1], '', JSON.stringify(props));
+  }
+  // While a Trained opponent waits for a download, the prompt says what it
+  // waits for and shows how far it has got beside that, outside the live
+  // region: said with it, every percent would be read out.
+  const waiting = { busy: true, thinking: true, myTurn: false, pendingOpponent: { player: 1, position: 'Right' } };
+  const download = await choices({ ...waiting, loadNote: 'downloading the trained network (59 MB) 37%' });
+  assert.deepEqual(prompt(download), ['downloading the trained network (59 MB)', '37%']);
+  assert.match(download, /<\/span>(?:<!--[^>]*-->)* <span data-figure[^>]*>37%<\/span>/, 'a space parts the words and the figure');
+  assert.deepEqual(prompt(await choices({ ...waiting, loadNote: 'saving the game, then downloading the trained network (59 MB)' })),
+    ['saving the game, then downloading the trained network (59 MB)', '']);
+  // Without a note the opponent just thinks, and nothing else shows a figure.
+  assert.deepEqual(prompt(await choices(waiting)), ['Right Trained opponent is thinking…', '']);
+  assert.deepEqual(prompt(await choices({ busy: true, myTurn: false, loadNote: 'left over 50%' })), ['Playing the turn…', '']);
+  assert.deepEqual(prompt(await choices({ ...waiting, failure: 'offline', loadNote: 'downloading the network 50%' })),
+    ['Choose a recovery option above to continue.', '']);
+  // Club meanwhile is offered only where App gives it, which is while the
+  // wait is a download; what it does is in its title, not on the table.
+  assert.doesNotMatch(download, /data-club-meanwhile/);
+  const offered = await choices({ ...waiting, loadNote: 'downloading the trained network (59 MB) 37%', onclub() {} });
+  assert.match(offered, /<button class="app-control[^"]*" data-club-meanwhile[^>]*title="Club plays the Trained opponents' seats for this match\. [^"]*"[^>]*>Play Club meanwhile<\/button>/);
+  assert.ok(offered.indexOf('id="hand-help"') < offered.indexOf('data-club-meanwhile'), 'after the prompt');
 });
 
 test("the custom table says in one line that opponents keep their type, and what each type plays in its option's title", async () => {
@@ -281,7 +322,7 @@ test("a review's words over a tile are said after its name, and a line is kept f
 // The tile guide in the settings, as the page draws it.
 async function tileGuide() {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: false,
+    ready: true, saveConflict: '', trainedAvailable: false,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
@@ -313,7 +354,7 @@ test("the tile guide says the blue ring is Trained AI's choice in a review, as i
 
 test("the settings offer the review's two hiding settings after the other checkboxes, so that those keep their places", async () => {
   const settings = await html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
-    ready: true, busy: false, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
+    ready: true, saveConflict: '', trainedAvailable: false, reviewHideMove: true,
     offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
     changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
     onconfirmationchange() {}, onshortcutschange() {} });
@@ -322,6 +363,53 @@ test("the settings offer the review's two hiding settings after the other checkb
     .map(([, input, said]) => [text(said), /\bchecked\b/.test(input)]);
   assert.deepEqual(boxes, [['Hints and markings', true], ['Select before discarding', false], ['Keyboard shortcuts in your hand', true],
     ["Hide Trained AI's move in reviews", true], ["Hide other players' tiles in reviews", false]]);
+});
+
+test("the mode buttons and the phone's mode select are held only until the page is ready, never by a match that is busy", async () => {
+  const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'neural', opponents: ['neural', 'neural', 'neural'],
+    ready: true, saveConflict: '', trainedAvailable: true,
+    offline: { coreReady: false, aiReady: false, hasModel: true, phase: 'ai', progress: 12 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {}, ...props });
+  // Whether each of the nav's four buttons is disabled, and the select
+  // that takes their place on the smallest phones.
+  const held = markup => {
+    const nav = /<nav class="game-modes[^"]*"[^>]*>([^]*?)<\/nav>/.exec(markup)[1];
+    const off = attributes => /\sdisabled\b/.test(attributes);
+    return { nav: [...nav.matchAll(/<button\b([^>]*)>/g)].map(([, attributes]) => off(attributes)),
+      select: off(/<select\b([^>]*\baria-label="Game mode"[^>]*)>/.exec(markup)[1]) };
+  };
+  const free = { nav: [false, false, false, false], select: false };
+  // A Trained opponent that waits, for the network's download on a first
+  // visit, keeps the match busy for minutes: the other modes stay open, and
+  // the match plays on behind them. AppSettings is not told whether the
+  // match is busy at all.
+  for (const mode of ['play', 'watch', 'physical', 'guided']) assert.deepEqual(held(await settings({ mode })), free, mode);
+  // Until the engine and the tile graphics are in, which the page's own line says.
+  assert.deepEqual(held(await settings({ ready: false })), { nav: [true, true, true, true], select: true });
+});
+
+test('a tile face that could not load is said under its select while the settings are an open dialog, in a line that waits there empty', async () => {
+  const settings = props => html('app/AppSettings.svelte', { tileFace: 'classic', difficulty: 'club', opponents: ['club', 'club', 'club'],
+    ready: true, saveConflict: '', trainedAvailable: false,
+    offline: { coreReady: true, aiReady: false, hasModel: false, phase: 'ready', progress: 0 },
+    changeOpponents() {}, startFresh: () => true, configureTable() {}, downloadAi() {}, onfacechange() {},
+    onconfirmationchange() {}, onshortcutschange() {}, ...props });
+  // The status line under the select: whether it is out of sight, and what
+  // it says.
+  const said = markup => {
+    const [, attributes, words] = /<p\b([^>]*\bdata-face-failure\b[^>]*)>([^<]*)<\/p>/.exec(markup);
+    assert.match(attributes, /\brole="status"/);
+    return [/\bvisually-hidden\b/.test(attributes), text(words)];
+  };
+  const faceWarning = 'The selected tile graphics could not load.';
+  assert.deepEqual(said(await settings({})), [true, '']);
+  // The page says it itself (App) while no dialog covers its alert.
+  assert.deepEqual(said(await settings({ faceWarning })), [true, '']);
+  assert.deepEqual(said(await settings({ faceWarning, settingsOpen: true })), [false, faceWarning]);
+  const options = await settings({ faceWarning, settingsOpen: true });
+  assert.ok(options.indexOf('aria-label="Tile face"') < options.indexOf('data-face-failure')
+    && options.indexOf('data-face-failure') < options.indexOf('Hints and markings'), 'right after the select');
 });
 
 test('the tile guide explains both discard marks, each with its swatch', async () => {
@@ -402,6 +490,28 @@ test('Watch calls its first seat the followed agent, and its draw keeps the riic
   for (const markup of [draw, standings]) assert.doesNotMatch(markup, /\bYou\b/);
   // Play keeps calling it you.
   assert.match(await sheet(ended([], 'Exhaustive draw')), /<th scope="row"[^>]*>You<\/th>/);
+});
+
+test("once another window has taken the match on, the result's and the standings' buttons cannot be pressed, and each set's own line says to reload", async () => {
+  // Whether each button of some markup is disabled, in the order drawn.
+  const disabled = markup => [...markup.matchAll(/<button\b([^>]*)>/g)].map(([, attributes]) => /\sdisabled\b/.test(attributes));
+  const line = (markup, name) => text(new RegExp(`<p class="[^"]*"[^>]*\\b${name}\\b[^>]*role="status"[^>]*>([^<]*)</p>`).exec(markup)?.[1] ?? 'no line');
+  const offered = { onreview() {}, onlog() {}, ongame() {}, ongamereview: () => true, failure: '' };
+  const draw = ended([], 'Exhaustive draw');
+  // As play draws them: every button live, and the line waiting, empty.
+  const result = await sheet(draw, offered);
+  assert.deepEqual(disabled(result), [false, false, false, false, false], 'Next hand, the two reviews and the two files');
+  assert.equal(line(result, 'data-result-failure'), '');
+  // Taken on elsewhere, App hands both the same words.
+  const left = await sheet(draw, { ...offered, blocked: true, failure: RELOAD_TO_CONTINUE });
+  assert.deepEqual(disabled(left), [true, true, true, true, true]);
+  assert.equal(line(left, 'data-result-failure'), 'Reload the latest match to continue here.');
+  const table = props => html('Standings.svelte', { onagain() {}, onsave() {}, onreview() {}, failure: '', standings: [
+    { player: 0, tied: false, place: 1, seat: 'east', score: 40000, uma: 15000, total: 25000, you: true }], ...props });
+  assert.deepEqual(disabled(await table({})), [false, false, false]);
+  const over = await table({ blocked: true, failure: RELOAD_TO_CONTINUE });
+  assert.deepEqual(disabled(over), [true, true, true], 'Play again, the review and the file');
+  assert.equal(line(over, 'data-standings-failure'), 'Reload the latest match to continue here.');
 });
 
 test("every result offers Trained AI's review of the game: of the game so far before the last hand, at every size, and of the whole game at the final hand, where the standings it covers on a phone offer it too", async () => {

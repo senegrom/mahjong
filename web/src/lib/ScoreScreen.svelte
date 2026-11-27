@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import Tile from './Tile.svelte';
   import Melds from './Melds.svelte';
   import { tilesFor, noteFor, isCircumstance } from './yaku.js';
@@ -28,8 +28,10 @@
     ongamereview,
     // Whether that review is open, from this sheet or from the standings.
     gameReviewOpen = false,
-    // Whether the keyboard has sent focus on to the standings as the game
-    // ended, pressing the last hand's Next hand (App, AgentWatch).
+    // Whether focus was sent on to the standings as the game ended, by the
+    // last hand's Next hand, in a way this sheet steps aside for: a
+    // keyboard's press (App, AgentWatch), and in play any press where the
+    // result is a sheet over them (App).
     standingsFocused = false,
     // How many presses on the standings' own buttons have failed, each said
     // beside them (App).
@@ -38,16 +40,28 @@
     dora = [],
     bets = 0,
     busy = false,
+    // None of these buttons can do anything: another window has taken the
+    // match on (App). They cannot be pressed, and the line after them says
+    // what to do instead (failure).
+    blocked = false,
     hints = true,
     // What the first seat, the one the view belongs to, is called: the
     // person playing, or in Watch the agent being followed.
     playerLabel = 'You',
+    // Hands focus to the standings, and brings them into view, where this
+    // result is drawn with its sheet already stepped aside for them (App).
+    onstandings = null,
     // Told whether the chip shows, for the page to keep its foot clear of
     // it (App).
     onchip = null,
   } = $props();
 
-  let minimized = $state(false);
+  // Whether the sheet has stepped aside, on a phone, leaving its chip. A
+  // result drawn with the standings already there is a finished match that
+  // the page was loaded on: the sheet starts stepped aside for them, as it
+  // was left when the game ended. Up, it showed nothing of where the player
+  // finished, and no Play again.
+  let minimized = $state(untrack(() => finalHand) && (globalThis.matchMedia?.(RESULT_SHEET).matches ?? false));
   // The page is told as the chip comes and goes, and that it is gone when
   // the result itself goes: it keeps its foot clear of the chip (App).
   $effect(() => {
@@ -65,9 +79,15 @@
   let primaryWin = $derived(outcome?.wins?.[0] ?? null);
   let primaryValue = $derived(primaryWin ? winValue(primaryWin) : '');
 
+  // The result takes focus as it is drawn. Where it is drawn as a sheet that
+  // has already stepped aside for the standings, a finished match shown
+  // again (loaded, or Play come back to from another mode, or the controls
+  // moved as a phone turns), the sheet is out of sight and focus would fall
+  // to the page from it: it goes to the standings instead (onstandings).
   function reveal(node) {
     const id = requestAnimationFrame(() => {
       const phone = matchMedia(RESULT_SHEET).matches;
+      if (phone && minimized && onstandings) { onstandings(); return; }
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (!phone) node.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
       node.focus({ preventScroll: true });
@@ -83,6 +103,14 @@
   // brought into view; on a phone it stays at the foot of the sheet with the
   // buttons. Says whether the press was done.
   let failureLine = $state(null);
+  // A button that has focus as another window takes the match on is
+  // disabled under it, and focus would fall to the page: it goes on to the
+  // line that says to reload, which a screen reader then reads. Where focus
+  // is, is read before the buttons are disabled.
+  let buttonRow = $state(null);
+  $effect.pre(() => {
+    if (blocked && untrack(() => buttonRow)?.contains(document.activeElement)) void tick().then(() => failureLine?.focus());
+  });
   function done(answer) {
     if (answer !== false) return true;
     void tick().then(() => { if (!matchMedia(RESULT_SHEET).matches) failureLine?.scrollIntoView({ block: 'nearest' }); });
@@ -116,9 +144,10 @@
   // far, opened before the last hand, comes back to this sheet instead, to
   // the button that opened it; while it is open it hides the sheet with the
   // table, so the sheet stays up for it, to be found as it was left. The
-  // sheet steps aside for the standings as well when the keyboard has sent
-  // focus on to them as the game ended, so that focus is not hidden under
-  // it; a tap leaves the result up, as it was.
+  // sheet steps aside for the standings as well when focus is sent on to
+  // them as the game ended (standingsFocused), so that neither focus nor
+  // the standings are hidden under it: in play however the last Next hand
+  // was pressed, and in Watch when the keyboard pressed it.
   $effect(() => { if ((gameReviewOpen && finalHand) || standingsFocused) minimized = true; });
   // And it steps aside each time a press on the standings' own buttons
   // fails, which beneath it only a keyboard or a screen reader reaches, so
@@ -232,25 +261,25 @@
     </tbody>
   </table>
 
-  <div class="buttons">
+  <div class="buttons" bind:this={buttonRow}>
     {#if finalHand}<span class="final-caption">Final hand</span>
-    {:else}<button disabled={busy} class="primary" onclick={onnext}>Next hand</button>{/if}
-    {#if onreview && !reviewed}<button class="quiet" onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
-    {#if onlog}<button class="quiet" onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
+    {:else}<button disabled={busy || blocked} class="primary" onclick={onnext}>Next hand</button>{/if}
+    {#if onreview && !reviewed}<button class="quiet" disabled={blocked} onclick={reviewTable}>{#if finalHand}Review <span class="qualifier">final</span> hand{:else}View table <span class="qualifier">/ my hand</span>{/if}</button>{/if}
+    {#if onlog}<button class="quiet" disabled={blocked} onclick={() => done(onlog())} title="The hand as an mjai event log, which replayers and other riichi programs read">Save <span class="qualifier">{finalHand ? 'final' : 'this'}</span> hand</button>{/if}
     <!-- At the end the standings offer the whole game, its review and its
          file, close and all. On a phone this sheet covers them, so it offers
          both there too. Before the end nothing else offers the review of the
          game so far or the file, so this sheet offers them at every size. -->
-    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
-    {:else if ongamereview}<button class="quiet" data-review-game onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, this one first">Review game <span class="so-far">so far</span></button>{/if}
-    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
-    {:else if ongame}<button class="quiet" data-save-game onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
+    {#if ongamereview && finalHand}<button class="quiet whole-game" data-review-game disabled={blocked} onclick={() => done(ongamereview())}>Review <span class="whole">whole</span> game</button>
+    {:else if ongamereview}<button class="quiet" data-review-game disabled={blocked} onclick={() => done(ongamereview())} title="Trained AI's review of every hand so far, this one first">Review game <span class="so-far">so far</span></button>{/if}
+    {#if ongame && finalHand}<button class="quiet whole-game" data-save-game disabled={blocked} onclick={() => done(ongame())} title="Every hand of this game from East 1 as one mjai event log">Save <span class="whole">whole</span> game</button>
+    {:else if ongame}<button class="quiet" data-save-game disabled={blocked} onclick={() => done(ongame())} title="Every finished hand of this game from East 1, this one included, as one mjai event log">Save game <span class="so-far">so far</span></button>{/if}
     <!-- Why a press on these buttons could not be done, said where the
          player pressed one. A screen reader hears a status line only once it
          knows it, so the line waits here, empty and out of sight, for its
          words. -->
     {#if failure !== null}<p class="result-failure" class:visually-hidden={!failure} data-result-failure role="status"
-      bind:this={failureLine}>{failure}</p>{/if}
+      tabindex="-1" bind:this={failureLine}>{failure}</p>{/if}
   </div>
 </section>
 
@@ -323,6 +352,10 @@
   .result-failure { flex-basis: 100%; margin: 0; font-size: .82rem; scroll-margin: 8px 0; }
   .buttons button { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 18px; border: 1px solid var(--button-accent); border-radius: 999px; background: var(--button-accent); color: var(--button-text); font-weight: 650; cursor: pointer; }
   .buttons button.quiet { border-color: rgba(255,255,255,.25); background: transparent; color: inherit; font-weight: 500; }
+  /* One that cannot be pressed, under a save conflict or Next hand while the
+     turn is busy, is drawn as the standings' and the app's other controls
+     draw theirs (controls.css). */
+  .buttons button:disabled { opacity: .55; cursor: default; }
   /* Beside the standings, which offer the same review and file, they are not
      repeated. */
   .buttons .whole-game { display: none; }

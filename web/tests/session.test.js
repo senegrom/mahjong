@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MatchSession, readSettings, writeSettings, SETTINGS_KEY, DEFAULT_REVIEW_ADVISER } from '../src/lib/session.js';
-import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents } from '../src/lib/opponents.js';
-import { heldSafeCount, callTiles, callLabel, unseenTileCounts, waitingNote } from '../src/lib/ui.js';
+import { DEFAULT_OPPONENT, normalizeOpponents, sameOpponents, standInFor, tableAfterStandIn, trainedAtHand, trainedUnderWay } from '../src/lib/opponents.js';
+import { heldSafeCount, callTiles, callLabel, partedNote, startupWords, unseenTileCounts, waitIsDownload, waitingNote } from '../src/lib/ui.js';
 import { MANIFEST, NETWORKS, networkFor } from '../src/lib/trained-network.js';
 import { average, swapMoves } from '../src/lib/suits.js';
 import { DAMA, DECLINE, RULE_REFUSED } from '../src/lib/trained-move.js';
@@ -82,12 +82,180 @@ test('AI failure remains explicit and retry succeeds without changing opponents'
   fail = false; await match.retry(); assert.equal(match.failure, ''); assert.equal(match.needsRecovery, false); match.dispose();
 });
 
+test('a deal whose first Trained move fails is recorded all the same, though the press answers false', async () => {
+  // The page lets a finished hand's notes go by this, what the engine did,
+  // not by whether the new hand's opponents then answered (App, nextHand).
+  class Dealing extends FakeGame {
+    constructor(...args) { super(...args); this.ended = true; this.pending = false; }
+    hand_is_over() { return this.ended; }
+    next_hand() { this.ended = false; this.pending = this.external; }
+  }
+  let fail = true;
+  const match = new MatchSession(Dealing, 1, 'neural', { ai: async () => { if (fail) throw new Error('offline'); return sure(0); } });
+  try {
+    assert.equal(await match.nextHand(), false);
+    assert.deepEqual(match.commands, [{ type: 'next' }]);
+    assert.equal(match.engine.ended, false, 'the next hand is dealt');
+    assert.equal(match.needsRecovery, true);
+    // Retried, the hand goes on from the deal, which is not dealt again.
+    fail = false;
+    assert.equal(await match.retry(), true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'next' }, ...played(0)]);
+  } finally { match.dispose(); }
+});
+
 test('continue with Club changes the engine in place and survives restoration', async () => {
   const match = new MatchSession(FakeGame, 1, 'neural', {ai: async () => {throw new Error('offline');}});
   await match.run(); const engine = match.engine; await match.continueWithClub();
   assert.equal(match.engine, engine); assert.equal(engine.external, false); assert.equal(match.difficulty, 'club');
   const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()));
   assert.equal(restored.difficulty, 'club'); assert.equal(restored.stateKey(), match.stateKey()); match.dispose(); restored.dispose();
+});
+
+test('Club meanwhile drops the question a Trained opponent waits on, and the same run goes on with Club, recorded once', async () => {
+  // An answer that does not come, as while the network downloads: the
+  // question ends only as its signal does, the way the page's request does.
+  const asked = deferred(), saves = [];
+  const match = new MatchSession(FakeGame, 1, 'neural', { onSave: save => saves.push(save.commands),
+    ai: (_planes, _mask, signal) => new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Match changed', 'AbortError')));
+      asked.resolve(signal);
+    }) });
+  try {
+    const run = match.run(), signal = await asked.promise;
+    assert.equal(match.thinking, true);
+    assert.equal(match.clubMeanwhile(), true);
+    assert.equal(match.clubMeanwhile(), false, 'asked for once');
+    assert.equal(signal.aborted, true, 'the question is dropped');
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'club' }]);
+    assert.deepEqual(saves, [[], [{ type: 'club' }]]);
+    assert.deepEqual([match.difficulty, match.stoodIn, match.failure, match.busy, match.thinking], ['club', true, '', false, false]);
+    assert.deepEqual([match.engine.external, match.engine.applied], [false, 0]);
+    assert.equal(match.abort.signal.aborted, false, 'the match is not closed by it');
+    // It restores as any match continued with Club does, asking nobody.
+    const restored = MatchSession.restore(FakeGame, JSON.stringify(match.snapshot()), { ai() { throw new Error('Club needs no network'); } });
+    try { assert.deepEqual([restored.difficulty, restored.stateKey()], ['club', match.stateKey()]); } finally { restored.dispose(); }
+    // The player's own moves go on as against Club.
+    assert.equal(await match.choose({ kind: 'discard', tile: '1m' }), true);
+    assert.equal(match.clubMeanwhile(), false, 'nobody is awaited');
+  } finally { match.dispose(); }
+});
+
+test('Club meanwhile lets go of an answer that came as it was asked for, and is not taken where nobody is awaited', async () => {
+  // The network answers after all, its request deaf to the signal: the
+  // answer is not played, and Club takes the seat.
+  const answer = deferred();
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: () => answer.promise });
+  try {
+    const run = match.run();
+    assert.equal(match.clubMeanwhile(), true);
+    answer.resolve(sure(0));
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, [{ type: 'club' }]);
+    assert.equal(match.engine.applied, 0);
+  } finally { match.dispose(); }
+  // Against Club, at the player's own turn, after a failure and once closed,
+  // there is nothing to stand in for: recovery has its own command.
+  const club = new MatchSession(FakeGame, 1, 'club');
+  await club.run();
+  assert.equal(club.clubMeanwhile(), false);
+  club.dispose();
+  const failed = new MatchSession(FakeGame, 1, 'neural', { ai: async () => { throw new Error('offline'); } });
+  await failed.run();
+  assert.deepEqual([failed.needsRecovery, failed.clubMeanwhile(), failed.stoodIn], [true, false, false]);
+  await failed.continueWithClub();
+  assert.deepEqual([failed.difficulty, failed.stoodIn], ['club', false], 'Club after a failure is no stand-in');
+  failed.dispose();
+  assert.equal(failed.clubMeanwhile(), false);
+  // A match closed while it waits is closed, whatever was asked of it.
+  const pending = deferred(), closing = new MatchSession(FakeGame, 1, 'neural', { ai: () => pending.promise });
+  const running = closing.run();
+  assert.equal(closing.clubMeanwhile(), true);
+  closing.dispose();
+  pending.reject(new DOMException('Match changed', 'AbortError'));
+  assert.equal(await running, false);
+  assert.deepEqual([closing.commands, closing.failure], [[], '']);
+});
+
+test('Club meanwhile is not taken once the last answer is in, while the run still holds the save lock', async () => {
+  // The run's guard, as the page's save lock does, lets go only some time
+  // after the run's last move is played; the match is still thinking then.
+  const answered = deferred(), release = deferred();
+  const match = new MatchSession(FakeGame, 1, 'neural', { ai: async () => sure(0),
+    guard: async task => { const result = await task(); answered.resolve(); await release.promise; return result; } });
+  try {
+    const run = match.run();
+    await answered.promise;
+    assert.equal(match.thinking, true, 'the run has not ended');
+    assert.equal(match.clubMeanwhile(), false, 'nobody is awaited any more, so the press is not taken');
+    release.resolve();
+    assert.equal(await run, true, match.failure);
+    assert.deepEqual(match.commands, played(0));
+    assert.deepEqual([match.stoodIn, match.engine.external, match.abort.signal.aborted], [false, true, false]);
+  } finally { match.dispose(); }
+});
+
+test("a stand-in is Club where the player's own table says Trained, and nothing else", () => {
+  const trained = ['neural', 'neural', 'neural'], club = ['club', 'club', 'club'];
+  assert.deepEqual(standInFor(trained, club), trained);
+  assert.notEqual(standInFor(trained, club), trained, 'a copy');
+  // A mixed table: only its Trained seats are stood in for.
+  assert.deepEqual(standInFor(['neural', 'club', 'beginner'], ['club', 'club', 'beginner']), ['neural', 'club', 'beginner']);
+  assert.deepEqual(standInFor(trained, ['club', 'neural', 'club']), trained, 'a seat still Trained');
+  // The same table is no stand-in, and any other difference is the match's
+  // own table: Beginner for Trained, Trained for Club, Club for Beginner.
+  for (const [preferred, playing] of [[trained, trained], [club, club], [trained, ['beginner', 'beginner', 'beginner']], [club, trained],
+    [['beginner', 'neural', 'neural'], ['club', 'club', 'club']], [trained, ['club', 'club', 'beginner']], [trained, ['club', 'club']]]) {
+    assert.equal(standInFor(preferred, playing), null, `${preferred} against ${playing}`);
+  }
+  // After a reload a stand-in is known by the table the player's record
+  // itself holds, as every page of this build writes it. A record a reset
+  // read as Trained holds none, nor does one from before tables were stored
+  // seat by seat: a saved Club match is no stand-in there, and its table
+  // becomes the preference, as it always did.
+  const read = value => readSettings({ getItem: () => JSON.stringify(value) });
+  assert.deepEqual(standInFor(read({ version: 6, difficulty: 'neural', opponents: trained }).opponents ?? null, club), trained);
+  for (const record of [{ version: 1, difficulty: 'club', opponents: club }, { version: 2, difficulty: 'neural' }]) {
+    const settings = read(record);
+    assert.equal(settings.difficulty, 'neural', JSON.stringify(record));
+    assert.equal(standInFor(settings.opponents ?? null, club), null, JSON.stringify(record));
+  }
+  assert.equal(standInFor(null, club), null);
+});
+
+test('a new game after a stand-in: the chosen table where the network is at hand or nothing is fetching it, Club only while its download is under way', () => {
+  const chosen = ['neural', 'club', 'neural'];
+  // What the page knows of the network as the new game is dealt, in each
+  // case, and whether the stand-in holds (Club again) or ends.
+  const rows = [
+    ['saved on this device', { network: 'ready' }, false],
+    ['storage refused, the bytes held for the worker', { network: 'ready' }, false],
+    ['storage refused, no bytes held, nothing fetching', { network: 'none' }, false],
+    ['storage refused, no bytes held, the worker fetching', { network: 'none', workerNote: 'downloading the network 40%' }, true],
+    ['nothing can be saved, the worker loaded', { network: 'none', workerLoaded: true }, false],
+    ['nothing can be saved, the worker loading', { network: 'none', workerNote: 'downloading the network 12%' }, true],
+    ['nothing can be saved, the worker gone', { network: 'none' }, false],
+    ['the page downloading', { network: 'downloading' }, true],
+    ['waiting behind another window', { network: 'waiting' }, true],
+    ['the worker waiting behind another window', { network: 'none', workerNote: 'waiting for another window to download the network' }, true],
+    ['the download failed', { network: 'none' }, false],
+    ['the worker loading a stored network', { network: 'none', workerNote: 'loading the network' }, false],
+    ['downloading, and the worker loaded already', { network: 'downloading', workerLoaded: true }, false],
+  ];
+  for (const [name, known, holds] of rows) {
+    const where = { atHand: trainedAtHand(known), underWay: trainedUnderWay(known) };
+    const table = tableAfterStandIn(chosen, where);
+    assert.deepEqual(table, holds ? ['club', 'club', 'club'] : chosen, name);
+    assert.deepEqual(standInFor(chosen, table), holds ? chosen : null, `${name}: the stand-in ${holds ? 'holds' : 'ends'}`);
+  }
+  // Only those two say the network is at hand: not offline's aiReady, nor a
+  // worker that is merely not loading.
+  assert.equal(trainedAtHand({ network: 'none', aiReady: true }), false);
+  assert.equal(trainedAtHand({}), false);
+  assert.equal(trainedUnderWay({}), false);
+  // Seats that were never Trained keep their type either way.
+  assert.deepEqual(tableAfterStandIn(['neural', 'beginner', 'neural'], { atHand: false, underWay: true }), ['club', 'beginner', 'club']);
 });
 
 test('busy sessions ignore additional player choices', async () => {
@@ -520,8 +688,17 @@ test('the table shows the network download while a Trained opponent waits for it
   // download of the network is the wait, and nothing is said when the
   // network is not downloading.
   assert.equal(waitingNote('loading the network', { phase: 'ai', network: 'downloading', progress: 40 }), 'loading the network');
-  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading', progress: 40 }), 'downloading the trained network 40%');
-  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading' }), 'downloading the trained network 0%');
+  // The download line says how much the download is, once: the size of the
+  // network the page plays as it is fetched and kept, in whole megabytes.
+  const size = `${Math.round((MANIFEST.storedBytes ?? MANIFEST.bytes) / 1e6)} MB`;
+  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading', progress: 40 }), `downloading the trained network (${size}) 40%`);
+  assert.equal(waitingNote('', { phase: 'ai', network: 'downloading' }), `downloading the trained network (${size}) 0%`);
+  // Of the network given, and of its own bytes where its listing says no
+  // more.
+  for (const entry of [{ bytes: 116935691, storedBytes: 107878377 }, { bytes: 116935691 }]) {
+    const megabytes = Math.round((entry.storedBytes ?? entry.bytes) / 1e6);
+    assert.equal(waitingNote('', { network: 'downloading', progress: 7 }, { network: entry }), `downloading the trained network (${megabytes} MB) 7%`);
+  }
   // Behind another window's download of it.
   assert.equal(waitingNote('', { phase: 'ai', network: 'waiting', progress: 0 }), 'waiting for another window to download the trained network');
   assert.equal(waitingNote('starting the network', { phase: 'ai', network: 'waiting' }), 'starting the network');
@@ -535,6 +712,74 @@ test('the table shows the network download while a Trained opponent waits for it
   for (const phase of ['checking', 'ready', 'incomplete', 'unavailable']) assert.equal(waitingNote('', { phase, network: 'none', progress: 40 }), '');
   assert.equal(waitingNote('', { phase: 'ai', progress: 40 }), '', 'a state that does not say where the network stands says no download');
   assert.equal(waitingNote('', null), '');
+});
+
+test("a waiting note is parted from the share of a download it ends with, which the prompt shows outside its live region", () => {
+  assert.deepEqual(partedNote('downloading the trained network (59 MB) 37%'), { words: 'downloading the trained network (59 MB)', figure: '37%' });
+  assert.deepEqual(partedNote('downloading the network 100%'), { words: 'downloading the network', figure: '100%' });
+  // A note without one is all words, the megabytes in it no figure.
+  for (const note of ['saving the game, then downloading the trained network (59 MB)', 'starting the network', 'network ready', '37% done']) {
+    assert.deepEqual(partedNote(note), { words: note, figure: '' }, note);
+  }
+  for (const none of ['', null, undefined]) assert.deepEqual(partedNote(none), { words: '', figure: '' });
+});
+
+test('a wait is a download while the page saves the network or its worker fetches it, and not while the network starts or thinks', () => {
+  // By the page: where the network itself stands, downloading or waiting its
+  // turn behind another window.
+  assert.equal(waitIsDownload('', { phase: 'ai', network: 'downloading', progress: 3 }), true);
+  assert.equal(waitIsDownload('', { phase: 'ai', network: 'waiting', progress: 0 }), true);
+  // Not where it is in hand, or none is asked for, has failed, or is left to
+  // the worker: whatever the save's phase, and never by an install.
+  for (const network of ['ready', 'none', undefined]) {
+    for (const phase of ['checking', 'ready', 'ai', 'incomplete', 'unavailable']) {
+      assert.equal(waitIsDownload('', { phase, network, progress: 40 }), false, `${phase}, ${network}`);
+      assert.equal(waitIsDownload('', { phase, network, progress: 40, installing: true }), false, `${phase}, ${network}, installing`);
+    }
+  }
+  assert.equal(waitIsDownload('', null), false);
+  // By the opponent's worker, whose note then stands for the page's.
+  assert.equal(waitIsDownload('downloading the network 12%', { phase: 'unavailable', network: 'none' }), true);
+  assert.equal(waitIsDownload('waiting for another window to download the network', { network: 'none' }), true);
+  for (const note of ['loading the network', 'starting the network', 'network ready', 'retrying the agent with more memory']) {
+    assert.equal(waitIsDownload(note, { phase: 'ai', network: 'downloading', progress: 50 }), false, note);
+  }
+});
+
+test('ordinary thinking, with the network in hand and the save still at 99, shows no wait and offers no Club meanwhile', () => {
+  // The opponents play while the runtime is still being saved, on a first
+  // visit beside the install: that is thinking, not a download.
+  const thinking = { phase: 'ai', network: 'ready', progress: 99, installing: true };
+  assert.equal(waitingNote('', thinking), '');
+  assert.equal(waitIsDownload('', thinking), false);
+  assert.equal(waitingNote('loading the network', thinking), 'loading the network');
+  assert.equal(waitIsDownload('loading the network', thinking), false);
+  // A page download under way, or its turn behind another window, while the
+  // opponents' worker already holds the network (a new game starts the save
+  // again where the network is not stored): each Trained move is thinking,
+  // so neither the note nor the offer is shown; the worker's own note still is.
+  for (const network of ['downloading', 'waiting']) {
+    const offline = { phase: 'ai', network, progress: 30 };
+    assert.equal(waitingNote('', offline, { held: true }), '', network);
+    assert.equal(waitIsDownload('', offline, { held: true }), false, network);
+    assert.notEqual(waitingNote('', offline, { held: false }), '', network);
+    assert.equal(waitIsDownload('', offline, { held: false }), true, network);
+    assert.notEqual(waitingNote('', offline), '', `${network}, unsaid`);
+  }
+  assert.equal(waitingNote('downloading the network 5%', { network: 'none' }, { held: true }), 'downloading the network 5%');
+});
+
+test('the start-up line says which of the two it still waits for: the tile graphics, or the engine once they are in', () => {
+  assert.equal(startupWords(null, false, false), 'Loading the game and selected tile graphics…');
+  assert.equal(startupWords({ done: 12, total: 37 }, false, false), 'Loading selected tile graphics… 12/37');
+  // The engine in first changes nothing: the graphics are what is waited for.
+  assert.equal(startupWords({ done: 12, total: 37 }, false, true), 'Loading selected tile graphics… 12/37');
+  assert.equal(startupWords(null, false, true), 'Loading the game and selected tile graphics…');
+  // The last graphic counted is not yet all of them in; once they are, and
+  // the engine is not, the line no longer reads 37/37.
+  assert.equal(startupWords({ done: 37, total: 37 }, false, false), 'Loading selected tile graphics… 37/37');
+  assert.equal(startupWords({ done: 37, total: 37 }, true, false), 'Loading the game engine…');
+  assert.equal(startupWords(null, true, false), 'Loading the game engine…', 'a face with nothing to fetch');
 });
 
 test('preferences are written when they change, not each time the effect reruns', () => {
@@ -557,6 +802,65 @@ test('preferences are written when they change, not each time the effect reruns'
   writeSettings(storage, { ...preferences, hints: true }, kept);
   assert.equal(writes.length, 3);
   assert.doesNotThrow(() => writeSettings(null, preferences));
+});
+
+test('a change writes only what this window changed, over the record as another window left it', () => {
+  const writes = new Map();
+  const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
+  const stored = () => JSON.parse(writes.get(SETTINGS_KEY));
+  const start = { difficulty: 'custom', opponents: ['club', 'club', 'beginner'], hints: true, confirmDiscards: false, shortcuts: true,
+    tileFace: 'classic', reviewAdviser: 'strong', reviewHideMove: false, reviewHideTiles: false, reviewFilter: 'flagged' };
+  // Two windows load the same record, and each writes it back whole as it loads.
+  let a = writeSettings(storage, start), b = writeSettings(storage, start);
+  assert.deepEqual(stored(), { version: 6, ...start });
+  // One picks another network; the other, still open, then turns the hints
+  // off. The pick is still there for the first window's reload to read.
+  a = writeSettings(storage, { ...start, trainedNetwork: OLDER[0] }, a);
+  b = writeSettings(storage, { ...start, hints: false }, b);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, trainedNetwork: OLDER[0] });
+  assert.equal(readSettings(storage).trainedNetwork, OLDER[0]);
+  // What a window did not change it leaves as it finds it, though its own
+  // copy is the older: the first window knows nothing of the hints.
+  a = writeSettings(storage, { ...start, trainedNetwork: OLDER[0], reviewFilter: 'every' }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, trainedNetwork: OLDER[0], reviewFilter: 'every' });
+  // A pick set back to the default is taken out of the record, alone.
+  a = writeSettings(storage, { ...start, reviewFilter: 'every' }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, reviewFilter: 'every' });
+  // The table is one choice stored as two. One window makes it Trained; the
+  // other then changes a seat of the table it still shows, whose name does
+  // not change: both are written, so the record never names one table and
+  // seats another.
+  writeSettings(storage, { ...start, hints: false, difficulty: 'neural', opponents: ['neural', 'neural', 'neural'] }, b);
+  assert.deepEqual([stored().difficulty, stored().opponents], ['neural', ['neural', 'neural', 'neural']]);
+  a = writeSettings(storage, { ...start, reviewFilter: 'every', opponents: ['club', 'beginner', 'beginner'] }, a);
+  assert.deepEqual(stored(), { version: 6, ...start, hints: false, reviewFilter: 'every', difficulty: 'custom', opponents: ['club', 'beginner', 'beginner'] });
+  // Nothing changed, nothing written: another window's record stays whole.
+  const other = JSON.stringify({ ...stored(), tileFace: 'matisse' });
+  writes.set(SETTINGS_KEY, other);
+  assert.equal(writeSettings(storage, { ...start, reviewFilter: 'every', opponents: ['club', 'beginner', 'beginner'] }, a), a);
+  assert.equal(writes.get(SETTINGS_KEY), other);
+});
+
+test('over a record this build did not write, a change writes the whole of the window\'s preferences', () => {
+  const start = { difficulty: 'club', opponents: ['club', 'club', 'club'], hints: true, shortcuts: true };
+  // A record of another version, one that is no record, and none at all.
+  for (const held of [JSON.stringify({ version: 5, hints: false, trainedNetwork: OLDER[0] }), JSON.stringify({ version: 7, hints: false }),
+    '{broken', '[]', 'null', null]) {
+    const writes = new Map();
+    const storage = { setItem: (key, value) => writes.set(key, value), getItem: key => writes.get(key) ?? null };
+    const last = writeSettings(storage, start);
+    if (held === null) writes.delete(SETTINGS_KEY); else writes.set(SETTINGS_KEY, held);
+    writeSettings(storage, { ...start, shortcuts: false }, last);
+    assert.deepEqual(JSON.parse(writes.get(SETTINGS_KEY)), { version: 6, ...start, shortcuts: false }, String(held));
+  }
+  // Storage that cannot be read back, or refuses to be, is written whole too.
+  for (const getItem of [undefined, () => { throw new Error('denied'); }]) {
+    const writes = [];
+    const storage = { setItem: (_key, value) => writes.push(value), getItem };
+    const last = writeSettings(storage, start);
+    writeSettings(storage, { ...start, hints: false }, last);
+    assert.deepEqual(JSON.parse(writes.at(-1)), { version: 6, ...start, hints: false });
+  }
 });
 
 test('an equal opponent table is not a change of table', () => {

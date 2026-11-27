@@ -5,7 +5,7 @@
   import ReviewStepBar from './ReviewStepBar.svelte';
   import ReviewTrend from './ReviewTrend.svelte';
   import { FILTER_LABELS, agreement, decisionKey, filterCounts, handEntry, hiddenAt, landing, neighbour, noneSaid, playlist, revealing } from './game-review.js';
-  import { REVIEW_WIDE, heldEnter, moveHandFocus, reviewKey, waitingNote } from './ui.js';
+  import { REVIEW_WIDE, heldEnter, moveHandFocus, repeatedClick, reviewKey, waitingNote } from './ui.js';
 
   /**
    * The game, looked at again, on one screen: from any hand's result the game
@@ -52,7 +52,7 @@
    * review's own time a position. Whatever it asks, the review waits for at
    * its gate, as it waits for the hand's notes (App).
    */
-  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, workerNote = '', onclose, shortcuts = true, touch = false,
+  let { review, insight = null, trend = [], hints = true, trainedAvailable = false, offline = null, workerNote = '', held = false, onclose, shortcuts = true, touch = false,
     filter = $bindable('flagged'), place = $bindable(null), revealed = $bindable({}), hideMove = $bindable(false),
     hideTiles = $bindable(false) } = $props();
 
@@ -137,7 +137,7 @@
   let list = $derived(playlist(status.hands, filter));
   let reviewing = $derived(status.hands.find(hand => hand.status === 'reviewing') ?? null);
   let reviewed = $derived(status.hands.filter(hand => hand.status === 'done').length);
-  let download = $derived(waitingNote(workerNote, offline));
+  let download = $derived(waitingNote(workerNote, offline, { held }));
 
   // The decision on show: the player's place, or where the review lands
   // while they have none for this match.
@@ -283,8 +283,9 @@
   // review has now, or to the name of the hand whose Review went; and when
   // nothing is left to press, to Next, or Previous at the end. The second
   // press of a double click or tap lands on the button that took the place of
-  // the one the first pressed, and was meant for that one: let go.
-  const again = event => event.detail > 1;
+  // the one the first pressed, and was meant for that one: let go, as play
+  // lets go of it on a tile or a call (repeatedClick).
+  const again = repeatedClick;
   let focusWas = null;
   $effect.pre(() => {
     void status;

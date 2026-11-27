@@ -3,7 +3,8 @@
   import { meldLayout, meldWords } from './ui.js';
 
   /**
-   * Called sets, shown to the right of a player's tiles. The claimed tile is
+   * Called sets: in a seat they lie under the player's tiles, and on a
+   * hand's result beside the winning hand. The claimed tile is
    * turned sideways on the side the player it came from sits, which is how a
    * table shows who fed the set (EMA 2025 section 3.3.6). The two middle
    * tiles of a concealed quad are face down.

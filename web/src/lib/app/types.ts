@@ -86,11 +86,20 @@ export interface SettingsProps extends OfflineStatusProps {
    * tiles, until the player asks to see them at each decision. */
   reviewHideMove?: boolean; reviewHideTiles?: boolean;
   tileFace: TileFace; pendingTileFace?: TileFace | null;
+  /** Why the tile face picked could not load, which the settings say under
+   * its select while they are an open dialog, and App on the page otherwise. */
+  faceWarning?: string;
   /** Asked to play another listed network by version: true once App takes
    * the pick (it reloads the page), false to keep the one playing. */
   onnetworkchange?: (version: string) => boolean;
+  /** `difficulty` is the match's table by its name; `opponents` the table
+   * the player chose, which is the match's but for a stand-in, whose match
+   * plays Club in the chosen table's Trained seats. */
   difficulty: Difficulty; opponents: Opponent[];
-  ready: boolean; busy: boolean; saveConflict: string; trainedAvailable: boolean;
+  ready: boolean; saveConflict: string; trainedAvailable: boolean;
+  /** Club plays this match in place of the Trained table the player chose
+   * (Play Club meanwhile): the Opponents select says so. */
+  standIn?: boolean;
   changeOpponents: (event: Event & { currentTarget: HTMLSelectElement }) => void;
   startFresh: () => boolean; configureTable: () => void;
   onfacechange: (face: TileFace) => void | Promise<void>;
@@ -153,4 +162,8 @@ export interface TurnChoicesProps {
   selectedTile: Tile | null; callChoices: LegalChoice[];
   choose: (choice: LegalChoice) => void | Promise<void>;
   discard: (tile: Tile) => void; oncancel: () => void;
+  /** Gives this match's Trained seats to Club, offered as "Play Club
+   * meanwhile": given only while what a Trained opponent waits for is the
+   * network's download, and null otherwise (App). */
+  onclub?: (() => void) | null;
 }

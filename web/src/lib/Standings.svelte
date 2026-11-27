@@ -1,5 +1,5 @@
 <script>
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { placeLabel, signed } from './ui.js';
   import { SEAT_NAMES as NAMES } from './tiles.js';
   /**
@@ -11,13 +11,16 @@
    * each may answer false when it could not. `failure` is why the last press
    * on these buttons that failed could not be done, said in a line after
    * them: empty while there is nothing to say, and null where the page says
-   * such failures elsewhere (AgentWatch). `playerLabel` is what the row the
+   * such failures elsewhere (AgentWatch). `blocked` says that none of the
+   * buttons can do anything, another window having taken the match on (App):
+   * they cannot be pressed, and the same line says what to do instead.
+   * `playerLabel` is what the row the
    * engine marks as `you` is called: the person playing, or in Watch the
    * agent being followed. `heading` is bound so that focus can go to it as
    * the game ends: the last hand's Next hand, which goes as it brings the
    * standings, hands focus on to it (App, AgentWatch).
    */
-  let { standings = [], onagain, onsave, onreview, failure = null, playerLabel = 'You', heading = $bindable(null) } = $props();
+  let { standings = [], onagain, onsave, onreview, failure = null, blocked = false, playerLabel = 'You', heading = $bindable(null) } = $props();
 
   let yours = $derived(standings.find((row) => row.you));
 
@@ -32,6 +35,13 @@
   function done(answer) {
     if (answer === false) void tick().then(() => buttons?.scrollIntoView({ block: 'nearest' }));
   }
+  // A button that has focus as another window takes the match on is
+  // disabled under it, and focus would fall to the page: it goes on to the
+  // line that says to reload, as the result's does (ScoreScreen).
+  let failureLine = $state(null);
+  $effect.pre(() => {
+    if (blocked && untrack(() => buttons)?.contains(document.activeElement)) void tick().then(() => failureLine?.focus());
+  });
 </script>
 
 <section class="standings" aria-label="final standings">
@@ -77,14 +87,14 @@
   </table>
 
   <div class="buttons" bind:this={buttons}>
-    <button class="primary" onclick={onagain}>Play again</button>
-    {#if onreview}<button class="quiet" data-review-game onclick={() => done(onreview())}>Review whole game</button>{/if}
-    {#if onsave}<button class="quiet" data-save-game onclick={() => done(onsave())} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
+    <button class="primary" disabled={blocked} onclick={onagain}>Play again</button>
+    {#if onreview}<button class="quiet" data-review-game disabled={blocked} onclick={() => done(onreview())}>Review whole game</button>{/if}
+    {#if onsave}<button class="quiet" data-save-game disabled={blocked} onclick={() => done(onsave())} title="Every hand of this game from East 1 as one mjai event log, which replayers and other riichi programs read">Save whole game</button>{/if}
     <!-- Why a press on these buttons could not be done, said where the
          player pressed one. A screen reader hears a status line only once it
          knows it, so the line waits here, empty and out of sight, from the
          moment the standings appear. -->
-    {#if failure !== null}<p class="standings-failure" class:visually-hidden={!failure} data-standings-failure role="status">{failure}</p>{/if}
+    {#if failure !== null}<p class="standings-failure" class:visually-hidden={!failure} data-standings-failure role="status" tabindex="-1" bind:this={failureLine}>{failure}</p>{/if}
   </div>
 </section>
 
@@ -224,5 +234,12 @@
     background: transparent;
     color: inherit;
     font-weight: 500;
+  }
+
+  /* One that cannot be pressed is drawn as the app's other controls draw
+     theirs (controls.css). */
+  button:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 </style>

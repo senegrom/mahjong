@@ -336,6 +336,25 @@ try{
  const ringed=p=>p.evaluate(()=>document.activeElement?.matches(':focus-visible')??false);
  const sheetShown=p=>p.$eval('.screen',el=>getComputedStyle(el).display!=='none');
  const settle=p=>p.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+ // The result with focus, as it has it when it appears. A finished match
+ // loaded where the result is a sheet opens on its standings instead, the
+ // sheet stepped aside for them and focus on their heading at the top of the
+ // screen: there the sheet's chip brings the result up, with focus, for a
+ // check that presses the result's own buttons or goes beneath the sheet.
+ // Answers whether the page opened on the standings.
+ async function resultUp(p,where=''){
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen, .standings h2'));
+  if(!await p.evaluate(()=>document.activeElement.matches('.standings h2')))return false;
+  assert.equal(await sheetShown(p),false,`a finished match opens with the sheet stepped aside ${where}`);
+  await settle(p);
+  const heading=await p.$('.standings h2');
+  assert.ok(await uncovered(heading),`and its standings' heading in view, uncovered, ${where}`);
+  // Play again is there to be pressed, scrolled to if the screen is short.
+  await inReach(await p.$('.standings .buttons .primary'));
+  await p.click('.result-chip');
+  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  return true;
+ }
  // In view, and not under the result's chip or the game's bar.
  const uncovered=handle=>handle.evaluate(el=>{const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
   return box.top>=0&&box.bottom<=innerHeight&&Boolean(hit)&&(hit===el||el.contains(hit));});
@@ -373,11 +392,14 @@ try{
   for(const [width,height] of sizes){
    const p=await open(snapshot,{width,height,reduced:true}),where=`at ${width}x${height}`;
    // The result takes focus as it appears, so the button is pressed after.
-   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   // The finished match's sheet is brought up first, by its chip.
+   const opened=await resultUp(p,where);
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
+   assert.equal(opened,sheet&&snapshot===final.after,`only a finished match's sheet starts stepped aside ${where}`);
    assert.equal(sheet,width<=760,`the result is a sheet up to 760 pixels wide, and only there, ${where}`);
    const button=await resultButton(p,pressed);
    assert.ok(await button.evaluate(el=>el instanceof HTMLButtonElement),`the result offers ${pressed} ${where}`);
+   const from=await p.evaluate(()=>scrollY);
    await button.focus();await p.keyboard.press('Enter');await p.waitForSelector('.review');
    if(sheet)assert.equal(await sheetShown(p),false,`the sheet steps aside ${where}`);
    await p.waitForFunction(()=>document.activeElement?.matches('.review h2'),{timeout:5000}).catch(()=>{});
@@ -387,6 +409,8 @@ try{
    assert.deepEqual([node?.role,node?.name,node?.level],['heading','Your hand, looked at again',2]);
    assert.equal(await heading.evaluate(el=>el.closest('section').getAttribute('aria-label')),'your decisions this hand');
    await settle(p);
+   // What docs/UI.md gives for each button and size.
+   console.log(`  ${pressed} on ${label}'s result at ${width}x${height} by keyboard: the page moved ${await p.evaluate(from=>scrollY-from,from)} pixels`);
    assert.ok(await uncovered(heading),`the review's heading is in view and uncovered ${where}`);
    assert.ok(await ringInView(heading),`the heading's focus ring is drawn, and in view ${where}`);
    // It lands clear of the chip where one sits; where none does, no chip's
@@ -425,7 +449,7 @@ try{
   await check(`${pressed}, pressed by mouse or touch on ${label}'s result, hands focus to the review, brought into view only where the result is not a sheet`,async()=>{
   for(const [width,height,touch] of sizes){
    const p=await open(snapshot,{width,height,touch,reduced:true}),where=`at ${width}x${height} by ${touch?'touch':'mouse'}`;
-   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   await resultUp(p,where);
    const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
    const button=await inReach(await resultButton(p,pressed)),before=await p.evaluate(()=>scrollY);
    await pointerPress(p,button,touch);await p.waitForSelector('.review');
@@ -507,15 +531,18 @@ try{
   }
  });
  // Pressed by a mouse or a finger, the standings' heading takes focus as
- // well, with no ring drawn, and the page asks for no scroll at any size:
- // it is left as the browser leaves it when the standings come in above the
- // result, as before focus moved. On a phone the result stays over the
- // standings, as it was, and the page where it was. Where the result is not
- // a sheet the standings appear just above it, and a player who had
- // scrolled to its buttons at the foot of the page keeps them in view: a
+ // well, with no ring drawn. Where the result is not a sheet the page asks
+ // for no scroll: it is left as the browser leaves it when the standings
+ // come in just above the result, as before focus moved, and a player who
+ // had scrolled to its buttons at the foot of the page keeps them in view: a
  // scroll to the heading at 844x390 would take the Final hand caption, where
- // they pressed, off the screen.
- await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings without moving the page',async()=>{
+ // they pressed, off the screen. On a phone the result is a sheet over the
+ // standings, and left up it showed nothing of them, no place and no Play
+ // again: there it steps aside for them as for a keyboard's press, leaving
+ // its chip, and the page moves to them: their heading below the game's
+ // bar, as near the top of the screen as the page scrolls, with the places
+ // and Play again on the screen under it.
+ await check('Next hand on the last hand, pressed by mouse or touch, hands focus to the standings: without moving the page where the result is not a sheet, and with the sheet stepping aside for them on a phone',async()=>{
   // Every press after which the page asked for a scroll, with where the page
   // went, so that a failure names each size and place it happens at.
   const scrolled=[];
@@ -533,14 +560,59 @@ try{
    assert.equal(await ringed(p),false,`no focus ring is drawn for a pointer ${where}`);
    await settle(p);
    const moved=await p.evaluate(before=>scrollY-before,before),asked=await scrollsAsked(p);
-   if(asked.length)scrolled.push(`${where}, the page scrolled from ${before} to ${before+moved}: ${asked.join('; ')}`);
-   if(sheet){
-    assert.equal(moved,0,`the page stays where it was ${where}`);
-    assert.equal(await sheetShown(p),true,`the result stays over the standings ${where}`);
+   if(!sheet){
+    if(asked.length)scrolled.push(`${where}, the page scrolled from ${before} to ${before+moved}: ${asked.join('; ')}`);
+   }else{
+    assert.equal(await sheetShown(p),false,`the sheet steps aside for the standings ${where}`);
+    const heading=await p.$('.standings h2'),bar=await p.$eval('.bar',el=>el.getBoundingClientRect().bottom);
+    assert.ok(await uncovered(heading),`the standings' heading is in view and uncovered ${where}`);
+    const top=await heading.evaluate(el=>el.getBoundingClientRect().top);
+    assert.ok(top>=bar,`the heading is below the game's bar ${where}: ${top} under ${bar}`);
+    // What the press brought is on the screen with it: the places, and Play
+    // again, clear of the result's chip. The heading is as near the top of
+    // the screen as the page scrolls, which on a tall phone is not far: the
+    // standings are the last of the page.
+    assert.ok(await uncovered(await p.$('.standings tbody tr:last-child td')),`every place is in view ${where}`);
+    assert.ok(await uncovered(await p.$('.standings .buttons .primary')),`Play again is in view, uncovered, ${where}`);
+    assert.match(await p.$eval('.result-chip',el=>el.textContent),/^Show result/,`the chip is left to bring the result back ${where}`);
+    console.log(`  Next hand at ${width}x${height} by touch: the page moved ${moved} pixels`);
+    await shot(p,`standings-tap-${width}x${height}`);
    }
    noErrors(p);
   }
-  assert.deepEqual(scrolled,[],'the page asks for no scroll after a press by mouse or touch');
+  assert.deepEqual(scrolled,[],'the page asks for no scroll after a press by mouse or touch where the result is not a sheet');
+ });
+ // A match finished on a phone, and Play left for Agent watch and come back
+ // to: Play is drawn anew over the finished match, with no restore, and its
+ // result starts as a sheet stepped aside for the standings, out of sight.
+ // Focus must go to the standings' heading, in view with Play again, and not
+ // drop to the page from the hidden sheet.
+ await check('on a phone, a finished match that Play comes back to from Agent watch hands focus to its standings, in view',async()=>{
+  for(const [width,height] of [[390,844],[568,320]]){
+   const p=await open(final.before,{width,height,touch:true,reduced:true}),where=`at ${width}x${height}`;
+   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   await pointerPress(p,await inReach(await resultButton(p,'Next hand')),true);
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'));
+   // The mode's button, brought into view as little as will show it, below
+   // the game's bar that stays at the top of the screen, and tapped there.
+   const mode=async name=>{
+    const button=await p.$(`.game-modes button[aria-label="${name}"]`);
+    await button.evaluate(el=>el.scrollIntoView({block:'nearest'}));await settle(p);
+    assert.ok(await uncovered(button),`the ${name} button is in view below the bar ${where}`);
+    await pointerPress(p,button,true);
+   };
+   await mode('Agent watch');await p.waitForSelector('.agent-watch');
+   assert.equal(await p.$('.standings'),null,`Play's standings go with Play ${where}`);
+   await mode('Play');await p.waitForSelector('.standings h2');
+   await p.waitForFunction(()=>document.activeElement?.matches('.standings h2'),{timeout:5000}).catch(()=>{});
+   assert.equal(await focusOn(p),'the standings',`focus goes to the standings, not the page, ${where}`);
+   assert.equal(await sheetShown(p),false,`the sheet is stepped aside ${where}`);
+   await settle(p);
+   assert.ok(await uncovered(await p.$('.standings h2')),`the standings' heading is in view and uncovered ${where}`);
+   await inReach(await p.$('.standings .buttons .primary'));
+   assert.match(await p.$eval('.result-chip',el=>el.textContent),/^Show result/,`the chip is left to bring the result back ${where}`);
+   await shot(p,`standings-back-from-watch-${width}x${height}`);noErrors(p);
+  }
  });
  // A hand's review that the engine could not build opens nothing: the
  // result stays as it was, on a phone too, and the pressed button stays,
@@ -636,17 +708,17 @@ try{
     [844,390,'mouse'],[844,390,'keyboard'],[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
     const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,...plant}),where=`for ${pressed} at ${width}x${height} by ${how}`;
     await p.waitForSelector('.standings');
-    await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+    // On a phone the finished match opens on its standings, the sheet
+    // stepped aside, so a finger or a mouse reaches their buttons at once.
+    // The keyboard goes beneath the sheet, brought back over them by its
+    // chip first.
+    if(how==='keyboard')await resultUp(p,where);else await p.waitForFunction(()=>document.activeElement?.matches('.screen, .standings h2'));
     const sheet=await p.$eval('.screen',el=>getComputedStyle(el).position==='fixed');
     const line=await p.$('.standings [role="status"]');
     assert.ok(line,`the standings have a line for it before the press ${where}`);
     assert.deepEqual(await line.evaluate(el=>[el.textContent.trim(),el.getBoundingClientRect().height<=1]),['',true],`the line waits empty, taking no room, ${where}`);
     assert.equal((await p.accessibility.snapshot({root:line,interestingOnly:false}))?.role,'status',`a screen reader knows the line ${where}`);
-    if(sheet&&how!=='keyboard'){
-     await pointerPress(p,await inReach(await resultButton(p,'Review final hand')),touch);
-     await p.waitForSelector('.review');await settle(p);
-     assert.equal(await sheetShown(p),false,`the sheet has stepped aside for the hand's review ${where}`);
-    }
+    if(sheet)assert.equal(await sheetShown(p),how==='keyboard',`the sheet is over the standings only for the keyboard, which brought it back, ${where}`);
     const button=await p.$(selector);
     if(how==='keyboard')await shiftTabTo(p,selector);else await inReach(button);
     await settle(p);
@@ -721,7 +793,8 @@ try{
   for(const [width,height,how] of [[390,844,'touch'],[390,844,'mouse'],[390,844,'keyboard'],[320,568,'touch'],[320,568,'mouse'],[320,568,'keyboard']]){
    const touch=how==='touch',p=await open(final.after,{width,height,touch,reduced:true,failReplay:true}),where=`at ${width}x${height} by ${how}`;
    await p.waitForSelector('.standings');
-   await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+   // The sheet starts stepped aside for the standings: its chip brings it up.
+   assert.equal(await resultUp(p,where),true);
    const line=await resultLine(p);
    assert.ok(line,`the result has a line for it before the press ${where}`);
    assert.equal(await line.evaluate(el=>el.textContent.trim()),'',`the line waits empty ${where}`);
@@ -779,7 +852,7 @@ try{
  await check('on a phone, a review opened from the result takes back the standings\' words that the game could not be replayed, whatever the reason',async()=>{
   const p=await open(final.after,{width:390,height:844,reduced:true,failReplay:true});
   await p.waitForSelector('.standings');
-  await p.waitForFunction(()=>document.activeElement?.matches('.screen'));
+  assert.equal(await resultUp(p,'at 390x844'),true);
   const standings=()=>p.$eval('.standings [data-standings-failure]',el=>el.textContent.trim());
   await p.evaluate(()=>{window.failReplay=true;});
   await shiftTabTo(p,'.standings [data-review-game]');await p.keyboard.press('Enter');
@@ -1137,10 +1210,11 @@ try{
   assert.equal(events.at(-1).type,'end_game');
   await shot(p,'export-standings');noErrors(p);
  });
- await check('on a phone the final result, which covers the standings, saves the whole game itself',async()=>{
+ await check('on a phone the final result, brought back over the standings by its chip, saves the whole game itself',async()=>{
   const whole=exported(final.after);
   for(const [width,height,label] of [[390,844,'Save game'],[320,568,'Save game']]){
    const p=await open(final.after,{width,height,files:true});await p.waitForSelector('.standings');
+   assert.equal(await resultUp(p,`at ${width}x${height}`),true);
    assert.equal(await p.$eval('.screen [data-save-game]',el=>el.innerText.trim()),label);
    const file=await saveFrom(p,'.screen [data-save-game]');
    assert.match(file.name,/^riichi-game-\d{4}-\d{2}-\d{2}-\d{6}\.mjai\.jsonl$/);
@@ -1151,6 +1225,8 @@ try{
  for(const [width,height] of [[320,568],[390,844],[844,390]])await check(`ura and final-hand results fit ${width}x${height}`,async()=>{
   for(const [label,snapshot] of [['ura',wins[1]],['final',final.after]]){
    const p=await open(snapshot,{width,height});
+   // The final hand's sheet starts stepped aside on a phone, and is measured up.
+   if(snapshot===final.after)await resultUp(p,`at ${width}x${height}`);
    const overflow=await p.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,wide:[...document.querySelectorAll('*')].map(el=>{const r=el.getBoundingClientRect();return{tag:el.tagName,cls:el.className?.toString?.()??'',left:r.left,right:r.right,width:r.width,scroll:el.scrollWidth,client:el.clientWidth};}).filter(x=>x.right>innerWidth+1||x.left<-1||x.scroll>x.client+1).sort((a,b)=>Math.max(b.right-innerWidth,b.scroll-b.client)-Math.max(a.right-innerWidth,a.scroll-a.client)).slice(0,12)}));
    assert.ok(overflow.document<=overflow.viewport+1,JSON.stringify(overflow));
    assert.ok(await p.$$eval('.screen,.standings,.bonus-indicators',els=>els.every(el=>el.scrollWidth<=el.clientWidth+1)));

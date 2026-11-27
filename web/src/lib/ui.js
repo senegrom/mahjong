@@ -1,4 +1,20 @@
 import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
+import { playedNetwork } from './trained-network.js';
+
+/** What the page says while it starts, which waits for two things at once:
+ * the engine and the selected face's tile graphics. `tiles` is how many of
+ * the graphics are in, `{ done, total }`, or null before the first; `drawn`
+ * says they all are, and `engine` that the engine is. On a slow link the
+ * graphics are often in first, and the line went on reading "37/37" for
+ * seconds while the engine was what was still loading: then it says so. */
+export function startupWords(tiles, drawn, engine) {
+  if (drawn && !engine) return 'Loading the game engine…';
+  return tiles ? `Loading selected tile graphics… ${tiles.done}/${tiles.total}` : 'Loading the game and selected tile graphics…';
+}
+
+/** A network's download in whole megabytes: what is fetched and kept
+ * (storedBytes), or the network's own size where its listing gives no other. */
+const megabytes = network => Math.round((network.storedBytes ?? network.bytes) / 1e6);
 
 /** What the table says while a Trained opponent waits for the network. The
  * opponent's worker reports its own loading; before that worker starts, the
@@ -9,12 +25,55 @@ import { TILE_TYPES, runTiles, sequenceWords, tileWords } from './tiles.js';
  * phase stays 'ai' until the runtime is saved too, and a first visit's
  * install, which saves the game beside the network, delays it no more.
  * While the network downloads, `offline.progress` is the percent of it
- * received. */
-export function waitingNote(note, offline) {
+ * received. The note says how much the download is, the size of the
+ * `network` the page plays, once, so that a player on a slow or metered link
+ * knows what the wait is ("downloading the trained network (59 MB) 37%").
+ *
+ * `held` says the opponents' worker holds the network already (policy.js
+ * networkInWorker): then nothing waits for the page's download, which a new
+ * game may start again where the network is not stored, and only the
+ * worker's own note is said. */
+export function waitingNote(note, offline, { held = false, network = playedNetwork() } = {}) {
   if (note) return note;
-  if (offline?.network === 'downloading') return `downloading the trained network ${offline.progress ?? 0}%`;
+  if (held) return '';
+  if (offline?.network === 'downloading') return `downloading the trained network (${megabytes(network)} MB) ${offline.progress ?? 0}%`;
   if (offline?.network === 'waiting') return 'waiting for another window to download the trained network';
   return '';
+}
+
+/** Whether a note of the opponent's worker says it is fetching the network
+ * itself, or waits its turn behind another window's download of it
+ * ("downloading the network 12%", "waiting for another window to download
+ * the network"), rather than loading it from this device or thinking. */
+export function noteIsDownload(note) {
+  return /^(downloading|waiting for another window)\b/.test(note ?? '');
+}
+
+/** Whether what a Trained opponent waits for is a download, the wait
+ * waitingNote names, rather than the network starting from this device's
+ * copy or thinking: the worker's own note where it has one (noteIsDownload),
+ * and with none, where the network itself stands, `offline.network`
+ * 'downloading' or 'waiting'. Never by the whole save's phase, which stays
+ * 'ai' while the runtime is saved and the opponents already play, nor by a
+ * first visit's install, which the network does not wait for. Only then does
+ * play offer Club meanwhile: a start or a thought takes seconds, a download
+ * minutes. Never where the opponents' worker holds the network (`held`), as
+ * waitingNote has it. */
+export function waitIsDownload(note, offline, { held = false } = {}) {
+  if (note) return noteIsDownload(note);
+  if (held) return false;
+  return offline?.network === 'downloading' || offline?.network === 'waiting';
+}
+
+/** A waiting note parted from the figure it ends with, how far a download
+ * has got: "downloading the trained network (59 MB) 37%" is its words and
+ * "37%". Play's prompt says the words in a live region, which a screen
+ * reader then hears once, and shows the figure beside them, outside it: said
+ * with them, every percent of a download would be read out, a hundred lines
+ * in a row on a first visit. */
+export function partedNote(note) {
+  const [, words, figure = ''] = /^(.*?)(?:\s+(\d+%))?$/s.exec(note ?? '');
+  return { words, figure };
 }
 
 export function heldSafeCount(view) {
@@ -107,14 +166,39 @@ export function pressedByKeyboard(event) {
   return event?.detail === 0;
 }
 
-/** Hands focus on to a heading that says where the player now is, and moves
- * the page to show it, by as little movement as will, only when the caller
- * asks: for a press by keyboard, whose player follows focus and is shown a
- * ring there, and not for a mouse's or a finger's, which is shown none. */
-export function land(heading, scroll) {
-  heading?.focus({ preventScroll: true });
-  if (scroll) heading?.scrollIntoView({ block: 'nearest' });
+/** Whether a click is the second or a later one of a multiple click, such as
+ * a double click's second press: a click's detail counts them (UI Events).
+ * Play draws each decision where the last one was, a tile or a button in the
+ * same place, and against opponents that answer at once the next is there
+ * before a double click's second press lands, which would answer it too: two
+ * tiles thrown by one double click. So a control whose first press has
+ * already acted lets the rest of a multiple click go, as the review's buttons
+ * that take each other's place do. A click made for a key counts none, and is
+ * never let go here (heldPress). */
+export function repeatedClick(event) {
+  return (event?.detail ?? 0) > 1;
 }
+
+/** Hands focus on to a heading that says where the player now is, and moves
+ * the page to show it only when the caller asks: for a press by keyboard,
+ * whose player follows focus and is shown a ring there, and not for a
+ * mouse's or a finger's, which is shown none. It moves by as little as will
+ * show the heading, unless the caller asks for the heading at the top of the
+ * screen (`block` 'start'), below the bar its scroll margin keeps clear, for
+ * what the heading opens to be on the screen with it: the final standings on
+ * a phone, as the result's sheet steps aside for them. */
+export function land(heading, scroll, block = 'nearest') {
+  heading?.focus({ preventScroll: true });
+  if (scroll) heading?.scrollIntoView({ block });
+}
+
+/** What play says wherever a press can do nothing because another window has
+ * taken the match on (App's saveConflict): in the turn's prompt while a hand
+ * is played, and beside the result's and the standings' buttons, which
+ * cannot be pressed meanwhile. The page's own alert, with its Reload latest
+ * match, is at the top of the page, above the screen from the result at
+ * desktop width and under the result's sheet on a phone. */
+export const RELOAD_TO_CONTINUE = 'Reload the latest match to continue here.';
 
 /** Where a hand's result is a sheet over the table and the hand, as
  * ScoreScreen's styles have it: on a phone held upright, and on a small one
@@ -145,6 +229,34 @@ export function acceptsHandKey(event, hand) {
   if (target.closest('input, select, textarea, a, [contenteditable]:not([contenteditable="false"])')) return false;
   const button = target.closest('button');
   return !button || button.classList.contains('tile');
+}
+
+/** Whether play's keys in the hand act on this key, each once however long
+ * it is held: Enter and Space throw the marked tile, a digit the tile of its
+ * place, r goes to the riichi choices and t wins by self-draw. A repeat of
+ * one of these is cancelled, so that a held key throws no second tile. A
+ * repeat of any other key is left to the browser, to scroll the page or to
+ * move focus with. The arrows move the marker at every repeat, and Escape
+ * clears it; both are handled before this is asked. */
+export function handKeyActs(key) {
+  return key === 'Enter' || key === ' ' || /^[0-9rt]$/i.test(key ?? '');
+}
+
+/** Whether a keydown is Enter held down on something Enter presses: a
+ * button, a summary, a link or anything with role="button". App asks this of
+ * every key in play. Enter presses as it goes down and again at every
+ * repeat, and what takes a pressed control's place, or wherever focus lands
+ * as it goes, is pressed in turn: a tile or a call of the next decision drawn
+ * where the last one was, or New game, whose confirmation then holds the page.
+ * So a held key presses nothing twice; App cancels these repeats. Text fields
+ * and selects are left alone, which Enter does not press. Space presses a
+ * button as it is let go, once however long it is held, so only Enter needs
+ * this. */
+export function heldPress(event) {
+  if (!event?.repeat || event.key !== 'Enter') return false;
+  const target = event.target;
+  if (!target?.closest || target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
+  return Boolean(target.closest('button, summary, a[href], [role="button"]'));
 }
 
 /** What a key does in the game's review, by name, or null: 'previous' and

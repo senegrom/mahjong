@@ -60,6 +60,10 @@
     /** A button whose press selects it: only then is `selected` announced as
      * pressed. Palette, remove and play-this buttons are plain buttons. */
     toggle = false,
+    /** Whether a toggle is pressed, where that is not all `selected` marks:
+     * play's hand draws the tile under the arrow keys as it draws a selected
+     * one, though no press selected it. Null where the two are the same. */
+    pressed = null,
     disabled = false,
     muted = disabled,
     title = '',
@@ -178,7 +182,7 @@
     data-hand-index={handIndex ?? undefined}
     data-drawn={drawn ? 'true' : undefined}
     data-readiness={readiness ?? undefined}
-    aria-pressed={toggle ? selected : undefined}
+    aria-pressed={toggle ? (pressed ?? selected) : undefined}
     type="button"
     class:ringed={marks.length > 0}
     class:in-shape={inShape}

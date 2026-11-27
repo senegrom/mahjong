@@ -18,9 +18,9 @@
     mode = $bindable('play'), settingsOpen = $bindable(false),
     hints = $bindable(true), confirmDiscards = $bindable(false),
     shortcuts = $bindable(true), reviewHideMove = $bindable(false), reviewHideTiles = $bindable(false),
-    tileFace, pendingTileFace = null,
+    tileFace, pendingTileFace = null, faceWarning = '',
     network = playedNetwork().version, runtime = null, onnetworkchange,
-    difficulty, opponents, ready, busy, saveConflict, trainedAvailable, offline,
+    difficulty, opponents, ready, saveConflict, trainedAvailable, offline, standIn = false,
     changeOpponents, startFresh, configureTable, downloadAi, onfacechange,
     onconfirmationchange, onshortcutschange, loggedHands = 0, onsavegame, exportFailure = '',
   }: SettingsProps = $props();
@@ -40,6 +40,15 @@
     if (!onnetworkchange?.(picker.value)) picker.value = network;
   }
 
+  // Why the tile face picked could not load (faceWarning) is said by the
+  // page, in an alert under the settings. While the settings are a dialog
+  // and open, that alert lies behind it, unheard and dimmed, with the select
+  // that snapped back in front of it: so the dialog says it instead, in a
+  // line under the select, and App shows it on the page once the dialog is
+  // closed (both go by settingsOpen, so never both), saying it there only if
+  // the dialog has not.
+  let faceNote = $derived(settingsOpen ? faceWarning : '');
+
   // Export game says why the game could not be saved in a line after its
   // button (exportFailure), where it was pressed. On a phone the settings
   // are a modal dialog, and while it is open everything outside it is
@@ -56,8 +65,15 @@
     settingsDialog?.close(); // Restores the opener before another dialog opens.
   }
   function openTable() { closeSettings(); configureTable(); }
+  // Leaving Play never stops its match: the session plays on behind the other
+  // modes, each move saved as it is made, and is there as it stands on coming
+  // back. So a match that is busy holds nobody in Play, least of all one whose
+  // Trained opponent waits for the network's whole download. The guard that
+  // did (mode === 'play' && busy) kept nothing safe: it only kept the few
+  // moves of a turn already asked ahead of another mode's questions at the
+  // one worker, where they now take turns.
   function changeMode(next: GameMode) {
-    if (!ready || (mode === 'play' && busy)) return;
+    if (!ready) return;
     mode = next;
     closeSettings();
   }
@@ -89,7 +105,11 @@
   <h1>Riichi</h1>
   {#if mode === 'play'}<label class="opponents">
     <span>Opponents</span>
-    <select class="app-control" value={difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+    <!-- While Club stands in for Trained (Play Club meanwhile), the select
+         says so in an entry of its own, so that Club is not read as the
+         player's choice; picking Club or Trained there is a pick (App). -->
+    <select class="app-control" value={standIn ? 'meanwhile' : difficulty} onchange={changeOpponents} disabled={!ready || Boolean(saveConflict)} aria-label="opponent strength">
+      {#if standIn}<option value="meanwhile">Club meanwhile</option>{/if}
       <option value="beginner">Beginner</option>
       <option value="club">Club</option>
       {#if trainedAvailable || opponents.includes('neural')}<option value="neural">Trained {network}</option>{/if}
@@ -106,7 +126,7 @@
 
 <nav class="game-modes" aria-label="Game mode">
   {#each MODES as [key, before, word, after] (key)}
-    <button class="app-control" aria-label={`${before}${word}${after}`} aria-pressed={mode === key} disabled={!ready || (mode === 'play' && busy)} onclick={() => changeMode(key)}>{#if before}<span class="rest">{before}</span>{/if}{word}{#if after}<span class="rest">{after}</span>{/if}</button>
+    <button class="app-control" aria-label={`${before}${word}${after}`} aria-pressed={mode === key} disabled={!ready} onclick={() => changeMode(key)}>{#if before}<span class="rest">{before}</span>{/if}{word}{#if after}<span class="rest">{after}</span>{/if}</button>
   {/each}
 </nav>
 
@@ -114,7 +134,7 @@
 <div id="game-preferences" class="preferences" class:mobile-open={compact && settingsOpen} bind:this={preferencesElement}>
 <div class="mobile-preferences-head"><strong id="game-settings-title">Game settings</strong><button class="app-control" data-close-settings onclick={closeSettings}>Done</button></div>
 <label class="compact-mode-selector">Game mode
-  <select class="app-control" value={mode} aria-label="Game mode" disabled={!ready || (mode === 'play' && busy)}
+  <select class="app-control" value={mode} aria-label="Game mode" disabled={!ready}
     onchange={event => changeMode(event.currentTarget.value as GameMode)}>
     <option value="play">Play</option><option value="watch">Agent watch</option><option value="physical">Physical agent play</option><option value="guided">Guided physical game</option>
   </select>
@@ -135,6 +155,9 @@
       </select>
     </label>
     {#if pendingTileFace}<p role="status" data-face-progress>Loading selected tile graphics… Your current tiles remain available.</p>{/if}
+    <!-- A screen reader hears a status line only once it knows it, so this
+         one waits here, empty and out of sight, before its words arrive. -->
+    <p class:visually-hidden={!faceNote} data-face-failure role="status">{faceNote}</p>
     <label><input type="checkbox" bind:checked={hints} /> Hints and markings</label>
     <label><input type="checkbox" bind:checked={confirmDiscards} onchange={onconfirmationchange} /> Select before discarding</label>
     <label><input type="checkbox" bind:checked={shortcuts} onchange={onshortcutschange} /> Keyboard shortcuts in your hand</label>
@@ -358,6 +381,10 @@
       background: color-mix(in srgb, var(--felt) 92%, transparent);
       backdrop-filter: blur(12px);
     }
+    /* Brought into view, by a script or by focus reaching one, the mode
+       buttons stop below the bar, which stays at the top of the screen, as
+       the standings' heading does. */
+    .game-modes, .game-modes button { scroll-margin-top: 72px; }
     h1 { margin-right: auto; font-size: 1rem; letter-spacing: .18em; white-space: nowrap; }
     .opponents { margin-left: 0; }
     /* Wide enough to show the Trained network with its version, "Trained 0.1.3000", whole: a select cuts its

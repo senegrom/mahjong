@@ -88,14 +88,47 @@ export function readSettings(storage, touch = false) {
   return defaults;
 }
 
-/** Writes the preferences only when they differ from the last write. Every
- * write replaces the whole record, so writing an equal copy each time the
- * effect reruns would overwrite a change another tab made meanwhile. Returns
- * what this tab last stored, for the next call. */
+/** Preferences that are one choice stored as two, and are written together:
+ * the table's name and its three seats. */
+const WRITTEN_TOGETHER = [['difficulty', 'opponents']];
+
+/** The record in storage as it stands, where this build's pages wrote it,
+ * and otherwise null: none, one that cannot be read, or another version's. */
+function storedSettings(storage) {
+  try {
+    const value = JSON.parse(storage?.getItem?.(SETTINGS_KEY));
+    return value && typeof value === 'object' && !Array.isArray(value) && value.version === SETTINGS_VERSION ? value : null;
+  } catch { return null; }
+}
+
+/** Writes the preferences only when they differ from this window's last
+ * write, and then only those that differ, into the record as it stands in
+ * storage now. A window that wrote its whole record at every change took
+ * back whatever another window had changed meanwhile: a network picked in
+ * one was lost to the next checkbox ticked in the other, and an equal copy
+ * written each time the effect reruns would do the same at every move. A
+ * preference set back to nothing, as a pick of the default network is, is
+ * taken out of the record. A page's first write (no `last`), and a write
+ * over a record this build's pages did not write, is the whole of this
+ * window's preferences. Returns this window's preferences as it last wrote
+ * them, for the next call; what storage holds may say more. */
 export function writeSettings(storage, settings, last = null) {
-  const text = JSON.stringify({ version: SETTINGS_VERSION, ...settings });
+  const mine = { version: SETTINGS_VERSION, ...settings };
+  const text = JSON.stringify(mine);
   if (text === last) return last;
-  try { storage?.setItem(SETTINGS_KEY, text); } catch { return last; /* Gameplay still works. */ }
+  let record = mine;
+  const stored = last === null ? null : storedSettings(storage);
+  if (stored) {
+    const before = JSON.parse(last);
+    const changed = new Set(Object.keys({ ...before, ...mine }).filter(key => JSON.stringify(before[key]) !== JSON.stringify(mine[key])));
+    for (const keys of WRITTEN_TOGETHER) if (keys.some(key => changed.has(key))) keys.forEach(key => changed.add(key));
+    record = { ...stored };
+    for (const key of changed) {
+      if (mine[key] === undefined) delete record[key];
+      else record[key] = mine[key];
+    }
+  }
+  try { storage?.setItem(SETTINGS_KEY, JSON.stringify(record)); } catch { return last; /* Gameplay still works. */ }
   return text;
 }
 
@@ -120,6 +153,15 @@ export class MatchSession {
     this.thinking = false;
     this.failure = '';
     this.abort = new AbortController();
+    // Club asked for while a Trained opponent is awaited, and whether the
+    // match was given to Club that way (clubMeanwhile).
+    this.standIn = false;
+    this.stoodIn = false;
+    // Whether an opponent's question is out, unanswered: only then can Club
+    // stand in. `thinking` stays set after the last answer, until the run
+    // has let go of the save lock, and a stand-in asked for then would take
+    // nothing.
+    this.asking = false;
   }
 
   get view() { return this.engine.view(); }
@@ -295,10 +337,26 @@ export class MatchSession {
           require(moves++ < 400, 'The opponent sequence did not settle');
           this.thinking = true;
           this.notify();
-          const actions = await this.trainedMove();
+          let actions = null;
+          this.asking = true;
+          try { actions = await this.trainedMove(); }
+          catch (error) {
+            // Given to Club while it was asked (clubMeanwhile), the question
+            // was dropped: it did not fail.
+            if (this.closed || !this.standIn) throw error;
+          } finally { this.asking = false; }
           if (this.closed) return false;
-          // A riichi and its tile are applied together, and saved once.
-          for (const action of actions) this.apply({ type: 'opponent', action });
+          if (this.standIn) {
+            // Club takes every Trained seat here, in the run that was
+            // waiting, as recovery's own command does after a failure. An
+            // answer that came just as it was asked for is let go unplayed.
+            this.standIn = false;
+            this.apply({ type: 'club' });
+            this.stoodIn = true;
+          } else {
+            // A riichi and its tile are applied together, and saved once.
+            for (const action of actions) this.apply({ type: 'opponent', action });
+          }
           this.advance();
           this.notify();
         }
@@ -308,6 +366,7 @@ export class MatchSession {
       if (!this.closed) this.failure = error?.message ?? String(error);
       return false;
     } finally {
+      this.standIn = false;
       // A reply/error from a disposed match must not touch its replacement.
       if (!this.closed) {
         this.busy = false;
@@ -315,6 +374,26 @@ export class MatchSession {
         this.notify();
       }
     }
+  }
+
+  /** Gives the match's Trained seats to Club while one of them is still
+   * asked, for a player who would rather play on than wait for the network
+   * to download: the question is dropped, unanswered, and the run that asked
+   * it goes on with Club, recording the same command as continueWithClub
+   * does once an opponent has failed. Nothing else is stopped, so whatever
+   * was fetching the network carries on. Answers whether it was taken: only
+   * a match waiting on a Trained opponent can be. `stoodIn` says afterwards
+   * that the match turned to Club this way, not after a failure, which the
+   * page reads to keep the player's own table as their preference (App). */
+  clubMeanwhile() {
+    if (this.closed || !this.asking || this.standIn) return false;
+    this.standIn = true;
+    // The question ends as its signal does; later ones have a signal of
+    // their own, and the match's end stops whichever is current.
+    const asked = this.abort;
+    this.abort = new AbortController();
+    asked.abort();
+    return true;
   }
 
   /** The waiting Trained opponent's move, as Mortal's moves to apply in

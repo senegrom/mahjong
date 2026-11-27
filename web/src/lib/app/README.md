@@ -15,7 +15,7 @@ Presentation components cannot write a match or choose a fallback opponent.
 | `OpponentDialog` | Edit a separate draft; ask App to confirm replacement of the match. |
 | `MatchTable` | Render opponents and table inspection; own all regular-table breakpoints, and those of a review's table, which shows every hand face up as it stood at a past decision, or the opponents' turned face down in their racks (`concealed`), on a dense board from 761 pixels wide (the centre a bar across the top, the three opponents in one row), and, where the player answers a discard, outlines the tile on offer in the row of the seat that let it go. |
 | `PlayerHand` | Render the hand and read-only hypothetical discard analysis; bind its DOM element to App. In play on a phone held sideways, draw App's controls (`controls`) right under the hand, over the called sets and discards. In a review, name the tiles for the seat, as one of the table's four hands (`listed`), and put words over the tiles the review's moves concern (`tags`). |
-| `TurnChoices` | Render choices and forward actions/cancellation to App's guards. On a phone held sideways, stage a call's discard in a small card in the rows of its buttons, each the call's word beside its tiles. |
+| `TurnChoices` | Render choices and forward actions/cancellation to App's guards. A call and the confirmation's **Discard** act once a press: the second press of a double click is let go (`press`). **Cancel**, which only takes the selection back, and **Play Club meanwhile**, which goes as it is pressed, forward every click. Say the turn's prompt in a live region, with a download's progress beside it and the hand's description apart from it, and offer **Play Club meanwhile** where App hands it the action, which is while a Trained opponent waits for the network's download. On a phone held sideways, stage a call's discard in a small card in the rows of its buttons, each the call's word beside its tiles. |
 | `ReviewInsight` (`src/lib`, in the review's `DecisionReplay`) | Render what App's `MatchInsight` has for the decision on show, the Why line and "What would change its mind?" with its progress, Cancel and what it found, only once Trained AI's answer is shown; ask it to explain, search, cancel or leave a decision, never the worker itself. |
 
 `types.ts` declares the view, choice, offline, preference and callback contracts.
@@ -26,12 +26,16 @@ never receive it. Component-specific rules remain scoped.
 ## Startup and artwork
 
 Interactive startup waits for the engine and the selected face set (including its
-back, fallback and foil images). Full artwork/core caching continues independently
+back, fallback and foil images), and its line says which it still waits for: the
+graphics as they come in, and "Loading the game engine…" once they are all in
+and the engine is not. Full artwork/core caching continues independently
 through the service worker. A playable page does **not** imply the complete offline
 package is ready. `OfflineStatus` remains the authority for that separate claim.
 
 Face changes decode the replacement before updating or persisting `tileFace`.
-Failure keeps the current face and match; selecting it again retries. A newer
+Failure keeps the current face and match; selecting it again retries. App says
+it in an alert under the settings, and while the settings are an open dialog,
+which would cover that alert, `AppSettings` says it under the select; App's line, shown again as the dialog closes, is then no alert, so it is heard once. A newer
 selection or unmount aborts stale work. `image-preloader.js` limits concurrency,
 drains aborted workers, reuses verified decode successes and bounds retained Image
 objects to the displayed set plus the current partial attempt. Its timeout covers

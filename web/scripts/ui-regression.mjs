@@ -86,17 +86,44 @@ const beforeCall=make(1);for(const tile of ['9s','3m','8s'])step(beforeCall,{kin
 const beforeCallSave=beforeCall.snapshot();beforeCall.dispose();
 const sharedCall=make(287,'neural');sharedCall.apply({type:'opponent',action:1});sharedCall.advance(false);
 const sharedCallSave=sharedCall.snapshot();sharedCall.dispose();
+// The player's own turn against Club, where throwing the tile in the hand's
+// first place brings the turn straight back, with a tile in that place to
+// throw: what the second press of a double click on it meets.
+const firstThrown=m=>ownTurn(m)&&m.choices.some(c=>c.tile===m.view.seats[0].hand[0]);
+const turnAgainSave=findFixture(m=>{
+  if(!firstThrown(m)) return false;
+  const next=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
+  try { step(next,{kind:'discard',tile:next.view.seats[0].hand[0]}); return firstThrown(next); } finally { next.dispose(); }
+});
+// A finished hand at a Trained table, its opponents' moves each the first
+// their mask opens, whose next deal asks a Trained opponent before the player.
+const neuralEndSave=(()=>{
+  for(let seed=1;seed<=40;seed++) {
+    const m=make(seed,'neural');
+    try {
+      for(let n=0;n<600&&m.view.phase!=='over';n++) {
+        if(m.engine.needs_opponent_move()) { m.apply({type:'opponent',action:Array.from(m.engine.opponent_mask_mortal()).findIndex(Boolean)}); m.advance(false); }
+        else step(m,chooseSimple(m));
+      }
+      if(m.view.phase!=='over'||m.over) continue;
+      const dealt=MatchSession.restore(Game,JSON.stringify(m.snapshot()));
+      try { dealt.apply({type:'next'}); dealt.advance(false); if(dealt.over||!dealt.engine.needs_opponent_move()) continue; } finally { dealt.dispose(); }
+      return m.snapshot();
+    } finally { m.dispose(); }
+  }
+  throw new Error('Could not find a Trained table whose next deal asks an opponent first');
+})();
 
-async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,mock=null,sharedContext=null}={}) {
+async function open(saved=initial, {width=1100,height=850,dark=false,confirm=false,shortcuts=true,mock=null,sharedContext=null}={}) {
   const context=sharedContext ?? await browser.createBrowserContext(); if(!sharedContext) contexts.push(context);
   const page=await context.newPage(); const errors=[]; problems.set(page, errors);
   page.on('pageerror',error=>errors.push(error.message));
   await page.setViewport({width,height,isMobile:width<500 || height<500,hasTouch:width<500 || height<500,deviceScaleFactor:1});
   await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:dark?'dark':'light'},{name:'prefers-reduced-motion',value:'reduce'}]);
-  await page.evaluateOnNewDocument((saveKey,settingsKey,saved,confirm)=>{
-    if(!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:confirm,shortcuts:true}));
+  await page.evaluateOnNewDocument((saveKey,settingsKey,saved,confirm,shortcuts)=>{
+    if(!localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey,JSON.stringify({version:1,difficulty:'club',hints:true,confirmDiscards:confirm,shortcuts}));
     if(!localStorage.getItem(saveKey)) localStorage.setItem(saveKey,JSON.stringify(saved));
-  }, SAVE_KEY, SETTINGS_KEY, saved, confirm);
+  }, SAVE_KEY, SETTINGS_KEY, saved, confirm, shortcuts);
   if(mock) {
     // Fault-injection tests replace the worker's bytes; integrity-checked
     // offline assets are exercised separately by offline-check.mjs.
@@ -154,6 +181,13 @@ try {
       const hand=document.querySelector('.hand');
       for(const modifiers of [{ctrlKey:true},{altKey:true},{metaKey:true},{repeat:true}]) hand.dispatchEvent(new KeyboardEvent('keydown',{key:'1',bubbles:true,cancelable:true,...modifiers}));
     });
+    // A held key is taken from the browser only where the hand's keys act on
+    // it: held to scroll the page or to move focus on, it still does.
+    const cancelled=await page.evaluate(()=>['1','0','Enter',' ','r','t','ArrowDown','PageDown','Tab','a'].map(key=>{
+      const event=new KeyboardEvent('keydown',{key,repeat:true,bubbles:true,cancelable:true});
+      document.querySelector('.hand').dispatchEvent(event); return [key,event.defaultPrevented];
+    }));
+    assert.deepEqual(cancelled,[['1',true],['0',true],['Enter',true],[' ',true],['r',true],['t',true],['ArrowDown',false],['PageDown',false],['Tab',false],['a',false]]);
     assert.deepEqual(await saved(page),before); noErrors(page);
   });
   await check('keyboard marker clears after a synchronous Club turn',async()=>{
@@ -161,6 +195,174 @@ try {
     await page.focus('.hand'); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Enter');
     await page.waitForFunction((key,count)=>JSON.parse(localStorage.getItem(key)).commands.length>count,{},SAVE_KEY,count);
     assert.equal((await ui(page)).selected,0); noErrors(page);
+  });
+  // A double click as a mouse makes it: a press, about 150 ms, and a second
+  // press at the same point, which the browser counts as the second of two.
+  const middle=async(page,selector)=>{const box=await (await page.$(selector)).boundingBox();return [box.x+box.width/2,box.y+box.height/2];};
+  const press=async(page,[x,y],clickCount=1)=>{await page.mouse.move(x,y);await page.mouse.down({clickCount});await page.mouse.up({clickCount});};
+  const pause=ms=>new Promise(done=>setTimeout(done,ms));
+  // What the player has chosen since the match held `from` commands: a tile, or a call's kind.
+  const chosen=async(page,from)=>(await saved(page)).commands.slice(from).filter(c=>c.type==='choose').map(c=>c.tile??c.kind);
+  const more=(page,count)=>page.waitForFunction((key,count)=>JSON.parse(localStorage.getItem(key)).commands.length>count,{},SAVE_KEY,count);
+  // Enter pressed down on what has focus, and then again without being let
+  // go: the browser's own repeat, a trusted keydown with repeat set, which
+  // presses a focused button as the first did unless the page cancels it.
+  // `ready` is awaited between the two, for the next decision to be there.
+  // It cannot hang: a dialog the presses open (New game's confirmation) is
+  // noted and dismissed, and the keys are let go whatever happens. It answers
+  // every dialog's message, and a failure says where focus was.
+  const focusedAt=page=>page.evaluate(()=>{const a=document.activeElement;return a?`${a.tagName.toLowerCase()}.${[...a.classList].join('.')} "${a.textContent.trim().slice(0,40)}"`:'nothing';});
+  const holdEnter=async(page,ready,with_=[])=>{
+    const dialogs=[],dismiss=dialog=>{dialogs.push(dialog.message());void dialog.dismiss();};
+    page.on('dialog',dismiss);
+    try{
+      for(const key of with_)await page.keyboard.down(key);
+      await page.keyboard.down('Enter');await ready();
+      // The next keydown is listened for before it is sent, and read back
+      // after: a listener still being set up as the key goes down, on a slow
+      // machine, would wait for ever.
+      await page.evaluate(()=>{window.nextKeyRepeat=new Promise(done=>addEventListener('keydown',event=>done(event.repeat),{once:true,capture:true}));});
+      await page.keyboard.down('Enter');
+      assert.equal(await page.evaluate(()=>Promise.race([window.nextKeyRepeat,new Promise(done=>setTimeout(()=>done('no keydown'),5000))])),true,'the second keydown is a repeat');
+      await pause(300);
+    }catch(error){
+      error.message+=` (focus on ${await focusedAt(page).catch(()=>'?')}; dialogs ${JSON.stringify(dialogs)})`;
+      throw error;
+    }finally{
+      await page.keyboard.up('Enter').catch(()=>{});for(const key of [...with_].reverse())await page.keyboard.up(key).catch(()=>{});
+      page.off('dialog',dismiss);
+    }
+    return dialogs;
+  };
+  await check('Enter held down on a tile presses it once, whatever is held with it, with the keys on or off',async()=>{
+    // With Select before discarding on, the first press selects the tile and
+    // leaves it focused, and a second press on it throws it: the repeat lands
+    // on the tile it pressed, and must throw nothing.
+    for(const shortcuts of [true,false]) {
+      const page=await open(turnAgainSave,{confirm:true,shortcuts}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]', where=`with the keys ${shortcuts?'on':'off'}`;
+      const tile=await page.$eval(first,n=>n.dataset.tile);
+      await page.focus(first);
+      const dialogs=await holdEnter(page,async()=>{await page.waitForSelector('.confirm-discard');await pause(150);},['Shift']);
+      assert.equal((await saved(page)).commands.length,before,`the repeat throws nothing ${where}, focus on ${await focusedAt(page)}`);
+      assert.deepEqual(dialogs,[],`and opens nothing ${where}`);
+      assert.ok(await page.$('.confirm-discard'),`the tile stays selected ${where}`);
+      // Pressed again, a press of its own, it is thrown.
+      await page.focus(first); await page.keyboard.press('Enter'); await more(page,before);
+      assert.deepEqual(await chosen(page,before),[tile],where); noErrors(page);
+    }
+  });
+  await check('with the hand\'s keys off, a tile thrown by keyboard hands focus back to the hand as the turn comes back, and a click does not',async()=>{
+    const page=await open(turnAgainSave,{shortcuts:false}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
+    const inHand=()=>page.evaluate(()=>document.querySelector('.hand').contains(document.activeElement));
+    await page.focus(first); await page.keyboard.press('Enter');
+    await more(page,before); await page.waitForSelector(`${first}:not(:disabled)`);
+    await page.waitForFunction(()=>document.querySelector('.hand').contains(document.activeElement),{timeout:5000}).catch(()=>{});
+    assert.equal(await inHand(),true,'focus is in the hand, not on the page');
+    // Tab goes on to a tile from there, as the keyboard player expects.
+    await page.keyboard.press('Tab');
+    assert.ok(await page.evaluate(()=>document.activeElement?.matches('.hand button.tile')),'Tab reaches a tile');
+    // A mouse's click leaves focus as the browser leaves it, as before.
+    const next=(await saved(page)).commands.length;
+    await page.click(first); await more(page,next); await page.waitForSelector(`${first}:not(:disabled)`); await pause(150);
+    assert.equal(await inHand(),false,'a click is not followed into the hand');
+    noErrors(page);
+  });
+  await check('a double click on a tile throws that tile, not the next turn\'s too',async()=>{
+    const page=await open(turnAgainSave), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
+    const at=await middle(page,first), thrown=await page.$eval(first,n=>n.dataset.tile);
+    await press(page,at);
+    // Club answers at once: the turn is back, with a tile to throw where the
+    // pressed one was, before the second press lands.
+    await more(page,before); await page.waitForSelector(`${first}:not(:disabled)`); await pause(150);
+    const inPlace=await page.evaluate(([x,y])=>document.elementFromPoint(x,y)?.closest('.hand button.tile:not(:disabled)')?.dataset.tile,at);
+    assert.ok(inPlace,'the second press lands on a tile that could be thrown');
+    await press(page,at,2); await pause(300);
+    assert.deepEqual(await chosen(page,before),[thrown],'the second press of the double click throws nothing');
+    // A press of its own, on a tile of another kind, throws as any press does.
+    const other=await page.$$eval('.hand button.tile:not(:disabled)',(tiles,taken)=>tiles.findLast(tile=>tile.dataset.tile!==taken).dataset.handIndex,inPlace);
+    const next=`.hand button[data-hand-index="${other}"]`, second=await page.$eval(next,n=>n.dataset.tile);
+    await press(page,await middle(page,next)); await more(page,before+1);
+    assert.deepEqual(await chosen(page,before),[thrown,second]); noErrors(page);
+  });
+  await check('with Select before discarding on, a double click on a tile selects it and throws it, that one tile',async()=>{
+    const page=await open(turnAgainSave,{confirm:true}), before=(await saved(page)).commands.length, first='.hand button[data-hand-index="0"]';
+    const at=await middle(page,first), tile=await page.$eval(first,n=>n.dataset.tile);
+    await press(page,at); await page.waitForSelector('.confirm-discard');
+    assert.equal((await saved(page)).commands.length,before,'the first press only selects');
+    await pause(150); await press(page,at,2);
+    await more(page,before); await page.waitForSelector(`${first}:not(:disabled)`); await pause(300);
+    assert.deepEqual(await chosen(page,before),[tile]); assert.equal(await page.$('.confirm-discard'),null); noErrors(page);
+  });
+  await check('the confirmation\'s buttons hand focus on to the hand as they go, with the keys on or off',async()=>{
+    for(const shortcuts of [true,false]) {
+      const page=await open(turnAgainSave,{confirm:true,shortcuts}), first='.hand button[data-hand-index="0"]', where=`with the keys ${shortcuts?'on':'off'}`;
+      const focused=()=>page.evaluate(()=>{const a=document.activeElement;return a===document.querySelector('.hand')?'the hand':!a||a===document.body?'the page':a.outerHTML.slice(0,60);});
+      // Cancel, pressed by keyboard, goes with the panel.
+      await page.click(first); await page.waitForSelector('.confirm-discard');
+      await page.focus('.confirm-discard button:last-child'); await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>!document.querySelector('.confirm-discard'));
+      assert.equal(await focused(),'the hand',`after Cancel ${where}`);
+      // So does Discard, pressed by a mouse, which leaves focus on it.
+      const before=(await saved(page)).commands.length;
+      await page.click(first); await page.waitForSelector('.confirm-discard');
+      await page.click('.confirm-discard .primary'); await more(page,before);
+      await page.waitForSelector(`${first}:not(:disabled)`);
+      assert.equal(await focused(),'the hand',`after Discard ${where}`);
+      // A tile selected is the one announced as pressed, the arrows' marker never.
+      await page.click(first);
+      assert.deepEqual(await page.$$eval('.hand button.tile',tiles=>tiles.filter(tile=>tile.getAttribute('aria-pressed')==='true').map(tile=>tile.dataset.handIndex)),['0']);
+      if(shortcuts) {
+        await page.keyboard.press('Escape'); await page.focus('.hand'); await page.keyboard.press('ArrowLeft');
+        assert.equal((await ui(page)).selected,1,'the marker is drawn');
+        assert.equal(await page.$$eval('.hand button.tile',tiles=>tiles.filter(tile=>tile.getAttribute('aria-pressed')==='true').length),0,'and is not announced as pressed');
+      }
+      noErrors(page);
+    }
+  });
+  await check('the second press of a double click answers no call, and a press of its own does',async()=>{
+    const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';
+    const at=await middle(page,pass);
+    await press(page,at,2); await pause(300);
+    assert.equal((await saved(page)).commands.length,before,'the second press of a double click is let go');
+    await press(page,at); await more(page,before);
+    assert.deepEqual(await chosen(page,before),['pass']); noErrors(page);
+  });
+  await check('Enter held down on a call answers it once',async()=>{
+    const page=await open(callSave), before=(await saved(page)).commands.length, pass='.call-options [data-choice=pass]';
+    await page.focus(pass);
+    const dialogs=await holdEnter(page,async()=>{await more(page,before);await pause(150);});
+    assert.deepEqual(await chosen(page,before),['pass'],`the repeat answers nothing more, focus on ${await focusedAt(page)}`);
+    assert.deepEqual(dialogs,[],'and opens nothing, wherever focus went'); noErrors(page);
+  });
+  await check('Enter held down on any button presses it once: New game asks once',async()=>{
+    const page=await open(turnAgainSave), seed=(await saved(page)).seed;
+    // A match under way, so that New game asks before it deals.
+    const before=(await saved(page)).commands.length;
+    await page.click('.hand button[data-hand-index="0"]'); await more(page,before);
+    await page.waitForSelector('.hand button[data-hand-index="0"]:not(:disabled)');
+    await page.focus('.restart');
+    const dialogs=await holdEnter(page,()=>pause(150));
+    assert.equal(dialogs.length,1,`one confirmation, not one at every repeat: ${JSON.stringify(dialogs)}`);
+    assert.equal((await saved(page)).seed,seed,'dismissed, it dealt nothing'); noErrors(page);
+  });
+  await check('a deal whose first Trained move fails lets go of the hand\'s review, and the next result offers its own',async()=>{
+    const page=await open(neuralEndSave,{mock:{fail:true}});
+    await page.waitForSelector('.screen .quiet'); await page.click('.screen .quiet'); await page.waitForSelector('.review');
+    await page.click('.screen .primary'); await page.waitForSelector('.recovery-actions');
+    assert.equal((await saved(page)).commands.at(-1).type,'next','the next hand was dealt before its first opponent failed');
+    await page.$$eval('.recovery-actions button',n=>n.find(button=>button.textContent==='Continue with Club opponents').click());
+    // Played on against Club to that hand's result.
+    for(let move=0;move<90&&!await page.$('.screen');move++) {
+      await page.waitForFunction(()=>document.querySelector('.screen, .hand button:not(:disabled), .call-options button:not(:disabled)'),{timeout:30000});
+      if(await page.$('.screen')) break;
+      const count=(await saved(page)).commands.length;
+      await page.evaluate(()=>(document.querySelector('.call-options [data-choice=ron]:not(:disabled), .call-options [data-choice=tsumo]:not(:disabled), .call-options [data-choice=pass]:not(:disabled)')
+        ??document.querySelector('.hand button:not(:disabled)')).click());
+      await more(page,count);
+    }
+    await page.waitForSelector('.screen');
+    assert.equal(await page.$('.review'),null,'the review of the hand before is gone');
+    assert.match(await page.$eval('.screen .quiet',n=>n.textContent),/^View table/); noErrors(page);
   });
   await check('match state and preferences survive a real page reload',async()=>{
     const page=await open(initial,{confirm:true}); await page.click('.options summary');
@@ -406,6 +608,33 @@ try {
     const snapshot=await saved(page);assert.ok(snapshot.commands.some(c=>c.type==='choose'&&c.kind==='pass'));
     const south=JSON.parse(snapshot.state)[0].seats.find(s=>s.seat==='south');
     assert.ok(south.melds.some(m=>m.kind==='chii'&&m.claimed_tile==='2m'));noErrors(page);
+  });
+  await check('a result left behind by another window\'s move cannot be pressed, and says to reload beside its buttons',async()=>{
+    const a=await open(endSave);const b=await open(endSave,{sharedContext:a.browserContext()});
+    assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[false,false,false,false,false]);
+    // A button of the result has focus as the other window moves.
+    await b.$eval('.screen .buttons .quiet',n=>n.focus());
+    await a.bringToFront();await a.click('.screen .primary');
+    await b.bringToFront();await b.waitForSelector('.save-conflict');
+    assert.equal(await b.$eval('[data-result-failure]',n=>n.textContent.trim()),'Reload the latest match to continue here.');
+    assert.deepEqual(await b.$$eval('.screen .buttons button',ns=>ns.map(n=>n.disabled)),[true,true,true,true,true]);
+    // Disabled under it, the button hands focus on to the line that says to
+    // reload, rather than letting it fall to the page.
+    await b.waitForFunction(()=>document.activeElement?.matches('[data-result-failure]'),{timeout:5000}).catch(()=>{});
+    assert.equal(await b.evaluate(()=>document.activeElement?.matches('[data-result-failure]')?'the line':document.activeElement===document.body?'the page':document.activeElement?.outerHTML.slice(0,80)),'the line');
+    noErrors(a);noErrors(b);
+  });
+  await check('final standings left behind by another window\'s new game hand focus from their pressed button to the line that says to reload',async()=>{
+    const a=await open(finalSave);const b=await open(finalSave,{sharedContext:a.browserContext()});
+    await b.waitForSelector('.standings [data-save-game]');
+    await b.$eval('.standings [data-save-game]',n=>n.focus());
+    await a.bringToFront();await a.click('.standings .primary');
+    await b.bringToFront();await b.waitForSelector('.save-conflict');
+    assert.equal(await b.$eval('[data-standings-failure]',n=>n.textContent.trim()),'Reload the latest match to continue here.');
+    assert.ok(await b.$$eval('.standings .buttons button',ns=>ns.every(n=>n.disabled)),'the standings\' buttons cannot be pressed');
+    await b.waitForFunction(()=>document.activeElement?.matches('[data-standings-failure]'),{timeout:5000}).catch(()=>{});
+    assert.equal(await b.evaluate(()=>document.activeElement?.matches('[data-standings-failure]')?'the line':document.activeElement===document.body?'the page':document.activeElement?.outerHTML.slice(0,80)),'the line');
+    noErrors(a);noErrors(b);
   });
   await check('two real tabs cannot roll back progress on pagehide; reload resumes latest',async()=>{
     const a=await open(initial);const b=await open(initial,{sharedContext:a.browserContext()});

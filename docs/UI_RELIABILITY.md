@@ -4,7 +4,32 @@ The browser owns one `MatchSession` at a time. Disposing it aborts outstanding
 inference and frees its WASM game. Every asynchronous continuation checks that
 owner before applying an answer, reporting an error or changing the interface.
 A failed neural opponent remains explicitly Trained until the player retries,
-continues the same position with Club opponents, or starts a new match.
+continues the same position with Club opponents, or starts a new match. One
+that still waits for the network's download can be given to Club as well, by
+**Play Club meanwhile**, which drops its question rather than failing it and
+keeps the player's own table as their stored choice
+([Gameplay interface](UI.md)).
+
+Leaving Play for Agent watch, Physical agent play or the guided game never
+stops the match. The session plays on behind the other mode, each move saved
+as it is made, and is shown as it stands on coming back, so the mode buttons
+and the smallest phones' mode select are held only until the page is ready,
+which its start-up line says. They used to be disabled for as long as the
+match was busy, which on a first visit is the whole of the network's download,
+with nothing to say why. That guard kept nothing safe: it only kept the few
+moves of a turn already asked ahead of another mode's questions at the one
+worker, where they now take turns.
+
+Two things follow from sharing that worker with a match left busy behind
+another mode. A request of the other mode's that runs past its own deadline
+ends the worker and fails every request waiting on it (below), Play's
+pending Trained question among them, so the match fails as if its own
+opponent had not answered, while the player is away (and a request of Play's
+that runs out fails the other mode's the same way). That failure is seen
+only on coming back: the page's recovery banner, with **Retry trained
+opponent** and Club, is drawn only in Play, so the other mode says nothing
+of it, and Play shows it, with its recovery, as it is opened again. Nothing is lost: the match waits, at the failed seat, for
+the player's choice as after any failure.
 
 The page has one trained worker, which answers its requests in turn. At a
 hand's result two things ask it: the hand's own notes (**View table / my
@@ -77,7 +102,13 @@ game review's filter and its two hiding settings) are stored separately. A
 first visit starts with Trained opponents and the Trained AI review adviser,
 the review's flagged decisions and nothing hidden. Saved preferences are read
 as they stand, so a player whose record holds Club keeps Club; only a
-preference the record lacks takes the default. What the player revealed in a
+preference the record lacks takes the default. A change writes only the
+preferences this window changed, into the record as it then stands, so two
+windows do not undo each other's changes: a trained network picked in one is
+not lost to a checkbox ticked in the other (the table's name and its three
+seats are one choice, and are written together). A page's first write, and one
+over a record this build's pages did not write, is still its whole record. What
+the player revealed in a
 review is kept for the match only, never saved. Cancelling an opponent change
 leaves both the displayed selection and active game unchanged. New game
 requests confirmation whenever an unfinished match has progress, including
@@ -165,6 +196,12 @@ between hands.
     accessibility tree ignores all that lies outside it (`activeModalDialog`),
     so a line behind it would be heard only once the dialog closed. This one
     is inside it;
+  - the settings' line under the **Tile face** select, which says why the face
+    picked could not load, for the same reason: the page says it in an alert
+    under the settings, which lies behind the dialog while that is open, so
+    the dialog says it under the select instead, and the page shows it once
+    the dialog is closed, without its alert's role when the dialog has said
+    it already, so that it is not heard twice;
   - the hand review's two lines, that Trained AI is reviewing and that Club
     reviews in its place, which wait in the review until it has been drawn,
     and a tenth of a second more;
@@ -212,7 +249,14 @@ iPhone/Safari test.
 Saved-match commands run inside a same-origin Web Lock. Each write compares the
 exact revision originally read, so a stale window cannot take over merely by
 acquiring the lock later. Other windows stop accepting moves when storage changes
-and offer **Reload latest match**. Nothing is saved by `pagehide`; successful
+and offer **Reload latest match**, in an alert at the top of the page. Where the
+player is says it too, since that alert lies above the screen from a result at
+desktop width and under the result's sheet on a phone: the turn's prompt while a
+hand is played, and at a hand's result or the final standings the line after
+their buttons, which cannot be pressed there any more ("Reload the latest match
+to continue here."). A button there that had focus hands it on to that line,
+which a screen reader then reads, rather than letting it fall to the page as
+the button is disabled. Nothing is saved by `pagehide`; successful
 commands were already saved in their transaction. Returning from the back/forward
 cache reloads the current match. Browsers without usable storage/Web Locks may
 play without shared persistence and show a warning rather than use a racy fallback.

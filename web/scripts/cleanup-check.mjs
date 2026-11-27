@@ -208,13 +208,56 @@ try {
       await page.click('.options > summary');
       await page.select('select[aria-label="Tile face"]', 'matisse');
       await page.waitForSelector('[data-face-error]');
+      assert.equal(await page.$eval('[data-face-error]', el => el.getAttribute('role')), 'alert', 'said on the page, where it was chosen');
       assert.equal(await page.$eval('select[aria-label="Tile face"]', el => el.value), 'classic');
       assert.equal(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).tileFace, SETTINGS_KEY), 'classic');
       assert.equal(await page.$('.hand .tile.matisse'), null);
       assert.equal(await savedMatch(page), saved);
+      // On a phone the select is in the settings' dialog, and the page's
+      // alert lies behind it while it is open: the dialog says the failure
+      // under the select instead, and the page again once it is closed.
+      await page.setViewport({ width: 390, height: 844 });
+      await page.waitForSelector('.settings-trigger', { visible: true });
+      await page.click('.settings-trigger');
+      await page.waitForSelector('.settings-dialog[open] select[aria-label="Tile face"]');
+      const said = await page.$eval('.settings-dialog [data-face-failure]', el => [el.getAttribute('role'), el.textContent.trim()]);
+      assert.equal(said[0], 'status');
+      assert.match(said[1], /could not load/, 'what was said on the page is said in the dialog while it is open');
+      assert.equal(await page.$('[data-face-error]'), null, 'and not behind it');
+      // Tried again from the dialog, it fails again, and says so there.
+      await page.select('select[aria-label="Tile face"]', 'matisse');
+      await page.waitForFunction(() => !document.querySelector('[data-face-progress]')
+        && /could not load/.test(document.querySelector('.settings-dialog [data-face-failure]')?.textContent ?? ''));
+      assert.equal(await page.$eval('select[aria-label="Tile face"]', el => el.value), 'classic');
+      assert.equal(await page.$('[data-face-error]'), null);
+      await page.click('[data-close-settings]');
+      await page.waitForSelector('[data-face-error]');
+      // Said in the dialog, it is shown on the page as the dialog closes,
+      // and not said there a second time.
+      assert.equal(await page.$eval('[data-face-error]', el => el.getAttribute('role')), null, 'shown, not said again, once the dialog said it');
+      assert.match(await page.$eval('[data-face-error]', el => el.textContent.trim()), /could not load/);
+      await page.setViewport({ width: 1100, height: 1000 });
+      await page.waitForSelector('.settings-trigger', { hidden: true });
+      // The settings move out of the dialog as the page learns the new width,
+      // a moment after the bar's own styles change: the pick waits for the
+      // one Tile face select there is then, on the page, so that it is the
+      // one that stays.
+      await page.waitForFunction(() => {
+        const selects = document.querySelectorAll('select[aria-label="Tile face"]');
+        return selects.length === 1 && !selects[0].closest('dialog');
+      }, { timeout: 15000 });
       denyUnusedArt = false;
       await page.select('select[aria-label="Tile face"]', 'matisse');
-      await page.waitForSelector('.hand .tile.matisse');
+      // What the page shows, should the pick not take.
+      const shows = () => page.evaluate(() => ({
+        selects: [...document.querySelectorAll('select[aria-label="Tile face"]')].map(el => [el.value, Boolean(el.closest('dialog')), el.getAttribute('aria-busy')]),
+        progress: document.querySelector('[data-face-progress]')?.textContent.trim() ?? null,
+        failure: document.querySelector('[data-face-error]')?.textContent.trim() ?? null,
+        dialogLine: document.querySelector('[data-face-failure]')?.textContent.trim() ?? null,
+        tiles: [...new Set([...document.querySelectorAll('.hand .tile')].map(el => [...el.classList].filter(name => ['classic', 'matisse', 'van-gogh'].includes(name)).join(' ')))],
+      }));
+      await page.waitForSelector('.hand .tile.matisse', { timeout: 60000 })
+        .catch(async error => { throw new Error(`the Matisse face did not take: ${JSON.stringify(await shows())}`, { cause: error }); });
       await page.waitForFunction(() => !document.querySelector('[data-face-progress]'));
       assert.equal(await page.$('[data-face-error]'), null);
       assert.equal(await savedMatch(page), saved);

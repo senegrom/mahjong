@@ -221,16 +221,90 @@ discard. Discard previews are read-only queries checked against legal actions.
 
 Arrow keys skip disabled hand tiles, and the marker follows successful focus.
 After a keyboard discard, the hand regains focus for the next decision unless
-the player has deliberately focused another control. Browser shortcuts and
-other focused controls remain unaffected.
+the player has deliberately focused another control, with **Keyboard
+shortcuts in your hand** on or off: with them off, a tile thrown by Enter or
+Space hands focus back to the hand, from which Tab reaches the tiles, rather
+than leaving it on the page; a click leaves focus as the browser does. The confirmation's
+**Discard** and **Cancel** go as they are pressed, and the hand takes focus
+from them too, with the keys on or off, rather than the page. With **Select
+before discarding** on, only the tile a press selected is announced as
+pressed; the arrow keys' marker, drawn the same way, is not. Browser shortcuts
+and other focused controls remain unaffected: a key held down is cancelled in
+the hand only where the hand's keys act on it (Enter, Space, the digits, r and
+t), so a held arrow down, Page Down or Tab still scrolls the page or moves
+focus on. Enter held down presses once in play, on a tile, a call, the
+confirmation's buttons and anything else Enter presses (a button, a summary,
+a link): its repeats would press whatever took the pressed control's place
+or wherever focus went, New game and its confirmation among them. Watch, the
+physical table and the guided game keep a held Enter's repeats, on Undo and
+on a palette's tiles, where nothing takes a pressed button's place.
+Space presses as it is let go, once. A double click presses once too: its second press is let go where the
+first has already acted, since the next decision is drawn where the last one
+was (on a tile only while Select before discarding is off; with it on, a
+second press on the selected tile is how it is thrown). The browser tells a
+double click by its second press alone, so two deliberate presses at the same
+spot inside the system's double-click time are one press too: throwing the
+drawn tile turn after turn against Club, the second turn's press is let go and
+must be made again. That is accepted as the price of one move a press.
 
 The turn's prompt shows its sentence alone ("Your turn. Choose a tile to
 discard."), with no line about the keys: the hand takes focus as the turn
 comes, unless another control has it, and the tile guide gives the keys. A
-screen reader still hears "Focus your hand to use arrows and Enter.", kept out
-of sight in the prompt that the hand names as its description, wherever the
-keys work: with **Keyboard shortcuts in your hand** on, and not on a touch
-screen.
+screen reader hears the sentence from the prompt, a live region, as the turn
+comes, and "Focus your hand to use arrows and Enter." as the hand takes focus,
+from what the hand names as its description: a line of its own, out of sight,
+which is no live region and repeats nothing of the prompt, so a turn is not
+said twice. It holds the keys wherever they work: with **Keyboard shortcuts in
+your hand** on, on the player's turn, and not on a touch screen.
+
+While a Trained opponent waits for the network, the prompt says what it waits
+for: the worker's own note while it loads the network, and otherwise where
+the network stands (`offline.network`), "downloading the trained network
+(59 MB) 37%" while its bytes arrive, the size being the played network's as
+it is fetched, or "waiting for another window to download the trained
+network". Nothing is said of a first visit's install, which the network does
+not wait for, nor of the save's runtime, held at 99 while the opponents
+already play. Only the words are in the prompt's live region. How far the download has got stands beside them, outside it, so
+a screen reader hears the download once and not at every percent.
+
+While that wait is the download, the page's or the worker's, or a turn
+behind another window's, and never while the network only starts or
+thinks, the turn's controls offer **Play Club meanwhile** under the prompt,
+what it does in its title. Pressed, this match's Trained opponents are Club's
+for the rest of the match, by the command **Continue with Club opponents**
+records after a failure, and the download carries on. The button goes, and
+focus goes on to the hand. The table shows Club in its seats, and the
+Opponents select says **Club meanwhile**, an entry of its own, so that Club is
+not read as the player's setting: the table the player chose stays their
+stored choice, and a stand-in is for one match. A stand-in never sticks, and never deals a long
+wait behind the player's back, as far as `offline.network` 'ready' is fresh:
+a copy the browser evicted since the page last looked is found at the first
+Trained move, whose wait and button then come. A new game goes back to the chosen table when
+the network is at hand, which is when the page holds it (`offline.network`
+'ready': stored, or bytes storage refused held for the opponents' worker) or
+that worker has it loaded, and the stand-in ends. Where it is not at hand but
+its download is under way, the page's (downloading, or waiting behind another
+window) or the worker's by its note, the new game keeps Club, and the
+stand-in holds. Where neither, the new game is the chosen table and the
+stand-in ends: its first Trained move asks for the network, and the wait,
+with **Play Club meanwhile**, comes again. The
+stand-in ends when the player picks opponents themself, in the select or the
+custom table, which opens on the table they chose and not on the stand-in's,
+and is stored as any pick is. A pick in the select of the table the match
+already plays, Club for a choice of Trained, makes it their choice as the
+match stands, and deals nothing; any other pick there, and any table
+confirmed in the custom table, deals its table, Trained with its wait. Nothing marks it in what is
+saved: after a reload the page knows it by the two tables alone, the match
+playing Club exactly where the stored choice says Trained, keeps both as they
+are, and asks for the network again where it can be saved. In a browser that
+cannot save it (`offline.supported` false) no worker runs after the reload
+and nothing is fetching it, so the next new game is the chosen table, and
+its first Trained move brings the wait. The stored choice is the table the
+player's own record holds, seat by seat, as every page now writes it; a record
+that holds none (one from before 810, which is read as Trained once) is no
+choice to stand in for, and a saved Club match there stays the player's table,
+as before. Club taken after a failure is not a stand-in either: it becomes the
+stored table, as before.
 
 ### The hand's review
 
@@ -285,23 +359,24 @@ depends on where the press starts (see below).
 | 1280x600 | any | 56 | 53 |
 | 844x390, a wide phone held sideways, Club reviewing, from the foot | any | 315 | 315 |
 | 844x390, Trained AI still reviewing, from the foot | any | 139 | 140 |
-| 390x844 | keyboard | 2 | 343 |
-| 375x667 | keyboard | 183 | 516 |
-| 360x640 | keyboard | 124 | 451 |
-| 320x568 | keyboard | 171 | 566 |
-| 568x320, a small phone held sideways | keyboard | 574 | 847 |
+| 390x844 | keyboard | 2 | 52 |
+| 375x667 | keyboard | 183 | not measured |
+| 360x640 | keyboard | 124 | not measured |
+| 320x568 | keyboard | 171 | 52 |
+| 568x320, a small phone held sideways | keyboard | 574 | 114 |
 
 On a phone that scroll costs what lies above the heading. For **View table / my
 hand** at 390x844 everything stays in view; at 375x667, 360x640 and 320x568 the
 top of the table, its round, wall count and indicators, goes under the game's
 bar, and at 568x320, where the result is still a sheet, most of the hand goes
-too. On the final hand the standings lie between the hand and the review, so
-**Review final hand** moves the page further. At 390x844 the table goes off the
-top of the screen while the hand, the standings and the heading stay in view.
-On the smaller phones the hand goes as well: at 375x667 all but its last 23
-pixels, which show below the game's bar; at 360x640 what is left of it sits
-under the bar; and at 320x568 all of it, off the top of the screen. At 568x320
-the hand and the standings' heading both go off the top.
+too. On the final hand the standings lie between the hand and the review. On a
+phone the page is already at them when **Review final hand** can be pressed,
+the sheet having stepped aside for them as the game ended and its chip having
+brought the result back (below), so the review's heading, right under them, is
+a short move away; before, pressed from where the result had left the page, it
+moved the page 343 to 847 pixels and took the hand off the screen. The figures
+for the final hand on a phone are measured from the standings, by
+`full-review-check.mjs`, which prints them, at the sizes it runs.
 
 At 844x390 the two advisers differ. With Club's review, done as it opens, the
 browser's own scroll anchoring moves the page as the review opens and leaves
@@ -420,42 +495,58 @@ deal, and its button gives way to the caption **Final hand**, so focus goes on
 to the standings' heading, which says where the player finished ("You finished
 4th"), in the region "final standings", rather than dropping to the page. Where
 the result is not a sheet, the standings appear just above it. On a phone the
-result is a sheet over them, and focus must not be hidden under it, so when the
-keyboard pressed the button the sheet steps aside for the standings, leaving
-its chip, as it does for the reviews; the chip, after the standings' own
-buttons, brings the result back with focus. A tap leaves the result up over the
-standings, as it was: focus is on their heading beneath the sheet, where a
-screen reader reads it out and no ring is drawn.
+result is a sheet over them. Left up, as it was after a tap, it showed nothing
+of them: the game had ended with no place on the screen and no **Play again**,
+and no scroll uncovered either. So there the sheet steps aside for the
+standings however the button was pressed, leaving its chip, as it does for the
+reviews; the chip, after the standings' own buttons, brings the result back
+with focus. A finished match that the page is loaded on opens the same way on a
+phone: the sheet stepped aside, its chip showing, and the standings at the top
+of the screen, with focus on their heading. So does one that Play is drawn
+again over, coming back from another mode: the sheet, out of sight, hands
+focus to the standings rather than taking it, which would leave it on the
+page.
 
-Only a press by keyboard moves the page to the standings' heading, at every
-size, to bring it into view with its ring, clear of the game's bar and, on a
-phone, of the chip. A mouse's click or a finger's tap moves focus without
-asking for a scroll, so the page is left as the browser leaves it when the
-standings come in above the result, as it was before focus moved there:
-measured in Chromium at nine sizes, from where the result left the page and
-from the foot of the page, it ends exactly where it did before. With the page
-at its foot at 844x390, where a fling down to the result's buttons ends, the
-browser's own scroll anchoring moves the page 233 pixels as the standings come
-in; the Final hand caption that took the pressed button's place stays in view,
-and the standings' heading lies above the screen, where a screen reader still
-reads it out. A scroll to the heading there would take the caption the player
-pressed off the screen.
+Where the result is not a sheet, only a press by keyboard moves the page to the
+standings' heading, to bring it into view with its ring, clear of the game's
+bar. A mouse's click or a finger's tap there moves focus without asking for a
+scroll, so the page is left as the browser leaves it when the standings come in
+above the result, as it was before focus moved there: measured in Chromium at
+1100x900, 1280x600, 1366x768 and 844x390, from where the result left the page
+and from the foot of the page, it ends exactly where it did before. With the
+page at its foot at 844x390, where a fling down to the result's buttons ends,
+the browser's own scroll anchoring moves the page 233 pixels as the standings
+come in; the Final hand caption that took the pressed button's place stays in
+view, and the standings' heading lies above the screen, where a screen reader
+still reads it out. A scroll to the heading there would take the caption the
+player pressed off the screen. On a phone the page moves for every press, since
+what the press brought was under the sheet: for a keyboard by as little as
+brings the heading into view with its ring, clear of the bar and the chip, and
+for a tap to the heading as near the top of the screen as the page scrolls,
+below the bar, with the places and the standings' buttons under it, and no
+ring.
 
 Measured in Chromium, a press by keyboard moves the page 30 pixels at 390x844,
-203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. At desktop
+203 at 375x667, 138 at 360x640, 202 at 320x568 and 586 at 568x320. A tap moves
+it further, to where the standings are whole on the screen: 284 pixels at
+390x844, 517 at 320x568 and 728 at 568x320, their heading as near the top as
+the page scrolls, which on a tall phone is not to the top, the standings being
+the last of the page. At desktop
 width and at 844x390 the heading is already in view where the result left the
 page, and the page does not move; from the foot of the page at 844x390 the
 keyboard's press brings the heading in below the bar, 255 pixels above where a
 click leaves the page.
 
-Agent watch does the same as a watched game ends. There **Next hand** on the
+Agent watch hands focus on the same way as a watched game ends, and still as
+play did before on a phone: its result steps aside for the standings only when
+the keyboard pressed the button. There **Next hand** on the
 last hand is pressed on the result or among the watch's controls, whose button
 plays the followed agent's choices and deals the hands. Either brings the
 standings, the result's button giving way to its **Final hand** caption and
 the controls' becoming one that cannot be pressed, and either used to leave
 focus on the page. Focus now goes on to the standings' heading ("Followed
 agent finished 2nd"), and only a press by keyboard moves the page to it, the
-result stepping aside on a phone as in play, with its chip after the
+result stepping aside for it on a phone, with its chip after the
 standings' buttons. Measured in Chromium on a game of Club agents from seed
 23, a press by keyboard on the result's button moves the page 387 pixels at
 390x844, 720 at 320x568 and 568 at 568x320, and 304 pixels up at 844x390,
@@ -483,17 +574,18 @@ above the screen wherever the standings' buttons are pressed: measured in
 Chromium, 421 to 440 pixels above the top of the screen at 1100x900, 553 to 572
 at 1366x768, 497 to 534 at 844x390, on a phone held upright 96 to 644 pixels
 above it, and 619 to 738 at 568x320.
-On a phone the result is a sheet over the standings. A finger or a mouse
-reaches their buttons once the sheet has stepped aside for a review; a
-keyboard or a screen reader reaches them beneath it, so a press there that
-fails has the sheet step aside, each time, for the words and the button with
-focus to be seen, and the chip brings the result back. The buttons and the
+On a phone the result is a sheet that has stepped aside for the standings as
+the game ended, so a finger or a mouse reaches their buttons. Once its chip has
+brought the result back over them, a keyboard or a screen reader still reaches
+them beneath it, so a press there that fails has the sheet step aside, each
+time, for the words and the button with focus to be seen, and the chip brings
+the result back. The buttons and the
 line are brought into view by as little movement as will, clear of the game's
 bar and the chip: measured, the page does not move for any press at 1100x900,
-1366x768 and 844x390, nor on a phone for a finger or a mouse; for a keyboard
-beneath the sheet it moves 41 pixels at 390x844, 42 to 61 at 320x568, and at
-568x320 21 for Save whole game and 41 for Review whole game, to bring the line
-out from under the chip. Once the game is saved, or its review opens, from any
+1366x768 and 844x390; on a phone, where the standings are the last of the page
+and the line comes in under the chip, it moves 34 to 42 pixels at 390x844
+and 33 to 61 at 320x568 for any press, a finger's, a mouse's or a keyboard's beneath the
+sheet, to bring the line out from under the chip. Once the game is saved, or its review opens, from any
 button, every line that said it could not be takes its words back.
 
 ### Final-hand review and saves
@@ -506,8 +598,8 @@ The whole game can be saved as one mjai log as well,
 `riichi-game-<date>-<time>.mjai.jsonl`: Save game so far on the score screen
 between hands, Save whole game on the final standings, where the log closes
 with end_game, and Export game in the settings during play. On a phone the
-final hand's result sheet covers the standings, so it offers Save whole game
-itself. The log opens at East 1 and holds every finished hand, numbered as the
+final hand's result sheet, once its chip has brought it back, covers the
+standings, so it offers Save whole game itself. The log opens at East 1 and holds every finished hand, numbered as the
 hand's own log numbers its players. The hand being played is never in it,
 since its deal shows every player's tiles; it joins the log when it ends.
 Nothing is added to the saved match for this: a restore replays every command
@@ -571,7 +663,8 @@ Trained AI's view. No list of cards stands between the player and a decision,
 and no **Back to the list** between one decision and another; **Back to the
 standings** is the screen's one way out. The hand review reviews one hand and
 is gone at the next deal; this one is rebuilt for the whole game. On a phone
-the final hand's result is a sheet over the standings, so the sheet offers the
+the final hand's result is a sheet that steps aside for the standings as the
+game ends, and that its chip brings back over them, so the sheet offers the
 review too, as it offers the game's file. The sheet steps aside whenever the
 review opens, as it does for the hand's review, whichever button opened it: its
 own, or the standings' own, which it covers but a keyboard or a screen reader
@@ -1121,13 +1214,23 @@ comes back when it can).
 
 `npm run verify` in `web/` covers these behaviours: real-WASM discard previews
 and Tile rendering, riichi waits, disabled-tile navigation, consecutive
-keyboard turns, saved-state migration, ura-dora indicators with hints off,
+keyboard turns, a double click and a held key or Enter each playing one move,
+the confirmation's buttons handing focus to the hand, saved-state migration,
+ura-dora indicators with hints off,
 final-hand review, focus going on from the result's buttons to the hand's
 review and to the final standings, pressed by keyboard, mouse and touch, and
 back to the result, at desktop and phone sizes, the page moving to the review
 for any press where the result is not a sheet and otherwise only for the
-keyboard, and to the standings only for the keyboard, in play and in Agent
-watch, a review that could not be built and a file that could not be saved said
+keyboard, and to the standings only for the keyboard where the result is not a
+sheet (in Agent watch at every size), the sheet stepping aside for the
+standings on a phone however the last Next hand was pressed, as a finished
+match is loaded and as Play comes back to one from Agent watch, with the
+places and Play again in view and focus on their heading, a first visit's wait
+for the network's download naming its size and offering Club meanwhile, which
+keeps Trained as the stored choice, a result or standings left behind by
+another window's move disabled and saying to reload, with focus on that line
+if one of their buttons had it,
+a review that could not be built and a file that could not be saved said
 beside the result's buttons, which keep focus, a whole game that could not be
 saved or replayed for review said beside the standings' buttons, the result
 stepping aside on a phone for a press beneath it, and a game that **Export

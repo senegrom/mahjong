@@ -221,7 +221,8 @@
     animation: settle 0.5s ease-out forwards;
   }
 
-  /* It arrives with a little emphasis, and a call fades again on its own. */
+  /* It arrives with a little emphasis. A call's word is taken away again
+     after a moment (SAID_FOR), at once: nothing fades it out. */
   @keyframes settle {
     0% {
       opacity: 0;

@@ -16,7 +16,7 @@
   import { finishedHands, gameFileName, playerNames, saveLogFile } from './game-log.js';
 
   // onchip is the result's word to the page that its chip shows (ScoreScreen).
-  let { trainedAvailable, hints = true, offline = null, workerNote = '', onchip = null } = $props();
+  let { trainedAvailable, hints = true, offline = null, workerNote = '', held = false, onchip = null } = $props();
   // Trained at every seat by default, the followed one and the three it plays
   // against. Club stands in only while the network cannot be had.
   let lineup = $state(['club', 'club', 'club', 'club']);
@@ -59,7 +59,7 @@
   let displayLeft = $derived(recommendedHint?.waits_left ?? view?.waits_left ?? []);
   let hintShanten = $derived(recommendedHint?.shanten ?? view?.shanten);
   // A Trained seat may be waiting for the network's first download.
-  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote(workerNote, offline) : '');
+  let download = $derived(watch?.lineup.some(isTrained) ? waitingNote(workerNote, offline, { held }) : '');
   $effect(() => {
     if (!configured) {
       // Availability may arrive after selected-set startup. Keep an untouched

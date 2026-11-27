@@ -26,7 +26,7 @@ function client(t, prepareNetwork) {
   }
   const api = loadModule('policy.js', {
     document: { baseURI: 'https://test.invalid/mahjong/' },
-    URL, DOMException, Worker, setTimeout, clearTimeout, prepareNetwork, networkReleased: () => {}, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
+    URL, DOMException, Worker, setTimeout, clearTimeout, prepareNetwork, networkReleased: () => {}, networkHeld: () => {}, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     // The memory allocator and model transport have their own integration tests.
     MEMORY_LIMITS_MIB: [256, 512, 1024], nextMemoryLimit: () => null,
     networkUrl: network => network.url, playedNetwork: () => ({ url: 'https://test.invalid/network' }),

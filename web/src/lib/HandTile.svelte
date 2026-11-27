@@ -14,6 +14,9 @@
     disabled = false,
     muted = disabled,
     selected = false,
+    /** Whether a toggle is pressed, where that is not all `selected` marks
+     * (Tile): null where the two are the same. */
+    pressed = null,
     drawn = false,
     discardShanten = null,
     safe = false,
@@ -35,7 +38,7 @@
   {#if tag !== null}
     <span class="tag" aria-hidden="true">{#each tag as word, index (word)}{#if index}{' · '}{/if}<b class:ai={word === 'AI'}>{word}</b>{/each}</span>
   {/if}
-  <Tile {tile} {size} {handIndex} {onclick} {toggle} {disabled} {muted} {selected} {drawn}
+  <Tile {tile} {size} {handIndex} {onclick} {toggle} {pressed} {disabled} {muted} {selected} {drawn}
     {discardShanten} {safe} {dora} {note} />
   {#if showRemaining && remaining !== null}
     <span class="copy-count" class:dead={remaining === 0} class:thin={remaining === 1} role="img"

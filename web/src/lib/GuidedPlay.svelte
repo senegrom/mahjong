@@ -15,7 +15,7 @@
   import AgentWeights from './AgentWeights.svelte';
   import GuidedResult from './GuidedResult.svelte';
 
-  let { trainedAvailable, storage, hints = true, offline = null, workerNote = '' } = $props();
+  let { trainedAvailable, storage, hints = true, offline = null, workerNote = '', held = false } = $props();
   let game = $state(emptyGuided());
   let state = $derived(game.state);
   let position = $derived(state.position);
@@ -54,7 +54,7 @@
     : (position.players[fixPlace]?.discards ?? []).map((discard, index) => ({ key: String(index),
       words: `${index + 1} · ${tileWords(discard.tile)}${discard.claimed ? ' · called' : ''}` })));
   // Trained advice may be waiting for the network's first download.
-  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline) : '');
+  let download = $derived(isTrained(state.agent) ? waitingNote(workerNote, offline, { held }) : '');
 
   async function load() {
     request?.abort(); analysis = null; busy = false; loaded = false;

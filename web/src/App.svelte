@@ -19,15 +19,18 @@
   import AgentWatch from './lib/AgentWatch.svelte';
   import PhysicalPlay from './lib/PhysicalPlay.svelte';
   import GuidedPlay from './lib/GuidedPlay.svelte';
-  import { analyzeBatch, analyzePolicy, modelIsAvailable, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
+  import { analyzeBatch, analyzePolicy, modelIsAvailable, networkInWorker, reportLoading, reportProgress, resetPolicy } from './lib/policy.js';
+  import { watchNetworkHeld } from './lib/network-held.js';
   import { policyRuntime, reportRuntime } from './lib/gpu-batches.js';
   import { watchModelAvailability } from './lib/model-availability.js';
   import { MatchSession, readSettings, writeSettings } from './lib/session.js';
-  import { RESULT_SHEET, acceptsHandKey, land, moveHandFocus, pressedByKeyboard, waitingNote } from './lib/ui.js';
+  import { RELOAD_TO_CONTINUE, RESULT_SHEET, acceptsHandKey, handKeyActs, heldPress, land, moveHandFocus, pressedByKeyboard, repeatedClick, startupWords,
+    waitIsDownload, waitingNote } from './lib/ui.js';
   import { MatchStore } from './lib/save-store.js';
   import { gameFileName, matchLabels, playerNames, saveLogFile } from './lib/game-log.js';
   import { TILE_FACE_CONTEXT, normalizeTileFace } from './lib/tile-faces.js';
-  import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents } from './lib/opponents.js';
+  import { DEFAULT_OPPONENT, normalizeOpponents, opponentPreset, OPPONENT_TYPES, sameOpponents, standInFor, tableAfterStandIn,
+    trainedAtHand, trainedUnderWay } from './lib/opponents.js';
   import { MANIFEST, playNetwork } from './lib/trained-network.js';
 
   const storage = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -43,9 +46,21 @@
   const requestedMode = new URLSearchParams(location.search).get('mode');
   let mode = $state(['watch', 'physical', 'guided'].includes(requestedMode) ? requestedMode : 'play');
   let opponents = $state(normalizeOpponents(OPPONENT_TYPES.includes(requested) ? requested : preferences.opponents ?? preferences.difficulty));
+  // The player's own table as their record holds it, seat by seat, or null
+  // where it holds none: a record from before tables were stored so, one a
+  // reset read as Trained, or a page whose address asks for a table, which
+  // is no stored choice. A stand-in is known by it after a reload (below).
+  const storedTable = !OPPONENT_TYPES.includes(requested) && Array.isArray(preferences.opponents) ? preferences.opponents : null;
   // The table as the settings name it: the one type when all three opponents
   // match, otherwise 'custom'. It follows the opponents, so the two agree.
   let difficulty = $derived(opponentPreset(opponents));
+  // The table this match's Club opponents stand in for, or null while it
+  // plays no stand-in (opponents.js). A player who would not wait for the
+  // trained network to download took Club meanwhile: the match is Club's and
+  // shows it, and this, the table they chose, stays their stored preference,
+  // for the next game to go back to once the network is at hand. It ends as
+  // the player picks opponents themself (start).
+  let returnTable = $state.raw(null);
   // Replaced by the current table each time the dialog opens.
   let draftOpponents = $state(normalizeOpponents(DEFAULT_OPPONENT));
   let customDialog = $state(null);
@@ -69,7 +84,7 @@
   let reviewFilter = $state(preferences.reviewFilter);
   setContext(TILE_FACE_CONTEXT, () => tileFace);
   let ready = $state(false);
-  let startupNote = $state('Loading the game and selected tile graphics…');
+  let startupNote = $state(startupWords(null, false, false));
   // A page plays one trained network, so its download is the only optional
   // one: readiness and availability are read straight from offline.
   let offline = $state(INITIAL_OFFLINE);
@@ -81,6 +96,10 @@
   // What the opponent's worker last said of the network while it loads it,
   // for the modes other than Play, which show it beside their own thinking.
   let workerNote = $state('');
+  // Whether the opponents' worker holds the network (network-held.js), as
+  // state of the page's own: each screen that names a wait is handed it, and
+  // computes its note again when it changes.
+  let workerHolds = $state(false);
   let session = $state.raw(null);
   let view = $state(null);
   let choices = $state([]);
@@ -192,9 +211,13 @@
   // Stored when a preference changes, not whenever this effect reruns. A
   // player who has not picked a network has no trainedNetwork in the record.
   let storedSettings = null;
-  const currentSettings = () =>
-    ({ difficulty, opponents: [...opponents], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove, reviewHideTiles, reviewFilter,
-      trainedNetwork });
+  const currentSettings = () => {
+    // While a stand-in holds, the preference is the table it stands in for,
+    // not the Club this one match plays.
+    const table = returnTable ?? opponents;
+    return { difficulty: opponentPreset(table), opponents: [...table], hints, confirmDiscards, shortcuts, tileFace, reviewAdviser, reviewHideMove,
+      reviewHideTiles, reviewFilter, trainedNetwork };
+  };
   $effect(() => {
     storedSettings = writeSettings(storage, currentSettings(), storedSettings);
   });
@@ -296,7 +319,13 @@
     recovery = owner.needsRecovery;
     // Every move updates the view. A fresh copy of an unchanged table would
     // rerun the preferences effect each time, over other tabs' changes.
-    if (!sameOpponents(opponents, owner.opponents)) opponents = [...owner.opponents];
+    if (!sameOpponents(opponents, owner.opponents)) {
+      // Given to Club while a Trained opponent was awaited, the match plays
+      // a stand-in, and the table it had stays the player's preference.
+      // Club taken after a failure is the player's new table, as before.
+      if (owner.stoodIn && !returnTable) returnTable = standInFor(opponents, owner.opponents);
+      opponents = [...owner.opponents];
+    }
     pendingOpponent = owner.pendingOpponent;
     standings = owner.over ? owner.engine.standings() : null;
     loggedHands = owner.engine.game_log_hands();
@@ -348,9 +377,22 @@
       if (saved) {
         try {
           session = MatchSession.restore(Game, saved, callbacks);
+          // Nothing saved marks a stand-in. A match that plays Club exactly
+          // where the player's own stored table says Trained is one, taken
+          // before the page was loaded again: the table stays their
+          // preference rather than being written over with the match's, and
+          // the network they wait for is asked for again where it can be
+          // saved (where it cannot, nothing fetches it until a Trained move
+          // asks, and the next new game is their table: opponents.js). A record that
+          // holds no table of its own is written over, as it always was.
+          returnTable = standInFor(storedTable, session.opponents);
           update(session);
-          if (session.opponents.includes('neural')) downloadAi();
+          if (session.opponents.includes('neural') || returnTable) downloadAi();
           void session.run();
+          // A finished match opens on its standings where the result is a
+          // sheet over them, on a phone: the sheet starts stepped aside there,
+          // and the standings take focus and the top of the screen, as when
+          // the game ended under a finger (ScoreScreen's onstandings).
         } catch (error) {
           // Preserve the only saved copy until the user chooses New game.
           failure = `The saved match could not be restored: ${error.message}. Choose New game to start again.`;
@@ -368,6 +410,7 @@
     });
     reportProgress((note) => { if (mounted && thinking) loadNote = note; });
     reportLoading((note) => { if (mounted) workerNote = note; });
+    const unwatchHeld = watchNetworkHeld(value => { if (mounted) workerHolds = value; });
     // Where a review's batches run decides its time a position, which is none
     // once they run elsewhere than where it was measured (MatchReview): its
     // screen keeps what it last read, so the review tells it to read again.
@@ -380,9 +423,14 @@
     // Full-package caching has its own honest status. An unavailable unused
     // face set must not prevent a game with the selected graphics opening.
     void startOffline();
-    Promise.all([init(), preloadTiles((done, total) => {
-      if (mounted) startupNote = `Loading selected tile graphics… ${done}/${total}`;
-    }, { face: tileFace, signal: startup.signal })]).then(() => {
+    // The page waits for the engine and the selected tile graphics at once,
+    // and its line says which it still waits for (startupWords).
+    let tiles = null, drawn = false, engine = false;
+    const show = () => { if (mounted) startupNote = startupWords(tiles, drawn, engine); };
+    Promise.all([init().then(() => { engine = true; show(); }), preloadTiles((done, total) => {
+      tiles = { done, total };
+      show();
+    }, { face: tileFace, signal: startup.signal }).then(() => { drawn = true; show(); })]).then(() => {
       if (mounted && !startup.signal.aborted) ready = true;
     }).catch((error) => {
       if (mounted && !startup.signal.aborted) failure = `The game could not finish loading: ${error.message ?? error}. Reconnect and reload to retry.`;
@@ -402,6 +450,7 @@
       faceLoad?.abort();
       unwatchOffline();
       unwatchModel();
+      unwatchHeld();
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', returnToPage);
       window.removeEventListener('storage', storageChanged);
@@ -416,11 +465,18 @@
     };
   });
 
+  // Whether the tile face's failure has been said in the settings' dialog,
+  // under its select (AppSettings). The page's line then shows it, once the
+  // dialog is closed, without saying it again: inserted as an alert as the
+  // dialog closed, it was heard a second time.
+  let faceWarningSaid = $state(false);
+  $effect(() => { if (faceWarning && settingsOpen) faceWarningSaid = true; });
   async function changeTileFace(value) {
     if (!ready) return;
     const next = normalizeTileFace(value);
     faceLoad?.abort();
     faceWarning = '';
+    faceWarningSaid = false;
     const owner = new AbortController();
     faceLoad = owner;
     pendingTileFace = next === tileFace ? null : next;
@@ -435,7 +491,11 @@
     }
   }
 
+  // A new game or a restored match asks for the trained save; the offline
+  // panel's button is the player's own ask, the one that tries again a save
+  // storage refused in this page (offline.js prepareOfflineAi).
   function downloadAi() { void prepareOfflineAi().catch(() => {}); }
+  function downloadAiForPlayer() { void prepareOfflineAi({ byPlayer: true }).catch(() => {}); }
 
   // Another network is loaded with the page, not swapped into this one: the
   // opponents' worker, every adviser and the offline status are about the
@@ -471,8 +531,22 @@
     return true;
   }
 
-  function start(strength = opponents) {
+  // Deals a new match: at the table named, which is the player's own pick
+  // and ends a stand-in, or else at the table as it is. While a stand-in
+  // holds, that is the table it stands in for, and the stand-in ends, unless
+  // the network is not at hand and its download is under way: then the
+  // stand-in again, which goes on holding (opponents.js).
+  function start(strength = null) {
     if (saveConflict) return;
+    let table = strength ?? opponents;
+    if (strength) returnTable = null;
+    else if (returnTable) {
+      table = tableAfterStandIn(returnTable, {
+        atHand: trainedAtHand({ network: offline.network, workerLoaded: networkInWorker() }),
+        underWay: trainedUnderWay({ network: offline.network, workerNote }),
+      });
+      if (!standInFor(returnTable, table)) returnTable = null;
+    }
     session?.dispose();
     dropGameReview();
     matchStore.newMatch();
@@ -484,12 +558,12 @@
     standingsFocused = false;
     notice = '';
     loadNote = '';
-    session = new MatchSession(Game, Date.now() % 2 ** 31, strength, callbacks);
-    if (session.opponents.includes('neural')) downloadAi();
+    session = new MatchSession(Game, Date.now() % 2 ** 31, table, callbacks);
+    if (session.opponents.includes('neural') || returnTable) downloadAi();
     void session.run();
   }
 
-  function startFresh(strength = opponents) {
+  function startFresh(strength = null) {
     if (!ready || saveConflict) return false;
     if (session?.progressed && !confirm('Leave this unfinished match and deal a new one?')) return false;
     start(strength);
@@ -498,7 +572,8 @@
 
   function configureTable() {
     settingsOpen = false;
-    draftOpponents = [...opponents];
+    // The player's own table: during a stand-in the match plays another.
+    draftOpponents = [...(returnTable ?? opponents)];
     customDialog?.showModal();
   }
 
@@ -506,17 +581,30 @@
     if (startFresh([...draftOpponents])) customDialog?.close();
   }
 
+  // While a stand-in holds, the select shows "Club meanwhile", and any pick
+  // there is the player's own. The table the match already plays, Club for
+  // a choice of Trained, becomes their choice as the match stands: nothing
+  // is dealt for it, the match goes on, and the stand-in ends (the stored
+  // choice follows the match's table once no other is kept for it). Any
+  // other pick deals its table, as a pick always does.
   function changeOpponents(event) {
     const strength = event.currentTarget.value;
     // The control displays the active mode until the change is confirmed.
-    event.currentTarget.value = difficulty;
+    event.currentTarget.value = returnTable ? 'meanwhile' : difficulty;
+    if (strength === 'meanwhile') return;
     if (strength === 'custom') configureTable();
-    else if (strength !== difficulty) startFresh(strength);
+    else if (returnTable && strength === difficulty) returnTable = null;
+    else if (strength !== difficulty || returnTable) startFresh(strength);
   }
 
   function canDiscard(tile) { return !busy && !failure && !saveConflict && discardChoices.some((choice) => choice.tile === tile); }
 
-  async function choose(choice) {
+  // A move made from the hand hands focus back to the hand as the turn comes
+  // back: with the hand's keys on, for its arrows and Enter; and with them
+  // off where the tile was pressed by keyboard, whose player would otherwise
+  // tab back from the page every turn (`byKeyboard`). The pressed tile was
+  // disabled while the opponents played, which dropped focus to the page.
+  async function choose(choice, byKeyboard = false) {
     if (!session || busy) return;
     const owner = session;
     const fromHand = handElement?.contains(document.activeElement);
@@ -524,21 +612,40 @@
     selected = null;
     await owner.choose(choice);
     await tick();
-    if (session !== owner || owner.closed || !fromHand || busy || failure || saveConflict || !myTurn || !shortcuts || touch) return;
+    if (session !== owner || owner.closed || !fromHand || busy || failure || saveConflict || !myTurn) return;
+    if ((!shortcuts || touch) && !byKeyboard) return;
     const active = document.activeElement;
     if (active === document.body || handElement?.contains(active)) handElement?.focus({ preventScroll: true });
   }
 
-  function discard(tile) {
+  function discard(tile, byKeyboard = false) {
     const choice = discardChoices.find((entry) => entry.tile === tile);
-    if (choice && canDiscard(tile)) void choose(choice);
+    if (choice && canDiscard(tile)) void choose(choice, byKeyboard);
   }
 
-  function selectTile(tile, index) {
-    if (!canDiscard(tile)) return;
+  // Without confirmation a press throws its tile, and against opponents that
+  // answer at once the next turn's tile is in its place before the second
+  // press of a double click lands, which is let go (repeatedClick). With
+  // confirmation the first press only selects, and a second on the same tile
+  // is how it is thrown.
+  function selectTile(tile, index, event) {
+    if (!canDiscard(tile) || (!confirmDiscards && repeatedClick(event))) return;
     picked = null;
     if (confirmDiscards && selected !== index) selected = index;
-    else discard(tile);
+    else discard(tile, pressedByKeyboard(event));
+  }
+
+  // The confirmation's two buttons go as either is pressed. Where one of
+  // them had focus, the hand it answered for takes it, rather than the page,
+  // with the keys on or off and on a touch screen too: nothing else is left
+  // to hold it.
+  async function confirmation(act) {
+    const held = Boolean(document.activeElement?.closest?.('.confirm-discard'));
+    act();
+    if (!held) return;
+    await tick();
+    const active = document.activeElement;
+    if (!active || active === document.body) handElement?.focus({ preventScroll: true });
   }
 
   function syncHandFocus(event) {
@@ -550,7 +657,15 @@
   }
 
   async function onKey(event) {
-    if (mode !== 'play' || !shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
+    if (mode !== 'play') return;
+    // Enter held down presses nothing twice in play: its repeats would press
+    // whatever took the pressed control's place, a tile or a call of the
+    // next decision, or wherever focus went as it did, such as New game and
+    // its confirmation (heldPress). Watch, the physical table and the guided
+    // game keep a held Enter's repeats, on Undo and a palette's tiles: there
+    // nothing takes a pressed button's place that a repeat could harm.
+    if (heldPress(event)) { event.preventDefault(); return; }
+    if (!shortcuts || !myTurn || busy || failure || !acceptsHandKey(event, handElement)) return;
     if (event.key === 'Escape') { picked = null; selected = null; return; }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
@@ -563,7 +678,13 @@
       picked = moveHandFocus(handElement, step);
       return;
     }
-    if (event.repeat) { event.preventDefault(); return; }
+    // A key held down throws no second tile and makes no second choice. Only
+    // the keys that act here are taken from the browser: a held arrow down,
+    // Page Down or Tab still scrolls the page or moves focus on.
+    if (event.repeat) {
+      if (handKeyActs(event.key)) event.preventDefault();
+      return;
+    }
     if (event.key === 'Enter' || event.key === ' ') {
       const focused = event.target.closest('[data-hand-index]');
       const index = focused ? Number(focused.dataset.handIndex) : picked;
@@ -588,23 +709,52 @@
     }
   }
 
+  // A Trained opponent's first move waits for the network, which on a first
+  // visit is a download of minutes on a slow link. While the wait is that
+  // download, and not the network starting or thinking, the turn's controls
+  // offer Club meanwhile (TurnChoices): this match's Trained seats are
+  // Club's from the press on, as after recovery's Continue with Club
+  // opponents, while the download carries on. Nothing is reset here, so the
+  // worker and whatever is fetching the network go on; the table the player
+  // chose stays their preference (update, returnTable).
+  let downloadWait = $derived(thinking && !failure && !saveConflict && waitIsDownload(loadNote, offline, { held: workerHolds }));
+  let standInPressed = false;
+  function playClubMeanwhile() {
+    session?.clubMeanwhile();
+    standInPressed = true;
+  }
+  // Its button goes as the wait ends. Pressed, it had focus, which the hand
+  // takes rather than the page, with the keys on or off: also after a press
+  // that came too late to be taken (the last answer already in, the run
+  // still holding the save lock), whose button goes a moment later all the
+  // same.
+  $effect(() => {
+    if (downloadWait || !standInPressed) return;
+    standInPressed = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) handElement?.focus({ preventScroll: true });
+  });
+
   function retryAi() { resetPolicy(); void session?.retry(); }
   function continueClub() { resetPolicy(); void session?.continueWithClub(); }
   function continueThisOpponent() { resetPolicy(); void session?.continueOpponentWithClub(); }
   // Next hand on the last hand brings the standings in place of another
   // deal, and its button goes for the Final hand caption, so focus goes on
   // to the standings' heading, which says where the player finished, rather
-  // than to the page (land). Only a keyboard's press moves the page to show
-  // the heading, at every size: that player follows focus, and is shown a
-  // ring there. A mouse's or a finger's press is shown no ring, and the page
-  // is left as the browser leaves it when the standings come in above the
-  // result, as it was before focus moved: where the player had scrolled down
-  // to the result's buttons, at the foot of the page, a scroll to the heading
-  // would take the Final hand caption, where they pressed, off a short screen
-  // (pressedByKeyboard). On a phone the result is a sheet over the
-  // standings. When the keyboard pressed the button, the sheet steps aside
-  // for them, so that focus is not hidden under it; a tap leaves the result
-  // up, as it was.
+  // than to the page (land). Where the result is not a sheet, only a
+  // keyboard's press moves the page to show the heading: that player follows
+  // focus, and is shown a ring there. A mouse's or a finger's press is shown
+  // no ring, and the page is left as the browser leaves it when the
+  // standings come in above the result, as it was before focus moved: where
+  // the player had scrolled down to the result's buttons, at the foot of the
+  // page, a scroll to the heading would take the Final hand caption, where
+  // they pressed, off a short screen (pressedByKeyboard). On a phone the
+  // result is a sheet over the standings, and left up it showed nothing of
+  // them: the game had ended with no place on the screen and no Play again.
+  // So there the sheet steps aside for them however the button was pressed,
+  // leaving its chip, and the page moves to them: for a tap to the heading
+  // at the top of the screen, the places and the buttons under it, and for a
+  // keyboard by as little as shows the heading and its ring, as before.
   async function nextHand(event) {
     if (busy || !session) return;
     const owner = session, byKeyboard = pressedByKeyboard(event);
@@ -617,17 +767,25 @@
     // it had.
     matchReview?.stop();
     matchInsight?.stop();
+    const recorded = owner.commands.length;
     const advanced = await owner.nextHand();
-    if (session !== owner || !advanced) return;
-    if (!owner.over) { notes = null; failures.result = ''; return; }
+    if (session !== owner || owner.closed) return;
+    // The deal is recorded before the new hand's opponents are asked, so a
+    // Trained opponent that fails on its first move leaves the hand dealt and
+    // the press unanswered. The notes and the failure line of the hand before
+    // go with that hand all the same, by what the engine did: kept, they
+    // would open as the next result's review, of a hand no longer there.
+    if (owner.commands.length > recorded && !owner.over) { notes = null; failures.result = ''; }
+    if (!advanced || !owner.over) return;
     // A game whose every hand was reviewed as it was played joins the trend
     // as it ends, rather than whenever its review is next opened, which may
     // be never. Should the review not be taken on to the finished match, the
     // standings' Review whole game tries again, and says why.
     try { takeReviewOn(owner.snapshot()); } catch { /* Said by the standings' button when pressed. */ }
-    standingsFocused = byKeyboard;
+    const sheet = matchMedia(RESULT_SHEET).matches;
+    standingsFocused = byKeyboard || sheet;
     await tick();
-    land(standingsHeading, byKeyboard);
+    land(standingsHeading, byKeyboard || sheet, sheet && !byKeyboard ? 'start' : 'nearest');
   }
 
   // What is said beside a set of buttons when a press on one could not be
@@ -805,17 +963,22 @@
 
 <main class:chip={resultChip}>
   <AppSettings bind:mode bind:settingsOpen bind:hints bind:confirmDiscards bind:shortcuts bind:reviewHideMove bind:reviewHideTiles
-    {tileFace} {pendingTileFace} onfacechange={changeTileFace}
+    {tileFace} {pendingTileFace} {faceWarning} onfacechange={changeTileFace}
     network={network.version} runtime={trainedRuntime} onnetworkchange={changeNetwork}
-    {difficulty} {opponents} {ready} {busy} {saveConflict} {trainedAvailable} {offline}
-    {changeOpponents} {startFresh} {configureTable} {downloadAi} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
+    {difficulty} opponents={returnTable ?? opponents} {ready} {saveConflict} {trainedAvailable} {offline} standIn={Boolean(returnTable)}
+    {changeOpponents} {startFresh} {configureTable} downloadAi={downloadAiForPlayer} {loggedHands} onsavegame={() => saveGame('export')} exportFailure={failures.export}
     onconfirmationchange={() => selected = null} onshortcutschange={() => picked = null} />
-  {#if faceWarning}<p class="notice" data-face-error role="alert">{faceWarning}</p>{/if}
+  <!-- On a phone the Tile face select is in the settings' dialog, and while
+       that is open this alert would lie behind it, unheard and dimmed: the
+       dialog says it under the select instead (AppSettings), and the page
+       shows it once the dialog is closed, as an alert only if the dialog has
+       not said it already (faceWarningSaid). -->
+  {#if faceWarning && !settingsOpen}<p class="notice" data-face-error role={faceWarningSaid ? null : 'alert'}>{faceWarning}</p>{/if}
   <!-- A screen reader hears a status line only once it knows it, so this one
        waits in the page, empty and out of sight, before its words arrive. -->
   <p class={notice ? 'notice' : 'visually-hidden'} data-notice role="status">{notice}</p>
 
-  <OpponentDialog bind:customDialog bind:draftOpponents {opponents} {trainedAvailable}
+  <OpponentDialog bind:customDialog bind:draftOpponents opponents={returnTable ?? opponents} {trainedAvailable}
     {ready} {saveConflict} {startCustomTable} />
 
   {#if saveConflict}
@@ -849,14 +1012,14 @@
   {#if !ready && !failure}
     <p class="loading" role="status">{startupNote}</p>
   {:else if ready && mode === 'watch'}
-    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} onchip={shown => { resultChip = shown; }} />
+    <AgentWatch {trainedAvailable} {hints} {offline} {workerNote} held={workerHolds} onchip={shown => { resultChip = shown; }} />
   {:else if ready && mode === 'guided'}
-    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} />
+    <GuidedPlay {trainedAvailable} {storage} {hints} {offline} {workerNote} held={workerHolds} />
   {:else if ready && mode === 'physical'}
-    <PhysicalPlay {trainedAvailable} {storage} {offline} {workerNote} />
+    <PhysicalPlay {trainedAvailable} {storage} {offline} {workerNote} held={workerHolds} />
   {:else if mode === 'play' && view}
     {#if reviewingGame && matchReview}
-      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} onclose={closeGameReview} {shortcuts} {touch}
+      <GameReview review={matchReview} insight={matchInsight} trend={reviewTrend} {hints} {trainedAvailable} {offline} {workerNote} held={workerHolds} onclose={closeGameReview} {shortcuts} {touch}
         bind:filter={reviewFilter} bind:place={reviewPlace} bind:revealed={reviewRevealed} bind:hideMove={reviewHideMove}
         bind:hideTiles={reviewHideTiles} />
     {/if}
@@ -878,22 +1041,29 @@
            while a hand is played on a phone held sideways (choicesInSeat). -->
       {#snippet controls()}
         <section class="controls" aria-label="your choices" bind:this={callElement}>
+          <!-- Once another window has taken the match on, no button of the
+               standings or of the result can do anything here: they cannot
+               be pressed, and each set's own line says to reload, as the
+               turn's prompt does while a hand is played. -->
           {#if standings}
             <Standings {standings} onagain={() => start()} onsave={() => saveGame('standings')} onreview={() => reviewGame('standings')}
-              failure={failures.standings} bind:heading={standingsHeading} />
+              failure={saveConflict ? RELOAD_TO_CONTINUE : failures.standings} blocked={Boolean(saveConflict)} bind:heading={standingsHeading} />
           {/if}
           {#if view.phase === 'over' && view.outcome}
             <ScoreScreen outcome={view.outcome} seats={view.seats} dora={shownDora} {hints} {busy}
-              bets={view.riichi_sticks ?? 0} onnext={nextHand}
-              onreview={showReview} reviewed={notes !== null} failure={failures.result} onlog={saveLog} ongame={() => saveGame('result')}
+              bets={view.riichi_sticks ?? 0} onnext={nextHand} blocked={Boolean(saveConflict)}
+              onreview={showReview} reviewed={notes !== null} failure={saveConflict ? RELOAD_TO_CONTINUE : failures.result} onlog={saveLog} ongame={() => saveGame('result')}
               ongamereview={() => reviewGame('result')} gameReviewOpen={reviewingGame} {standingsFocused} {standingsFailures} finalHand={Boolean(standings)}
+              onstandings={() => land(standingsHeading, true, 'start')}
               onchip={shown => { resultChip = shown; }} />
-            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
+            {#if notes !== null}<Review {notes} {hints} engine={session?.engine} {trainedAvailable} {offline} {workerNote} held={workerHolds} bind:adviser={reviewAdviser} bind:heading={reviewHeading}
               onask={() => notesAsking.begin()} hideAnswers={reviewHideMove} />{/if}
           {:else}
             <TurnChoices {view} {shownDora} {busy} {thinking} {failure} {saveConflict}
-              loadNote={waitingNote(loadNote, offline)} {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
-              {selectedTile} {callChoices} {choose} {discard} oncancel={() => selected = null} />
+              loadNote={waitingNote(loadNote, offline, { held: workerHolds })} onclub={downloadWait ? playClubMeanwhile : null}
+              {pendingOpponent} {myTurn} {confirmDiscards} {shortcuts} {touch}
+              {selectedTile} {callChoices} {choose} discard={tile => confirmation(() => discard(tile))}
+              oncancel={() => confirmation(() => { selected = null; })} />
           {/if}
         </section>
       {/snippet}

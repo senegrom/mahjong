@@ -770,7 +770,7 @@ test('the page sends single decisions to its WebAssembly worker alone, and batch
     document: { baseURI: 'https://test.invalid/mahjong/' }, URL, DOMException, setTimeout, clearTimeout, Worker,
     MEMORY_LIMITS_MIB, nextMemoryLimit, networkUrl, playedNetwork: () => READY, __RUNTIME_DIRECTORY__: 'ort/0123abcd/',
     navigator: { onLine: true }, networkIsStored: async () => false, prepareNetwork: async () => null, refreshOffline: async () => null,
-    networkReleased: () => {},
+    networkReleased: () => {}, networkHeld: () => {},
     batchesOnCard: (positions, signal, wasm) => { routed.push(positions.length); return wasm(positions, signal); },
     resetCard: reason => resets.push(reason),
   }, ['analyzePolicy', 'analyzeBatch', 'resetPolicy']);
