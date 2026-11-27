@@ -950,8 +950,8 @@
     /* The result's chip lies over the foot of the screen (ScoreScreen), so
        while it shows the page ends that much lower, and its last line, the
        hand's history, can be scrolled clear of it. The page is told that
-       the chip shows (resultChip) and does not look for it with :has, which
-       a browser did not always apply as the chip came. */
+       the chip shows (resultChip), so that the room is kept in a browser
+       without :has too, by which a style could look for the chip itself. */
     main.chip { padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 56px); }
   }
   @media (min-width: 640px) and (max-height: 500.98px) and (orientation: landscape) {

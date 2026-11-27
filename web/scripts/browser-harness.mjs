@@ -104,10 +104,18 @@ export async function wordsContrast(page, selector) {
     return found.filter(({ box }) => box[2] - box[0] >= 2 && box[3] - box[1] >= 2 && box[1] >= 0 && box[3] <= innerHeight * devicePixelRatio);
   });
   assert.ok(words.length, `no words match ${selector} on the screen`);
-  const hidden = await page.addStyleTag({ content: '*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }' });
+  // The words go at once, with no transition: under reduced motion every
+  // change of style eases over a hundredth of a millisecond (app.css), a
+  // frame in which the word is still drawn, and a picture taken in that
+  // frame held the word, which then read as its own ground, 1 to 1 (once, in
+  // CI). The picture waits until no word has a colour left, and for the
+  // frames that paint that.
+  const hidden = await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }' });
   let shot;
   try {
-    await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await page.waitForFunction(selector => [...document.querySelectorAll(selector)].every(element =>
+      [element, ...element.querySelectorAll('*')].every(node => /, 0\)$|^transparent$/.test(getComputedStyle(node).color))), { timeout: 10000 }, selector);
+    await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done)))));
     shot = await page.screenshot({ encoding: 'base64', type: 'png' });
   } finally { await hidden.evaluate(node => node.remove()); }
   // The screenshot is read back in the page, which decodes a PNG already.
